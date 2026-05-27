@@ -16,7 +16,6 @@ import type { AuthContractsRuntime, AuthRuntime } from "./types.ts";
 import type { Config } from "../../config.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
 import type {
-  SqlDeploymentContractEvidenceRepository,
   SqlDeploymentEnvelopeRepository,
   SqlDeploymentResourceBindingRepository,
   SqlServiceDeploymentRepository,
@@ -50,8 +49,6 @@ export async function registerDeviceAdminAndActivation(
         },
       ) => Promise<void>;
       contractStorage: SqlContractStorageRepository;
-      deploymentContractEvidenceStorage:
-        SqlDeploymentContractEvidenceRepository;
       deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
       deploymentResourceBindingStorage: SqlDeploymentResourceBindingRepository;
       serviceDeploymentStorage: SqlServiceDeploymentRepository;
@@ -136,12 +133,7 @@ export async function registerDeviceAdminAndActivation(
       deps.contracts.validateActiveCatalogForRemoval,
     serviceDeploymentStorage: deps.serviceDeploymentStorage,
     serviceInstanceStorage: deps.serviceInstanceStorage,
-    builtinContractDigests: deps.contracts.getBuiltinDigests(),
-    contractApprovalStorage: deps.contractApprovalStorage,
-    contractStorage: deps.contractStorage,
     deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
-    deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
-    deviceDeploymentStorage: deps.deviceDeploymentStorage,
   });
   await deps.trellis.handle.rpc.auth.deploymentsCreate(async (args) => {
     if (args.input.kind === "service") {

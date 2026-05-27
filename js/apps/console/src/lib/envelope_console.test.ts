@@ -1,7 +1,6 @@
 import { deepEqual, equal } from "node:assert/strict";
 
 import type {
-  AuthEnvelopesGetResponse,
   DeploymentEnvelope,
   EnvelopeBoundary,
 } from "../../../../packages/trellis/auth/protocol.ts";
@@ -24,6 +23,23 @@ import {
 
 declare const Deno: {
   test(name: string, fn: () => void | Promise<void>): void;
+};
+
+type ImplementationOffer = {
+  offerId: string;
+  deploymentKind: "service" | "device";
+  deploymentId: string;
+  instanceId: string | null;
+  contractId: string;
+  contractDigest: string;
+  lineageKey: string;
+  status: "offered" | "accepted" | "stale" | "expired" | "withdrawn";
+  liveness: "unknown" | "healthy" | "unhealthy" | "disconnected";
+  firstOfferedAt: string;
+  acceptedAt: string | null;
+  lastRefreshedAt: string;
+  staleAt: string | null;
+  expiresAt: string | null;
 };
 
 const boundary: EnvelopeBoundary = {
@@ -73,6 +89,28 @@ function envelope(
     createdAt: "2026-05-07T00:00:00.000Z",
     updatedAt: "2026-05-07T00:00:00.000Z",
     boundary,
+    ...overrides,
+  };
+}
+
+function implementationOffer(
+  overrides: Partial<ImplementationOffer> = {},
+): ImplementationOffer {
+  return {
+    offerId: "offer-1",
+    deploymentKind: "service",
+    deploymentId: "billing.default",
+    instanceId: "svc-1",
+    contractId: "acme.billing@v1",
+    contractDigest: "digest-a",
+    lineageKey: "acme.billing@v1",
+    status: "accepted",
+    liveness: "healthy",
+    firstOfferedAt: "2026-05-07T00:00:00.000Z",
+    acceptedAt: "2026-05-07T00:00:00.000Z",
+    lastRefreshedAt: "2026-05-07T00:00:00.000Z",
+    staleAt: null,
+    expiresAt: null,
     ...overrides,
   };
 }
@@ -200,47 +238,22 @@ Deno.test("livenessRows reports no live implementer without runtime data", () =>
   );
 });
 
-Deno.test("livenessRows reports disabled only from runtime instances", () => {
+Deno.test("livenessRows ignores unaccepted implementation offers", () => {
   deepEqual(
     livenessRows(
       boundary,
-      serviceRuntimeDeployments([{
-        deploymentId: "billing.default",
-        disabled: true,
-      }]),
+      serviceRuntimeDeployments([implementationOffer({ status: "offered" })]),
       "billing.default",
-    ),
-    [{
-      id: "acme.billing@v1:rpc:Invoice.Get:call",
-      contractId: "acme.billing@v1",
-      surface: "Invoice.Get",
-      kind: "rpc",
-      action: "call",
-      availability: "required",
-      runtime: "disabled",
-    }, {
-      id: "acme.billing@v1:event:Invoice.Updated:subscribe",
-      contractId: "acme.billing@v1",
-      surface: "Invoice.Updated",
-      kind: "event",
-      action: "subscribe",
-      availability: "optional",
-      runtime: "disabled",
-    }],
+    ).map((row) => row.runtime),
+    ["no_live_implementer", "no_live_implementer"],
   );
 });
 
-Deno.test("livenessRows reports live when any runtime instance is active", () => {
+Deno.test("livenessRows reports live when an accepted implementation offer is active", () => {
   deepEqual(
     livenessRows(
       boundary,
-      serviceRuntimeDeployments([{
-        deploymentId: "billing.default",
-        disabled: true,
-      }, {
-        deploymentId: "billing.default",
-        disabled: false,
-      }]),
+      serviceRuntimeDeployments([implementationOffer()]),
       "billing.default",
     ),
     [{
@@ -267,11 +280,9 @@ Deno.test("livenessRows treats selected deployment event publishers as live", ()
   deepEqual(
     livenessRows(
       healthPublishBoundary,
-      serviceRuntimeDeployments([{
+      serviceRuntimeDeployments([implementationOffer({
         deploymentId: "billing.default",
-        currentContractId: "acme.billing@v1",
-        disabled: false,
-      }]),
+      })]),
       "billing.default",
     ).map((row) => row.runtime),
     ["live"],
@@ -282,11 +293,10 @@ Deno.test("livenessRows can use live providers from other deployments", () => {
   deepEqual(
     livenessRows(
       boundary,
-      serviceRuntimeDeployments([{
+      serviceRuntimeDeployments([implementationOffer({
+        offerId: "offer-orders",
         deploymentId: "orders.default",
-        currentContractId: "acme.billing@v1",
-        disabled: false,
-      }]),
+      })]),
       "billing.default",
     ).map((row) => row.runtime),
     ["live", "live"],
@@ -297,57 +307,51 @@ Deno.test("livenessRows ignores other deployment providers for other contracts",
   deepEqual(
     livenessRows(
       boundary,
-      serviceRuntimeDeployments([{
+      serviceRuntimeDeployments([implementationOffer({
+        offerId: "offer-other",
         deploymentId: "orders.default",
-        currentContractId: "other@v1",
-        disabled: false,
-      }]),
+        contractId: "other@v1",
+      })]),
       "billing.default",
     ).map((row) => row.runtime),
     ["no_live_implementer", "no_live_implementer"],
   );
 });
 
-Deno.test("deviceRuntimeDeployments treats only activated devices as live", () => {
+Deno.test("deviceRuntimeDeployments returns live accepted device implementation offers", () => {
   deepEqual(
-    deviceRuntimeDeployments([
-      { deploymentId: "device.default", state: "registered" },
-      { deploymentId: "device.default", state: "activated" },
-      { deploymentId: "device.default", state: "disabled" },
-    ]),
-    [
-      {
-        deploymentId: "device.default",
-        contractId: undefined,
-        contractDigest: undefined,
-        disabled: true,
-      },
-      {
-        deploymentId: "device.default",
-        contractId: undefined,
-        contractDigest: undefined,
-        disabled: false,
-      },
-      {
-        deploymentId: "device.default",
-        contractId: undefined,
-        contractDigest: undefined,
-        disabled: true,
-      },
-    ],
+    deviceRuntimeDeployments([implementationOffer({
+      deploymentKind: "device",
+      deploymentId: "device.default",
+    })]),
+    [{
+      deploymentId: "device.default",
+      contractId: "acme.billing@v1",
+      contractDigest: "digest-a",
+      disabled: false,
+    }],
   );
 });
 
-Deno.test("deviceRuntimeDeployments uses current device contract evidence", () => {
+Deno.test("runtime deployment helpers ignore stale and expired accepted offers", () => {
+  const now = Date.parse("2026-05-07T00:00:00.000Z");
   deepEqual(
-    deviceRuntimeDeployments([{
-      deploymentId: "device.default",
-      state: "activated",
-      currentContractId: "acme.billing@v1",
-      currentContractDigest: "digest-a",
-    }]),
+    serviceRuntimeDeployments([
+      implementationOffer({
+        offerId: "stale",
+        staleAt: "2026-05-06T23:59:59.000Z",
+      }),
+      implementationOffer({
+        offerId: "expired",
+        expiresAt: "2026-05-06T23:59:59.000Z",
+      }),
+      implementationOffer({
+        offerId: "future",
+        expiresAt: "2026-05-07T00:00:01.000Z",
+      }),
+    ], now),
     [{
-      deploymentId: "device.default",
+      deploymentId: "billing.default",
       contractId: "acme.billing@v1",
       contractDigest: "digest-a",
       disabled: false,
@@ -359,12 +363,12 @@ Deno.test("livenessRows does not mark mismatched activated device contracts live
   deepEqual(
     livenessRows(
       boundary,
-      deviceRuntimeDeployments([{
+      deviceRuntimeDeployments([implementationOffer({
+        deploymentKind: "device",
         deploymentId: "billing.default",
-        state: "activated",
-        currentContractId: "other@v1",
-        currentContractDigest: "digest-other",
-      }]),
+        contractId: "other@v1",
+        contractDigest: "digest-other",
+      })]),
       "billing.default",
     ).map((row) => row.runtime),
     ["no_live_implementer", "no_live_implementer"],
@@ -375,11 +379,10 @@ Deno.test("livenessRows scopes runtime to matching surface contracts", () => {
   deepEqual(
     livenessRows(
       boundary,
-      serviceRuntimeDeployments([{
+      serviceRuntimeDeployments([implementationOffer({
         deploymentId: "billing.default",
-        currentContractId: "other@v1",
-        disabled: false,
-      }]),
+        contractId: "other@v1",
+      })]),
       "billing.default",
     ).map((row) => row.runtime),
     ["no_live_implementer", "no_live_implementer"],
@@ -387,11 +390,9 @@ Deno.test("livenessRows scopes runtime to matching surface contracts", () => {
   deepEqual(
     livenessRows(
       boundary,
-      serviceRuntimeDeployments([{
+      serviceRuntimeDeployments([implementationOffer({
         deploymentId: "billing.default",
-        currentContractId: "acme.billing@v1",
-        disabled: false,
-      }]),
+      })]),
       "billing.default",
     ).map((row) => row.runtime),
     ["live", "live"],
@@ -445,25 +446,15 @@ Deno.test("EnvelopeSelectionGuard rejects stale selection responses", () => {
 });
 
 Deno.test("formatBindingTarget displays resource binding identity", () => {
-  const detail: AuthEnvelopesGetResponse = {
-    envelope: envelope(),
-    resourceBindings: [{
-      deploymentId: "billing.default",
-      kind: "kv",
-      alias: "cache",
-      binding: { bucket: "billing-cache", history: 1 },
-      limits: null,
-      createdAt: "2026-05-07T00:00:00.000Z",
-      updatedAt: "2026-05-07T00:00:00.000Z",
-    }],
-    contractEvidence: [],
-    expansionRequests: [],
-    portalRoute: null,
-    grantOverrides: [],
+  const binding = {
+    deploymentId: "billing.default",
+    kind: "kv" as const,
+    alias: "cache",
+    binding: { bucket: "billing-cache", history: 1 },
+    limits: null,
+    createdAt: "2026-05-07T00:00:00.000Z",
+    updatedAt: "2026-05-07T00:00:00.000Z",
   };
 
-  equal(
-    formatBindingTarget(detail.resourceBindings[0]),
-    "bucket: billing-cache",
-  );
+  equal(formatBindingTarget(binding), "bucket: billing-cache");
 });

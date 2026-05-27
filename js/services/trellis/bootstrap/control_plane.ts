@@ -22,6 +22,7 @@ import type {
   SqlDeviceDeploymentRepository,
   SqlEnvelopeExpansionRequestRepository,
   SqlIdentityEnvelopeRepository,
+  SqlImplementationOfferRepository,
   SqlSessionRepository,
   SqlUserProjectionRepository,
 } from "../auth/storage.ts";
@@ -63,6 +64,7 @@ export function startControlPlaneBackgroundTasks(opts: {
   contractApprovalStorage: SqlIdentityEnvelopeRepository;
   deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
   deploymentResourceBindingStorage: SqlDeploymentResourceBindingRepository;
+  implementationOfferStorage: SqlImplementationOfferRepository;
   envelopeExpansionRequestStorage: SqlEnvelopeExpansionRequestRepository;
   deviceActivationStorage: SqlDeviceActivationRepository;
   deviceDeploymentStorage: SqlDeviceDeploymentRepository;
@@ -89,8 +91,10 @@ export function startControlPlaneBackgroundTasks(opts: {
   const disconnectCleanup = startDisconnectCleanup({
     connectionsKV: opts.connectionsKV,
     envelopeExpansionRequestStorage: opts.envelopeExpansionRequestStorage,
+    implementationOfferStorage: opts.implementationOfferStorage,
     logger: opts.logger,
     natsSystem: opts.natsSystem,
+    offerStaleGraceMs: opts.config.ttlMs.connections,
     sessionStorage: opts.sessionStorage,
     trellis: opts.trellis,
   });
@@ -102,6 +106,7 @@ export function startControlPlaneBackgroundTasks(opts: {
     contractApprovalStorage: opts.contractApprovalStorage,
     deploymentEnvelopeStorage: opts.deploymentEnvelopeStorage,
     deploymentResourceBindingStorage: opts.deploymentResourceBindingStorage,
+    implementationOfferStorage: opts.implementationOfferStorage,
     connectionsKV: opts.connectionsKV,
     deviceActivationStorage: opts.deviceActivationStorage,
     deviceDeploymentStorage: opts.deviceDeploymentStorage,

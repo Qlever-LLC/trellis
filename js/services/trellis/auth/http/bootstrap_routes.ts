@@ -56,7 +56,7 @@ export function registerBootstrapRoutes(
       },
       deploymentEnvelopeStorage: opts.deploymentEnvelopeStorage,
       deploymentResourceBindingStorage: opts.deploymentResourceBindingStorage,
-      deploymentContractEvidenceStorage: opts.deploymentContractEvidenceStorage,
+      implementationOfferStorage: opts.implementationOfferStorage,
       envelopeExpansionRequestStorage: opts.envelopeExpansionRequestStorage,
       nats: opts.runtimeDeps.natsTrellis,
       resourceProvisioningOptions: {

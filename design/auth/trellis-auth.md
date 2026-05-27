@@ -515,15 +515,17 @@ Rules:
 - Trellis MUST derive permissions from contracts rather than from a parallel
   scope system
 - runtime permission derivation resolves `uses` dependencies against effective
-  active contracts. Unknown or inactive required dependencies fail closed
-  instead of being treated as advisory metadata.
+  active contracts. Bootstrap and approval-boundary derivation may use the
+  latest approved dependency fallback when no active offer exists. Unknown
+  required dependencies fail closed instead of being treated as advisory
+  metadata.
 - contract dependencies are authored and emitted only under `uses.required` or
   `uses.optional`; flat aliases directly under `uses` are invalid and must not
   be interpreted as required dependencies.
 - approval planning must not derive reviewable surfaces or capabilities from
   inactive historical manifests. Required dependency surfaces must come from the
-  dependency's effective active contract and be covered by the effective
-  envelope.
+  dependency's effective active contract or latest approved dependency fallback
+  and be covered by the effective envelope.
 - missing optional dependency contracts or optional requested surfaces are
   skipped during planning and grant no runtime authority; if they later become
   active, they require a new envelope expansion and approval before a fresh
@@ -532,13 +534,16 @@ Rules:
   installed-contract cleanup are derived through targeted durable-store queries
   rather than broad scans of local manifests or in-memory catalogs.
 - auth callout, bootstrap, and catalog flows resolve full manifests from
-  built-in Trellis contracts or the global contract store; expansion/retraction
-  history and implementation offers are not manifest lookup fallbacks and do not
-  grant authority.
+  built-in Trellis contracts or the global contract store. Latest approved
+  expansion requests may provide dependency fallback shape for bootstrap and
+  approval planning only; expansion/retraction history and implementation offers
+  are not broad manifest lookup fallbacks and do not grant authority by
+  themselves.
 - bootstrap and approval planning report `dependency_not_active` when a required
-  dependency has no effective active contract. If active offers for that
-  dependency are incompatible, Trellis reports a catalog repair issue for that
-  active lineage rather than falling back to historical manifests.
+  dependency has neither an effective active contract nor a latest approved
+  dependency fallback. If active offers for that dependency are incompatible,
+  Trellis reports a catalog repair issue for that active lineage rather than
+  falling back to approved or historical manifests.
 - across the runtime, non-builtin runtime authority comes from envelope fit.
   Service reconnects whose presented contract no longer fits fail with
   `contract_changed`; same-instance incompatible replacement in `strict` mode

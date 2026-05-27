@@ -197,12 +197,43 @@ type ServiceBootstrapFailure = {
   deploymentId?: string;
   issueId?: string;
   activeContractDigest?: string;
+  dependencyAlias?: string;
+  dependencyContractId?: string;
+  dependencySurface?: string;
+  dependencyReason?: string;
+  dependencyKey?: string;
+  dependencyMessage?: string;
 };
 
 const DEFAULT_BOOTSTRAP_PENDING_RETRY_MS = 5_000;
 const MAX_BOOTSTRAP_PENDING_RETRY_MS = 60_000;
 const DEFAULT_BOOTSTRAP_UNAVAILABLE_INITIAL_RETRY_MS = 1_000;
 const MAX_BOOTSTRAP_UNAVAILABLE_RETRY_MS = 30_000;
+
+function dependencyWaitLogMessage(failure: ServiceBootstrapFailure): string {
+  if (failure.dependencyMessage) {
+    return `Service contract activation pending; ${failure.dependencyMessage}`;
+  }
+  if (failure.dependencyContractId) {
+    const dependency = failure.dependencyAlias
+      ? `dependency '${failure.dependencyAlias}' (${failure.dependencyContractId})`
+      : `dependency ${failure.dependencyContractId}`;
+    if (failure.dependencyReason === "dependency_not_active") {
+      return `Service contract activation pending; waiting for ${dependency} to have an active running implementation`;
+    }
+    if (failure.dependencyReason === "unknown") {
+      return `Service contract activation pending; waiting for ${dependency} to be installed or approved`;
+    }
+    if (failure.dependencyKey) {
+      return `Service contract activation pending; waiting for ${dependency} to provide required ${
+        failure.dependencySurface ?? "surface"
+      } '${failure.dependencyKey}'`;
+    }
+    return `Service contract activation pending; waiting for ${dependency}`;
+  }
+  return failure.message ??
+    "Service contract activation pending; waiting for dependency closure";
+}
 
 type RpcMethodName<TA extends TrellisAPI> = keyof TA["rpc"] & string;
 type RpcMethodInput<TA extends TrellisAPI, M extends RpcMethodName<TA>> =
@@ -327,7 +358,7 @@ function bootstrapContractStateError(args: {
   const base =
     `Service '${args.serviceName}' could not bootstrap contract '${args.contractId}' (${args.contractDigest}) during ${args.step}. ` +
     "This usually means Trellis has stale or incomplete state for this service session. " +
-    "Expand the service deployment envelope or re-run instance provisioning so Trellis records contract evidence, permissions, and resource bindings for this instance key.";
+    "Expand the service deployment envelope or re-run instance provisioning so Trellis records an accepted implementation offer, permissions, and resource bindings for this instance key.";
   const cause = args.cause
     ? ` Underlying error: ${getErrorCauseMessage(args.cause)}`
     : "";
@@ -579,9 +610,14 @@ async function fetchServiceBootstrapInfo(args: {
               requestId: failure.requestId,
               contractId: args.contractId,
               contractDigest: args.contractDigest,
+              dependencyAlias: failure.dependencyAlias,
+              dependencyContractId: failure.dependencyContractId,
+              dependencySurface: failure.dependencySurface,
+              dependencyReason: failure.dependencyReason,
+              dependencyKey: failure.dependencyKey,
               retryDelayMs,
             },
-            "Service contract activation pending; waiting for dependency closure",
+            dependencyWaitLogMessage(failure),
           );
         }
         await delay(retryDelayMs);

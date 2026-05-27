@@ -1,9 +1,9 @@
 import type { ContractsModule } from "./runtime.ts";
 import type {
-  SqlDeploymentContractEvidenceRepository,
   SqlDeploymentEnvelopeRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
+  SqlImplementationOfferRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
 } from "../auth/storage.ts";
@@ -42,7 +42,7 @@ type CatalogRegistrationDeps = {
   deviceInstanceStorage: SqlDeviceInstanceRepository;
   deviceDeploymentStorage: SqlDeviceDeploymentRepository;
   deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
-  deploymentContractEvidenceStorage: SqlDeploymentContractEvidenceRepository;
+  implementationOfferStorage: SqlImplementationOfferRepository;
   connectionsKV: AuthRuntimeDeps["connectionsKV"];
   logger: {
     trace: (fields: Record<string, unknown>, message: string) => void;
@@ -72,6 +72,7 @@ export async function registerCatalog(
 ): Promise<void> {
   const trellisBindingsGetHandler = createTrellisBindingsGetHandler({
     serviceInstanceStorage: deps.serviceInstanceStorage,
+    implementationOfferStorage: deps.implementationOfferStorage,
     logger: deps.logger,
   });
   const trellisSurfaceStatusHandler = createTrellisSurfaceStatusHandler({
@@ -81,7 +82,7 @@ export async function registerCatalog(
     deviceInstanceStorage: deps.deviceInstanceStorage,
     deviceDeploymentStorage: deps.deviceDeploymentStorage,
     deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
-    deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
+    implementationOfferStorage: deps.implementationOfferStorage,
     connectionsKV: deps.connectionsKV,
     logger: deps.logger,
   });
@@ -98,8 +99,6 @@ export async function registerCatalog(
   await deps.trellis.handle.rpc.trellis.catalog(
     createTrellisCatalogHandler(
       deps.contracts,
-      deps.deploymentEnvelopeStorage,
-      deps.deploymentContractEvidenceStorage,
       deps.logger,
     ),
   );

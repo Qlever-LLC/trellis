@@ -113,7 +113,7 @@ pub(crate) fn required_integration_coverage() -> Vec<RequiredCoverage> {
         RequiredCoverage {
             id: "optional-uses-dependency-closure",
             title: "Optional uses and dependency closure",
-            expectation: "The suite must prove optional uses grant no authority while missing, required dependencies fail closed while unknown, approved known required closures authenticate from envelope authority before providers are live, envelope-compatible old digests can reconnect after same-id updates, and cyclic required closures can be approved once known.",
+            expectation: "The suite must prove optional uses grant no authority while missing, required dependencies fail closed while unknown, approved known required closures authenticate through active offers or latest approved dependency fallbacks, envelope-compatible old digests can reconnect after same-id updates, and cyclic required closures can activate after both sides are approved.",
         },
         RequiredCoverage {
             id: "capability-permission-matrix",

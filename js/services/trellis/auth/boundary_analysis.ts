@@ -70,10 +70,17 @@ type ContractBoundaryDeps =
   & {
     getKnownEntriesByContractId?:
       ContractsModule["getKnownEntriesByContractId"];
+    getApprovedFallbackEntryByContractId?: (
+      contractId: string,
+    ) => Promise<ContractEntry | undefined>;
   };
 
 type ContractEnvelopeBoundaryOptions = {
-  dependencyResolution?: "active" | "known" | "knownOrPending";
+  dependencyResolution?:
+    | "active"
+    | "activeOrApproved"
+    | "known"
+    | "knownOrPending";
 };
 
 function emptyBoundary(): EnvelopeBoundary {
@@ -373,6 +380,8 @@ async function deriveUseBoundary(
   const dependencyResolution = options.dependencyResolution ?? "active";
   let entries = dependencyResolution === "active"
     ? await contracts.getActiveEntries()
+    : dependencyResolution === "activeOrApproved"
+    ? await getActiveOrApprovedDependencyEntries(contracts, uses)
     : await getKnownDependencyEntries(contracts, uses);
   let entryIds = new Set(entries.map((entry) => entry.contract.id));
   let resolvableUses = dependencyResolution === "knownOrPending"
@@ -392,7 +401,8 @@ async function deriveUseBoundary(
   }
 
   const contractWithUses = withUses(contract, key, resolvableUses);
-  const resolved = dependencyResolution === "active"
+  const resolved = dependencyResolution === "active" ||
+      dependencyResolution === "activeOrApproved"
     ? resolveContractUsesFromEntries(entries, contractWithUses)
     : resolveContractUsesFromKnownEntries(entries, contractWithUses);
 
@@ -449,6 +459,35 @@ async function deriveUseBoundary(
   return normalizeBoundary(boundary);
 }
 
+async function getActiveOrApprovedDependencyEntries(
+  contracts: ContractBoundaryDeps,
+  uses: ContractUsesFlat | undefined,
+): Promise<ContractEntry[]> {
+  const activeEntries = await contracts.getActiveEntries();
+  if (!uses || Object.keys(uses).length === 0) return activeEntries;
+
+  const entriesByDigest = new Map(
+    activeEntries.map((entry) => [entry.digest, entry]),
+  );
+  const activeContractIds = new Set(
+    activeEntries.map((entry) => entry.contract.id),
+  );
+
+  for (
+    const contractId of sortUniqueStrings(
+      Object.values(uses).map((use) => use.contract),
+    )
+  ) {
+    if (activeContractIds.has(contractId)) continue;
+    const fallback = await contracts.getApprovedFallbackEntryByContractId?.(
+      contractId,
+    );
+    if (fallback) entriesByDigest.set(fallback.digest, fallback);
+  }
+
+  return [...entriesByDigest.values()];
+}
+
 function usesForKnownEntries(
   uses: ContractUsesFlat | undefined,
   knownContractIds: Set<string>,
@@ -481,8 +520,14 @@ async function getKnownDependencyEntries(
       Object.values(uses ?? {}).map((use) => use.contract),
     )
   ) {
-    const dependencyEntries = activeEntriesByContractId.get(contractId) ??
-      await contracts.getKnownEntriesByContractId(contractId);
+    const activeEntries = activeEntriesByContractId.get(contractId);
+    const approvedFallback = activeEntries === undefined
+      ? await contracts.getApprovedFallbackEntryByContractId?.(contractId)
+      : undefined;
+    const dependencyEntries = activeEntries ??
+      (approvedFallback
+        ? [approvedFallback]
+        : await contracts.getKnownEntriesByContractId(contractId));
     for (const entry of dependencyEntries) {
       entriesByDigest.set(entry.digest, entry);
     }

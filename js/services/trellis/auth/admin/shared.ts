@@ -14,8 +14,6 @@ export type ServiceInstance = {
   deploymentId: string;
   instanceKey: string;
   disabled: boolean;
-  currentContractId?: string;
-  currentContractDigest?: string;
   capabilities: string[];
   resourceBindings?: Record<string, unknown>;
   createdAt: string;

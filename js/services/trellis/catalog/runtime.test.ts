@@ -3,10 +3,10 @@ import { digestContractManifest } from "@qlever-llc/trellis/contracts";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 
 import {
-  SqlDeploymentContractEvidenceRepository,
   SqlDeploymentEnvelopeRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
+  SqlImplementationOfferRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlSessionRepository,
@@ -34,8 +34,8 @@ async function withContractsModule(
     module: ContractsModule,
     contractStorage: SqlContractStorageRepository,
     serviceDeploymentStorage: SqlServiceDeploymentRepository,
-    deploymentContractEvidenceStorage: SqlDeploymentContractEvidenceRepository,
     deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository,
+    implementationOfferStorage: SqlImplementationOfferRepository,
   ) => Promise<void>,
 ): Promise<void> {
   const dbPath = await Deno.makeTempFile({
@@ -52,16 +52,17 @@ async function withContractsModule(
     const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
       storage.db,
     );
-    const deploymentContractEvidenceStorage =
-      new SqlDeploymentContractEvidenceRepository(storage.db);
     const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
+      storage.db,
+    );
+    const implementationOfferStorage = new SqlImplementationOfferRepository(
       storage.db,
     );
     await test(
       createContractsModule({
         builtinContracts: [],
         contractStorage,
-        deploymentContractEvidenceStorage,
+        implementationOfferStorage,
         deploymentEnvelopeStorage,
         serviceInstanceStorage: new SqlServiceInstanceRepository(storage.db),
         serviceDeploymentStorage,
@@ -70,8 +71,8 @@ async function withContractsModule(
       }),
       contractStorage,
       serviceDeploymentStorage,
-      deploymentContractEvidenceStorage,
       deploymentEnvelopeStorage,
+      implementationOfferStorage,
     );
   } finally {
     storage.client.close();
@@ -145,25 +146,29 @@ async function putDeploymentEnvelope(
   });
 }
 
-function contractEvidenceJson(
-  contract: TrellisContractV1,
-): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(contract));
-}
-
-async function putDeploymentEvidence(
-  storage: SqlDeploymentContractEvidenceRepository,
+async function putAcceptedOffer(
+  storage: SqlImplementationOfferRepository,
   deploymentId: string,
   installed: InstalledTestContract,
-  firstSeenAt = TEST_NOW,
+  overrides: Partial<Parameters<SqlImplementationOfferRepository["put"]>[0]> =
+    {},
 ): Promise<void> {
   await storage.put({
+    offerId: `offer-${deploymentId}-${installed.digest}`,
+    deploymentKind: "service",
     deploymentId,
+    instanceId: `instance-${deploymentId}`,
     contractId: installed.id,
     contractDigest: installed.digest,
-    contract: contractEvidenceJson(installed.contract),
-    firstSeenAt,
-    lastSeenAt: TEST_NOW,
+    lineageKey: `${deploymentId}:${installed.id}`,
+    status: "accepted",
+    liveness: "healthy",
+    firstOfferedAt: TEST_NOW,
+    acceptedAt: TEST_NOW,
+    lastRefreshedAt: TEST_NOW,
+    staleAt: null,
+    expiresAt: null,
+    ...overrides,
   });
 }
 
@@ -196,12 +201,11 @@ function makeOperationContract(
   };
 }
 
-Deno.test("contracts runtime does not treat cold evidence as active subject ownership", async () => {
+Deno.test("contracts runtime does not treat installed inactive manifests as active subject ownership", async () => {
   await withContractsModule(async (
     module,
     contractStorage,
     serviceDeployments,
-    evidence,
     envelopes,
   ) => {
     const installed = await module.installServiceContract(
@@ -213,7 +217,6 @@ Deno.test("contracts runtime does not treat cold evidence as active subject owne
     await putDeploymentEnvelope(envelopes, "billing.default", "service", [
       installed.id,
     ]);
-    await putDeploymentEvidence(evidence, "billing.default", installed);
 
     await module.installServiceContract(
       makeOperationContract("other@v1", "operations.v1.Billing.Refund"),
@@ -532,7 +535,7 @@ Deno.test("contracts runtime fails closed when an active digest is missing", asy
   });
 });
 
-Deno.test("contracts runtime ignores deployment evidence for unknown non-builtin manifests", async () => {
+Deno.test("contracts runtime reports missing active offer manifest without deleting offer", async () => {
   const dbPath = await Deno.makeTempFile({
     dir: "/tmp",
     prefix: "trellis-catalog-runtime-missing-active-",
@@ -551,15 +554,16 @@ Deno.test("contracts runtime ignores deployment evidence for unknown non-builtin
     const deviceDeploymentStorage = new SqlDeviceDeploymentRepository(
       storage.db,
     );
-    const deploymentContractEvidenceStorage =
-      new SqlDeploymentContractEvidenceRepository(storage.db);
     const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
+      storage.db,
+    );
+    const implementationOfferStorage = new SqlImplementationOfferRepository(
       storage.db,
     );
     const module = createContractsModule({
       builtinContracts: [],
       contractStorage,
-      deploymentContractEvidenceStorage,
+      implementationOfferStorage,
       deploymentEnvelopeStorage,
       serviceInstanceStorage,
       serviceDeploymentStorage,
@@ -575,241 +579,259 @@ Deno.test("contracts runtime ignores deployment evidence for unknown non-builtin
       "service",
       ["service@v1"],
     );
-    await deploymentContractEvidenceStorage.put({
-      deploymentId: "service.default",
-      contractId: "service@v1",
-      contractDigest: "missing-digest",
-      contract: {},
-      firstSeenAt: "2026-01-01T00:00:00.000Z",
-      lastSeenAt: "2026-01-01T00:00:00.000Z",
-    });
     await serviceInstanceStorage.put({
       instanceId: "svc_1",
       deploymentId: "service.default",
       instanceKey: "session-key",
       disabled: false,
-      currentContractId: "service@v1",
-      currentContractDigest: "missing-digest",
       capabilities: ["service"],
       createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    await implementationOfferStorage.put({
+      offerId: "offer-missing",
+      deploymentKind: "service",
+      deploymentId: "service.default",
+      instanceId: "svc_1",
+      contractId: "service@v1",
+      contractDigest: "missing-digest",
+      lineageKey: "service.default:service@v1",
+      status: "accepted",
+      liveness: "healthy",
+      firstOfferedAt: TEST_NOW,
+      acceptedAt: TEST_NOW,
+      lastRefreshedAt: TEST_NOW,
+      staleAt: null,
+      expiresAt: null,
     });
 
     await module.refreshActiveContracts();
 
     assertEquals((await module.getActiveCatalog()).contracts, []);
-    assertEquals(await module.getActiveCatalogIssues(), []);
-    assertEquals(await module.validateActiveCatalog(), []);
+    assertEquals(
+      (await module.getActiveCatalogIssues()).map((issue) => issue.kind),
+      ["missing-active-contract"],
+    );
+    assertEquals(
+      (await implementationOfferStorage.get("offer-missing"))?.offerId,
+      "offer-missing",
+    );
   } finally {
     storage.client.close();
     await Deno.remove(dbPath).catch(() => undefined);
   }
 });
 
-Deno.test("contracts runtime ignores invalid evidence-only active contract digests", async () => {
-  const dbPath = await Deno.makeTempFile({
-    dir: "/tmp",
-    prefix: "trellis-catalog-runtime-bad-active-",
-    suffix: ".sqlite",
-  });
-  const storage = await openTrellisStorageDb(dbPath);
+Deno.test("contracts runtime includes accepted implementation offers as active", async () => {
+  await withContractsModule(async (
+    module,
+    _contractStorage,
+    deployments,
+    _envelopes,
+    offers,
+  ) => {
+    const installed = await module.installServiceContract(
+      makeOperationContract("billing@v1", "operations.v1.Billing.Refund"),
+    );
+    await deployments.put(testServiceDeployment("billing.default", [
+      "Billing",
+    ]));
+    await putAcceptedOffer(offers, "billing.default", installed);
 
-  try {
-    const { createContractsModule } = await import("./runtime.ts");
-    await initializeTrellisStorageSchema(storage);
-    const contractStorage = new SqlContractStorageRepository(storage.db);
-    const serviceInstanceStorage = new SqlServiceInstanceRepository(storage.db);
-    const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
-      storage.db,
+    await module.refreshActiveContracts();
+
+    assertEquals(
+      (await module.getActiveCatalog()).contracts.map((entry) => entry.digest),
+      [installed.digest],
     );
-    const deploymentContractEvidenceStorage =
-      new SqlDeploymentContractEvidenceRepository(storage.db);
-    const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
-      storage.db,
+  });
+});
+
+Deno.test("contracts runtime excludes expired and stale implementation offers", async () => {
+  await withContractsModule(async (
+    module,
+    _contractStorage,
+    deployments,
+    _envelopes,
+    offers,
+  ) => {
+    const expired = await module.installServiceContract(
+      makeOperationContract("expired@v1", "operations.v1.Expired.Run"),
     );
-    const module = createContractsModule({
-      builtinContracts: [],
-      contractStorage,
-      deploymentContractEvidenceStorage,
-      deploymentEnvelopeStorage,
-      serviceInstanceStorage,
-      serviceDeploymentStorage,
-      deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),
-      deviceInstanceStorage: new SqlDeviceInstanceRepository(storage.db),
+    const stale = await module.installServiceContract(
+      makeOperationContract("stale@v1", "operations.v1.Stale.Run"),
+    );
+    await deployments.put(testServiceDeployment("expired.default", [
+      "Expired",
+    ]));
+    await deployments.put(testServiceDeployment("stale.default", ["Stale"]));
+    await putAcceptedOffer(offers, "expired.default", expired, {
+      expiresAt: "2025-01-01T00:00:00.000Z",
     });
+    await putAcceptedOffer(offers, "stale.default", stale, {
+      staleAt: "2025-01-01T00:00:00.000Z",
+    });
+
+    await module.refreshActiveContracts();
+
+    assertEquals((await module.getActiveCatalog()).contracts, []);
+  });
+});
+
+Deno.test("contracts runtime keeps compatible active offer digests", async () => {
+  await withContractsModule(async (
+    module,
+    _contractStorage,
+    deployments,
+    _envelopes,
+    offers,
+  ) => {
+    const first = makeOperationContract(
+      "billing@v1",
+      "operations.v1.Billing.Refund",
+    );
+    const second = makeOperationContract(
+      "billing@v1",
+      "operations.v1.Billing.Refund",
+    );
+    second.operations = {
+      ...second.operations,
+      Ping: {
+        version: "v1",
+        subject: "operations.v1.Billing.Ping",
+        input: { schema: "Input" },
+        progress: { schema: "Progress" },
+        output: { schema: "Output" },
+      },
+    };
+    const firstInstalled = await module.installServiceContract(first);
+    const secondInstalled = await module.installServiceContract(second);
+    await deployments.put(testServiceDeployment("billing.default", [
+      "Billing",
+    ]));
+    await putAcceptedOffer(offers, "billing.default", firstInstalled, {
+      offerId: "offer-billing-first",
+      instanceId: "svc_1",
+    });
+    await putAcceptedOffer(offers, "billing.default", secondInstalled, {
+      offerId: "offer-billing-second",
+      instanceId: "svc_2",
+      lastRefreshedAt: "2026-01-01T00:00:01.000Z",
+    });
+
+    await module.refreshActiveContracts();
+
+    assertEquals(
+      (await module.getActiveCatalog()).contracts.map((entry) => entry.digest)
+        .sort(),
+      [firstInstalled.digest, secondInstalled.digest].sort(),
+    );
+    assertEquals(await module.getActiveCatalogIssues(), []);
+  });
+});
+
+Deno.test("contracts runtime reports incompatible active implementation offers", async () => {
+  await withContractsModule(async (
+    module,
+    _contractStorage,
+    deployments,
+    _envelopes,
+    offers,
+  ) => {
+    const first = makeOperationContract(
+      "billing@v1",
+      "operations.v1.Billing.Refund",
+    );
+    first.operations!.Refund!.capabilities = { call: ["billing.refund"] };
+    const second = makeOperationContract(
+      "billing@v1",
+      "operations.v1.Billing.Refund",
+    );
+    second.operations!.Refund!.capabilities = {
+      call: ["billing.refund.v2"],
+    };
+    const firstInstalled = await module.installServiceContract(first);
+    const secondInstalled = await module.installServiceContract(second);
+    await deployments.put(testServiceDeployment("billing.default", [
+      "Billing",
+    ]));
+    await putAcceptedOffer(offers, "billing.default", firstInstalled, {
+      offerId: "offer-billing-first",
+      instanceId: "svc_1",
+    });
+    await putAcceptedOffer(offers, "billing.default", secondInstalled, {
+      offerId: "offer-billing-second",
+      instanceId: "svc_2",
+      lastRefreshedAt: "2026-01-01T00:00:01.000Z",
+    });
+
+    await module.refreshActiveContracts();
+
+    const issues = await module.getActiveCatalogIssues();
+    assertEquals(issues.map((issue) => issue.kind), [
+      "incompatible-active-contract",
+    ]);
+    assertEquals(issues[0]?.actions.map((action) => action.description), [
+      "Withdraw or let the incompatible implementation offer expire so the current effective digest remains active.",
+      "Withdraw the current effective offers and accept a compatible implementation offer set before making this digest effective.",
+    ]);
+  });
+});
+
+Deno.test("contracts runtime reports invalid active manifest without deleting stored facts", async () => {
+  await withContractsModule(async (
+    module,
+    contractStorage,
+    deployments,
+    _envelopes,
+    offers,
+  ) => {
     await contractStorage.put({
       digest: "bad-digest",
       id: "service@v1",
       displayName: "Service",
       description: "Bad stored contract",
-      installedAt: new Date(),
+      installedAt: new Date(TEST_NOW),
       contract: "{not json",
     });
-    await serviceDeploymentStorage.put(
-      testServiceDeployment("service.default", ["Service"]),
-    );
-    await putDeploymentEnvelope(
-      deploymentEnvelopeStorage,
-      "service.default",
-      "service",
-      ["service@v1"],
-    );
-    await deploymentContractEvidenceStorage.put({
+    await deployments.put(testServiceDeployment("service.default", [
+      "Service",
+    ]));
+    await offers.put({
+      offerId: "offer-bad",
+      deploymentKind: "service",
       deploymentId: "service.default",
+      instanceId: "svc_1",
       contractId: "service@v1",
       contractDigest: "bad-digest",
-      contract: {},
-      firstSeenAt: "2026-01-01T00:00:00.000Z",
-      lastSeenAt: "2026-01-01T00:00:00.000Z",
-    });
-    await serviceInstanceStorage.put({
-      instanceId: "svc_1",
-      deploymentId: "service.default",
-      instanceKey: "session-key",
-      disabled: false,
-      currentContractId: "service@v1",
-      currentContractDigest: "bad-digest",
-      capabilities: ["service"],
-      createdAt: "2026-01-01T00:00:00.000Z",
+      lineageKey: "service.default:service@v1",
+      status: "accepted",
+      liveness: "healthy",
+      firstOfferedAt: TEST_NOW,
+      acceptedAt: TEST_NOW,
+      lastRefreshedAt: TEST_NOW,
+      staleAt: null,
+      expiresAt: null,
     });
 
     await module.refreshActiveContracts();
 
     assertEquals((await module.getActiveCatalog()).contracts, []);
-    assertEquals(await module.getActiveCatalogIssues(), []);
+    assertEquals(
+      (await module.getActiveCatalogIssues()).map((issue) => ({
+        kind: issue.kind,
+        digest: issue.digest,
+      })),
+      [{ kind: "invalid-active-contract", digest: "bad-digest" }],
+    );
     assertEquals(
       (await contractStorage.get("bad-digest"))?.digest,
       "bad-digest",
     );
-    assertEquals(
-      (await deploymentContractEvidenceStorage.listByDigest("bad-digest"))
-        .map((entry) => entry.contractDigest),
-      ["bad-digest"],
-    );
-    assertEquals(
-      (await serviceInstanceStorage.get("svc_1"))?.currentContractDigest,
-      "bad-digest",
-    );
-    assertEquals(await module.validateActiveCatalog(), []);
-  } finally {
-    storage.client.close();
-    await Deno.remove(dbPath).catch(() => undefined);
-  }
-});
-
-Deno.test("contracts runtime ignores stale known digest mismatches until corrected manifest is installed", async () => {
-  const dbPath = await Deno.makeTempFile({
-    dir: "/tmp",
-    prefix: "trellis-catalog-runtime-heal-digest-",
-    suffix: ".sqlite",
+    assertEquals((await offers.get("offer-bad"))?.offerId, "offer-bad");
   });
-  const storage = await openTrellisStorageDb(dbPath);
-
-  try {
-    const { createContractsModule } = await import("./runtime.ts");
-    await initializeTrellisStorageSchema(storage);
-    const contractStorage = new SqlContractStorageRepository(storage.db);
-    const serviceInstanceStorage = new SqlServiceInstanceRepository(storage.db);
-    const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
-      storage.db,
-    );
-    const deploymentContractEvidenceStorage =
-      new SqlDeploymentContractEvidenceRepository(storage.db);
-    const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
-      storage.db,
-    );
-    const module = createContractsModule({
-      builtinContracts: [],
-      contractStorage,
-      deploymentContractEvidenceStorage,
-      deploymentEnvelopeStorage,
-      serviceInstanceStorage,
-      serviceDeploymentStorage,
-      deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),
-      deviceInstanceStorage: new SqlDeviceInstanceRepository(storage.db),
-    });
-    const contract = makeOperationContract(
-      "service@v1",
-      "operations.v1.Service.Refund",
-    );
-    await contractStorage.put({
-      digest: "legacy-digest",
-      id: contract.id,
-      displayName: contract.displayName,
-      description: contract.description,
-      installedAt: new Date(TEST_NOW),
-      contract: JSON.stringify(contract),
-    });
-    await serviceDeploymentStorage.put(
-      testServiceDeployment("service.default", ["Service"]),
-    );
-    await putDeploymentEnvelope(
-      deploymentEnvelopeStorage,
-      "service.default",
-      "service",
-      [contract.id],
-    );
-    await deploymentContractEvidenceStorage.put({
-      deploymentId: "service.default",
-      contractId: contract.id,
-      contractDigest: "legacy-digest",
-      contract: contractEvidenceJson(contract),
-      firstSeenAt: TEST_NOW,
-      lastSeenAt: TEST_NOW,
-    });
-    await serviceInstanceStorage.put({
-      instanceId: "svc_1",
-      deploymentId: "service.default",
-      instanceKey: "session-key",
-      disabled: false,
-      currentContractId: contract.id,
-      currentContractDigest: "legacy-digest",
-      capabilities: ["service"],
-      createdAt: TEST_NOW,
-    });
-
-    await module.refreshActiveContracts();
-
-    assertEquals(
-      (await contractStorage.get("legacy-digest"))?.digest,
-      "legacy-digest",
-    );
-    assertEquals(
-      (await deploymentContractEvidenceStorage.listByDigest("legacy-digest"))
-        .map((entry) => entry.contractDigest),
-      ["legacy-digest"],
-    );
-    assertEquals(
-      (await serviceInstanceStorage.get("svc_1"))?.currentContractDigest,
-      "legacy-digest",
-    );
-
-    const installed = await module.installServiceContract(contract);
-    await serviceInstanceStorage.put({
-      instanceId: "svc_1",
-      deploymentId: "service.default",
-      instanceKey: "session-key",
-      disabled: false,
-      currentContractId: installed.id,
-      currentContractDigest: installed.digest,
-      capabilities: ["service"],
-      createdAt: TEST_NOW,
-    });
-
-    await module.refreshActiveContracts();
-
-    assertEquals((await module.getActiveCatalog()).contracts, []);
-    assertEquals(await module.getActiveCatalogIssues(), []);
-    assertEquals(
-      digestContractManifest(contract),
-      installed.digest,
-    );
-  } finally {
-    storage.client.close();
-    await Deno.remove(dbPath).catch(() => undefined);
-  }
 });
 
-Deno.test("contracts runtime ignores divergent non-builtin deployment evidence", async () => {
+Deno.test("contracts runtime reports divergent non-builtin implementation offers", async () => {
   const dbPath = await Deno.makeTempFile({
     dir: "/tmp",
     prefix: "trellis-catalog-runtime-divergent-active-",
@@ -825,15 +847,16 @@ Deno.test("contracts runtime ignores divergent non-builtin deployment evidence",
     const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
       storage.db,
     );
-    const deploymentContractEvidenceStorage =
-      new SqlDeploymentContractEvidenceRepository(storage.db);
     const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
+      storage.db,
+    );
+    const implementationOfferStorage = new SqlImplementationOfferRepository(
       storage.db,
     );
     const module = createContractsModule({
       builtinContracts: [],
       contractStorage,
-      deploymentContractEvidenceStorage,
+      implementationOfferStorage,
       deploymentEnvelopeStorage,
       serviceInstanceStorage,
       serviceDeploymentStorage,
@@ -864,25 +887,11 @@ Deno.test("contracts runtime ignores divergent non-builtin deployment evidence",
       "service",
       ["billing@v1"],
     );
-    await putDeploymentEvidence(
-      deploymentContractEvidenceStorage,
-      "service.default",
-      firstInstalled,
-      "2026-01-01T00:00:00.000Z",
-    );
-    await putDeploymentEvidence(
-      deploymentContractEvidenceStorage,
-      "service.default",
-      secondInstalled,
-      "2026-01-01T00:00:01.000Z",
-    );
     await serviceInstanceStorage.put({
       instanceId: "svc_1",
       deploymentId: "service.default",
       instanceKey: "session-key-1",
       disabled: false,
-      currentContractId: "billing@v1",
-      currentContractDigest: firstInstalled.digest,
       capabilities: ["service"],
       createdAt: "2026-01-01T00:00:00.000Z",
     });
@@ -891,188 +900,50 @@ Deno.test("contracts runtime ignores divergent non-builtin deployment evidence",
       deploymentId: "service.default",
       instanceKey: "session-key-2",
       disabled: false,
-      currentContractId: "billing@v1",
-      currentContractDigest: secondInstalled.digest,
       capabilities: ["service"],
       createdAt: "2026-01-01T00:00:00.000Z",
     });
+    await putAcceptedOffer(
+      implementationOfferStorage,
+      "service.default",
+      firstInstalled,
+      {
+        offerId: "offer-billing-first",
+        instanceId: "svc_1",
+      },
+    );
+    await putAcceptedOffer(
+      implementationOfferStorage,
+      "service.default",
+      secondInstalled,
+      {
+        offerId: "offer-billing-second",
+        instanceId: "svc_2",
+        lastRefreshedAt: "2026-01-01T00:00:01.000Z",
+      },
+    );
 
     await module.refreshActiveContracts();
 
     assertEquals(
       (await module.getActiveCatalog()).contracts.map((entry) => entry.digest),
-      [],
+      [
+        firstInstalled.digest,
+      ],
     );
-    assertEquals(await module.getActiveCatalogIssues(), []);
-    assertEquals(await module.validateActiveCatalog(), []);
-    await deploymentContractEvidenceStorage.deleteEvidence({
-      contractId: "billing@v1",
-      contractDigests: [secondInstalled.digest],
-    });
-    await module.refreshActiveContracts();
-    assertEquals(await module.getActiveCatalogIssues(), []);
+    assertEquals(
+      (await module.getActiveCatalogIssues()).map((issue) => issue.kind),
+      ["incompatible-active-contract"],
+    );
   } finally {
     storage.client.close();
     await Deno.remove(dbPath).catch(() => undefined);
   }
 });
 
-Deno.test("contracts runtime ignores grouped non-builtin evidence incompatibilities", async () => {
+Deno.test("contracts runtime keeps compatible duplicate non-builtin implementation offers", async () => {
   await withContractsModule(
-    async (module, _contracts, deployments, evidence, envelopes) => {
-      const first = makeOperationContract(
-        "billing@v1",
-        "operations.v1.Billing.Refund",
-      );
-      first.operations!.Refund!.capabilities = { call: ["billing.refund"] };
-      const second = makeOperationContract(
-        "billing@v1",
-        "operations.v1.Billing.Refund",
-      );
-      second.operations!.Refund!.capabilities = {
-        call: ["billing.refund.v2"],
-      };
-      const third = makeOperationContract(
-        "billing@v1",
-        "operations.v1.Billing.Refund",
-      );
-      third.operations!.Refund!.capabilities = {
-        call: ["billing.refund.v3"],
-      };
-      const firstInstalled = await module.installServiceContract(first);
-      const secondInstalled = await module.installServiceContract(second);
-      const thirdInstalled = await module.installServiceContract(third);
-
-      await deployments.put(
-        testServiceDeployment("service.default", ["Billing"]),
-      );
-      await deployments.put(testServiceDeployment("service.other", [
-        "Billing",
-      ]));
-      await putDeploymentEnvelope(envelopes, "service.default", "service", [
-        "billing@v1",
-      ]);
-      await putDeploymentEnvelope(envelopes, "service.other", "service", [
-        "billing@v1",
-      ]);
-      await putDeploymentEvidence(
-        evidence,
-        "service.default",
-        firstInstalled,
-        "2026-01-01T00:00:00.000Z",
-      );
-      await putDeploymentEvidence(
-        evidence,
-        "service.default",
-        secondInstalled,
-        "2026-01-01T00:00:01.000Z",
-      );
-      await putDeploymentEvidence(
-        evidence,
-        "service.other",
-        thirdInstalled,
-        "2026-01-01T00:00:02.000Z",
-      );
-
-      await module.refreshActiveContracts();
-
-      const conflictingDigests = [
-        secondInstalled.digest,
-        thirdInstalled.digest,
-      ].sort((left, right) => left.localeCompare(right));
-      assertEquals((await module.getActiveCatalog()).contracts, []);
-      assertEquals(await module.getActiveCatalogIssues(), []);
-
-      await evidence.deleteEvidence({
-        contractId: "billing@v1",
-        contractDigests: conflictingDigests,
-      });
-      await module.refreshActiveContracts();
-      assertEquals(await module.getActiveCatalogIssues(), []);
-    },
-  );
-});
-
-Deno.test("contracts runtime evidence deletion does not activate a forced replacement", async () => {
-  await withContractsModule(
-    async (module, _contracts, deployments, evidence, envelopes) => {
-      const first = makeOperationContract(
-        "billing@v1",
-        "operations.v1.Billing.Refund",
-      );
-      first.operations!.Refund!.capabilities = { call: ["billing.refund"] };
-      const second = makeOperationContract(
-        "billing@v1",
-        "operations.v1.Billing.Refund",
-      );
-      second.operations!.Refund!.capabilities = {
-        call: ["billing.refund.v2"],
-      };
-      const third = makeOperationContract(
-        "billing@v1",
-        "operations.v1.Billing.Refund",
-      );
-      third.operations!.Refund!.capabilities = {
-        call: ["billing.refund.v3"],
-      };
-      const firstInstalled = await module.installServiceContract(first);
-      const secondInstalled = await module.installServiceContract(second);
-      const thirdInstalled = await module.installServiceContract(third);
-
-      await deployments.put(
-        testServiceDeployment("service.default", ["Billing"]),
-      );
-      await deployments.put(testServiceDeployment("service.other", [
-        "Billing",
-      ]));
-      await putDeploymentEnvelope(envelopes, "service.default", "service", [
-        "billing@v1",
-      ]);
-      await putDeploymentEnvelope(envelopes, "service.other", "service", [
-        "billing@v1",
-      ]);
-      await putDeploymentEvidence(
-        evidence,
-        "service.default",
-        firstInstalled,
-        "2026-01-01T00:00:00.000Z",
-      );
-      await putDeploymentEvidence(
-        evidence,
-        "service.default",
-        secondInstalled,
-        "2026-01-01T00:00:01.000Z",
-      );
-      await putDeploymentEvidence(
-        evidence,
-        "service.other",
-        thirdInstalled,
-        "2026-01-01T00:00:02.000Z",
-      );
-      await module.refreshActiveContracts();
-
-      assertEquals(await module.getActiveCatalogIssues(), []);
-
-      await evidence.deleteEvidence({
-        contractId: "billing@v1",
-        contractDigests: [firstInstalled.digest, secondInstalled.digest],
-      });
-      await module.refreshActiveContracts();
-
-      assertEquals(
-        (await module.getActiveCatalog()).contracts.map((entry) =>
-          entry.digest
-        ),
-        [],
-      );
-      assertEquals(await module.getActiveCatalogIssues(), []);
-    },
-  );
-});
-
-Deno.test("contracts runtime ignores compatible duplicate non-builtin evidence", async () => {
-  await withContractsModule(
-    async (module, _contracts, deployments, evidence, envelopes) => {
+    async (module, _contracts, deployments, envelopes, offers) => {
       const first = makeOperationContract(
         "billing@v1",
         "operations.v1.Billing.Refund",
@@ -1095,30 +966,25 @@ Deno.test("contracts runtime ignores compatible duplicate non-builtin evidence",
       await putDeploymentEnvelope(envelopes, "service.default", "service", [
         "billing@v1",
       ]);
-      await putDeploymentEvidence(
-        evidence,
-        "service.default",
-        firstInstalled,
-        "2026-01-01T00:00:10.000Z",
-      );
-      await putDeploymentEvidence(
-        evidence,
-        "service.default",
-        secondInstalled,
-        "2026-01-01T00:00:20.000Z",
-      );
+      await putAcceptedOffer(offers, "service.default", firstInstalled, {
+        offerId: "offer-billing-first",
+        firstOfferedAt: "2026-01-01T00:00:10.000Z",
+      });
+      await putAcceptedOffer(offers, "service.default", secondInstalled, {
+        offerId: "offer-billing-second",
+        firstOfferedAt: "2026-01-01T00:00:20.000Z",
+      });
       await deployments.put(
         testServiceDeployment("service.other", ["Billing"]),
       );
       await putDeploymentEnvelope(envelopes, "service.other", "service", [
         "billing@v1",
       ]);
-      await putDeploymentEvidence(
-        evidence,
-        "service.other",
-        secondInstalled,
-        "2026-01-01T00:00:05.000Z",
-      );
+      await putAcceptedOffer(offers, "service.other", secondInstalled, {
+        offerId: "offer-billing-other",
+        firstOfferedAt: "2026-01-01T00:00:05.000Z",
+        instanceId: "instance-service.other",
+      });
 
       await module.refreshActiveContracts();
 
@@ -1126,7 +992,7 @@ Deno.test("contracts runtime ignores compatible duplicate non-builtin evidence",
         (await module.getActiveCatalog()).contracts.map((entry) =>
           entry.digest
         ),
-        [],
+        [...new Set([firstInstalled.digest, secondInstalled.digest])].sort(),
       );
       assertEquals(await module.getActiveCatalogIssues(), []);
     },
@@ -1149,8 +1015,6 @@ Deno.test("contracts runtime refresh ignores stale deployment digests for built-
     const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
       storage.db,
     );
-    const deploymentContractEvidenceStorage =
-      new SqlDeploymentContractEvidenceRepository(storage.db);
     const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
       storage.db,
     );
@@ -1165,29 +1029,14 @@ Deno.test("contracts runtime refresh ignores stale deployment digests for built-
     const module = createContractsModule({
       builtinContracts: [{ digest: currentDigest, contract: current }],
       contractStorage,
-      deploymentContractEvidenceStorage,
       deploymentEnvelopeStorage,
       serviceInstanceStorage,
       serviceDeploymentStorage,
       deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),
       deviceInstanceStorage: new SqlDeviceInstanceRepository(storage.db),
     });
-    const old = makeOperationContract(
-      "trellis.builtin@v1",
-      "operations.v1.TrellisBuiltin.Refresh",
-    );
-    old.operations!.Refund!.capabilities = {
-      call: ["trellis.builtin.refresh"],
-    };
-    const oldInstalled = await module.installServiceContract(old);
-
     await serviceDeploymentStorage.put(
       testServiceDeployment("trellis.builtin", ["TrellisBuiltin"]),
-    );
-    await putDeploymentEvidence(
-      deploymentContractEvidenceStorage,
-      "trellis.builtin",
-      oldInstalled,
     );
 
     await module.refreshActiveContracts();
@@ -1257,8 +1106,6 @@ Deno.test("contracts runtime dry-run rejects incompatible staged active digests 
               deploymentId: "service.default",
               instanceKey: "session-key-1",
               disabled: false,
-              currentContractId: "billing@v1",
-              currentContractDigest: firstInstalled.digest,
               capabilities: ["service"],
               createdAt: "2026-01-01T00:00:00.000Z",
             },
@@ -1267,8 +1114,6 @@ Deno.test("contracts runtime dry-run rejects incompatible staged active digests 
               deploymentId: "service.default",
               instanceKey: "session-key-2",
               disabled: false,
-              currentContractId: "billing@v1",
-              currentContractDigest: secondInstalled.digest,
               capabilities: ["service"],
               createdAt: "2026-01-01T00:00:00.000Z",
             },
@@ -1306,15 +1151,16 @@ Deno.test("contracts runtime strict validation rejects proposed active uses depe
     const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
       storage.db,
     );
-    const deploymentContractEvidenceStorage =
-      new SqlDeploymentContractEvidenceRepository(storage.db);
     const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
+      storage.db,
+    );
+    const implementationOfferStorage = new SqlImplementationOfferRepository(
       storage.db,
     );
     const module = createContractsModule({
       builtinContracts: [],
       contractStorage,
-      deploymentContractEvidenceStorage,
+      implementationOfferStorage,
       deploymentEnvelopeStorage,
       serviceInstanceStorage,
       serviceDeploymentStorage,
@@ -1334,21 +1180,22 @@ Deno.test("contracts runtime strict validation rejects proposed active uses depe
       "service",
       [billing.id],
     );
-    await putDeploymentEvidence(
-      deploymentContractEvidenceStorage,
-      "billing.default",
-      billing,
-    );
     await serviceInstanceStorage.put({
       instanceId: "svc_billing",
       deploymentId: "billing.default",
       instanceKey: "billing-session-key",
       disabled: false,
-      currentContractId: billing.id,
-      currentContractDigest: billing.digest,
       capabilities: ["service"],
       createdAt: now,
     });
+    await putAcceptedOffer(
+      implementationOfferStorage,
+      "billing.default",
+      billing,
+      {
+        instanceId: "svc_billing",
+      },
+    );
     const portal = await module.installServiceContract(
       {
         format: "trellis.contract.v1",
@@ -1378,6 +1225,15 @@ Deno.test("contracts runtime strict validation rejects proposed active uses depe
       [billing.id],
       true,
     );
+    await putAcceptedOffer(
+      implementationOfferStorage,
+      "billing.default",
+      billing,
+      {
+        instanceId: "svc_billing",
+        staleAt: "2025-01-01T00:00:00.000Z",
+      },
+    );
     await serviceDeploymentStorage.put(
       testServiceDeployment("portal.default", ["Portal"]),
     );
@@ -1387,28 +1243,32 @@ Deno.test("contracts runtime strict validation rejects proposed active uses depe
       "service",
       [portal.id],
     );
-    await putDeploymentEvidence(
-      deploymentContractEvidenceStorage,
-      "portal.default",
-      portal,
-    );
     await serviceInstanceStorage.put({
       instanceId: "svc_portal",
       deploymentId: "portal.default",
       instanceKey: "portal-session-key",
       disabled: false,
-      currentContractId: portal.id,
-      currentContractDigest: portal.digest,
       capabilities: ["service"],
       createdAt: now,
     });
+    await putAcceptedOffer(
+      implementationOfferStorage,
+      "portal.default",
+      portal,
+      {
+        instanceId: "svc_portal",
+      },
+    );
 
     await module.refreshActiveContracts();
     assertEquals(
       (await module.getActiveCatalog()).contracts.map((entry) => entry.digest),
       [],
     );
-    assertEquals(await module.getActiveCatalogIssues(), []);
+    assertEquals(
+      (await module.getActiveCatalogIssues()).map((issue) => issue.kind),
+      ["invalid-active-contract-uses"],
+    );
     await assertRejects(
       () => module.validateActiveCatalog({ proposedDigests: [portal.digest] }),
       Error,
@@ -1420,7 +1280,7 @@ Deno.test("contracts runtime strict validation rejects proposed active uses depe
   }
 });
 
-Deno.test("contracts runtime ignores unrelated evidence when persisted context cannot be loaded", async () => {
+Deno.test("contracts runtime ignores unrelated offers when persisted context cannot be loaded", async () => {
   const dbPath = await Deno.makeTempFile({
     dir: "/tmp",
     prefix: "trellis-catalog-runtime-list-fail-",
@@ -1440,12 +1300,13 @@ Deno.test("contracts runtime ignores unrelated evidence when persisted context c
     const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
       storage.db,
     );
-    const deploymentContractEvidenceStorage =
-      new SqlDeploymentContractEvidenceRepository(storage.db);
+    const implementationOfferStorage = new SqlImplementationOfferRepository(
+      storage.db,
+    );
     const module = createContractsModule({
       builtinContracts: [],
       contractStorage,
-      deploymentContractEvidenceStorage,
+      implementationOfferStorage,
       deploymentEnvelopeStorage,
       serviceInstanceStorage: new SqlServiceInstanceRepository(storage.db),
       serviceDeploymentStorage,
@@ -1456,7 +1317,7 @@ Deno.test("contracts runtime ignores unrelated evidence when persisted context c
       "active@v1",
       "operations.v1.Active.Run",
     );
-    const activeDigest = digestContractManifest(activeContract);
+    const active = await module.installServiceContract(activeContract);
     await serviceDeploymentStorage.put(
       testServiceDeployment("active.default", ["Active"]),
     );
@@ -1466,14 +1327,14 @@ Deno.test("contracts runtime ignores unrelated evidence when persisted context c
       "service",
       [activeContract.id],
     );
-    await deploymentContractEvidenceStorage.put({
-      deploymentId: "active.default",
-      contractId: activeContract.id,
-      contractDigest: activeDigest,
-      contract: contractEvidenceJson(activeContract),
-      firstSeenAt: TEST_NOW,
-      lastSeenAt: TEST_NOW,
-    });
+    await putAcceptedOffer(
+      implementationOfferStorage,
+      "active.default",
+      active,
+      {
+        offerId: "offer-active",
+      },
+    );
 
     const billing = await module.installServiceContract(
       makeOperationContract("billing@v1", "operations.v1.Billing.Refund"),
@@ -1578,7 +1439,7 @@ Deno.test("contracts runtime does not activate contracts from user sessions", as
   }
 });
 
-Deno.test("contracts runtime keeps service deployment evidence cold without active instances", async () => {
+Deno.test("contracts runtime keeps service deployment records cold without active offers", async () => {
   const dbPath = await Deno.makeTempFile({
     dir: "/tmp",
     prefix: "trellis-catalog-runtime-deployment-",
@@ -1598,15 +1459,12 @@ Deno.test("contracts runtime keeps service deployment evidence cold without acti
     const deviceDeploymentStorage = new SqlDeviceDeploymentRepository(
       storage.db,
     );
-    const deploymentContractEvidenceStorage =
-      new SqlDeploymentContractEvidenceRepository(storage.db);
     const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
       storage.db,
     );
     const module = createContractsModule({
       builtinContracts: [],
       contractStorage,
-      deploymentContractEvidenceStorage,
       deploymentEnvelopeStorage,
       serviceInstanceStorage,
       serviceDeploymentStorage,
@@ -1625,11 +1483,6 @@ Deno.test("contracts runtime keeps service deployment evidence cold without acti
       "service",
       [installed.id],
     );
-    await putDeploymentEvidence(
-      deploymentContractEvidenceStorage,
-      "service.default",
-      installed,
-    );
 
     await module.refreshActiveContracts();
 
@@ -1643,35 +1496,26 @@ Deno.test("contracts runtime keeps service deployment evidence cold without acti
   }
 });
 
-Deno.test("contracts runtime ignores evidence-only non-builtin manifests", async () => {
+Deno.test("contracts runtime ignores offer-only non-builtin manifests", async () => {
   await withContractsModule(
     async (
       module,
       contractStorage,
       serviceDeploymentStorage,
-      deploymentContractEvidenceStorage,
       deploymentEnvelopeStorage,
     ) => {
       const validated = await module.validateContract(
-        makeOperationContract("evidence-only@v1", "operations.v1.Evidence.Run"),
+        makeOperationContract("offer-only@v1", "operations.v1.OfferOnly.Run"),
       );
       await serviceDeploymentStorage.put(
-        testServiceDeployment("service.evidence", ["Evidence"]),
+        testServiceDeployment("service.offer", ["OfferOnly"]),
       );
       await putDeploymentEnvelope(
         deploymentEnvelopeStorage,
-        "service.evidence",
+        "service.offer",
         "service",
         [validated.contract.id],
       );
-      await deploymentContractEvidenceStorage.put({
-        deploymentId: "service.evidence",
-        contractId: validated.contract.id,
-        contractDigest: validated.digest,
-        contract: contractEvidenceJson(validated.contract),
-        firstSeenAt: TEST_NOW,
-        lastSeenAt: TEST_NOW,
-      });
 
       await module.refreshActiveContracts();
 
@@ -1683,7 +1527,7 @@ Deno.test("contracts runtime ignores evidence-only non-builtin manifests", async
   );
 });
 
-Deno.test("contracts runtime keeps enabled service and device deployment evidence cold", async () => {
+Deno.test("contracts runtime keeps enabled service and device deployment records cold without offers", async () => {
   const dbPath = await Deno.makeTempFile({
     dir: "/tmp",
     prefix: "trellis-catalog-runtime-instances-",
@@ -1703,15 +1547,12 @@ Deno.test("contracts runtime keeps enabled service and device deployment evidenc
     const deviceDeploymentStorage = new SqlDeviceDeploymentRepository(
       storage.db,
     );
-    const deploymentContractEvidenceStorage =
-      new SqlDeploymentContractEvidenceRepository(storage.db);
     const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
       storage.db,
     );
     const module = createContractsModule({
       builtinContracts: [],
       contractStorage,
-      deploymentContractEvidenceStorage,
       deploymentEnvelopeStorage,
       serviceInstanceStorage,
       serviceDeploymentStorage,
@@ -1735,8 +1576,6 @@ Deno.test("contracts runtime keeps enabled service and device deployment evidenc
       deploymentId: "service.default",
       instanceKey: "session-key",
       disabled: false,
-      currentContractId: service.id,
-      currentContractDigest: service.digest,
       capabilities: ["service"],
       createdAt: now,
     });
@@ -1756,16 +1595,6 @@ Deno.test("contracts runtime keeps enabled service and device deployment evidenc
       "device",
       [device.id],
     );
-    await putDeploymentEvidence(
-      deploymentContractEvidenceStorage,
-      "service.default",
-      service,
-    );
-    await putDeploymentEvidence(
-      deploymentContractEvidenceStorage,
-      "device.default",
-      device,
-    );
     await module.refreshActiveContracts();
 
     assertEquals(
@@ -1779,7 +1608,7 @@ Deno.test("contracts runtime keeps enabled service and device deployment evidenc
   }
 });
 
-Deno.test("contracts runtime excludes deployment evidence for disabled parent deployments", async () => {
+Deno.test("contracts runtime excludes stale offers for disabled parent deployments", async () => {
   const dbPath = await Deno.makeTempFile({
     dir: "/tmp",
     prefix: "trellis-catalog-runtime-disabled-parents-",
@@ -1799,15 +1628,16 @@ Deno.test("contracts runtime excludes deployment evidence for disabled parent de
       storage.db,
     );
     const deviceInstanceStorage = new SqlDeviceInstanceRepository(storage.db);
-    const deploymentContractEvidenceStorage =
-      new SqlDeploymentContractEvidenceRepository(storage.db);
     const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
+      storage.db,
+    );
+    const implementationOfferStorage = new SqlImplementationOfferRepository(
       storage.db,
     );
     const module = createContractsModule({
       builtinContracts: [],
       contractStorage,
-      deploymentContractEvidenceStorage,
+      implementationOfferStorage,
       deploymentEnvelopeStorage,
       serviceInstanceStorage,
       serviceDeploymentStorage,
@@ -1841,8 +1671,6 @@ Deno.test("contracts runtime excludes deployment evidence for disabled parent de
       deploymentId: "service.disabled",
       instanceKey: "session-key",
       disabled: false,
-      currentContractId: service.id,
-      currentContractDigest: service.digest,
       capabilities: ["service"],
       createdAt: now,
     });
@@ -1856,15 +1684,24 @@ Deno.test("contracts runtime excludes deployment evidence for disabled parent de
       [device.id],
       true,
     );
-    await putDeploymentEvidence(
-      deploymentContractEvidenceStorage,
+    await putAcceptedOffer(
+      implementationOfferStorage,
       "service.disabled",
       service,
+      {
+        instanceId: "svc_disabled",
+        staleAt: "2025-01-01T00:00:00.000Z",
+      },
     );
-    await putDeploymentEvidence(
-      deploymentContractEvidenceStorage,
+    await putAcceptedOffer(
+      implementationOfferStorage,
       "device.disabled",
       device,
+      {
+        deploymentKind: "device",
+        instanceId: "dev_disabled",
+        staleAt: "2025-01-01T00:00:00.000Z",
+      },
     );
     await deviceInstanceStorage.put({
       instanceId: "dev_disabled",

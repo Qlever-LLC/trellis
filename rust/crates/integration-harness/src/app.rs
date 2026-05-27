@@ -438,14 +438,7 @@ impl IntegrationRunner {
                         &browser,
                     )
                     .await?;
-                    run_resources_fixture(
-                        &host_trellis_origin,
-                        &nats.server_url(),
-                        &nats_dir.join(trellis_creds),
-                        &admin_login,
-                        &browser,
-                    )
-                    .await?
+                    run_resources_fixture(&host_trellis_origin, &admin_login, &browser).await?
                 }
                 "jobs" => {
                     let admin_login = fresh_admin_login(

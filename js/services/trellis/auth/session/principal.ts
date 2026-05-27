@@ -13,8 +13,6 @@ export type SessionPrincipal = {
     deploymentId: string;
     instanceKey: string;
     disabled: boolean;
-    currentContractId?: string;
-    currentContractDigest?: string;
     capabilities: string[];
     resourceBindings?: Record<string, unknown>;
   };
@@ -48,8 +46,6 @@ export async function resolveSessionPrincipal(
         deploymentId: string;
         instanceKey: string;
         disabled: boolean;
-        currentContractId?: string;
-        currentContractDigest?: string;
         capabilities: string[];
         resourceBindings?: Record<string, unknown>;
       } | null

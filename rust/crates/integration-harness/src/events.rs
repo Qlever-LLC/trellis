@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use trellis::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
 use trellis::client::{
     dispatch_outbox_once, EventDescriptor, InboxReceipt, InboxStore, NatsKvInboxStore,
-    NatsKvOutboxStore, OutboxDispatchResult, OutboxStore, TrellisClient,
+    NatsKvOutboxStore, OutboxDispatchResult, OutboxStore, ServiceConnectOptions, TrellisClient,
 };
 use trellis::contracts::{
     digest_contract_json, event, rpc, use_contract, ContractKind, ContractManifestBuilder,
@@ -345,6 +345,24 @@ pub(crate) async fn run_events_fixture(
         .await
         .into_diagnostic()?;
 
+    let (provider_service_seed, provider_service_key) = generate_session_keypair();
+    auth_client
+        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
+            deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
+            instance_key: provider_service_key,
+        })
+        .await
+        .into_diagnostic()?;
+    let _provider_service_client = TrellisClient::connect_service(ServiceConnectOptions {
+        trellis_url,
+        contract_id: HARNESS_CONTRACT_ID,
+        contract_digest: &contract_digest,
+        session_key_seed_base64url: &provider_service_seed,
+        timeout_ms: 30_000,
+    })
+    .await
+    .into_diagnostic()?;
+
     let consumer_contract_json = harness_service_consumer_contract_json()?;
     let consumer_contract_digest =
         digest_contract_json(&consumer_contract_json).into_diagnostic()?;
@@ -533,7 +551,7 @@ pub(crate) async fn run_events_fixture(
         .map_err(|error| miette!("Rust denied subscribe case failed: {error}"))?;
     assert_ts_service_event_consumer(
         trellis_url,
-        &publish_only_login.state,
+        &setup_login.state,
         browser,
         &consumer_contract_digest,
         &consumer_service_seed,

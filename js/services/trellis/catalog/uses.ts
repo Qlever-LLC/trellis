@@ -154,6 +154,31 @@ export class ContractUseDependencyError extends Error {
   }
 }
 
+/** Reports incompatible candidate manifests for a declared dependency. */
+export class ContractUseCompatibilityError extends Error {
+  readonly alias: string;
+  readonly contractId: string;
+  readonly digests: string[];
+
+  constructor(options: {
+    alias: string;
+    contractId: string;
+    digests: string[];
+    cause: Error;
+  }) {
+    super(
+      `Dependency '${options.alias}' (${options.contractId}) has incompatible candidate manifests [${
+        options.digests.join(", ")
+      }]: ${options.cause.message}`,
+      { cause: options.cause },
+    );
+    this.name = "ContractUseCompatibilityError";
+    this.alias = options.alias;
+    this.contractId = options.contractId;
+    this.digests = options.digests;
+  }
+}
+
 function requireSameSubject(
   key: string,
   left: string,
@@ -570,10 +595,50 @@ function mergeRecords<T>(
     : undefined;
 }
 
+function addSchemaRef(
+  names: Set<string>,
+  ref: ContractSchemaRef | undefined,
+): void {
+  if (ref) names.add(ref.schema);
+}
+
+function referencedSchemaNames(contracts: TrellisContractV1[]): Set<string> {
+  const names = new Set<string>();
+  for (const contract of contracts) {
+    for (const method of Object.values(contract.rpc ?? {})) {
+      addSchemaRef(names, method.input);
+      addSchemaRef(names, method.output);
+    }
+    for (const operation of Object.values(contract.operations ?? {})) {
+      addSchemaRef(names, operation.input);
+      addSchemaRef(names, operation.progress);
+      addSchemaRef(names, operation.output);
+    }
+    for (const event of Object.values(contract.events ?? {})) {
+      addSchemaRef(names, event.event);
+    }
+    for (
+      const feed of Object.values(
+        (contract as { feeds?: Record<string, ContractFeed> }).feeds ?? {},
+      )
+    ) {
+      addSchemaRef(names, feed.input);
+      addSchemaRef(names, feed.event);
+    }
+    for (const queue of Object.values(contract.jobs ?? {})) {
+      addSchemaRef(names, queue.payload);
+      addSchemaRef(names, queue.result);
+    }
+  }
+  return names;
+}
+
 function mergeContractSchemas(contracts: TrellisContractV1[]): ContractSchemas {
+  const referencedNames = referencedSchemaNames(contracts);
   const schemas: ContractSchemas = {};
   for (const contract of contracts) {
     for (const [name, schema] of Object.entries(contract.schemas ?? {})) {
+      if (!referencedNames.has(name)) continue;
       const existing = schemas[name];
       if (existing === undefined) {
         schemas[name] = schema;
@@ -832,16 +897,27 @@ export function resolveContractUsesFromKnownEntries(
   knownEntries: readonly ContractEntry[],
   contract: TrellisContractV1,
 ): ResolvedContractUses {
-  const entriesById = new Map<string, TrellisContractV1[]>();
+  const entriesById = new Map<string, ContractEntry[]>();
   for (const entry of knownEntries) {
     const entries = entriesById.get(entry.contract.id) ?? [];
-    entries.push(entry.contract);
+    entries.push(entry);
     entriesById.set(entry.contract.id, entries);
   }
   return resolveContractUses(contract, (alias, use, resolveOptions) => {
-    const target = mergeCompatibleContractSurfaces(
-      entriesById.get(use.contract) ?? [],
-    );
+    const dependencyEntries = entriesById.get(use.contract) ?? [];
+    let target: TrellisContractV1 | undefined;
+    try {
+      target = mergeCompatibleContractSurfaces(
+        dependencyEntries.map((entry) => entry.contract),
+      );
+    } catch (error) {
+      throw new ContractUseCompatibilityError({
+        alias,
+        contractId: use.contract,
+        digests: dependencyEntries.map((entry) => entry.digest),
+        cause: error instanceof Error ? error : new Error(String(error)),
+      });
+    }
     if (!target) {
       if (!resolveOptions.required) {
         return null;
@@ -882,7 +958,7 @@ export function createActiveContractLookup(
   return lookup;
 }
 
-/** Projects known contract evidence by lineage for dependency resolution. */
+/** Projects known contract manifests by lineage for dependency resolution. */
 export function createKnownContractLookup(
   entries: readonly ContractEntry[],
 ): Map<string, TrellisContractV1> {

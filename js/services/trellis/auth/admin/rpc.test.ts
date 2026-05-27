@@ -265,26 +265,6 @@ type DeviceActivationReviewRecord = Parameters<
 type DeviceActivationRecord = Parameters<
   AdminRpcDeps["deviceActivationStorage"]["put"]
 >[0];
-type DeploymentContractEvidenceRecord = Awaited<
-  ReturnType<
-    NonNullable<AdminRpcDeps["deploymentContractEvidenceStorage"]>["listPage"]
-  >
->[number];
-
-function deploymentEvidence(
-  deploymentId: string,
-  contractDigest: string,
-  contractId = "reader@v1",
-): DeploymentContractEvidenceRecord {
-  return {
-    deploymentId,
-    contractId,
-    contractDigest,
-    contract: {},
-    firstSeenAt: "2026-01-01T00:00:00.000Z",
-    lastSeenAt: "2026-01-01T00:00:00.000Z",
-  };
-}
 
 function operationSnapshot(
   operationId: string,
@@ -641,8 +621,6 @@ Deno.test("Auth.Deployments.Disable service validates staged deployment before p
         deploymentId: "billing.default",
         instanceKey: "session-key-1",
         disabled: false,
-        currentContractId: "billing@v1",
-        currentContractDigest: "digest-a",
         capabilities: ["service"],
         createdAt: "2026-01-01T00:00:00.000Z",
       }],
@@ -852,7 +830,6 @@ Deno.test("Auth.Deployments.Remove service rejects contract purge without cascad
   };
   let deletedDeployment = false;
   let refreshCount = 0;
-  const deletedContracts: string[] = [];
   const serviceDeps: ServiceAdminRpcDeps = {
     logger: { trace: () => {} },
     serviceDeploymentStorage: {
@@ -877,25 +854,6 @@ Deno.test("Auth.Deployments.Remove service rejects contract purge without cascad
 
   const result = await createAuthDeploymentsServiceRemoveHandler({
     ...kickDeps(serviceDeps),
-    contractStorage: {
-      delete: async (digest) => {
-        deletedContracts.push(digest);
-      },
-    },
-    deviceDeploymentStorage: {},
-    deploymentContractEvidenceStorage: {
-      listByDeployment: async () => [
-        deploymentEvidence("billing.default", "digest-unused", "billing@v1"),
-        deploymentEvidence(
-          "billing.default",
-          "digest-referenced",
-          "billing@v1",
-        ),
-        deploymentEvidence("billing.default", "digest-builtin", "billing@v1"),
-      ],
-    },
-    contractApprovalStorage: {},
-    builtinContractDigests: [],
     refreshActiveContracts: async () => {
       refreshCount += 1;
     },
@@ -908,10 +866,9 @@ Deno.test("Auth.Deployments.Remove service rejects contract purge without cascad
   assert(result.isErr());
   assertEquals(deletedDeployment, false);
   assertEquals(refreshCount, 0);
-  assertEquals(deletedContracts, []);
 });
 
-Deno.test("Auth.Deployments.Remove service preflights contract purge dependencies before revocation", async () => {
+Deno.test("Auth.Deployments.Remove service skips unused contract purge dependencies", async () => {
   const original: ServiceDeployment = {
     deploymentId: "billing.default",
     namespaces: ["billing"],
@@ -922,8 +879,6 @@ Deno.test("Auth.Deployments.Remove service preflights contract purge dependencie
     deploymentId: "billing.default",
     instanceKey: "session-key-1",
     disabled: false,
-    currentContractId: "billing@v1",
-    currentContractDigest: "digest-a",
     capabilities: ["service"],
     createdAt: "2026-01-01T00:00:00.000Z",
   }];
@@ -996,12 +951,12 @@ Deno.test("Auth.Deployments.Remove service preflights contract purge dependencie
     context: adminContext,
   });
 
-  assert(result.isErr());
-  assertEquals(storedDeployment, original);
-  assertEquals(storedInstances, instances);
-  assertEquals(deletedSessions, []);
-  assertEquals(kicked, []);
-  assertEquals(refreshCount, 0);
+  assert(!result.isErr());
+  assertEquals(storedDeployment, undefined);
+  assertEquals(storedInstances, []);
+  assertEquals(deletedSessions, ["session-key-1"]);
+  assertEquals(kicked, [{ serverId: "server-1", clientId: 1 }]);
+  assertEquals(refreshCount, 1);
 });
 
 Deno.test("Auth.Deployments.Remove service purges only unreferenced non-built-in installed contracts after refresh", async () => {
@@ -1042,61 +997,20 @@ Deno.test("Auth.Deployments.Remove service purges only unreferenced non-built-in
         deploymentId: "billing.other",
         instanceKey: "session-key-other",
         disabled: false,
-        currentContractId: "billing@v1",
-        currentContractDigest: "digest-referenced",
         capabilities: ["service"],
         createdAt: "2026-01-01T00:00:00.000Z",
       }],
-      listByCurrentContractDigests: async (digests) => {
-        const requested = new Set(digests);
-        return [{
-          instanceId: "svc_other",
-          deploymentId: "billing.other",
-          instanceKey: "session-key-other",
-          disabled: false,
-          currentContractId: "billing@v1",
-          currentContractDigest: "digest-referenced",
-          capabilities: ["service"],
-          createdAt: "2026-01-01T00:00:00.000Z",
-        }].filter((entry) =>
-          entry.currentContractDigest &&
-          requested.has(entry.currentContractDigest)
-        );
-      },
       listByDeployment: async () => [],
     },
   };
 
   const result = await createAuthDeploymentsServiceRemoveHandler({
     ...kickDeps(serviceDeps),
-    contractStorage: {
-      delete: async (digest) => {
-        calls.push(`delete-contract:${digest}`);
-      },
-    },
-    deviceDeploymentStorage: {
-      listByDeploymentIds: async () => [],
-    },
-    deploymentContractEvidenceStorage: {
-      listByDigests: async (digests) => {
-        const requested = new Set(digests);
-        return [
-          deploymentEvidence("billing.default", "digest-unused", "billing@v1"),
-        ].filter((record) => requested.has(record.contractDigest));
-      },
-      listByDeployment: async () => [
-        deploymentEvidence("billing.default", "digest-unused", "billing@v1"),
-      ],
-    },
-    contractApprovalStorage: {
-      listByApprovalEvidenceContractDigests: async () => [],
-    },
     sessionStorage: {
       deleteByInstanceKey: async () => {},
       listEntries: async () => [],
       listEntriesByContractDigests: async () => [],
     },
-    builtinContractDigests: ["digest-builtin"],
     refreshActiveContracts: async () => {
       calls.push("refresh");
     },
@@ -1114,7 +1028,6 @@ Deno.test("Auth.Deployments.Remove service purges only unreferenced non-built-in
   assertEquals(calls, [
     "delete-deployment",
     "refresh",
-    "delete-contract:digest-unused",
   ]);
   assertEquals(storedDeployment, undefined);
 });
@@ -1150,7 +1063,6 @@ Deno.test("Auth.Deployments.Remove service keeps removal successful when unused 
       put: async () => throwingStoreAccess(),
       delete: async () => throwingStoreAccess(),
       listPage: async () => [],
-      listByCurrentContractDigests: async () => [],
       listByDeployment: async () => [],
     },
   };
@@ -1162,35 +1074,11 @@ Deno.test("Auth.Deployments.Remove service keeps removal successful when unused 
         warnings.push(fields);
       },
     },
-    contractStorage: {
-      delete: async (digest) => {
-        calls.push(`delete-contract:${digest}`);
-        throw new Error("contract cleanup failed");
-      },
-    },
-    deviceDeploymentStorage: {
-      listByDeploymentIds: async () => [],
-    },
-    deploymentContractEvidenceStorage: {
-      listByDigests: async (digests) => {
-        const requested = new Set(digests);
-        return [
-          deploymentEvidence("billing.default", "digest-unused", "billing@v1"),
-        ].filter((record) => requested.has(record.contractDigest));
-      },
-      listByDeployment: async () => [
-        deploymentEvidence("billing.default", "digest-unused", "billing@v1"),
-      ],
-    },
-    contractApprovalStorage: {
-      listByApprovalEvidenceContractDigests: async () => [],
-    },
     sessionStorage: {
       deleteByInstanceKey: async () => {},
       listEntries: async () => [],
       listEntriesByContractDigests: async () => [],
     },
-    builtinContractDigests: [],
     refreshActiveContracts: async () => {
       calls.push("refresh");
     },
@@ -1208,7 +1096,6 @@ Deno.test("Auth.Deployments.Remove service keeps removal successful when unused 
   assertEquals(calls, [
     "delete-deployment",
     "refresh",
-    "delete-contract:digest-unused",
   ]);
   assertEquals(warnings.length, 1);
   assertEquals(storedDeployment, undefined);
@@ -1226,8 +1113,6 @@ Deno.test("Auth.Deployments.Remove service cascades instances, sessions, and run
       deploymentId: "billing.default",
       instanceKey: "session-key-1",
       disabled: false,
-      currentContractId: "billing@v1",
-      currentContractDigest: "digest-a",
       capabilities: ["service"],
       createdAt: "2026-01-01T00:00:00.000Z",
     },
@@ -1236,8 +1121,6 @@ Deno.test("Auth.Deployments.Remove service cascades instances, sessions, and run
       deploymentId: "billing.default",
       instanceKey: "session-key-2",
       disabled: false,
-      currentContractId: "billing@v1",
-      currentContractDigest: "digest-a",
       capabilities: ["service"],
       createdAt: "2026-01-01T00:00:00.000Z",
     },
@@ -1508,8 +1391,6 @@ Deno.test("Auth.Deployments.Remove service does not revoke runtime access when r
     deploymentId: "billing.default",
     instanceKey: "session-key-1",
     disabled: false,
-    currentContractId: "billing@v1",
-    currentContractDigest: "digest-a",
     capabilities: ["service"],
     createdAt: "2026-01-01T00:00:00.000Z",
   }];
@@ -1614,8 +1495,6 @@ Deno.test("Auth.Deployments.Remove service does not delete or refresh when casca
       deploymentId: "billing.default",
       instanceKey: "session-key-1",
       disabled: false,
-      currentContractId: "billing@v1",
-      currentContractDigest: "digest-a",
       capabilities: ["service"],
       createdAt: "2026-01-01T00:00:00.000Z",
     },
@@ -1705,8 +1584,6 @@ Deno.test("Auth.Deployments.Remove service deletes and refreshes after purge whe
     deploymentId: "billing.default",
     instanceKey: "session-key-1",
     disabled: false,
-    currentContractId: "billing@v1",
-    currentContractDigest: "digest-a",
     capabilities: ["service"],
     createdAt: "2026-01-01T00:00:00.000Z",
   }];
@@ -1822,8 +1699,6 @@ Deno.test("Auth.Deployments.Remove service rolls back cascade deletes when an in
       deploymentId: "billing.default",
       instanceKey: "session-key-1",
       disabled: false,
-      currentContractId: "billing@v1",
-      currentContractDigest: "digest-a",
       capabilities: ["service"],
       createdAt: "2026-01-01T00:00:00.000Z",
     },
@@ -1832,8 +1707,6 @@ Deno.test("Auth.Deployments.Remove service rolls back cascade deletes when an in
       deploymentId: "billing.default",
       instanceKey: "session-key-2",
       disabled: false,
-      currentContractId: "billing@v1",
-      currentContractDigest: "digest-a",
       capabilities: ["service"],
       createdAt: "2026-01-01T00:00:00.000Z",
     },
@@ -1929,8 +1802,6 @@ Deno.test("Auth.ServiceInstances.Enable rolls back instance and does not kick wh
     deploymentId: "billing.default",
     instanceKey: "session-key-1",
     disabled: true,
-    currentContractId: "billing@v1",
-    currentContractDigest: "digest-a",
     capabilities: ["service"],
     createdAt: "2026-01-01T00:00:00.000Z",
   };
@@ -2025,10 +1896,8 @@ function deviceAdminDeps(args: {
   serviceDeployments?: Array<
     { deploymentId: string; disabled?: boolean }
   >;
-  deploymentContractEvidence?: DeploymentContractEvidenceRecord[];
   activeCatalogIssues?: ActiveCatalogIssue[];
-  deletedEvidence?: DeploymentContractEvidenceRecord[];
-  serviceInstances?: Array<{ currentContractDigest?: string | null }>;
+  serviceInstances?: Array<Record<string, never>>;
   approvalDigests?: string[];
   envelopePuts?: Array<{
     deploymentId: string;
@@ -2259,35 +2128,6 @@ function deviceAdminDeps(args: {
         envelope = record;
       },
     },
-    deploymentContractEvidenceStorage: {
-      listPage: async () => args.deploymentContractEvidence ?? [],
-      listByDigests: async (digests) => {
-        const requested = new Set(digests);
-        return (args.deploymentContractEvidence ?? []).filter((record) =>
-          requested.has(record.contractDigest)
-        );
-      },
-      listByDeployment: async (deploymentId: string) =>
-        (args.deploymentContractEvidence ?? []).filter((record) =>
-          record.deploymentId === deploymentId
-        ),
-      deleteEvidence: async ({ contractId, contractDigests }) => {
-        const requested = new Set(contractDigests);
-        const deleted = (args.deploymentContractEvidence ?? []).filter(
-          (record) =>
-            record.contractId === contractId &&
-            requested.has(record.contractDigest),
-        );
-        args.deletedEvidence?.push(...deleted);
-        args.deploymentContractEvidence =
-          (args.deploymentContractEvidence ?? [])
-            .filter((record) =>
-              record.contractId !== contractId ||
-              !requested.has(record.contractDigest)
-            );
-        return deleted;
-      },
-    },
     deviceInstanceStorage: {
       get: async (instanceId) =>
         instances.find((instance) => instance.instanceId === instanceId),
@@ -2382,14 +2222,6 @@ function deviceAdminDeps(args: {
     },
     serviceInstanceStorage: {
       listPage: async () => args.serviceInstances ?? [],
-      listByCurrentContractDigests: async (digests) => {
-        const requested = new Set(digests);
-        return (args.serviceInstances ?? []).filter((instance) =>
-          instance.currentContractDigest !== undefined &&
-          instance.currentContractDigest !== null &&
-          requested.has(instance.currentContractDigest)
-        );
-      },
     },
     eventPublisher: {
       event: {
@@ -2438,14 +2270,9 @@ function deviceAdminDeps(args: {
   };
 }
 
-Deno.test("Auth.CatalogIssues.Resolve deletes non-selected evidence", async () => {
-  const deletedEvidence: DeploymentContractEvidenceRecord[] = [];
+Deno.test("Auth.CatalogIssues.Resolve applies force-replace without deleting offers", async () => {
   let refreshCount = 0;
-  const current = deploymentEvidence("svc-a", "digest-current", "billing@v1");
-  const proposed = deploymentEvidence("svc-b", "digest-proposed", "billing@v1");
   const { deps } = deviceAdminDeps({
-    deploymentContractEvidence: [current, proposed],
-    deletedEvidence,
     activeCatalogIssues: [{
       issueId: "issue-1",
       kind: "incompatible-active-contract",
@@ -2460,8 +2287,8 @@ Deno.test("Auth.CatalogIssues.Resolve deletes non-selected evidence", async () =
       conflictingDeploymentIds: ["svc-b"],
       actions: [{
         action: "force-replace",
-        label: "Force replace current contract",
-        description: "Delete current evidence.",
+        label: "Force replace active implementation",
+        description: "Accept the proposed digest.",
         risk: "dangerous",
         deploymentIds: ["svc-a"],
         digests: ["digest-current"],
@@ -2479,11 +2306,11 @@ Deno.test("Auth.CatalogIssues.Resolve deletes non-selected evidence", async () =
 
   assert(result.isOk());
   const value = result.take();
-  if (!("deletedEvidence" in value)) {
-    throw new Error("expected catalog issue resolution response");
-  }
-  assertEquals(deletedEvidence, [current]);
-  assertEquals(value.deletedEvidence, [current]);
+  assertEquals(value, {
+    success: true,
+    issueId: "issue-1",
+    action: "force-replace",
+  });
   assertEquals(refreshCount, 1);
 });
 
@@ -2680,7 +2507,7 @@ Deno.test("Auth.Deployments.Remove device rejects contract purge without cascade
   assertEquals(refreshCount, 0);
 });
 
-Deno.test("Auth.Deployments.Remove device preflights contract purge dependencies before revocation", async () => {
+Deno.test("Auth.Deployments.Remove device skips unused contract purge dependencies", async () => {
   const deployment: DeviceDeployment = {
     deploymentId: "reader.default",
     reviewMode: "none",
@@ -2707,8 +2534,6 @@ Deno.test("Auth.Deployments.Remove device preflights contract purge dependencies
       refreshCount += 1;
     },
   });
-  deps.contractStorage = undefined;
-
   const result = await createDeviceAdminHandlers(deps).removeDeviceDeployment({
     input: {
       deploymentId: "reader.default",
@@ -2718,44 +2543,28 @@ Deno.test("Auth.Deployments.Remove device preflights contract purge dependencies
     context: adminContext,
   });
 
-  assert(result.isErr());
-  assertEquals(getStored(), deployment);
-  assertEquals(getInstances(), [instance]);
-  assertEquals(deletedInstances, []);
-  assertEquals(kicked, []);
-  assertEquals(refreshCount, 0);
+  assert(!result.isErr());
+  assertEquals(getStored(), undefined);
+  assertEquals(getInstances(), []);
+  assertEquals(deletedInstances, ["device_1"]);
+  assertEquals(kicked, [{ serverId: "server-1", clientId: 1 }]);
+  assertEquals(refreshCount, 1);
 });
 
-Deno.test("Auth.Deployments.Remove device purges only unreferenced non-built-in installed contracts after refresh", async () => {
+Deno.test("Auth.Deployments.Remove device skips unused contract purge after offer cleanup", async () => {
   const deployment: DeviceDeployment = {
     deploymentId: "reader.default",
     reviewMode: "none",
     disabled: false,
   };
-  const deletedContracts: string[] = [];
   const calls: string[] = [];
   const { deps, getStored } = deviceAdminDeps({
     deployment,
-    builtinContractDigests: ["digest-builtin"],
-    deletedContracts,
     serviceDeployments: [{ deploymentId: "service.default" }],
-    deploymentContractEvidence: [
-      deploymentEvidence("reader.default", "digest-unused"),
-      deploymentEvidence("reader.default", "digest-referenced"),
-      deploymentEvidence("reader.default", "digest-builtin"),
-      deploymentEvidence("service.default", "digest-referenced", "service@v1"),
-    ],
-    serviceInstances: [{ currentContractDigest: "digest-referenced" }],
     refreshActiveContracts: async () => {
       calls.push("refresh");
     },
   });
-  deps.contractStorage = {
-    delete: async (digest: string) => {
-      calls.push(`delete-contract:${digest}`);
-      deletedContracts.push(digest);
-    },
-  };
 
   const result = await createDeviceAdminHandlers(deps).removeDeviceDeployment({
     input: {
@@ -2767,15 +2576,11 @@ Deno.test("Auth.Deployments.Remove device purges only unreferenced non-built-in 
   });
 
   assert(!result.isErr());
-  assertEquals(calls, [
-    "refresh",
-    "delete-contract:digest-unused",
-  ]);
-  assertEquals(deletedContracts, ["digest-unused"]);
+  assertEquals(calls, ["refresh"]);
   assertEquals(getStored(), undefined);
 });
 
-Deno.test("Auth.Deployments.Remove device keeps removal successful when unused contract cleanup fails", async () => {
+Deno.test("Auth.Deployments.Remove device remains successful when unused contract purge is requested", async () => {
   const deployment: DeviceDeployment = {
     deploymentId: "reader.default",
     reviewMode: "none",
@@ -2787,16 +2592,7 @@ Deno.test("Auth.Deployments.Remove device keeps removal successful when unused c
     refreshActiveContracts: async () => {
       calls.push("refresh");
     },
-    deploymentContractEvidence: [
-      deploymentEvidence("reader.default", "digest-unused"),
-    ],
   });
-  deps.contractStorage = {
-    delete: async (digest: string) => {
-      calls.push(`delete-contract:${digest}`);
-      throw new Error("contract cleanup failed");
-    },
-  };
 
   const result = await createDeviceAdminHandlers(deps).removeDeviceDeployment({
     input: {
@@ -2808,10 +2604,7 @@ Deno.test("Auth.Deployments.Remove device keeps removal successful when unused c
   });
 
   assert(!result.isErr());
-  assertEquals(calls, [
-    "refresh",
-    "delete-contract:digest-unused",
-  ]);
+  assertEquals(calls, ["refresh"]);
   assertEquals(getStored(), undefined);
 });
 

@@ -8,6 +8,7 @@ import { Value } from "typebox/value";
 import type { ContractsModule } from "../../catalog/runtime.ts";
 import {
   type ContractResourceBindings,
+  existingResourceNamesFromBindings,
   provisionContractResourceBindings,
   type ResourceProvisioningOptions,
 } from "../../catalog/resources.ts";
@@ -26,11 +27,11 @@ import {
 } from "../envelope_decision.ts";
 import { SessionKeySchema, SignatureSchema } from "../schemas.ts";
 import type {
-  DeploymentContractEvidence,
   DeploymentEnvelope,
   DeploymentResourceBinding,
   EnvelopeBoundary,
   EnvelopeExpansionRequest,
+  ImplementationOffer,
   SentinelCreds,
 } from "../schemas.ts";
 
@@ -51,8 +52,6 @@ type ServiceBootstrapInstance = {
   deploymentId: string;
   instanceKey: string;
   disabled: boolean;
-  currentContractId?: string;
-  currentContractDigest?: string;
   capabilities: string[];
   resourceBindings?: Record<string, unknown>;
   createdAt: string | Date;
@@ -71,7 +70,6 @@ type DeploymentEnvelopeStorage = {
     envelope: DeploymentEnvelope;
     delta: EnvelopeBoundary;
     resourceBindings: DeploymentResourceBinding[];
-    contractEvidence: DeploymentContractEvidence;
   }): Promise<void>;
 };
 
@@ -85,19 +83,21 @@ type DeploymentResourceBindingStorage = {
   listByDeployment(deploymentId: string): Promise<DeploymentResourceBinding[]>;
 };
 
-type DeploymentContractEvidenceStorage = {
-  get(
-    deploymentId: string,
-    contractDigest: string,
-  ): Promise<DeploymentContractEvidence | undefined>;
-  put(record: DeploymentContractEvidence): Promise<void>;
-  listByDeployment(deploymentId: string): Promise<DeploymentContractEvidence[]>;
-};
-
 type EnvelopeExpansionRequestStorage = {
   putPending(
     record: EnvelopeExpansionRequest,
   ): Promise<EnvelopeExpansionRequest>;
+  latestApprovedByContractId?(
+    contractId: string,
+  ): Promise<EnvelopeExpansionRequest | undefined>;
+};
+
+type ImplementationOfferStorage = {
+  get(offerId: string): Promise<ImplementationOffer | undefined>;
+  put(record: ImplementationOffer): Promise<void>;
+  latestAcceptedByLineage(
+    lineageKey: string,
+  ): Promise<ImplementationOffer | undefined>;
 };
 
 export const ServiceBootstrapRequestSchema = Type.Object({
@@ -131,7 +131,7 @@ export type ServiceBootstrapDeps = {
   >;
   deploymentEnvelopeStorage: DeploymentEnvelopeStorage;
   deploymentResourceBindingStorage: DeploymentResourceBindingStorage;
-  deploymentContractEvidenceStorage: DeploymentContractEvidenceStorage;
+  implementationOfferStorage: ImplementationOfferStorage;
   envelopeExpansionRequestStorage: EnvelopeExpansionRequestStorage;
   storePresentedContract?(input: {
     contract: TrellisContractV1;
@@ -177,6 +177,67 @@ function bootstrapFailure(
     reason,
     ...(message ? { message } : {}),
     ...(extra ?? {}),
+  };
+}
+
+function dependencyReasonForResponse(
+  error: ContractUseDependencyError,
+): string {
+  return error.reason === "inactive" ? "dependency_not_active" : error.reason;
+}
+
+function dependencySurfaceLabel(
+  surface: ContractUseDependencyError["surface"],
+): string {
+  return surface === "rpc" ? "RPC" : surface;
+}
+
+function dependencyWaitMessage(args: {
+  contractId: string;
+  contractDigest: string;
+  error: ContractUseDependencyError;
+}): string {
+  const dependency =
+    `dependency '${args.error.alias}' (${args.error.contractId})`;
+  const prefix =
+    `Service contract '${args.contractId}' digest '${args.contractDigest}' is waiting for ${dependency}`;
+  if (args.error.reason === "inactive") {
+    return `${prefix} to have an active running implementation.`;
+  }
+  if (args.error.reason === "unknown") {
+    return `${prefix} to be installed or approved.`;
+  }
+  if (args.error.key !== undefined) {
+    return `${prefix} to provide required ${
+      dependencySurfaceLabel(args.error.surface)
+    } '${args.error.key}'.`;
+  }
+  return `${prefix} to provide required ${
+    dependencySurfaceLabel(args.error.surface)
+  } access.`;
+}
+
+function dependencyFailureContext(args: {
+  service: { instanceId: string };
+  deployment: { deploymentId: string };
+  request: { contractId: string; contractDigest: string };
+  error: ContractUseDependencyError;
+}): Record<string, unknown> {
+  return {
+    instanceId: args.service.instanceId,
+    deploymentId: args.deployment.deploymentId,
+    contractId: args.request.contractId,
+    contractDigest: args.request.contractDigest,
+    dependencyAlias: args.error.alias,
+    dependencyContractId: args.error.contractId,
+    dependencySurface: args.error.surface,
+    dependencyReason: dependencyReasonForResponse(args.error),
+    dependencyMessage: dependencyWaitMessage({
+      contractId: args.request.contractId,
+      contractDigest: args.request.contractDigest,
+      error: args.error,
+    }),
+    ...(args.error.key !== undefined ? { dependencyKey: args.error.key } : {}),
   };
 }
 
@@ -232,22 +293,47 @@ function resourceKey(kind: string, alias: string): string {
   return `${kind}\u001f${alias}`;
 }
 
+function serviceOfferLineageKey(
+  deploymentId: string,
+  contractId: string,
+): string {
+  return JSON.stringify(["service", deploymentId, contractId]);
+}
+
+function serviceOfferId(input: {
+  deploymentId: string;
+  instanceId: string;
+  contractId: string;
+  contractDigest: string;
+}): string {
+  return JSON.stringify([
+    "service",
+    input.deploymentId,
+    input.instanceId,
+    input.contractId,
+    input.contractDigest,
+  ]);
+}
+
 async function assertPresentedContractCompatible(input: {
   contracts: Pick<ServiceBootstrapDeps["contracts"], "getContract">;
   deployment: ServiceBootstrapDeployment;
-  service: ServiceBootstrapInstance;
+  implementationOfferStorage: ImplementationOfferStorage;
   presentedDigest: string;
   presentedContract: TrellisContractV1;
 }): Promise<string | null> {
   if (input.deployment.contractCompatibilityMode === "mutable-dev") {
     return null;
   }
-  const currentDigest = input.service.currentContractDigest;
-  const currentId = input.service.currentContractId;
-  if (
-    !currentDigest || currentDigest === input.presentedDigest ||
-    currentId !== input.presentedContract.id
-  ) {
+  const latestAccepted = await input.implementationOfferStorage
+    .latestAcceptedByLineage(
+      serviceOfferLineageKey(
+        input.deployment.deploymentId,
+        input.presentedContract.id,
+      ),
+    );
+  const currentDigest = latestAccepted?.contractDigest;
+  if (!currentDigest || currentDigest === input.presentedDigest) {
     return null;
   }
 
@@ -314,7 +400,7 @@ function missingResourceBindingKeys(
   );
   const missing: string[] = [];
   for (const resource of requested.resources) {
-    if (resource.kind === "transfer" || !resource.required) continue;
+    if (resource.kind === "transfer") continue;
     const key = resourceKey(resource.kind, resource.alias);
     if (!produced.has(key)) missing.push(key);
   }
@@ -447,13 +533,20 @@ async function buildResourceBindingRecords(input: {
 async function knownDependencyEntriesForProvisioning(
   deps: Pick<
     ServiceBootstrapDeps["contracts"],
-    "getActiveEntries" | "getKnownEntriesByContractId"
+    "getActiveEntries" | "validateContract"
+  >,
+  expansionRequests: Pick<
+    EnvelopeExpansionRequestStorage,
+    "latestApprovedByContractId"
   >,
   contract: TrellisContractV1,
 ): Promise<ContractEntry[]> {
   const entriesByDigest = new Map<string, ContractEntry>();
+  const activeEntriesByContractId = new Map<string, ContractEntry[]>();
   for (const entry of await deps.getActiveEntries()) {
-    entriesByDigest.set(entry.digest, entry);
+    const entries = activeEntriesByContractId.get(entry.contract.id) ?? [];
+    entries.push(entry);
+    activeEntriesByContractId.set(entry.contract.id, entries);
   }
   const contractIds = new Set<string>();
   for (const group of [contract.uses?.required, contract.uses?.optional]) {
@@ -462,7 +555,13 @@ async function knownDependencyEntriesForProvisioning(
     }
   }
   for (const contractId of contractIds) {
-    for (const entry of await deps.getKnownEntriesByContractId(contractId)) {
+    const activeEntries = activeEntriesByContractId.get(contractId);
+    const approvedFallback = activeEntries === undefined
+      ? await approvedFallbackEntry(deps, expansionRequests, contractId)
+      : undefined;
+    const dependencyEntries = activeEntries ??
+      (approvedFallback ? [approvedFallback] : []);
+    for (const entry of dependencyEntries) {
       entriesByDigest.set(entry.digest, entry);
     }
   }
@@ -471,20 +570,65 @@ async function knownDependencyEntriesForProvisioning(
   );
 }
 
-function contractEvidenceRecord(input: {
+async function approvedFallbackEntry(
+  contracts: Pick<ServiceBootstrapDeps["contracts"], "validateContract">,
+  storage: Pick<EnvelopeExpansionRequestStorage, "latestApprovedByContractId">,
+  contractId: string,
+): Promise<ContractEntry | undefined> {
+  const request = await storage.latestApprovedByContractId?.(contractId);
+  if (!request) return undefined;
+  const validated = await contracts.validateContract(request.contract);
+  if (
+    validated.contract.id !== contractId ||
+    validated.digest !== request.contractDigest
+  ) {
+    return undefined;
+  }
+  return { digest: validated.digest, contract: validated.contract };
+}
+
+function boundaryContractDeps(deps: ServiceBootstrapDeps) {
+  return {
+    ...deps.contracts,
+    getApprovedFallbackEntryByContractId: (contractId: string) =>
+      approvedFallbackEntry(
+        deps.contracts,
+        deps.envelopeExpansionRequestStorage,
+        contractId,
+      ),
+  };
+}
+
+async function acceptedServiceOfferRecord(input: {
+  storage: ImplementationOfferStorage;
   deploymentId: string;
+  instanceId: string;
   contract: TrellisContractV1;
   digest: string;
   now: string;
-  existing?: DeploymentContractEvidence;
-}): DeploymentContractEvidence {
-  return {
+}): Promise<ImplementationOffer> {
+  const offerId = serviceOfferId({
     deploymentId: input.deploymentId,
+    instanceId: input.instanceId,
     contractId: input.contract.id,
     contractDigest: input.digest,
-    contract: { ...input.contract },
-    firstSeenAt: input.existing?.firstSeenAt ?? input.now,
-    lastSeenAt: input.now,
+  });
+  const existing = await input.storage.get(offerId);
+  return {
+    offerId,
+    deploymentKind: "service",
+    deploymentId: input.deploymentId,
+    instanceId: input.instanceId,
+    contractId: input.contract.id,
+    contractDigest: input.digest,
+    lineageKey: serviceOfferLineageKey(input.deploymentId, input.contract.id),
+    status: "accepted",
+    liveness: "healthy",
+    firstOfferedAt: existing?.firstOfferedAt ?? input.now,
+    acceptedAt: existing?.acceptedAt ?? input.now,
+    lastRefreshedAt: input.now,
+    staleAt: null,
+    expiresAt: null,
   };
 }
 
@@ -572,10 +716,6 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       );
     }
 
-    const existingEvidence = await deps.deploymentContractEvidenceStorage.get(
-      service.deploymentId,
-      request.contractDigest,
-    );
     let rawContract: unknown = request.contract ??
       await deps.contracts.getContract(request.contractDigest, {
         includeInactive: true,
@@ -624,7 +764,7 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
     >;
     try {
       analysis = await analyzeContractEnvelopeBoundary(
-        deps.contracts,
+        boundaryContractDeps(deps),
         validated.contract,
         { dependencyResolution: "knownOrPending" },
       );
@@ -634,18 +774,12 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
         return c.json(
           bootstrapFailure(
             "contract_activation_pending",
-            `Service contract '${request.contractId}' digest '${request.contractDigest}' is waiting for dependency closure: ${catalogError.message}`,
-            {
-              instanceId: service.instanceId,
-              deploymentId: deployment.deploymentId,
+            dependencyWaitMessage({
               contractId: request.contractId,
               contractDigest: request.contractDigest,
-              dependencyAlias: error.alias,
-              dependencyContractId: error.contractId,
-              dependencySurface: error.surface,
-              dependencyReason: error.reason,
-              ...(error.key !== undefined ? { dependencyKey: error.key } : {}),
-            },
+              error,
+            }),
+            dependencyFailureContext({ service, deployment, request, error }),
           ),
           202,
         );
@@ -718,13 +852,6 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       requestedBoundary,
     );
     const now = (deps.now?.() ?? new Date()).toISOString();
-    const contractEvidence = contractEvidenceRecord({
-      deploymentId: service.deploymentId,
-      contract,
-      digest: request.contractDigest,
-      now,
-      existing: existingEvidence,
-    });
 
     if (!fit.fits) {
       const delta = computeEnvelopeDelta(
@@ -733,7 +860,6 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       );
       const requestId = deps.createExpansionRequestId?.() ??
         crypto.randomUUID();
-      await deps.deploymentContractEvidenceStorage.put(contractEvidence);
       const expansionRequest = await deps.envelopeExpansionRequestStorage
         .putPending({
           requestId,
@@ -772,7 +898,7 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
     const compatibilityError = await assertPresentedContractCompatible({
       contracts: deps.contracts,
       deployment,
-      service,
+      implementationOfferStorage: deps.implementationOfferStorage,
       presentedDigest: request.contractDigest,
       presentedContract: contract,
     });
@@ -786,7 +912,13 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
             deploymentId: service.deploymentId,
             contractId: request.contractId,
             contractDigest: request.contractDigest,
-            currentContractDigest: service.currentContractDigest,
+            latestAcceptedContractDigest: (await deps.implementationOfferStorage
+              .latestAcceptedByLineage(
+                serviceOfferLineageKey(
+                  service.deploymentId,
+                  request.contractId,
+                ),
+              ))?.contractDigest,
             compatibilityMode: deployment.contractCompatibilityMode ?? "strict",
           },
         ),
@@ -795,6 +927,63 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
     }
 
     const capabilities = getRequiredServiceCapabilities(analysis, contract);
+
+    let activeAnalysis: Awaited<
+      ReturnType<typeof analyzeContractEnvelopeBoundary>
+    >;
+    try {
+      activeAnalysis = await analyzeContractEnvelopeBoundary(
+        boundaryContractDeps(deps),
+        contract,
+        { dependencyResolution: "activeOrApproved" },
+      );
+    } catch (error) {
+      const catalogError = toError(error);
+      if (error instanceof ContractUseDependencyError) {
+        return c.json(
+          bootstrapFailure(
+            "contract_activation_pending",
+            dependencyWaitMessage({
+              contractId: request.contractId,
+              contractDigest: request.contractDigest,
+              error,
+            }),
+            dependencyFailureContext({ service, deployment, request, error }),
+          ),
+          202,
+        );
+      }
+      return c.json(
+        bootstrapFailure(
+          "contract_catalog_issue",
+          `Service contract '${request.contractId}' digest '${request.contractDigest}' is waiting for catalog repair: ${catalogError.message}`,
+          {
+            instanceId: service.instanceId,
+            deploymentId: deployment.deploymentId,
+            contractId: request.contractId,
+            contractDigest: request.contractDigest,
+            catalogError: catalogError.message,
+          },
+        ),
+        409,
+      );
+    }
+    if (activeAnalysis.contract.digest !== request.contractDigest) {
+      return c.json(
+        bootstrapFailure(
+          "presented_contract_digest_mismatch",
+          `Presented contract digest '${activeAnalysis.contract.digest}' does not match requested digest '${request.contractDigest}'. Review and apply the intended contract before starting this service.`,
+          {
+            instanceId: service.instanceId,
+            deploymentId: deployment.deploymentId,
+            contractId: request.contractId,
+            expectedContractDigest: request.contractDigest,
+            presentedContractDigest: activeAnalysis.contract.digest,
+          },
+        ),
+        409,
+      );
+    }
 
     const existingBindings = await deps.deploymentResourceBindingStorage
       .listByDeployment(service.deploymentId);
@@ -809,23 +998,14 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
         .filter((resource) => resource.kind !== "transfer")
         .map((resource) => resourceKey(resource.kind, resource.alias)),
     );
-    const requiredResourceKeys = new Set(
-      requestedBoundary.resources
-        .filter((resource) => resource.kind !== "transfer" && resource.required)
-        .map((resource) => resourceKey(resource.kind, resource.alias)),
-    );
     let resourceBindingRecords = existingBindings.filter((binding) =>
       requestedResourceKeys.has(resourceKey(binding.kind, binding.alias))
     );
-    const existingRequiredCount =
-      resourceBindingRecords.filter((binding) =>
-        requiredResourceKeys.has(resourceKey(binding.kind, binding.alias))
-      ).length;
     const requestedEventConsumers = requestedBoundary.resources.some(
       (resource) => resource.kind === "event-consumer",
     );
     if (
-      existingRequiredCount < requiredResourceKeys.size ||
+      resourceBindingRecords.length < requestedResourceKeys.size ||
       requestedEventConsumers
     ) {
       const provisioned = await (deps.provisionResourceBindings ??
@@ -835,8 +1015,12 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
           service.deploymentId,
           {
             ...deps.resourceProvisioningOptions,
+            existingResourceNames: existingResourceNamesFromBindings(
+              existingBindings,
+            ),
             knownContractEntries: await knownDependencyEntriesForProvisioning(
               deps.contracts,
+              deps.envelopeExpansionRequestStorage,
               contract,
             ),
             envelopeBoundary: deploymentEnvelope.boundary,
@@ -887,13 +1071,11 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
         envelope: deploymentEnvelope,
         delta: emptyBoundary(),
         resourceBindings: resourceBindingRecords,
-        contractEvidence,
       });
     } else {
       for (const binding of resourceBindingRecords) {
         await deps.deploymentResourceBindingStorage.put(binding);
       }
-      await deps.deploymentContractEvidenceStorage.put(contractEvidence);
     }
 
     const resourceBindings = resourceBindingsForResponse(
@@ -902,21 +1084,28 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
 
     let nextService = service;
     if (
-      service.currentContractDigest !== request.contractDigest ||
-      service.currentContractId !== request.contractId ||
       !service.resourceBindings ||
       !sameJsonRecord(service.resourceBindings, resourceBindings) ||
       !sameJsonRecord(service.capabilities, capabilities)
     ) {
       nextService = {
         ...service,
-        currentContractId: request.contractId,
-        currentContractDigest: request.contractDigest,
         capabilities,
         resourceBindings: resourceBindings ?? {},
       };
       await deps.saveServiceInstance(nextService);
     }
+
+    await deps.implementationOfferStorage.put(
+      await acceptedServiceOfferRecord({
+        storage: deps.implementationOfferStorage,
+        deploymentId: service.deploymentId,
+        instanceId: service.instanceId,
+        contract,
+        digest: request.contractDigest,
+        now,
+      }),
+    );
 
     return c.json({
       status: "ready",

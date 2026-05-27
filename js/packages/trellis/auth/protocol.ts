@@ -43,8 +43,6 @@ export const ServiceInstanceSchema = Type.Object({
   deploymentId: Type.String({ minLength: 1 }),
   instanceKey: Type.String({ minLength: 1 }),
   disabled: Type.Boolean(),
-  currentContractId: Type.Optional(Type.String({ minLength: 1 })),
-  currentContractDigest: Type.Optional(DigestSchema),
   capabilities: Type.Array(Type.String()),
   resourceBindings: Type.Optional(ContractResourceBindingsSchema),
   createdAt: IsoDateStringSchema,
@@ -217,23 +215,55 @@ export type DeploymentResourceBinding = StaticDecode<
   typeof DeploymentResourceBindingSchema
 >;
 
-export const DeploymentContractEvidenceSchema = Type.Object({
+export const EnvelopeHistoryEntrySchema = Type.Object({
+  entryId: Type.String({ minLength: 1 }),
+  scopeKind: Type.Literal("deployment"),
+  scopeId: Type.String({ minLength: 1 }),
+  action: Type.Union([Type.Literal("expand"), Type.Literal("revoke")]),
+  delta: EnvelopeBoundarySchema,
+  resultingUpdatedAt: IsoDateStringSchema,
+  actor: Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()]),
+  reason: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  source: Type.Object({
+    contractId: Type.Optional(Type.String({ minLength: 1 })),
+    contractDigest: Type.Optional(DigestSchema),
+    requestId: Type.Optional(Type.String({ minLength: 1 })),
+  }),
+  createdAt: IsoDateStringSchema,
+});
+export type EnvelopeHistoryEntry = StaticDecode<
+  typeof EnvelopeHistoryEntrySchema
+>;
+
+export const ImplementationOfferSchema = Type.Object({
+  offerId: Type.String({ minLength: 1 }),
+  deploymentKind: Type.Union([Type.Literal("service"), Type.Literal("device")]),
   deploymentId: Type.String({ minLength: 1 }),
+  instanceId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   contractId: Type.String({ minLength: 1 }),
   contractDigest: DigestSchema,
-  contract: OpenObjectSchema,
-  firstSeenAt: IsoDateStringSchema,
-  lastSeenAt: IsoDateStringSchema,
-  ignoredAt: Type.Optional(Type.Union([IsoDateStringSchema, Type.Null()])),
-  ignoredBy: Type.Optional(
-    Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()]),
-  ),
-  ignoreReason: Type.Optional(
-    Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-  ),
+  lineageKey: Type.String({ minLength: 1 }),
+  status: Type.Union([
+    Type.Literal("offered"),
+    Type.Literal("accepted"),
+    Type.Literal("stale"),
+    Type.Literal("expired"),
+    Type.Literal("withdrawn"),
+  ]),
+  liveness: Type.Union([
+    Type.Literal("unknown"),
+    Type.Literal("healthy"),
+    Type.Literal("unhealthy"),
+    Type.Literal("disconnected"),
+  ]),
+  firstOfferedAt: IsoDateStringSchema,
+  acceptedAt: Type.Union([IsoDateStringSchema, Type.Null()]),
+  lastRefreshedAt: IsoDateStringSchema,
+  staleAt: Type.Union([IsoDateStringSchema, Type.Null()]),
+  expiresAt: Type.Union([IsoDateStringSchema, Type.Null()]),
 });
-export type DeploymentContractEvidence = StaticDecode<
-  typeof DeploymentContractEvidenceSchema
+export type ImplementationOffer = StaticDecode<
+  typeof ImplementationOfferSchema
 >;
 
 export const DeploymentPortalRouteSchema = Type.Object({
@@ -350,7 +380,8 @@ export type AuthEnvelopesGetInput = StaticDecode<typeof AuthEnvelopesGetSchema>;
 export const AuthEnvelopesGetResponseSchema = Type.Object({
   envelope: DeploymentEnvelopeSchema,
   resourceBindings: Type.Array(DeploymentResourceBindingSchema),
-  contractEvidence: Type.Array(DeploymentContractEvidenceSchema),
+  contractHistory: Type.Array(EnvelopeHistoryEntrySchema),
+  implementationOffers: Type.Array(ImplementationOfferSchema),
   expansionRequests: Type.Array(EnvelopeExpansionRequestSchema),
   portalRoute: Type.Union([DeploymentPortalRouteSchema, Type.Null()]),
   grantOverrides: Type.Array(DeploymentGrantOverrideSchema),
@@ -409,7 +440,7 @@ export type AuthEnvelopesExpandInput = StaticDecode<
 export const AuthEnvelopesExpandResponseSchema = Type.Object({
   envelope: DeploymentEnvelopeSchema,
   delta: EnvelopeBoundarySchema,
-  contractEvidence: DeploymentContractEvidenceSchema,
+  contractHistory: Type.Array(EnvelopeHistoryEntrySchema),
   resourceBindings: Type.Array(DeploymentResourceBindingSchema),
 });
 export type AuthEnvelopesExpandResponse = StaticDecode<
@@ -428,7 +459,7 @@ export const AuthEnvelopesApproveRequestResponseSchema = Type.Object({
   request: EnvelopeExpansionRequestSchema,
   envelope: DeploymentEnvelopeSchema,
   delta: EnvelopeBoundarySchema,
-  contractEvidence: DeploymentContractEvidenceSchema,
+  contractHistory: Type.Array(EnvelopeHistoryEntrySchema),
   resourceBindings: Type.Array(DeploymentResourceBindingSchema),
 });
 export type AuthEnvelopesApproveRequestResponse = StaticDecode<
@@ -1184,7 +1215,6 @@ export const AuthCatalogIssuesResolveResponseSchema = Type.Object({
     Type.Literal("keep-current"),
     Type.Literal("force-replace"),
   ]),
-  deletedEvidence: Type.Array(DeploymentContractEvidenceSchema),
 });
 
 export const AuthDeploymentsEnableSchema = Type.Object({
@@ -1221,8 +1251,6 @@ export const DeviceSchema = Type.Object({
     Type.Literal("revoked"),
     Type.Literal("disabled"),
   ]),
-  currentContractId: Type.Optional(Type.String({ minLength: 1 })),
-  currentContractDigest: Type.Optional(DigestSchema),
   createdAt: IsoDateStringSchema,
   activatedAt: Type.Union([IsoDateStringSchema, Type.Null()]),
   revokedAt: Type.Union([IsoDateStringSchema, Type.Null()]),

@@ -50,76 +50,124 @@ Deno.test("collectActiveContractDigests keeps builtins active", () => {
       envelope("service.disabled", ["disabled@v1"], true),
       envelope("device.enabled", ["device@v1"]),
     ],
-    deploymentContractEvidence: [
-      {
-        deploymentId: "service.enabled",
-        contractId: "service@v1",
-        contractDigest: "service-digest",
-      },
-      {
-        deploymentId: "service.disabled",
-        contractId: "disabled@v1",
-        contractDigest: "disabled-parent-digest",
-      },
-      {
-        deploymentId: "device.enabled",
-        contractId: "device@v1",
-        contractDigest: "device-digest",
-      },
-    ],
   });
 
   assertEquals([...active], ["builtin"]);
 });
 
-Deno.test("collectActiveContractDigests ignores enabled deployment evidence", () => {
+Deno.test("collectActiveContractDigests ignores enabled deployment envelopes", () => {
   const active = collectActiveContractDigests({
     builtinDigests: [],
     deploymentEnvelopes: [envelope("service.enabled", ["service@v1"])],
-    deploymentContractEvidence: [{
-      deploymentId: "service.enabled",
-      contractId: "service@v1",
-      contractDigest: "service-digest",
-    }],
   });
 
   assertEquals([...active], []);
 });
 
-Deno.test("collectActiveContractDigests excludes disabled service deployment evidence", () => {
+Deno.test("collectActiveContractDigests excludes disabled service deployment envelopes", () => {
   const active = collectActiveContractDigests({
     builtinDigests: [],
     deploymentEnvelopes: [envelope("service.disabled", ["service@v1"], true)],
-    deploymentContractEvidence: [{
-      deploymentId: "service.disabled",
-      contractId: "service@v1",
-      contractDigest: "service-digest",
-    }],
   });
 
   assertEquals([...active], []);
 });
 
-Deno.test("collectActiveContractDigests ignores non-builtin evidence while preserving builtin digests", () => {
+Deno.test("collectActiveContractDigests preserves builtin digests", () => {
   const active = collectActiveContractDigests({
     builtinDigests: ["builtin-current"],
     builtinContractIds: ["trellis.jobs@v1"],
     deploymentEnvelopes: [
       envelope("service.jobs", ["trellis.jobs@v1", "app@v1"]),
     ],
-    deploymentContractEvidence: [
+  });
+
+  assertEquals([...active], ["builtin-current"]);
+});
+
+Deno.test("collectActiveContractDigests includes accepted non-expired implementation offers", () => {
+  const active = collectActiveContractDigests({
+    builtinDigests: ["builtin-current"],
+    deploymentEnvelopes: [],
+    evaluationTime: "2026-01-01T00:00:00.000Z",
+    implementationOffers: [{
+      deploymentKind: "service",
+      deploymentId: "service.default",
+      instanceId: "svc_1",
+      contractId: "service@v1",
+      contractDigest: "service-digest",
+      status: "accepted",
+      acceptedAt: "2025-12-31T00:00:00.000Z",
+      firstOfferedAt: "2025-12-31T00:00:00.000Z",
+      lastRefreshedAt: "2026-01-01T00:00:00.000Z",
+      staleAt: null,
+      expiresAt: null,
+    }],
+  });
+
+  assertEquals([...active], ["builtin-current", "service-digest"]);
+});
+
+Deno.test("collectActiveContractDigests excludes offered stale expired and withdrawn offers", () => {
+  const active = collectActiveContractDigests({
+    builtinDigests: [],
+    deploymentEnvelopes: [],
+    evaluationTime: "2026-01-01T00:00:00.000Z",
+    implementationOffers: [
       {
-        deploymentId: "service.jobs",
-        contractId: "trellis.jobs@v1",
-        contractDigest: "builtin-old",
+        deploymentKind: "service",
+        deploymentId: "service.offered",
+        instanceId: null,
+        contractId: "service@v1",
+        contractDigest: "offered-digest",
+        status: "offered",
+        acceptedAt: null,
+        firstOfferedAt: "2025-12-31T00:00:00.000Z",
+        lastRefreshedAt: "2025-12-31T00:00:00.000Z",
+        staleAt: null,
+        expiresAt: null,
       },
       {
-        deploymentId: "service.jobs",
-        contractId: "app@v1",
-        contractDigest: "app-digest",
+        deploymentKind: "service",
+        deploymentId: "service.stale",
+        instanceId: "svc_stale",
+        contractId: "service@v1",
+        contractDigest: "stale-digest",
+        status: "accepted",
+        acceptedAt: "2025-12-31T00:00:00.000Z",
+        firstOfferedAt: "2025-12-31T00:00:00.000Z",
+        lastRefreshedAt: "2025-12-31T00:00:00.000Z",
+        staleAt: "2025-12-31T23:00:00.000Z",
+        expiresAt: null,
+      },
+      {
+        deploymentKind: "service",
+        deploymentId: "service.expired",
+        instanceId: "svc_expired",
+        contractId: "service@v1",
+        contractDigest: "expired-digest",
+        status: "accepted",
+        acceptedAt: "2025-12-31T00:00:00.000Z",
+        firstOfferedAt: "2025-12-31T00:00:00.000Z",
+        lastRefreshedAt: "2025-12-31T00:00:00.000Z",
+        staleAt: null,
+        expiresAt: "2025-12-31T23:00:00.000Z",
+      },
+      {
+        deploymentKind: "service",
+        deploymentId: "service.withdrawn",
+        instanceId: "svc_withdrawn",
+        contractId: "service@v1",
+        contractDigest: "withdrawn-digest",
+        status: "withdrawn",
+        acceptedAt: "2025-12-31T00:00:00.000Z",
+        firstOfferedAt: "2025-12-31T00:00:00.000Z",
+        lastRefreshedAt: "2025-12-31T00:00:00.000Z",
+        staleAt: null,
+        expiresAt: null,
       },
     ],
   });
 
-  assertEquals([...active], ["builtin-current"]);
+  assertEquals([...active], []);
 });

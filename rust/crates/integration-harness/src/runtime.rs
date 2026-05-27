@@ -153,10 +153,24 @@ pub(crate) fn rewrite_trellis_config(
                 )
             })?;
     }
-    fs::write(&config_path, render_trellis_config(options, &manifest.nats))
-        .into_diagnostic()
-        .wrap_err_with(|| format!("failed to write Trellis config {}", config_path.display()))?;
+    fs::write(
+        &config_path,
+        render_integration_trellis_config(options, &manifest.nats),
+    )
+    .into_diagnostic()
+    .wrap_err_with(|| format!("failed to write Trellis config {}", config_path.display()))?;
     Ok(config_path)
+}
+
+fn render_integration_trellis_config(
+    options: &LocalTrellisBootstrapOptions,
+    nats_manifest: &trellis_local_bootstrap::LocalNatsBootstrapManifest,
+) -> String {
+    render_trellis_config(options, nats_manifest).replacen(
+        "  \"storage\": {",
+        "  \"httpRateLimit\": {\n    \"max\": 0\n  },\n  \"storage\": {",
+        1,
+    )
 }
 
 async fn wait_for_version(public_url: &str, timeout: Duration) -> Result<()> {
@@ -251,6 +265,7 @@ mod tests {
         let config = std::fs::read_to_string(config_path).expect("read config");
 
         assert!(config.contains("\"port\": 49111"));
+        assert!(config.contains("\"httpRateLimit\": {\n    \"max\": 0\n  }"));
         assert!(config.contains("nats://127.0.0.1:49112"));
         assert!(config.contains("ws://127.0.0.1:49113"));
     }

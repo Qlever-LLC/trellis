@@ -11,6 +11,7 @@ import type {
   SqlDeviceInstanceRepository,
   SqlDeviceProvisioningSecretRepository,
   SqlIdentityEnvelopeRepository,
+  SqlImplementationOfferRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlSessionRepository,
@@ -88,5 +89,6 @@ export type AuthRuntimeDeps = {
   serviceInstanceStorage: SqlServiceInstanceRepository;
   serviceDeploymentStorage: SqlServiceDeploymentRepository;
   sessionStorage: SqlSessionRepository;
+  implementationOfferStorage: SqlImplementationOfferRepository;
   userStorage: SqlUserProjectionRepository;
 };

@@ -343,23 +343,6 @@ CREATE TABLE IF NOT EXISTS `deployment_resource_bindings` (
 	PRIMARY KEY(`deployment_id`, `resource_kind`, `resource_alias`)
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS `deployment_contract_evidence` (
-	`deployment_id` text NOT NULL,
-	`contract_id` text NOT NULL,
-	`contract_digest` text NOT NULL,
-	`contract_json` text NOT NULL,
-	`first_seen_at` text NOT NULL,
-	`last_seen_at` text NOT NULL,
-	`ignored_at` text,
-	`ignored_by_json` text,
-	`ignore_reason` text,
-	PRIMARY KEY(`deployment_id`, `contract_digest`)
-);
---> statement-breakpoint
-CREATE INDEX IF NOT EXISTS `deployment_contract_evidence_digest_idx` ON `deployment_contract_evidence` (`contract_digest`);
---> statement-breakpoint
-CREATE INDEX IF NOT EXISTS `deployment_contract_evidence_contract_deployment_idx` ON `deployment_contract_evidence` (`contract_id`,`deployment_id`);
---> statement-breakpoint
 CREATE TABLE IF NOT EXISTS `envelope_expansion_requests` (
 	`request_id` text PRIMARY KEY NOT NULL,
 	`pending_key` text,

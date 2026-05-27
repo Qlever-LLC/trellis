@@ -504,25 +504,53 @@ export type DeploymentResourceBinding = StaticDecode<
   typeof DeploymentResourceBindingSchema
 >;
 
-export const DeploymentContractEvidenceSchema = Type.Object({
+export const ImplementationOfferDeploymentKindSchema = Type.Union([
+  Type.Literal("service"),
+  Type.Literal("device"),
+]);
+export type ImplementationOfferDeploymentKind = StaticDecode<
+  typeof ImplementationOfferDeploymentKindSchema
+>;
+
+export const ImplementationOfferStatusSchema = Type.Union([
+  Type.Literal("offered"),
+  Type.Literal("accepted"),
+  Type.Literal("stale"),
+  Type.Literal("expired"),
+  Type.Literal("withdrawn"),
+]);
+export type ImplementationOfferStatus = StaticDecode<
+  typeof ImplementationOfferStatusSchema
+>;
+
+export const ImplementationOfferLivenessSchema = Type.Union([
+  Type.Literal("unknown"),
+  Type.Literal("healthy"),
+  Type.Literal("unhealthy"),
+  Type.Literal("disconnected"),
+]);
+export type ImplementationOfferLiveness = StaticDecode<
+  typeof ImplementationOfferLivenessSchema
+>;
+
+export const ImplementationOfferSchema = Type.Object({
+  offerId: Type.String({ minLength: 1 }),
+  deploymentKind: ImplementationOfferDeploymentKindSchema,
   deploymentId: Type.String({ minLength: 1 }),
+  instanceId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   contractId: Type.String({ minLength: 1 }),
   contractDigest: Type.String({ minLength: 1 }),
-  contract: Type.Record(Type.String(), Type.Unknown()),
-  firstSeenAt: DurableIsoDateStringSchema,
-  lastSeenAt: DurableIsoDateStringSchema,
-  ignoredAt: Type.Optional(
-    Type.Union([DurableIsoDateStringSchema, Type.Null()]),
-  ),
-  ignoredBy: Type.Optional(
-    Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()]),
-  ),
-  ignoreReason: Type.Optional(
-    Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-  ),
+  lineageKey: Type.String({ minLength: 1 }),
+  status: ImplementationOfferStatusSchema,
+  liveness: ImplementationOfferLivenessSchema,
+  firstOfferedAt: DurableIsoDateStringSchema,
+  acceptedAt: Type.Union([DurableIsoDateStringSchema, Type.Null()]),
+  lastRefreshedAt: DurableIsoDateStringSchema,
+  staleAt: Type.Union([DurableIsoDateStringSchema, Type.Null()]),
+  expiresAt: Type.Union([DurableIsoDateStringSchema, Type.Null()]),
 });
-export type DeploymentContractEvidence = StaticDecode<
-  typeof DeploymentContractEvidenceSchema
+export type ImplementationOffer = StaticDecode<
+  typeof ImplementationOfferSchema
 >;
 
 export const EnvelopeExpansionRequestStateSchema = Type.Union([
@@ -692,8 +720,8 @@ export const ServiceSessionSchema = Type.Object({
   instanceId: Type.String({ minLength: 1 }),
   deploymentId: Type.String({ minLength: 1 }),
   instanceKey: Type.String({ minLength: 1 }),
-  currentContractId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-  currentContractDigest: Type.Union([
+  contractId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  contractDigest: Type.Union([
     Type.String({ pattern: "^[A-Za-z0-9_-]+$" }),
     Type.Null(),
   ]),

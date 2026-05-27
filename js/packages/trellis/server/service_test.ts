@@ -1077,8 +1077,12 @@ Deno.test("TrellisService.connect waits for pending contract activation", async 
             JSON.stringify({
               reason: "contract_activation_pending",
               message:
-                "Service contract 'trellis.core@v1' digest 'digest_123' is not active yet.",
+                "Service contract 'trellis.core@v1' digest 'digest_123' is waiting for dependency 'billing' (billing.example@v1) to have an active running implementation.",
               deploymentId: "demo-js",
+              dependencyAlias: "billing",
+              dependencyContractId: "billing.example@v1",
+              dependencySurface: "contract",
+              dependencyReason: "dependency_not_active",
             }),
             {
               status: 202,
@@ -1140,14 +1144,22 @@ Deno.test("TrellisService.connect waits for pending contract activation", async 
       "Trellis could not open the service runtime connection.",
     );
     assertEquals(fetchCount, 2);
-    assertEquals(testLogger.infoCalls, [[{
-      service: "svc",
-      deploymentId: "demo-js",
-      requestId: undefined,
-      contractId: core.CONTRACT_ID,
-      contractDigest: core.CONTRACT_DIGEST,
-      retryDelayMs: 0,
-    }, "Service contract activation pending; waiting for dependency closure"]]);
+    assertEquals(testLogger.infoCalls, [[
+      {
+        service: "svc",
+        deploymentId: "demo-js",
+        requestId: undefined,
+        contractId: core.CONTRACT_ID,
+        contractDigest: core.CONTRACT_DIGEST,
+        dependencyAlias: "billing",
+        dependencyContractId: "billing.example@v1",
+        dependencySurface: "contract",
+        dependencyReason: "dependency_not_active",
+        dependencyKey: undefined,
+        retryDelayMs: 0,
+      },
+      "Service contract activation pending; waiting for dependency 'billing' (billing.example@v1) to have an active running implementation",
+    ]]);
   } finally {
     globalThis.fetch = originalFetch;
   }

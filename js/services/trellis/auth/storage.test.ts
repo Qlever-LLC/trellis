@@ -158,8 +158,6 @@ function makeServiceInstance(
     deploymentId: "svc-deployment-a",
     instanceKey: "session-key-a",
     disabled: false,
-    currentContractId: "svc.graph@v1",
-    currentContractDigest: "sha256-service-a",
     capabilities: ["service", "graph.query"],
     resourceBindings: {
       kv: {
@@ -433,8 +431,8 @@ function makeServiceSession(
     instanceId: "svc_1",
     deploymentId: "svc-deployment-a",
     instanceKey: "svc-session-key",
-    currentContractId: "svc.graph@v1",
-    currentContractDigest: "sha256-service-contract",
+    contractId: "svc.graph@v1",
+    contractDigest: "sha256-service-contract",
     createdAt: new Date("2026-04-26T00:00:00.000Z"),
     lastAuth: new Date("2026-04-26T00:00:01.000Z"),
     ...overrides,
@@ -1808,8 +1806,6 @@ Deno.test("service instance storage upserts, deletes, and looks up by instance k
       instanceId: "svc_instance_a",
       deploymentId: "svc-deployment-b",
       instanceKey: "session-key-b",
-      currentContractId: undefined,
-      currentContractDigest: undefined,
       capabilities: [],
       resourceBindings: undefined,
     });
@@ -1828,8 +1824,6 @@ Deno.test("service instance storage upserts, deletes, and looks up by instance k
       deploymentId: "svc-deployment-a",
       instanceKey: "session-key-c",
       disabled: true,
-      currentContractId: "svc.search@v1",
-      currentContractDigest: "sha256-service-c",
       capabilities: ["service", "search.query"],
       resourceBindings: { store: { output: { name: "results", ttlMs: 0 } } },
       createdAt: "2026-04-26T00:00:01.000Z",
@@ -1841,7 +1835,7 @@ Deno.test("service instance storage upserts, deletes, and looks up by instance k
     assertEquals(await instances.getByInstanceKey("session-key-c"), updated);
     assertEquals(await instances.listPage({ limit: 10 }), [second, updated]);
     assertEquals(
-      await instances.listByCurrentContractDigests(["sha256-service-c"]),
+      await instances.listByDeployments(["svc-deployment-a"]),
       [updated],
     );
     assertEquals(await instances.listByDeployment("svc-deployment-a"), [

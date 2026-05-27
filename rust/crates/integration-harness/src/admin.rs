@@ -352,12 +352,19 @@ pub(crate) async fn run_admin_api_fixture(
         })
         .await
         .into_diagnostic()?;
-    if expanded.contract_evidence.contract_id != service_contract_id
-        || expanded.contract_evidence.contract_digest != service_contract_digest
-        || expanded.contract_evidence.deployment_id != service_deployment_id
-    {
+    if expanded.envelope.deployment_id != service_deployment_id {
         return Err(miette!(
-            "Auth.Envelopes.Expand returned unexpected contract evidence"
+            "Auth.Envelopes.Expand returned envelope for unexpected deployment `{}`",
+            expanded.envelope.deployment_id
+        ));
+    }
+    if !expanded.contract_history.iter().any(|entry| {
+        entry.scope_id == service_deployment_id
+            && entry.source.contract_id.as_deref() == Some(service_contract_id.as_str())
+            && entry.source.contract_digest.as_deref() == Some(service_contract_digest.as_str())
+    }) {
+        return Err(miette!(
+            "Auth.Envelopes.Expand contract history did not identify expanded service contract `{service_contract_id}`"
         ));
     }
     auth_client
@@ -400,13 +407,36 @@ pub(crate) async fn run_admin_api_fixture(
         })
         .await
         .into_diagnostic()?;
-    if !envelope.contract_evidence.iter().any(|evidence| {
-        evidence.contract_id == service_contract_id
-            && evidence.contract_digest == service_contract_digest
-            && evidence.deployment_id == service_deployment_id
+    if !envelope.contract_history.iter().any(|entry| {
+        entry.scope_id == service_deployment_id
+            && entry.source.contract_id.as_deref() == Some(service_contract_id.as_str())
+            && entry.source.contract_digest.as_deref() == Some(service_contract_digest.as_str())
     }) {
         return Err(miette!(
-            "Auth.Envelopes.Get did not include expanded contract evidence"
+            "Auth.Envelopes.Get contract history did not identify expanded service contract `{service_contract_id}`"
+        ));
+    }
+    if envelope.implementation_offers.iter().any(|offer| {
+        offer.deployment_id == service_deployment_id
+            && offer.contract_id == service_contract_id
+            && offer.contract_digest == service_contract_digest
+            && offer.status == "accepted"
+    }) {
+        return Err(miette!(
+            "Auth.Envelopes.Get included an accepted service offer before service bootstrap for `{service_contract_id}`"
+        ));
+    }
+    let cold_catalog = core_client
+        .rpc()
+        .trellis()
+        .catalog()
+        .await
+        .into_diagnostic()?;
+    if cold_catalog.catalog.contracts.iter().any(|contract| {
+        contract.id == service_contract_id && contract.digest == service_contract_digest
+    }) {
+        return Err(miette!(
+            "Trellis.Catalog included cold expanded contract `{service_contract_id}`"
         ));
     }
 
@@ -446,6 +476,42 @@ pub(crate) async fn run_admin_api_fixture(
         &service_seed,
     )
     .await?;
+    let envelope_after_service_bootstrap = auth_client
+        .rpc()
+        .auth()
+        .envelopes_get(&AuthEnvelopesGetRequest {
+            deployment_id: service_deployment_id.clone(),
+        })
+        .await
+        .into_diagnostic()?;
+    if !envelope_after_service_bootstrap
+        .implementation_offers
+        .iter()
+        .any(|offer| {
+            offer.deployment_id == service_deployment_id
+                && offer.contract_id == service_contract_id
+                && offer.contract_digest == service_contract_digest
+                && offer.deployment_kind == "service"
+                && offer.status == "accepted"
+        })
+    {
+        return Err(miette!(
+            "Auth.Envelopes.Get implementation offers did not include accepted service offer for `{service_contract_id}` after service bootstrap"
+        ));
+    }
+    let active_catalog = core_client
+        .rpc()
+        .trellis()
+        .catalog()
+        .await
+        .into_diagnostic()?;
+    if !active_catalog.catalog.contracts.iter().any(|contract| {
+        contract.id == service_contract_id && contract.digest == service_contract_digest
+    }) {
+        return Err(miette!(
+            "Trellis.Catalog did not include active service implementation `{service_contract_id}` after service bootstrap"
+        ));
+    }
 
     let (_device_seed, device_public_identity_key) = generate_session_keypair();
     let (_activation_seed, activation_key) = generate_session_keypair();
@@ -480,26 +546,13 @@ pub(crate) async fn run_admin_api_fixture(
             "Auth.Devices.List did not include provisioned device"
         ));
     }
-    assert_trellis_surface_status_device_implementer(
+    assert_trellis_surface_status_unavailable(
         &core_client,
         &device_contract_id,
         "Harness.Admin.Device.Ping",
     )
     .await?;
 
-    let catalog = core_client
-        .rpc()
-        .trellis()
-        .catalog()
-        .await
-        .into_diagnostic()?;
-    if catalog.catalog.contracts.iter().any(|contract| {
-        contract.id == service_contract_id && contract.digest == service_contract_digest
-    }) {
-        return Err(miette!(
-            "Trellis.Catalog included cold expanded contract `{service_contract_id}`"
-        ));
-    }
     let contract = core_client
         .rpc()
         .trellis()
@@ -827,7 +880,7 @@ fn device_contract_json(contract_id: &str) -> Result<String> {
         .map_err(|error| miette!("failed to serialize admin API device contract: {error}"))
 }
 
-async fn assert_trellis_surface_status_device_implementer(
+async fn assert_trellis_surface_status_unavailable(
     core_client: &CoreClient<'_>,
     contract_id: &str,
     surface: &str,
@@ -843,12 +896,11 @@ async fn assert_trellis_surface_status_device_implementer(
         })
         .await
         .into_diagnostic()?;
-    if surface_status.status.get("state") != Some(&json!("available"))
-        || surface_status.status.get("liveImplementer") != Some(&json!(true))
-        || surface_status.status.get("runtime") != Some(&json!("live"))
+    if surface_status.status.get("state") != Some(&json!("unavailable"))
+        || surface_status.status.get("reason") != Some(&json!("envelope_unavailable"))
     {
         return Err(miette!(
-            "Trellis.Surface.Status returned unexpected device implementer status {}",
+            "Trellis.Surface.Status returned unexpected inactive device surface status {}",
             surface_status.status
         ));
     }

@@ -67,7 +67,7 @@ async function withMigratedStorage(
   }
 }
 
-Deno.test("contract digest reindex upgrade reindexes valid stale rows and updates service instances", async () => {
+Deno.test("contract digest reindex upgrade reindexes valid stale contract rows", async () => {
   await withMigratedStorage(
     "trellis-storage-upgrade-reindex-",
     async (storage) => {
@@ -89,8 +89,6 @@ Deno.test("contract digest reindex upgrade reindexes valid stale rows and update
         deploymentId: "billing.default",
         instanceKey: "billing-key",
         disabled: false,
-        currentContractId: contract.id,
-        currentContractDigest: "legacy-digest",
         capabilities: "[]",
         resourceBindings: null,
         createdAt: "2026-01-01T00:00:00.000Z",
@@ -115,7 +113,7 @@ Deno.test("contract digest reindex upgrade reindexes valid stale rows and update
       assertEquals(currentRows[0].analysisSummary === null, false);
       assertEquals(currentRows[0].analysis === null, false);
       assertEquals(legacyRows.length, 0);
-      assertEquals(instance?.currentContractDigest, currentDigest);
+      assertEquals(instance?.instanceId, "billing.instance");
       assertMatch(marker?.appliedAt ?? "", /^\d{4}-\d{2}-\d{2}T/);
       assertEquals(JSON.parse(marker?.summary ?? "{}"), {
         scanned: 1,

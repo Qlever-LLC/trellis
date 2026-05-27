@@ -2,7 +2,6 @@ import { SqlContractStorageRepository } from "../catalog/storage.ts";
 import {
   SqlAccountFlowRepository,
   SqlCapabilityGroupRepository,
-  SqlDeploymentContractEvidenceRepository,
   SqlDeploymentEnvelopeRepository,
   SqlDeploymentGrantOverrideRepository,
   SqlDeploymentPortalRouteRepository,
@@ -15,6 +14,7 @@ import {
   SqlEnvelopeExpansionRequestRepository,
   SqlEnvelopeHistoryRepository,
   SqlIdentityEnvelopeRepository,
+  SqlImplementationOfferRepository,
   SqlLocalCredentialRepository,
   SqlLoginPortalRepository,
   SqlServiceDeploymentRepository,
@@ -44,8 +44,9 @@ export async function createStorage(config: Config) {
       new SqlDeploymentResourceBindingRepository(
         storage.db,
       ),
-    deploymentContractEvidenceStorage:
-      new SqlDeploymentContractEvidenceRepository(storage.db),
+    implementationOfferStorage: new SqlImplementationOfferRepository(
+      storage.db,
+    ),
     deploymentPortalRouteStorage: new SqlDeploymentPortalRouteRepository(
       storage.db,
     ),

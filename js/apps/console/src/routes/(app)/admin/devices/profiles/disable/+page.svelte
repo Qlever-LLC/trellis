@@ -4,6 +4,7 @@
     AuthDeploymentsDisableInput,
     AuthDeploymentsListOutput,
   } from "@qlever-llc/trellis/sdk/auth";
+  import { resolve } from "$app/paths";
   import { page } from "$app/state";
   import { onMount } from "svelte";
   import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
@@ -93,7 +94,7 @@
 <section class="space-y-4">
   <PageToolbar title="Disable device deployment" description="Select an active deployment and confirm the disable workflow.">
     {#snippet actions()}
-      <a class="btn btn-ghost btn-sm" href="/admin/devices">Back to devices</a>
+      <a class="btn btn-ghost btn-sm" href={resolve("/admin/devices")}>Back to devices</a>
     {/snippet}
   </PageToolbar>
 
@@ -121,7 +122,7 @@
           <div class="rounded-box border border-base-300 bg-base-200/40 p-3 text-sm">
             <div class="trellis-identifier font-medium">{selectedDeployment.deploymentId}</div>
             <div class="text-base-content/60">Review mode: {selectedDeployment.reviewMode ?? "none"}</div>
-            <div class="text-base-content/60">Authority: review the deployment envelope for contract evidence.</div>
+            <div class="text-base-content/60">Authority: review the deployment envelope boundary.</div>
           </div>
         {/if}
 

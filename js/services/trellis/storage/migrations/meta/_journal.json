@@ -36,6 +36,13 @@
       "when": 1779840000000,
       "tag": "00004_trellis_upgrades",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1779926400000,
+      "tag": "00005_implementation_offers",
+      "breakpoints": true
     }
   ]
 }

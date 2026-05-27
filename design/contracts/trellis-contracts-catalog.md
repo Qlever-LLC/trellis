@@ -383,6 +383,12 @@ Terms:
 - **effective active contract**: for one `contractId`, the compatible union of
   all active offers for that lineage. Multiple service versions may run together
   during rollout only when their owned surfaces are active-compatible.
+- **approved dependency fallback**: when no active offer exists for a dependency
+  `contractId`, the latest approved envelope expansion request for that
+  `contractId` may provide the dependency shape for service bootstrap,
+  approval-boundary derivation, and resource provisioning. This fallback is
+  durable approved intent, not runtime liveness, and it does not publish the
+  contract into the active catalog.
 - **stale offer**: an offer whose connection has disconnected or whose graceful
   shutdown has been observed, but whose short grace window has not expired.
 - **expired offer**: an offer past `expiresAt`. Expired offers do not contribute
@@ -397,9 +403,10 @@ Rules:
   decisions
 - an envelope MAY authorize surfaces that no active implementation currently
   offers; that is allowed because the envelope is authority, not liveness
-- if no active offer exists for a required dependency, Trellis reports a
-  targeted dependency-not-active blocker rather than searching historical
-  manifests for a compatible shape
+- if no active offer exists for a required dependency, Trellis may use the
+  latest approved dependency fallback for dependency shape; if no approved
+  fallback exists, Trellis reports a targeted dependency-not-active blocker
+  rather than searching historical manifests for a compatible shape
 - if active offers for one `contractId` are compatible, Trellis derives the
   effective active contract from their union
 - if a newly presented offer is incompatible with the latest accepted
@@ -411,6 +418,9 @@ Rules:
 - the latest accepted expired offer for a deployment and `contractId` MAY be
   used for strict same-lineage compatibility, because it is the implementation
   most likely to return after an outage
+- approved dependency fallback is selected only after active offers; active
+  offers remain authoritative for runtime availability, runtime authorization,
+  catalog projections, and mixed-version compatibility checks
 - graceful shutdown marks the offer stale for the same short grace window used
   for unplanned disconnects
 - health heartbeats MAY refresh offer freshness and Console-visible status only
@@ -605,9 +615,10 @@ Rules:
 - manifest validation is structural and MAY accept referenced contracts that are
   not active yet, but approval, provisioning, and runtime authorization MUST NOT
   derive dependency surfaces from inactive historical manifests
-- required dependency resolution uses the dependency's effective active
-  contract; if no effective active contract exists, Trellis reports a
-  dependency-not-active blocker
+- required dependency resolution uses the dependency's effective active contract
+  first; if no effective active contract exists, service bootstrap,
+  approval-boundary derivation, and resource provisioning may use the latest
+  approved dependency fallback
 - if the dependency's active offers are incompatible, Trellis reports a catalog
   repair issue for that active lineage and does not resolve the dependency from
   historical manifests
@@ -626,10 +637,11 @@ Rules:
   ref names are not sufficient, and different ref names are acceptable only when
   the resolved schemas are canonically equal or proven compatible by the
   same-lineage schema verifier
-- required dependency cycles that cannot produce an active provider first are
-  not resolved through historical manifests; service authors should break such
-  cycles by staging one provider, making one edge optional, or splitting
-  contracts
+- required dependency cycles can be staged through approved dependency
+  fallbacks: each participant is first reviewed and approved, then bootstrap can
+  resolve the approved dependency shapes even before the peer service has an
+  active offer. Historical known manifests are still not searched to resolve the
+  cycle.
 - higher-level consent scopes for user-facing applications MAY be derived from
   `uses`, but runtime enforcement remains operation-level
 - any user approval or consent record for a client contract MUST retain the
@@ -1340,9 +1352,10 @@ runtime discovery RPC set.
   digest when Trellis does not already know it
 - bootstrap validates and stores the presented manifest as a known contract;
   invalid manifests still fail before any envelope expansion request is created
-- when required dependencies are unknown or inactive, bootstrap and approval
-  return targeted dependency blockers and MUST NOT derive dependency surfaces or
-  capabilities from missing or historical manifests
+- when required dependencies are unknown, bootstrap and approval return targeted
+  dependency blockers unless a latest approved dependency fallback supplies the
+  reviewed dependency shape. They MUST NOT derive dependency surfaces or
+  capabilities from missing or historical manifests.
 - when the presented contract boundary does not fit the deployment envelope,
   bootstrap stores the requested delta in a pending envelope expansion request
   and returns `envelope_expansion_required` so the service runtime can wait and

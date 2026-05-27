@@ -3,6 +3,7 @@ import { type KV, Kvm } from "@nats-io/kv";
 import type { NatsConnection } from "@nats-io/nats-core";
 import { Objm } from "@nats-io/obj";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
+import { ulid } from "ulid";
 
 import type { EnvelopeBoundary } from "../auth/schemas.ts";
 import {
@@ -114,6 +115,7 @@ type EventConsumerManager = {
     consumer: string,
     config: Record<string, unknown>,
   ): Promise<ConsumerInfoLike>;
+  delete?(stream: string, consumer: string): Promise<boolean>;
 };
 
 export type ContractResourceAnalysis = {
@@ -127,6 +129,37 @@ export type ResourceProvisioningOptions = {
   jetstreamReplicas?: number;
   knownContractEntries?: ContractEntry[];
   envelopeBoundary?: EnvelopeBoundary;
+  existingResourceNames?: ExistingResourceNames;
+  resourceNameGenerator?: ResourceNameGenerator;
+};
+
+export type ResourceNameKind =
+  | "kv"
+  | "store"
+  | "eventConsumer"
+  | "jobsNamespace"
+  | "jobsQueue";
+
+export type ResourceNameGenerator = (kind: ResourceNameKind) => string;
+
+export type ExistingResourceNames = {
+  kv?: Record<string, string>;
+  store?: Record<string, string>;
+  eventConsumers?: Record<string, string>;
+  jobs?: {
+    namespace?: string;
+    queues?: Record<string, {
+      publishPrefix?: string;
+      workSubject?: string;
+      consumerName?: string;
+    }>;
+  };
+};
+
+export type StoredResourceBindingView = {
+  kind: string;
+  alias: string;
+  binding: Record<string, unknown>;
 };
 
 export type ContractResourceBindings = {
@@ -181,9 +214,26 @@ export type InstalledServiceContractBinding = {
   resources: ContractResourceBindings;
 };
 
+export type ProvisionedContractResource =
+  | { kind: "kv"; alias: string; name: string }
+  | { kind: "store"; alias: string; name: string }
+  | { kind: "eventConsumer"; alias: string; stream: string; name: string };
+
+export type ProvisionedContractResources = {
+  bindings: ContractResourceBindings;
+  created: ProvisionedContractResource[];
+  adopted: ProvisionedContractResource[];
+};
+
+export type ResourceRollbackResult = {
+  deleted: ProvisionedContractResource[];
+  failed: Array<{ resource: ProvisionedContractResource; error: unknown }>;
+};
+
 export type ResourcePurgeManager = {
   deleteKvBucket(bucket: string): Promise<void>;
   deleteObjectStore(name: string): Promise<void>;
+  deleteEventConsumer?(stream: string, consumerName: string): Promise<void>;
 };
 
 export type PurgeableContractResourceBindings = {
@@ -208,7 +258,42 @@ export function createNatsResourcePurgeManager(
       const store = await new Objm(nats).open(name);
       await store.destroy();
     },
+    async deleteEventConsumer(stream, consumerName) {
+      const jsm = await jetstreamManager(nats);
+      const consumers: EventConsumerManager = jsm.consumers;
+      if (!consumers.delete) return;
+      await consumers.delete(stream, consumerName);
+    },
   };
+}
+
+/**
+ * Best-effort rollback for resources created by a failed provisioning attempt.
+ * Adopted resources are intentionally preserved.
+ */
+export async function rollbackProvisionedContractResources(
+  result: Pick<ProvisionedContractResources, "created">,
+  manager: ResourcePurgeManager,
+): Promise<ResourceRollbackResult> {
+  const deleted: ProvisionedContractResource[] = [];
+  const failed: ResourceRollbackResult["failed"] = [];
+  for (const resource of result.created) {
+    try {
+      if (resource.kind === "kv") {
+        await manager.deleteKvBucket(resource.name);
+      } else if (resource.kind === "store") {
+        await manager.deleteObjectStore(resource.name);
+      } else if (manager.deleteEventConsumer) {
+        await manager.deleteEventConsumer(resource.stream, resource.name);
+      } else {
+        continue;
+      }
+      deleted.push(resource);
+    } catch (error) {
+      failed.push({ resource, error });
+    }
+  }
+  return { deleted, failed };
 }
 
 /**
@@ -316,9 +401,10 @@ async function ensureKvResource(
   bucket: string,
   request: Pick<KvResourceRequest, "history" | "ttlMs" | "maxValueBytes">,
   options: ResourceProvisioningOptions = {},
-): Promise<void> {
+): Promise<"created" | "adopted"> {
   const kvm = new Kvm(nats);
   let kv: KV;
+  let action: "created" | "adopted" = "created";
   try {
     kv = await kvm.create(bucket, {
       history: request.history,
@@ -333,6 +419,7 @@ async function ensureKvResource(
     ) {
       throw error;
     }
+    action = "adopted";
     kv = await kvm.open(bucket);
   }
   const jsm = await jetstreamManager(nats);
@@ -346,6 +433,7 @@ async function ensureKvResource(
     request,
     options,
   );
+  return action;
 }
 
 type KvResourceStreamConfig = {
@@ -420,9 +508,10 @@ async function ensureStoreResource(
   name: string,
   store: StoreResourceRequest,
   options: ResourceProvisioningOptions = {},
-): Promise<void> {
+): Promise<"created" | "adopted"> {
   const objm = new Objm(nats);
   let objectStore;
+  let action: "created" | "adopted" = "created";
   try {
     objectStore = await objm.create(name, {
       ...(store.ttlMs > 0 ? { ttl: store.ttlMs * 1_000_000 } : {}),
@@ -435,6 +524,7 @@ async function ensureStoreResource(
     if (!isObjectStoreAlreadyExistsError(error)) {
       throw error;
     }
+    action = "adopted";
     objectStore = await objm.open(name);
   }
   const status = await objectStore.status();
@@ -450,6 +540,7 @@ async function ensureStoreResource(
     store,
     options,
   );
+  return action;
 }
 
 type StoreResourceStreamConfig = {
@@ -620,7 +711,7 @@ async function ensureEventConsumer(
   nats: NatsConnection,
   request: EventConsumerGroupRequest,
   consumerName: string,
-): Promise<void> {
+): Promise<"created" | "adopted"> {
   const jsm = await jetstreamManager(nats);
   const consumers: EventConsumerManager = jsm.consumers;
   const config = {
@@ -636,11 +727,12 @@ async function ensureEventConsumer(
 
   try {
     await consumers.add(request.stream, config);
+    return "created";
   } catch (addError) {
     if (consumers.update) {
       try {
         await consumers.update(request.stream, consumerName, config);
-        return;
+        return "adopted";
       } catch (updateError) {
         if (!isConsumerNotFoundError(updateError)) {
           throw updateError;
@@ -649,58 +741,73 @@ async function ensureEventConsumer(
     }
     try {
       await consumers.info(request.stream, consumerName);
+      return "adopted";
     } catch {
       throw addError;
     }
   }
 }
 
-function sanitizeToken(value: string): string {
-  const sanitized = value
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  return sanitized.length > 0 ? sanitized : "resource";
-}
-
-function stableResourceHash(parts: readonly string[]): string {
-  let hash = 0xcbf29ce484222325n;
-  const prime = 0x100000001b3n;
-  const mask = 0xffffffffffffffffn;
-  for (const byte of new TextEncoder().encode(parts.join("\u001f"))) {
-    hash ^= BigInt(byte);
-    hash = (hash * prime) & mask;
+/** Generates a Trellis-owned physical resource name for a cloud-side binding. */
+export function generateInternalResourceName(kind: ResourceNameKind): string {
+  const token = ulid().toLowerCase();
+  switch (kind) {
+    case "kv":
+      return `tr_kv_${token}`;
+    case "store":
+      return `tr_obj_${token}`;
+    case "eventConsumer":
+      return `tr_cons_${token}`;
+    case "jobsNamespace":
+      return `tr_jobs_${token}`.slice(0, 32);
+    case "jobsQueue":
+      return `tr_jq_${token}`;
   }
-  return hash.toString(16).padStart(16, "0").slice(0, 12);
 }
 
-function buildResourceName(
-  serviceDeploymentId: string,
-  contractId: string,
-  alias: string,
-): string {
-  const service = sanitizeToken(serviceDeploymentId).slice(0, 12);
-  const contract = sanitizeToken(contractId).slice(0, 12);
-  const logical = sanitizeToken(alias).slice(0, 20);
-  const hash = stableResourceHash([serviceDeploymentId, contractId, alias]);
-  return `svc_${service}_${contract}_${logical}_${hash}`;
+function stringBindingValue(
+  binding: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = binding[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-function buildEventConsumerName(
-  serviceDeploymentId: string,
-  contractId: string,
-  alias: string,
-): string {
-  const service = sanitizeToken(serviceDeploymentId).slice(0, 12);
-  const contract = sanitizeToken(contractId).slice(0, 12);
-  const logical = sanitizeToken(alias).slice(0, 24);
-  const hash = stableResourceHash([
-    serviceDeploymentId,
-    contractId,
-    alias,
-    "event-consumer",
-  ]);
-  return `svc_${service}_${contract}_${logical}_${hash}`.slice(0, 64);
+/** Extracts reusable physical resource names from persisted binding records. */
+export function existingResourceNamesFromBindings(
+  records: readonly StoredResourceBindingView[],
+): ExistingResourceNames {
+  const names: ExistingResourceNames = {};
+  for (const record of records) {
+    if (record.kind === "kv") {
+      const bucket = stringBindingValue(record.binding, "bucket");
+      if (bucket) (names.kv ??= {})[record.alias] = bucket;
+    } else if (record.kind === "store") {
+      const name = stringBindingValue(record.binding, "name");
+      if (name) (names.store ??= {})[record.alias] = name;
+    } else if (record.kind === "event-consumer") {
+      const consumerName = stringBindingValue(record.binding, "consumerName");
+      if (consumerName) {
+        (names.eventConsumers ??= {})[record.alias] = consumerName;
+      }
+    } else if (record.kind === "jobs") {
+      const namespace = stringBindingValue(record.binding, "namespace");
+      if (namespace) (names.jobs ??= {}).namespace ??= namespace;
+      const queue: NonNullable<
+        NonNullable<ExistingResourceNames["jobs"]>["queues"]
+      >[string] = {};
+      const publishPrefix = stringBindingValue(record.binding, "publishPrefix");
+      const workSubject = stringBindingValue(record.binding, "workSubject");
+      const consumerName = stringBindingValue(record.binding, "consumerName");
+      if (publishPrefix) queue.publishPrefix = publishPrefix;
+      if (workSubject) queue.workSubject = workSubject;
+      if (consumerName) queue.consumerName = consumerName;
+      if (Object.keys(queue).length > 0) {
+        ((names.jobs ??= {}).queues ??= {})[record.alias] = queue;
+      }
+    }
+  }
+  return names;
 }
 
 export function getKvResourceRequests(
@@ -943,23 +1050,30 @@ export function needsUnboundContractInfrastructure(
   return contract.id === TRELLIS_JOBS_CONTRACT_ID;
 }
 
-function buildJobsNamespace(
-  serviceDeploymentId: string,
-  contractId: string,
-): string {
-  const service = sanitizeToken(serviceDeploymentId).slice(0, 8);
-  const contract = sanitizeToken(contractId).slice(0, 8);
-  const hash = stableResourceHash([serviceDeploymentId, contractId, "jobs"])
-    .slice(0, 12);
-  return `${service}_${contract}_${hash}`.slice(0, 32);
-}
-
 export async function provisionContractResourceBindings(
   nats: NatsConnection | undefined,
   contract: TrellisContractV1,
   serviceDeploymentId: string,
   options: ResourceProvisioningOptions = {},
 ): Promise<ContractResourceBindings> {
+  return (await provisionContractResources(
+    nats,
+    contract,
+    serviceDeploymentId,
+    options,
+  )).bindings;
+}
+
+/**
+ * Provisions or adopts every declared NATS-backed resource for a contract and
+ * reports which physical resources were created by this attempt.
+ */
+export async function provisionContractResources(
+  nats: NatsConnection | undefined,
+  contract: TrellisContractV1,
+  _serviceDeploymentId: string,
+  options: ResourceProvisioningOptions = {},
+): Promise<ProvisionedContractResources> {
   const requests = getKvResourceRequests(contract);
   const stores = getStoreResourceRequests(contract);
   const jobs = getJobsQueueRequests(contract);
@@ -972,65 +1086,59 @@ export async function provisionContractResourceBindings(
     !needsBuiltinJobsInfrastructure &&
     eventConsumers.length === 0
   ) {
-    return {};
+    return { bindings: {}, created: [], adopted: [] };
   }
 
-  const kvBindings: NonNullable<ContractResourceBindings["kv"]> = {};
+  const result: ProvisionedContractResources = {
+    bindings: {},
+    created: [],
+    adopted: [],
+  };
+  const newResourceName = options.resourceNameGenerator ??
+    generateInternalResourceName;
 
-  if (requests.length > 0) {
-    if (!nats && requests.some((request) => request.required)) {
-      throw new Error("NATS connection is required to provision KV resources");
-    }
-    for (const request of requests) {
-      if (!nats) continue;
-      const bucket = buildResourceName(
-        serviceDeploymentId,
-        contract.id,
-        request.alias,
-      );
-      try {
-        await ensureKvResource(nats, bucket, request, options);
-      } catch (error) {
-        if (!request.required) continue;
-        throw error;
-      }
-      kvBindings[request.alias] = {
-        bucket,
-        history: request.history,
-        ttlMs: request.ttlMs,
-        ...(request.maxValueBytes
-          ? { maxValueBytes: request.maxValueBytes }
-          : {}),
-      };
-    }
-  }
+  try {
+    const kvBindings: NonNullable<ContractResourceBindings["kv"]> = {};
 
-  const bindings: ContractResourceBindings = {};
-  if (Object.keys(kvBindings).length > 0) {
-    bindings.kv = kvBindings;
-  }
-
-  if (stores.length > 0) {
-    if (!nats && stores.some((store) => store.required)) {
-      throw new Error(
-        "NATS connection is required to provision store resources",
-      );
-    }
-
-    const storeBindings: NonNullable<ContractResourceBindings["store"]> = {};
-    if (nats) {
-      for (const store of stores) {
-        const name = buildResourceName(
-          serviceDeploymentId,
-          contract.id,
-          store.alias,
+    if (requests.length > 0) {
+      if (!nats) {
+        throw new Error(
+          "NATS connection is required to provision KV resources",
         );
-        try {
-          await ensureStoreResource(nats, name, store, options);
-        } catch (error) {
-          if (!store.required) continue;
-          throw error;
-        }
+      }
+      for (const request of requests) {
+        const bucket = options.existingResourceNames?.kv?.[request.alias] ??
+          newResourceName("kv");
+        const action = await ensureKvResource(nats, bucket, request, options);
+        result[action].push({ kind: "kv", alias: request.alias, name: bucket });
+        kvBindings[request.alias] = {
+          bucket,
+          history: request.history,
+          ttlMs: request.ttlMs,
+          ...(request.maxValueBytes
+            ? { maxValueBytes: request.maxValueBytes }
+            : {}),
+        };
+      }
+    }
+
+    if (Object.keys(kvBindings).length > 0) {
+      result.bindings.kv = kvBindings;
+    }
+
+    if (stores.length > 0) {
+      if (!nats) {
+        throw new Error(
+          "NATS connection is required to provision store resources",
+        );
+      }
+
+      const storeBindings: NonNullable<ContractResourceBindings["store"]> = {};
+      for (const store of stores) {
+        const name = options.existingResourceNames?.store?.[store.alias] ??
+          newResourceName("store");
+        const action = await ensureStoreResource(nats, name, store, options);
+        result[action].push({ kind: "store", alias: store.alias, name });
 
         storeBindings[store.alias] = {
           name,
@@ -1043,84 +1151,103 @@ export async function provisionContractResourceBindings(
             : {}),
         };
       }
+      if (Object.keys(storeBindings).length > 0) {
+        result.bindings.store = storeBindings;
+      }
     }
-    if (Object.keys(storeBindings).length > 0) {
-      bindings.store = storeBindings;
-    }
-  }
 
-  if (needsBuiltinJobsInfrastructure) {
-    if (!nats) {
-      throw new Error(
-        "NATS connection is required to provision jobs resources",
-      );
+    if (needsBuiltinJobsInfrastructure) {
+      if (!nats) {
+        throw new Error(
+          "NATS connection is required to provision jobs resources",
+        );
+      }
+      await ensureBuiltinJobsInfrastructure(nats, options);
     }
-    await ensureBuiltinJobsInfrastructure(nats, options);
-  }
 
-  if (jobs.length > 0) {
-    const namespace = buildJobsNamespace(serviceDeploymentId, contract.id);
-    bindings.jobs = {
-      namespace,
-      workStream: "JOBS_WORK",
-      queues: Object.fromEntries(
-        jobs.map((queue) => {
-          const queueToken = sanitizeToken(queue.queueType).slice(0, 48);
-          return [queue.queueType, {
-            queueType: queue.queueType,
-            publishPrefix: `trellis.jobs.${namespace}.${queueToken}`,
-            workSubject: `trellis.work.${namespace}.${queueToken}`,
-            consumerName: `${namespace}-${queueToken}`.slice(0, 64),
-            payload: queue.payload,
-            ...(queue.result ? { result: queue.result } : {}),
-            maxDeliver: queue.maxDeliver,
-            backoffMs: [...queue.backoffMs],
-            ackWaitMs: queue.ackWaitMs,
-            ...(queue.defaultDeadlineMs
-              ? { defaultDeadlineMs: queue.defaultDeadlineMs }
-              : {}),
-            progress: queue.progress,
-            logs: queue.logs,
-            dlq: queue.dlq,
-            concurrency: queue.concurrency,
-          }];
-        }),
-      ),
-    };
-  }
-
-  if (eventConsumers.length > 0) {
-    if (!nats) {
-      throw new Error(
-        "NATS connection is required to provision event consumer resources",
-      );
-    }
-    const consumerBindings: NonNullable<
-      ContractResourceBindings["eventConsumers"]
-    > = {};
-    for (const consumer of eventConsumers) {
-      const consumerName = buildEventConsumerName(
-        serviceDeploymentId,
-        contract.id,
-        consumer.alias,
-      );
-      await ensureEventConsumer(nats, consumer, consumerName);
-      consumerBindings[consumer.alias] = {
-        stream: consumer.stream,
-        consumerName,
-        filterSubjects: [...consumer.filterSubjects],
-        replay: consumer.replay,
-        ordering: consumer.ordering,
-        concurrency: consumer.concurrency,
-        ackWaitMs: consumer.ackWaitMs,
-        maxDeliver: consumer.maxDeliver,
-        backoffMs: [...consumer.backoffMs],
+    if (jobs.length > 0) {
+      const namespace = options.existingResourceNames?.jobs?.namespace ??
+        newResourceName("jobsNamespace").slice(0, 32);
+      result.bindings.jobs = {
+        namespace,
+        workStream: "JOBS_WORK",
+        queues: Object.fromEntries(
+          jobs.map((queue) => {
+            const existingQueue = options.existingResourceNames?.jobs?.queues?.[
+              queue.queueType
+            ];
+            const queueToken = newResourceName("jobsQueue").slice(0, 48);
+            return [queue.queueType, {
+              queueType: queue.queueType,
+              publishPrefix: existingQueue?.publishPrefix ??
+                `trellis.jobs.${namespace}.${queueToken}`,
+              workSubject: existingQueue?.workSubject ??
+                `trellis.work.${namespace}.${queueToken}`,
+              consumerName: existingQueue?.consumerName ??
+                `${namespace}_${queueToken}`.slice(0, 64),
+              payload: queue.payload,
+              ...(queue.result ? { result: queue.result } : {}),
+              maxDeliver: queue.maxDeliver,
+              backoffMs: [...queue.backoffMs],
+              ackWaitMs: queue.ackWaitMs,
+              ...(queue.defaultDeadlineMs
+                ? { defaultDeadlineMs: queue.defaultDeadlineMs }
+                : {}),
+              progress: queue.progress,
+              logs: queue.logs,
+              dlq: queue.dlq,
+              concurrency: queue.concurrency,
+            }];
+          }),
+        ),
       };
     }
-    bindings.eventConsumers = consumerBindings;
-  }
 
-  return bindings;
+    if (eventConsumers.length > 0) {
+      if (!nats) {
+        throw new Error(
+          "NATS connection is required to provision event consumer resources",
+        );
+      }
+      const consumerBindings: NonNullable<
+        ContractResourceBindings["eventConsumers"]
+      > = {};
+      for (const consumer of eventConsumers) {
+        const consumerName = options.existingResourceNames?.eventConsumers?.[
+          consumer.alias
+        ] ?? newResourceName("eventConsumer").slice(0, 64);
+        const action = await ensureEventConsumer(nats, consumer, consumerName);
+        result[action].push({
+          kind: "eventConsumer",
+          alias: consumer.alias,
+          stream: consumer.stream,
+          name: consumerName,
+        });
+        consumerBindings[consumer.alias] = {
+          stream: consumer.stream,
+          consumerName,
+          filterSubjects: [...consumer.filterSubjects],
+          replay: consumer.replay,
+          ordering: consumer.ordering,
+          concurrency: consumer.concurrency,
+          ackWaitMs: consumer.ackWaitMs,
+          maxDeliver: consumer.maxDeliver,
+          backoffMs: [...consumer.backoffMs],
+        };
+      }
+      result.bindings.eventConsumers = consumerBindings;
+    }
+
+    return result;
+  } catch (error) {
+    if (nats && result.created.length > 0) {
+      await rollbackProvisionedContractResources(
+        result,
+        createNatsResourcePurgeManager(nats),
+      );
+    }
+    throw error;
+  }
 }
 
 export function getResourcePermissionGrants(

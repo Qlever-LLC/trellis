@@ -17,10 +17,10 @@ import { hasRequiredCapabilities } from "./permissions.ts";
 import type { ContractsModule } from "./runtime.ts";
 import type { SqlContractStorageRepository } from "./storage.ts";
 import type {
-  SqlDeploymentContractEvidenceRepository,
   SqlDeploymentEnvelopeRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
+  SqlImplementationOfferRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
 } from "../auth/storage.ts";
@@ -102,10 +102,22 @@ type DeploymentEnvelopeStorage = Pick<
   SqlDeploymentEnvelopeRepository,
   "listEnabledByContractId" | "listEnabledBySurface"
 >;
-type DeploymentContractEvidenceStorage = Pick<
-  SqlDeploymentContractEvidenceRepository,
-  "listByDeploymentsAndContractId"
+type ImplementationOfferStorage = Pick<
+  SqlImplementationOfferRepository,
+  "listActiveByContractId" | "listByInstance"
 >;
+
+function offerIsActive(offer: {
+  status: string;
+  acceptedAt: string | null;
+  staleAt: string | null;
+  expiresAt: string | null;
+}, evaluationTime: Date): boolean {
+  const now = evaluationTime.toISOString();
+  return offer.status === "accepted" && offer.acceptedAt !== null &&
+    (offer.staleAt === null || offer.staleAt > now) &&
+    (offer.expiresAt === null || offer.expiresAt > now);
+}
 
 function sortedUnique(values: Iterable<string>): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
@@ -226,28 +238,6 @@ function defaultSurfaceAction(
   return "call";
 }
 
-function evidenceDigestsByDeployment(
-  evidence: Array<
-    { deploymentId: string; contractId: string; contractDigest: string }
-  >,
-): Map<string, Map<string, Set<string>>> {
-  const byDeployment = new Map<string, Map<string, Set<string>>>();
-  for (const record of evidence) {
-    let byContract = byDeployment.get(record.deploymentId);
-    if (!byContract) {
-      byContract = new Map();
-      byDeployment.set(record.deploymentId, byContract);
-    }
-    let digests = byContract.get(record.contractId);
-    if (!digests) {
-      digests = new Set();
-      byContract.set(record.contractId, digests);
-    }
-    digests.add(record.contractDigest);
-  }
-  return byDeployment;
-}
-
 async function hasLiveConnection(
   connectionsKV: AuthRuntimeDeps["connectionsKV"],
   instanceKey: string,
@@ -268,8 +258,6 @@ export function createTrellisCatalogHandler(
     ContractsModule,
     "getActiveCatalogState"
   >,
-  deploymentEnvelopeStorage: DeploymentEnvelopeStorage,
-  deploymentContractEvidenceStorage: DeploymentContractEvidenceStorage,
   logger: CatalogLogger = noopLogger,
 ) {
   return async (): Promise<
@@ -278,22 +266,7 @@ export function createTrellisCatalogHandler(
     logger.trace({ rpc: "Trellis.Catalog" }, "RPC request");
     try {
       const { entries, issues } = await contractsModule.getActiveCatalogState();
-      const availableEntries: ActiveEntry[] = [];
-      for (const entry of entries) {
-        const envelopes = await deploymentEnvelopeStorage
-          .listEnabledByContractId(entry.contract.id);
-        const deploymentIds = envelopes.map((envelope) =>
-          envelope.deploymentId
-        );
-        const evidence = await deploymentContractEvidenceStorage
-          .listByDeploymentsAndContractId(deploymentIds, entry.contract.id);
-        if (
-          evidence.some((record) => record.contractDigest === entry.digest)
-        ) {
-          availableEntries.push(entry);
-        }
-      }
-      const contracts = availableEntries
+      const contracts = entries
         .map(({ digest, contract }) => ({
           id: contract.id,
           digest,
@@ -347,6 +320,7 @@ export function createTrellisContractGetHandler(
 
 export function createTrellisBindingsGetHandler(opts: {
   serviceInstanceStorage: SqlServiceInstanceRepository;
+  implementationOfferStorage: ImplementationOfferStorage;
   logger?: CatalogLogger;
 }) {
   const logger = opts.logger ?? noopLogger;
@@ -382,24 +356,29 @@ export function createTrellisBindingsGetHandler(opts: {
     }
 
     const input = req ?? {};
-    if (input.contractId && svc.currentContractId !== input.contractId) {
-      return Result.ok({ binding: undefined });
-    }
-    if (input.digest && svc.currentContractDigest !== input.digest) {
+    if (!svc.resourceBindings) {
       return Result.ok({ binding: undefined });
     }
 
-    if (
-      !svc.currentContractId || !svc.currentContractDigest ||
-      !svc.resourceBindings
-    ) {
-      return Result.ok({ binding: undefined });
-    }
+    const now = new Date();
+    const matchingOffer = (await opts.implementationOfferStorage.listByInstance(
+      svc.instanceId,
+    )).find((offer) =>
+      offer.deploymentKind === "service" &&
+      offer.deploymentId === svc.deploymentId &&
+      offer.instanceId === svc.instanceId &&
+      offerIsActive(offer, now) &&
+      (input.contractId === undefined ||
+        offer.contractId === input.contractId) &&
+      (input.digest === undefined || offer.contractDigest === input.digest)
+    );
+
+    if (!matchingOffer) return Result.ok({ binding: undefined });
 
     return Result.ok({
       binding: {
-        contractId: svc.currentContractId,
-        digest: svc.currentContractDigest,
+        contractId: matchingOffer.contractId,
+        digest: matchingOffer.contractDigest,
         resources: svc.resourceBindings,
       },
     });
@@ -411,7 +390,7 @@ export function createTrellisSurfaceStatusHandler(opts: {
   contracts: Pick<ContractsModule, "getKnownEntriesByContractId">;
   serviceInstanceStorage: Pick<
     SqlServiceInstanceRepository,
-    "listByDeploymentAndDigest"
+    "listByDeployments"
   >;
   serviceDeploymentStorage: Pick<SqlServiceDeploymentRepository, "get">;
   deviceInstanceStorage: Pick<
@@ -420,7 +399,7 @@ export function createTrellisSurfaceStatusHandler(opts: {
   >;
   deviceDeploymentStorage: Pick<SqlDeviceDeploymentRepository, "get">;
   deploymentEnvelopeStorage: DeploymentEnvelopeStorage;
-  deploymentContractEvidenceStorage: DeploymentContractEvidenceStorage;
+  implementationOfferStorage: ImplementationOfferStorage;
   connectionsKV: AuthRuntimeDeps["connectionsKV"];
   logger?: CatalogLogger;
 }) {
@@ -486,19 +465,34 @@ export function createTrellisSurfaceStatusHandler(opts: {
       },
     );
     const deploymentIds = envelopes.map((envelope) => envelope.deploymentId);
-    const evidenceByDeployment = evidenceDigestsByDeployment(
-      await opts.deploymentContractEvidenceStorage
-        .listByDeploymentsAndContractId(deploymentIds, req.contractId),
-    );
+    const activeOffers = await opts.implementationOfferStorage
+      .listActiveByContractId(req.contractId);
+    const activeOffersByDeployment = new Map<string, Set<string>>();
+    const activeServiceOffersByInstance = new Map<string, Set<string>>();
+    for (const offer of activeOffers) {
+      let digests = activeOffersByDeployment.get(offer.deploymentId);
+      if (!digests) {
+        digests = new Set();
+        activeOffersByDeployment.set(offer.deploymentId, digests);
+      }
+      digests.add(offer.contractDigest);
+      if (offer.deploymentKind === "service" && offer.instanceId) {
+        let instanceDigests = activeServiceOffersByInstance.get(
+          offer.instanceId,
+        );
+        if (!instanceDigests) {
+          instanceDigests = new Set();
+          activeServiceOffersByInstance.set(offer.instanceId, instanceDigests);
+        }
+        instanceDigests.add(offer.contractDigest);
+      }
+    }
     const availableEnvelopes = envelopes.filter((envelope) =>
-      (evidenceByDeployment.get(envelope.deploymentId)?.get(req.contractId)
-        ?.size ?? 0) > 0
+      (activeOffersByDeployment.get(envelope.deploymentId)?.size ?? 0) > 0
     );
     const availableDigests = new Set(
       availableEnvelopes.flatMap((envelope) => {
-        const digests = evidenceByDeployment.get(envelope.deploymentId)?.get(
-          req.contractId,
-        );
+        const digests = activeOffersByDeployment.get(envelope.deploymentId);
         return digests ? [...digests] : [];
       }),
     );
@@ -542,23 +536,21 @@ export function createTrellisSurfaceStatusHandler(opts: {
     const availableDeploymentIds = new Set(
       availableEnvelopes
         .filter((envelope) => {
-          const digests = evidenceByDeployment.get(envelope.deploymentId)?.get(
-            req.contractId,
-          );
+          const digests = activeOffersByDeployment.get(envelope.deploymentId);
           return digests !== undefined &&
             [...digests].some((digest) => authorizedDigests.has(digest));
         })
         .map((envelope) => envelope.deploymentId),
     );
     const instances = await opts.serviceInstanceStorage
-      .listByDeploymentAndDigest(availableDeploymentIds, authorizedDigests);
+      .listByDeployments(availableDeploymentIds);
     let sawDisabledImplementer = false;
 
     for (const instance of instances) {
       if (
-        !instance.currentContractDigest ||
-        !authorizedDigests.has(instance.currentContractDigest) ||
-        !availableDeploymentIds.has(instance.deploymentId)
+        !availableDeploymentIds.has(instance.deploymentId) ||
+        ![...(activeServiceOffersByInstance.get(instance.instanceId) ?? [])]
+          .some((digest) => authorizedDigests.has(digest))
       ) {
         continue;
       }
@@ -589,9 +581,7 @@ export function createTrellisSurfaceStatusHandler(opts: {
       ]);
     for (const instance of deviceInstances) {
       if (!availableDeploymentIds.has(instance.deploymentId)) continue;
-      const digests = evidenceByDeployment.get(instance.deploymentId)?.get(
-        req.contractId,
-      );
+      const digests = activeOffersByDeployment.get(instance.deploymentId);
       if (
         digests === undefined ||
         ![...digests].some((digest) => authorizedDigests.has(digest))

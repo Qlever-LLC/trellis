@@ -740,7 +740,7 @@ Deno.test("resolveSessionPrincipal accepts service-like capability strings on us
   }
 });
 
-Deno.test("resolveSessionPrincipal uses current service instance contract metadata", async () => {
+Deno.test("resolveSessionPrincipal keeps service instance state free of runtime contract metadata", async () => {
   const result = await resolveSessionPrincipal(
     {
       type: "service",
@@ -752,8 +752,8 @@ Deno.test("resolveSessionPrincipal uses current service instance contract metada
       instanceId: "instance-old",
       deploymentId: "worker.default",
       instanceKey: "service-key",
-      currentContractId: "worker.old@v1",
-      currentContractDigest: "digest-old",
+      contractId: "worker.session@v1",
+      contractDigest: "digest-session",
       createdAt: new Date(),
       lastAuth: new Date(),
     },
@@ -764,8 +764,6 @@ Deno.test("resolveSessionPrincipal uses current service instance contract metada
         deploymentId: "worker.default",
         instanceKey: "service-key",
         disabled: false,
-        currentContractId: "worker.current@v1",
-        currentContractDigest: "digest-current",
         capabilities: ["service", "worker.run"],
       }),
       loadServiceDeployment: async () => ({
@@ -779,13 +777,6 @@ Deno.test("resolveSessionPrincipal uses current service instance contract metada
   assertEquals(result.ok, true);
   if (result.ok) {
     assertEquals(result.value.capabilities, ["service", "worker.run"]);
-    assertEquals(
-      result.value.serviceState?.currentContractId,
-      "worker.current@v1",
-    );
-    assertEquals(
-      result.value.serviceState?.currentContractDigest,
-      "digest-current",
-    );
+    assertEquals(result.value.serviceState?.instanceId, "instance-current");
   }
 });

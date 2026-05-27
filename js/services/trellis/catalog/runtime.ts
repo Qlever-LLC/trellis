@@ -1,17 +1,14 @@
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { isJsonValue } from "@qlever-llc/trellis/contracts";
 import type {
-  SqlDeploymentContractEvidenceRepository,
   SqlDeploymentEnvelopeRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
+  SqlImplementationOfferRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
 } from "../auth/storage.ts";
-import {
-  collectActiveContractDigests,
-  overlayStagedRecords,
-} from "./active_contracts.ts";
+import { collectActiveContractDigests } from "./active_contracts.ts";
 import { analyzeContract } from "./analysis.ts";
 import {
   type ActiveSubjectOwner,
@@ -66,8 +63,8 @@ type DeviceInstanceRecord = Awaited<
 type DeploymentEnvelopeRecord = Awaited<
   ReturnType<SqlDeploymentEnvelopeRepository["listPage"]>
 >[number];
-type DeploymentContractEvidenceRecord = Awaited<
-  ReturnType<SqlDeploymentContractEvidenceRepository["listByDeployments"]>
+type ImplementationOfferRecord = Awaited<
+  ReturnType<SqlImplementationOfferRepository["listActive"]>
 >[number];
 
 /** Describes an active catalog digest that was excluded from the effective runtime catalog. */
@@ -312,9 +309,9 @@ function getRequiredServiceCapabilities(
 export function createContractsModule(opts: {
   builtinContracts: Array<{ digest: string; contract: TrellisContractV1 }>;
   contractStorage: SqlContractStorageRepository;
-  deploymentContractEvidenceStorage?: Pick<
-    SqlDeploymentContractEvidenceRepository,
-    "deleteEvidence" | "listByDeployments"
+  implementationOfferStorage?: Pick<
+    SqlImplementationOfferRepository,
+    "listActive"
   >;
   deploymentEnvelopeStorage: Pick<
     SqlDeploymentEnvelopeRepository,
@@ -434,42 +431,24 @@ export function createContractsModule(opts: {
       message: "Failed to hydrate active contract",
     });
     if (!entry) {
-      await pruneInvalidActiveContract({
-        digest: args.digest,
-        contractId: args.contractId ?? stored.id,
-      });
-      return {};
+      return {
+        issue: {
+          issueId: stableIssueId({
+            kind: "invalid-active-contract",
+            contractId: args.contractId ?? stored.id,
+            digest: args.digest,
+          }),
+          kind: "invalid-active-contract",
+          contractId: args.contractId ?? stored.id,
+          digest: args.digest,
+          message:
+            `Active implementation offer references invalid stored contract digest '${args.digest}'`,
+          deploymentIds: args.deploymentIds,
+          actions: [],
+        },
+      };
     }
     return { entry };
-  }
-
-  async function pruneInvalidActiveContract(args: {
-    digest: string;
-    contractId: string;
-  }): Promise<void> {
-    const deletedEvidence = await opts.deploymentContractEvidenceStorage
-      ?.deleteEvidence({
-        contractId: args.contractId,
-        contractDigests: [args.digest],
-      }) ?? [];
-    await opts.contractStorage.delete(args.digest);
-
-    const instances = await opts.serviceInstanceStorage
-      .listByCurrentContractDigests([args.digest]);
-    for (const instance of instances) {
-      await opts.serviceInstanceStorage.put({
-        ...instance,
-        currentContractId: undefined,
-        currentContractDigest: undefined,
-      });
-    }
-
-    logger.warn({
-      digest: args.digest,
-      contractId: args.contractId,
-      deletedEvidenceCount: deletedEvidence.length,
-      clearedServiceInstanceCount: instances.length,
-    }, "Pruned invalid active contract digest");
   }
 
   async function getKnownEntriesByContractId(
@@ -708,50 +687,16 @@ export function createContractsModule(opts: {
   async function collectProposedActiveDigestsFromRecords(
     validationOpts?: ActiveCatalogValidationOptions,
   ): Promise<Set<string>> {
-    const deploymentEnvelopes = applyStagedParentDeploymentDisabled(
-      overlayStagedRecords(
-        await opts.deploymentEnvelopeStorage.listEnabled(),
-        validationOpts?.stagedDeploymentEnvelopes,
-        (envelope) => envelope.deploymentId,
-      ),
-      validationOpts,
-    );
-    const deploymentContractEvidence = await opts
-      .deploymentContractEvidenceStorage?.listByDeployments(
-        deploymentEnvelopes.map((envelope) => envelope.deploymentId),
-      ) ?? [];
     const active = collectActiveContractDigests({
       builtinDigests: [...builtinDigests],
       builtinContractIds: opts.builtinContracts.map(({ contract }) =>
         contract.id
       ),
-      deploymentEnvelopes,
-      deploymentContractEvidence,
+      deploymentEnvelopes: [],
+      implementationOffers: await opts.implementationOfferStorage
+        ?.listActive() ?? [],
     });
     return active;
-  }
-
-  function applyStagedParentDeploymentDisabled(
-    deploymentEnvelopes: DeploymentEnvelopeRecord[],
-    validationOpts?: ActiveCatalogValidationOptions,
-  ): DeploymentEnvelopeRecord[] {
-    const disabledDeploymentIds = new Set<string>();
-    for (const deployment of validationOpts?.stagedServiceDeployments ?? []) {
-      if (deployment.disabled) {
-        disabledDeploymentIds.add(deployment.deploymentId);
-      }
-    }
-    for (const deployment of validationOpts?.stagedDeviceDeployments ?? []) {
-      if (deployment.disabled) {
-        disabledDeploymentIds.add(deployment.deploymentId);
-      }
-    }
-    if (disabledDeploymentIds.size === 0) return deploymentEnvelopes;
-    return deploymentEnvelopes.map((envelope) =>
-      disabledDeploymentIds.has(envelope.deploymentId)
-        ? { ...envelope, disabled: true }
-        : envelope
-    );
   }
 
   type ActiveDigestEvidence = {
@@ -761,81 +706,62 @@ export function createContractsModule(opts: {
     lastSeenAt?: string;
     deploymentIds: string[];
     deploymentFirstSeenAt: Record<string, string>;
+    offerIds: string[];
   };
 
-  function activeDigestEvidenceFromRecords(args: {
+  function activeDigestEvidenceFromOffers(args: {
     active: Set<string>;
-    deploymentEnvelopes: DeploymentEnvelopeRecord[];
-    deploymentContractEvidence: DeploymentContractEvidenceRecord[];
+    implementationOffers: ImplementationOfferRecord[];
   }): ActiveDigestEvidence[] {
-    const activeContractsByDeployment = new Map<string, Set<string>>();
-    const builtinContractIds = new Set(
-      opts.builtinContracts.map(({ contract }) => contract.id),
-    );
-    for (const envelope of args.deploymentEnvelopes) {
-      if (envelope.disabled) continue;
-      activeContractsByDeployment.set(
-        envelope.deploymentId,
-        new Set([
-          ...envelope.boundary.contracts.map((contract) => contract.contractId),
-          ...envelope.boundary.surfaces.map((surface) => surface.contractId),
-        ]),
-      );
-    }
-
     const metadata = new Map<string, ActiveDigestEvidence>();
     for (const digest of args.active) {
       metadata.set(digest, {
         digest,
         deploymentIds: [],
         deploymentFirstSeenAt: {},
+        offerIds: [],
       });
     }
 
-    for (const evidence of args.deploymentContractEvidence) {
-      if (evidence.ignoredAt) continue;
-      if (builtinContractIds.has(evidence.contractId)) continue;
-      if (!args.active.has(evidence.contractDigest)) continue;
-      if (
-        !activeContractsByDeployment.get(evidence.deploymentId)?.has(
-          evidence.contractId,
-        )
-      ) continue;
-      const record = metadata.get(evidence.contractDigest) ?? {
-        digest: evidence.contractDigest,
+    for (const offer of args.implementationOffers) {
+      if (!args.active.has(offer.contractDigest)) continue;
+      const record = metadata.get(offer.contractDigest) ?? {
+        digest: offer.contractDigest,
         deploymentIds: [],
         deploymentFirstSeenAt: {},
+        offerIds: [],
       };
-      record.contractId = evidence.contractId;
+      record.contractId = offer.contractId;
       if (
         record.firstSeenAt === undefined ||
-        evidence.firstSeenAt < record.firstSeenAt
+        offer.firstOfferedAt < record.firstSeenAt
       ) {
-        record.firstSeenAt = evidence.firstSeenAt;
+        record.firstSeenAt = offer.firstOfferedAt;
       }
       if (
         record.lastSeenAt === undefined ||
-        evidence.lastSeenAt > record.lastSeenAt
+        offer.lastRefreshedAt > record.lastSeenAt
       ) {
-        record.lastSeenAt = evidence.lastSeenAt;
+        record.lastSeenAt = offer.lastRefreshedAt;
       }
       const deploymentFirstSeenAt = record.deploymentFirstSeenAt[
-        evidence.deploymentId
+        offer.deploymentId
       ];
       if (
         deploymentFirstSeenAt === undefined ||
-        evidence.firstSeenAt < deploymentFirstSeenAt
+        offer.firstOfferedAt < deploymentFirstSeenAt
       ) {
-        record.deploymentFirstSeenAt[evidence.deploymentId] =
-          evidence.firstSeenAt;
+        record.deploymentFirstSeenAt[offer.deploymentId] = offer.firstOfferedAt;
       }
-      record.deploymentIds.push(evidence.deploymentId);
-      metadata.set(evidence.contractDigest, record);
+      record.deploymentIds.push(offer.deploymentId);
+      record.offerIds.push(offer.offerId);
+      metadata.set(offer.contractDigest, record);
     }
 
     return [...metadata.values()].map((record) => ({
       ...record,
       deploymentIds: sortUnique(record.deploymentIds),
+      offerIds: sortUnique(record.offerIds),
     }));
   }
 
@@ -848,36 +774,26 @@ export function createContractsModule(opts: {
         digest,
         deploymentIds: [],
         deploymentFirstSeenAt: {},
+        offerIds: [],
       }));
     }
 
-    const deploymentEnvelopes = applyStagedParentDeploymentDisabled(
-      overlayStagedRecords(
-        await opts.deploymentEnvelopeStorage.listEnabled(),
-        validationOpts?.stagedDeploymentEnvelopes,
-        (envelope) => envelope.deploymentId,
-      ),
-      validationOpts,
-    );
-    const deploymentContractEvidence = await opts
-      .deploymentContractEvidenceStorage?.listByDeployments(
-        deploymentEnvelopes.map((envelope) => envelope.deploymentId),
-      ) ?? [];
+    const implementationOffers = await opts.implementationOfferStorage
+      ?.listActive() ?? [];
     const active = collectActiveContractDigests({
       builtinDigests: [...builtinDigests],
       builtinContractIds: opts.builtinContracts.map(({ contract }) =>
         contract.id
       ),
-      deploymentEnvelopes,
-      deploymentContractEvidence,
+      deploymentEnvelopes: [],
+      implementationOffers,
     });
     for (const digest of validationOpts?.extraActiveDigests ?? []) {
       active.add(digest);
     }
-    return activeDigestEvidenceFromRecords({
+    return activeDigestEvidenceFromOffers({
       active,
-      deploymentEnvelopes,
-      deploymentContractEvidence,
+      implementationOffers,
     });
   }
 
@@ -887,18 +803,6 @@ export function createContractsModule(opts: {
   ): number {
     return (left.firstSeenAt ?? "").localeCompare(right.firstSeenAt ?? "") ||
       left.digest.localeCompare(right.digest);
-  }
-
-  function latestActiveEvidence(
-    entries: Array<ActiveDigestEvidence & ContractEntry>,
-  ): ActiveDigestEvidence & ContractEntry {
-    const sorted = [...entries].sort((left, right) =>
-      (left.lastSeenAt ?? "").localeCompare(right.lastSeenAt ?? "") ||
-      activeDigestEvidenceCompare(left, right)
-    );
-    const latest = sorted[sorted.length - 1];
-    if (!latest) throw new Error("expected active evidence entry");
-    return latest;
   }
 
   type EffectiveActiveEntry = ActiveDigestEvidence & ContractEntry;
@@ -920,78 +824,66 @@ export function createContractsModule(opts: {
     const issues: ActiveCatalogIssue[] = [];
     for (const entries of byContractId.values()) {
       entries.sort(activeDigestEvidenceCompare);
-      const current = entries[0];
-      if (!current) continue;
-      const conflictingEntries = entries.slice(1);
-      if (conflictingEntries.length > 0) {
-        const proposed = latestActiveEvidence(conflictingEntries);
-        const effectiveDigests = [current.digest];
-        const effectiveDeploymentIds = sortUnique(current.deploymentIds);
-        const conflictingDigests = sortUnique(
-          conflictingEntries.map((entry) => entry.digest),
-        );
-        const conflictingDeploymentIds = sortUnique(
-          conflictingEntries.flatMap((entry) => entry.deploymentIds),
-        );
-        const forceReplaceEntries = entries.filter((entry) =>
-          entry.digest !== proposed.digest
-        );
-        const forceReplaceDeploymentIds = sortUnique(
-          forceReplaceEntries.flatMap((entry) => entry.deploymentIds),
-        );
-        const forceReplaceDigests = sortUnique(
-          forceReplaceEntries.map((entry) => entry.digest),
-        );
-        let conflictMessage = "same contract id already has an active digest";
+      const effectiveForContract: EffectiveActiveEntry[] = [];
+      for (const candidate of entries) {
         try {
-          validateActiveContractCompatibility([current, proposed]);
+          validateActiveContractCompatibility([
+            ...effectiveForContract,
+            candidate,
+          ]);
+          effectiveForContract.push(candidate);
         } catch (error) {
-          conflictMessage = getErrorMessage(error);
-        }
-        issues.push({
-          issueId: stableIssueId({
+          const effectiveDigests = sortUnique(
+            effectiveForContract.map((entry) => entry.digest),
+          );
+          const effectiveDeploymentIds = sortUnique(
+            effectiveForContract.flatMap((entry) => entry.deploymentIds),
+          );
+          issues.push({
+            issueId: stableIssueId({
+              kind: "incompatible-active-contract",
+              contractId: candidate.contract.id,
+              digest: candidate.digest,
+              effectiveDigests,
+              conflictingDigests: [candidate.digest],
+            }),
             kind: "incompatible-active-contract",
-            contractId: proposed.contract.id,
-            digest: proposed.digest,
+            contractId: candidate.contract.id,
+            digest: candidate.digest,
+            message:
+              `Active implementation offer digest '${candidate.digest}' for '${candidate.contract.id}' is incompatible with effective active offer digest(s) '${
+                effectiveDigests.join(", ")
+              }' (${getErrorMessage(error)})`,
+            deploymentIds: candidate.deploymentIds,
             effectiveDigests,
-            conflictingDigests,
-          }),
-          kind: "incompatible-active-contract",
-          contractId: proposed.contract.id,
-          digest: proposed.digest,
-          message:
-            `Active contract digest '${proposed.digest}' for '${proposed.contract.id}' conflicts with effective digest '${
-              effectiveDigests[0]
-            }' (${conflictMessage})`,
-          deploymentIds: conflictingDeploymentIds,
-          effectiveDigests,
-          conflictingDigest: proposed.digest,
-          conflictingDigests,
-          effectiveDeploymentIds,
-          conflictingDeploymentIds,
-          actions: [
-            catalogIssueAction({
-              action: "keep-current",
-              risk: "recommended",
-              label: "Keep current effective contract",
-              description:
-                "Delete the conflicting deployment evidence so the current effective digest remains active.",
-              deploymentIds: conflictingDeploymentIds,
-              digests: conflictingDigests,
-            }),
-            catalogIssueAction({
-              action: "force-replace",
-              risk: "dangerous",
-              label: "Force replace current contract",
-              description:
-                "Delete all non-selected deployment evidence so the proposed digest becomes active.",
-              deploymentIds: forceReplaceDeploymentIds,
-              digests: forceReplaceDigests,
-            }),
-          ],
-        });
+            conflictingDigest: candidate.digest,
+            conflictingDigests: [candidate.digest],
+            effectiveDeploymentIds,
+            conflictingDeploymentIds: candidate.deploymentIds,
+            actions: [
+              catalogIssueAction({
+                action: "keep-current",
+                risk: "recommended",
+                label: "Keep current effective offers",
+                description:
+                  "Withdraw or let the incompatible implementation offer expire so the current effective digest remains active.",
+                deploymentIds: candidate.deploymentIds,
+                digests: [candidate.digest],
+              }),
+              catalogIssueAction({
+                action: "force-replace",
+                risk: "dangerous",
+                label: "Force replace current offers",
+                description:
+                  "Withdraw the current effective offers and accept a compatible implementation offer set before making this digest effective.",
+                deploymentIds: effectiveDeploymentIds,
+                digests: effectiveDigests,
+              }),
+            ],
+          });
+        }
       }
-      effective.push(current);
+      effective.push(...effectiveForContract);
     }
     effective.sort((left, right) => left.digest.localeCompare(right.digest));
     return { entries: effective, issues };
@@ -1011,7 +903,7 @@ export function createContractsModule(opts: {
       contractId: entry.contract.id,
       digest: entry.digest,
       message:
-        `Active contract digest '${entry.digest}' for '${entry.contract.id}' has invalid active dependencies (${
+        `Active implementation offer digest '${entry.digest}' for '${entry.contract.id}' has required dependency not active (${
           getErrorMessage(error)
         })`,
       deploymentIds: entry.deploymentIds,
@@ -1021,7 +913,7 @@ export function createContractsModule(opts: {
           risk: "recommended",
           label: "Remove invalid active uses",
           description:
-            "Delete this digest's deployment evidence so active dependencies can be repaired.",
+            "Withdraw or refresh this implementation offer after required active dependencies are available.",
           deploymentIds: entry.deploymentIds,
           digests: [entry.digest],
         }),

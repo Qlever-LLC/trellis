@@ -72,6 +72,21 @@
     markdown: string;
   };
   type ExpansionRequest = AuthEnvelopeExpansionsListResponse["entries"][number];
+  type ImplementationOffer = {
+    offerId: string;
+    deploymentKind: "service" | "device";
+    deploymentId: string;
+    instanceId: string | null;
+    contractId: string;
+    contractDigest: string;
+    status: "offered" | "accepted" | "stale" | "expired" | "withdrawn";
+    staleAt: string | null;
+    expiresAt: string | null;
+  };
+  type EnvelopeDetail = {
+    envelope: DeploymentEnvelope;
+    implementationOffers: ImplementationOffer[];
+  };
   type ExpansionRequestRow = {
     requestId: string;
     deploymentId: string;
@@ -110,6 +125,20 @@
     kind: JsonTokenKind;
     text: string;
   };
+  type MarkdownInlineToken = {
+    key: string;
+    kind: "text" | "code" | "strong" | "em";
+    text: string;
+  };
+  type MarkdownListItem = {
+    key: string;
+    tokens: MarkdownInlineToken[];
+  };
+  type MarkdownBlock =
+    | { key: string; kind: "paragraph"; tokens: MarkdownInlineToken[] }
+    | { key: string; kind: "heading"; level: 3 | 4 | 5; tokens: MarkdownInlineToken[] }
+    | { key: string; kind: "list"; items: MarkdownListItem[] }
+    | { key: string; kind: "code"; text: string };
   type Tab = "instances" | "rpc" | "events" | "operations" | "feeds" | "schemas" | "resources" | "capabilities" | "dependencies" | "jobs" | "heartbeats";
   type SurfaceGroup = {
     key: string;
@@ -122,7 +151,6 @@
     surfaces: Surface[];
   };
   type ContractRef = `${string}:${string}`;
-  type ContractRefDeploymentIds = Record<string, readonly string[]>;
   type ServiceInstanceAction = "disable" | "enable" | "remove";
   type ExpansionRequestAction = "approve" | "reject";
   type RpcTakeable<T> = { take(): Promise<T | Result<never, BaseError>> };
@@ -130,9 +158,13 @@
     (method: "Trellis.Catalog", input: Record<string, never>): RpcTakeable<TrellisCatalogOutput>;
     (method: "Trellis.Contract.Get", input: { digest: string }): RpcTakeable<TrellisContractGetOutput>;
   };
+  type EnvelopeGetRequest = {
+    (method: "Auth.Envelopes.Get", input: { deploymentId: string }): RpcTakeable<EnvelopeDetail>;
+  };
 
   const trellis = getTrellis();
   const coreRequest = trellis.request.bind(trellis) as CoreRequest;
+  const envelopeGetRequest = trellis.request.bind(trellis) as EnvelopeGetRequest;
   const notifications = getNotifications();
   const STALE_REFRESH_MS = 5_000;
 
@@ -148,7 +180,7 @@
   let deployments = $state.raw<Deployment[]>([]);
   let instances = $state.raw<ServiceInstance[]>([]);
   let jobs = $state.raw<Job[]>([]);
-  let envelopes = $state.raw<DeploymentEnvelope[]>([]);
+  let envelopeDetail = $state.raw<EnvelopeDetail | null>(null);
   let catalogContracts = $state.raw<CatalogContract[]>([]);
   let catalogIssues = $state.raw<CatalogIssue[]>([]);
   let contractDetails = $state.raw<Record<string, ContractDetail>>({});
@@ -168,19 +200,10 @@
   const selectedInstances = $derived(instances.filter((instance) => instance.deploymentId === selectedDeploymentId));
   const activeInstances = $derived(selectedInstances.filter((instance) => !instance.disabled));
   const selectedInstanceIds = $derived(new Set(selectedInstances.map((instance) => instance.instanceId)));
-  const selectedServiceContractIds = $derived(new Set(selectedInstances.map((instance) => instance.currentContractId).filter(isNonEmptyString)));
-  const selectedServiceContractRefs = $derived(uniqueContractRefs(selectedInstances));
-  const contractRefDeploymentIds = $derived.by(() => {
-    const refs: ContractRefDeploymentIds = {};
-    for (const instance of instances) {
-      const ref = contractRef(instance.currentContractId, instance.currentContractDigest);
-      if (!ref) continue;
-      const deploymentIds = refs[ref] ?? [];
-      refs[ref] = deploymentIds.includes(instance.deploymentId) ? deploymentIds : [...deploymentIds, instance.deploymentId];
-    }
-    return refs;
-  });
-  const selectedContractRefs = $derived(uniqueContractRefsForInstances(selectedInstances, contractRefDeploymentIds));
+  const activeImplementationOffers = $derived((envelopeDetail?.implementationOffers ?? []).filter((offer) => implementationOfferIsActive(offer, now)));
+  const selectedServiceContractIds = $derived(new Set(activeImplementationOffers.map((offer) => offer.contractId).filter(isNonEmptyString)));
+  const selectedServiceContractRefs = $derived(uniqueContractRefs(activeImplementationOffers));
+  const selectedContractRefs = $derived(selectedServiceContractRefs);
   const healthServices = $derived(summarizeHealthServices(healthInstances, now));
   const selectedHealthService = $derived.by(() => {
     const byServiceName = healthServices.find((service) => service.serviceName === selectedDeploymentId);
@@ -197,7 +220,7 @@
     ),
   );
   const selectedJobs = $derived(jobs.filter((job) => job.service === selectedDeploymentId));
-  const selectedEnvelope = $derived(envelopes.find((envelope) => envelope.deploymentId === selectedDeploymentId && envelope.kind === "service") ?? null);
+  const selectedEnvelope = $derived(envelopeDetail?.envelope.kind === "service" ? envelopeDetail.envelope : null);
   const selectedRequestRows = $derived.by(() =>
     expansionRequests
       .filter((request) => request.deploymentId === selectedDeploymentId && request.state === "pending")
@@ -235,19 +258,18 @@
     return value !== undefined && value.trim().length > 0;
   }
 
-  function uniqueContractRefsForInstances(serviceInstances: ServiceInstance[], refDeploymentIds: ContractRefDeploymentIds): ContractRef[] {
-    const refs: ContractRef[] = [];
-    for (const instance of serviceInstances) {
-      const ref = contractRef(instance.currentContractId, instance.currentContractDigest);
-      if (ref && refDeploymentIds[ref]?.length === 1 && !refs.includes(ref)) refs.push(ref);
-    }
-    return refs;
+  function implementationOfferIsActive(offer: ImplementationOffer, timestamp: number): boolean {
+    return offer.status === "accepted" && !offerTimeHasElapsed(offer.staleAt, timestamp) && !offerTimeHasElapsed(offer.expiresAt, timestamp);
   }
 
-  function uniqueContractRefs(serviceInstances: ServiceInstance[]): ContractRef[] {
+  function offerTimeHasElapsed(value: string | null, timestamp: number): boolean {
+    return value !== null && Date.parse(value) <= timestamp;
+  }
+
+  function uniqueContractRefs(offers: ImplementationOffer[]): ContractRef[] {
     const refs: ContractRef[] = [];
-    for (const instance of serviceInstances) {
-      const ref = contractRef(instance.currentContractId, instance.currentContractDigest);
+    for (const offer of offers) {
+      const ref = contractRef(offer.contractId, offer.contractDigest);
       if (ref && !refs.includes(ref)) refs.push(ref);
     }
     return refs;
@@ -312,14 +334,21 @@
   }
 
   function catalogDigestForContractId(contractId: string): string | null {
-    return catalogContracts.find((contract) => contract.id === contractId)?.digest ??
-      selectedInstances.find((instance) => instance.currentContractId === contractId)?.currentContractDigest ??
-      instances.find((instance) => instance.currentContractId === contractId)?.currentContractDigest ??
+    return activeImplementationOffers.find((offer) => offer.contractId === contractId)
+      ?.contractDigest ??
+      catalogContracts.find((contract) => contract.id === contractId)?.digest ??
       null;
   }
 
   function objectRecord(value: unknown): Record<string, unknown> | null {
     return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  }
+
+  function envelopeDetailFromResponse(response: EnvelopeDetail): EnvelopeDetail {
+    return {
+      envelope: response.envelope,
+      implementationOffers: response.implementationOffers,
+    };
   }
 
   function contractDocs(value: unknown): ContractDocs | null {
@@ -552,44 +581,63 @@
     return tokens;
   }
 
-  function escapeHtml(value: string): string {
-    return value
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#39;");
+  function markdownInlineTokens(value: string): MarkdownInlineToken[] {
+    const tokens: MarkdownInlineToken[] = [];
+    const pattern = /`([^`]+)`|\*\*([^*]+)\*\*|(^|\s)\*([^*]+)\*(?=\s|$)/g;
+    let offset = 0;
+    for (const match of value.matchAll(pattern)) {
+      const index = match.index ?? 0;
+      if (index > offset) {
+        tokens.push({ key: `text:${offset}`, kind: "text", text: value.slice(offset, index) });
+      }
+      if (match[1] !== undefined) {
+        tokens.push({ key: `code:${index}`, kind: "code", text: match[1] });
+      } else if (match[2] !== undefined) {
+        tokens.push({ key: `strong:${index}`, kind: "strong", text: match[2] });
+      } else if (match[4] !== undefined) {
+        const prefix = match[3] ?? "";
+        if (prefix) tokens.push({ key: `text:${index}`, kind: "text", text: prefix });
+        tokens.push({ key: `em:${index}`, kind: "em", text: match[4] });
+      }
+      offset = index + match[0].length;
+    }
+    if (offset < value.length) tokens.push({ key: `text:${offset}`, kind: "text", text: value.slice(offset) });
+    return tokens;
   }
 
-  function renderInlineMarkdown(value: string): string {
-    return escapeHtml(value)
-      .replace(/`([^`]+)`/g, "<code>$1</code>")
-      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-      .replace(/(^|\s)\*([^*]+)\*(?=\s|$)/g, "$1<em>$2</em>");
-  }
-
-  function renderMarkdown(markdown: string): string {
+  function markdownBlocks(markdown: string): MarkdownBlock[] {
     const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
-    const blocks: string[] = [];
+    const blocks: MarkdownBlock[] = [];
     let paragraph: string[] = [];
     let list: string[] = [];
     let code: string[] | null = null;
 
     const flushParagraph = () => {
       if (paragraph.length === 0) return;
-      blocks.push(`<p>${renderInlineMarkdown(paragraph.join(" "))}</p>`);
+      blocks.push({
+        key: `paragraph:${blocks.length}`,
+        kind: "paragraph",
+        tokens: markdownInlineTokens(paragraph.join(" ")),
+      });
       paragraph = [];
     };
     const flushList = () => {
       if (list.length === 0) return;
-      blocks.push(`<ul>${list.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ul>`);
+      blocks.push({
+        key: `list:${blocks.length}`,
+        kind: "list",
+        items: list.map((item, index) => ({
+          key: `item:${blocks.length}:${index}`,
+          tokens: markdownInlineTokens(item),
+        })),
+      });
       list = [];
     };
 
     for (const line of lines) {
       if (line.trim().startsWith("```")) {
         if (code) {
-          blocks.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
+          blocks.push({ key: `code:${blocks.length}`, kind: "code", text: code.join("\n") });
           code = null;
         } else {
           flushParagraph();
@@ -613,8 +661,13 @@
       if (heading) {
         flushParagraph();
         flushList();
-        const level = heading[1].length + 2;
-        blocks.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+        const level = Math.min(heading[1].length + 2, 5) as 3 | 4 | 5;
+        blocks.push({
+          key: `heading:${blocks.length}`,
+          kind: "heading",
+          level,
+          tokens: markdownInlineTokens(heading[2]),
+        });
         continue;
       }
       const listItem = /^[-*]\s+(.+)$/.exec(trimmed);
@@ -627,10 +680,10 @@
       paragraph.push(trimmed);
     }
 
-    if (code) blocks.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
+    if (code) blocks.push({ key: `code:${blocks.length}`, kind: "code", text: code.join("\n") });
     flushParagraph();
     flushList();
-    return blocks.join("\n");
+    return blocks;
   }
 
   function healthServiceMatchesContractRefs(service: HealthServiceView, refs: readonly ContractRef[]): boolean {
@@ -646,15 +699,10 @@
     const exact = selectedHealthService?.instances.find((healthInstance) => healthInstance.instanceId === instance.instanceId);
     if (exact) return exact;
 
-    const ref = contractRef(instance.currentContractId, instance.currentContractDigest);
-    if (!ref) return null;
-    const serviceInstancesWithRef = selectedInstances.filter((serviceInstance) =>
-      contractRef(serviceInstance.currentContractId, serviceInstance.currentContractDigest) === ref
-    );
-    const healthInstancesWithRef = selectedHealthService?.instances.filter((healthInstance) =>
-      contractRef(healthInstance.contractId, healthInstance.contractDigest) === ref
-    ) ?? [];
-    return serviceInstancesWithRef.length === 1 && healthInstancesWithRef.length === 1 ? healthInstancesWithRef[0] : null;
+    const refs = uniqueContractRefs(activeImplementationOffers.filter((offer) => offer.instanceId === instance.instanceId));
+    if (refs.length === 0) return null;
+    const healthInstancesWithRef = selectedHealthService?.instances.filter((healthInstance) => contractRefMatches(healthInstance.contractId, healthInstance.contractDigest, refs)) ?? [];
+    return healthInstancesWithRef.length === 1 ? healthInstancesWithRef[0] : null;
   }
 
   function tabLabel(tab: Tab): string {
@@ -743,11 +791,7 @@
   }
 
   function serviceDeploymentsForContract(contractId: string): Deployment[] {
-    const deploymentIds = new Set(
-      instances
-        .filter((instance) => instance.currentContractId === contractId)
-        .map((instance) => instance.deploymentId),
-    );
+    const deploymentIds = new Set(activeImplementationOffers.filter((offer) => offer.contractId === contractId).map((offer) => offer.deploymentId));
     return deployments.filter((deployment) => deploymentIds.has(deployment.deploymentId));
   }
 
@@ -802,14 +846,6 @@
     if (status === "unhealthy") return "Unhealthy";
     if (status === "offline") return "Offline";
     return status;
-  }
-
-  function serviceDetailHref(deploymentId: string): string {
-    return `/admin/services/${encodeURIComponent(deploymentId)}`;
-  }
-
-  function contractDocsHref(digest: string): string {
-    return `/admin/services/contracts/${encodeURIComponent(digest)}`;
   }
 
   function selectTab(tab: Tab) {
@@ -868,21 +904,21 @@
     jobsUnavailableMessage = null;
     catalogIssueError = null;
     try {
-      const [deploymentsRes, instancesRes, envelopesRes, expansionRequestsRes, catalogRes] = await Promise.all([
+      const envelopeDetailRes = await envelopeGetRequest("Auth.Envelopes.Get", { deploymentId: selectedDeploymentId }).take();
+      if (isErr(envelopeDetailRes)) { error = errorMessage(envelopeDetailRes); return; }
+      const [deploymentsRes, instancesRes, expansionRequestsRes, catalogRes] = await Promise.all([
         trellis.request("Auth.Deployments.List", { kind: "service", limit: 500, offset: 0 }).take(),
         trellis.request("Auth.ServiceInstances.List", { limit: 500, offset: 0 }).take(),
-        trellis.request("Auth.Envelopes.List", { limit: 500, offset: 0 }).take(),
         trellis.request("Auth.EnvelopeExpansions.List", { state: "pending", limit: 500, offset: 0 }).take(),
         coreRequest("Trellis.Catalog", {}).take(),
       ]);
       if (isErr(deploymentsRes)) { error = errorMessage(deploymentsRes); return; }
       if (isErr(instancesRes)) { error = errorMessage(instancesRes); return; }
-      if (isErr(envelopesRes)) { error = errorMessage(envelopesRes); return; }
       if (isErr(expansionRequestsRes)) { error = errorMessage(expansionRequestsRes); return; }
       if (isErr(catalogRes)) catalogIssueError = errorMessage(catalogRes);
       deployments = (deploymentsRes.entries ?? []).filter((deployment): deployment is Deployment => deployment.kind === "service");
       instances = instancesRes.entries ?? [];
-      envelopes = (envelopesRes.entries ?? []).filter((envelope) => envelope.kind === "service");
+      envelopeDetail = envelopeDetailFromResponse(envelopeDetailRes);
       expansionRequests = expansionRequestsRes.entries ?? [];
       if (isErr(catalogRes)) {
         catalogContracts = [];
@@ -919,16 +955,16 @@
 
   async function refreshAuthorityReviewData() {
     catalogIssueError = null;
-    const [envelopesRes, expansionRequestsRes, catalogRes] = await Promise.all([
-      trellis.request("Auth.Envelopes.List", { limit: 500, offset: 0 }).take(),
+    const envelopeDetailRes = await envelopeGetRequest("Auth.Envelopes.Get", { deploymentId: selectedDeploymentId }).take();
+    const [expansionRequestsRes, catalogRes] = await Promise.all([
       trellis.request("Auth.EnvelopeExpansions.List", { state: "pending", limit: 500, offset: 0 }).take(),
       coreRequest("Trellis.Catalog", {}).take(),
     ]);
 
-    if (isErr(envelopesRes)) {
-      error = errorMessage(envelopesRes);
+    if (isErr(envelopeDetailRes)) {
+      error = errorMessage(envelopeDetailRes);
     } else {
-      envelopes = (envelopesRes.entries ?? []).filter((envelope) => envelope.kind === "service");
+      envelopeDetail = envelopeDetailFromResponse(envelopeDetailRes);
     }
 
     if (isErr(expansionRequestsRes)) {
@@ -1064,13 +1100,27 @@
   });
 </script>
 
+{#snippet markdownInline(tokens: MarkdownInlineToken[])}
+  {#each tokens as token (token.key)}
+    {#if token.kind === "code"}
+      <code>{token.text}</code>
+    {:else if token.kind === "strong"}
+      <strong>{token.text}</strong>
+    {:else if token.kind === "em"}
+      <em>{token.text}</em>
+    {:else}
+      {token.text}
+    {/if}
+  {/each}
+{/snippet}
+
 <section class="space-y-4">
   <PageToolbar title="Service runtime" description="Inspect service deployment health, instances, jobs, authority requests, permissions, and events.">
     {#snippet actions()}
-      <a class="btn btn-ghost btn-sm" href={resolve("/admin/services")}>Back to services</a>
+      <a class="btn btn-ghost btn-sm" href={resolve("/(app)/admin/services")}>Back to services</a>
       <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
-      <a class="btn btn-ghost btn-sm" href="/admin/services/contracts">Contract docs</a>
-      <a class="btn btn-outline btn-sm" href={resolve("/admin/services/new")}>Create service</a>
+      <a class="btn btn-ghost btn-sm" href={resolve("/(app)/admin/services/contracts")}>Contract docs</a>
+      <a class="btn btn-outline btn-sm" href={resolve("/(app)/admin/services/new")}>Create service</a>
     {/snippet}
   </PageToolbar>
 
@@ -1095,7 +1145,7 @@
           <div class="rounded-box border border-error/30 bg-error/10 px-4 py-2 text-sm">
             <div class="flex flex-wrap items-center justify-between gap-2">
               <span><strong>{forcedUpdateRepairs.length}</strong> forced contract update{forcedUpdateRepairs.length === 1 ? "" : "s"} need review</span>
-              <a class="btn btn-error btn-outline btn-xs" href={resolve("/admin/services/repair")}>Open forced update</a>
+              <a class="btn btn-error btn-outline btn-xs" href={resolve("/(app)/admin/services/repair")}>Open forced update</a>
             </div>
           </div>
         {/if}
@@ -1277,7 +1327,7 @@
                             {/if}
                           </div>
                           <div class="flex flex-wrap gap-1">
-                            {#if digest}<a class="btn btn-ghost btn-xs" href={contractDocsHref(digest)}>Full contract docs</a>{/if}
+                            {#if digest}<a class="btn btn-ghost btn-xs" href={resolve("/(app)/admin/services/contracts/[digest]", { digest })}>Full contract docs</a>{/if}
                             {#each selectedApiSurface.actions as action (action)}<span class="badge badge-outline badge-xs">{actionLabel(selectedApiSurface.kind, action)}</span>{/each}
                             <span class="badge badge-outline badge-xs">{requirementLabel(selectedApiSurface.required)}</span>
                           </div>
@@ -1291,11 +1341,34 @@
                           <p class="text-xs text-error">{contractDetailErrors[digest]}</p>
                         {:else}
                           {#if docs}
+                            {@const docBlocks = markdownBlocks(docs.markdown)}
                             <div class="mb-3 rounded-box border border-base-300 bg-base-100/70 p-3">
                               {#if docs.summary}
                                 <div class="mb-2 text-sm font-medium">{docs.summary}</div>
                               {/if}
-                              <div class="markdown-block">{@html renderMarkdown(docs.markdown)}</div>
+                              <div class="markdown-block">
+                                {#each docBlocks as block (block.key)}
+                                  {#if block.kind === "paragraph"}
+                                    <p>{@render markdownInline(block.tokens)}</p>
+                                  {:else if block.kind === "heading"}
+                                    {#if block.level === 3}
+                                      <h3>{@render markdownInline(block.tokens)}</h3>
+                                    {:else if block.level === 4}
+                                      <h4>{@render markdownInline(block.tokens)}</h4>
+                                    {:else}
+                                      <h5>{@render markdownInline(block.tokens)}</h5>
+                                    {/if}
+                                  {:else if block.kind === "list"}
+                                    <ul>
+                                      {#each block.items as item (item.key)}
+                                        <li>{@render markdownInline(item.tokens)}</li>
+                                      {/each}
+                                    </ul>
+                                  {:else}
+                                    <pre><code>{block.text}</code></pre>
+                                  {/if}
+                                {/each}
+                              </div>
                             </div>
                           {/if}
                           {#if panels.length === 0}
@@ -1330,7 +1403,7 @@
               {/if}
             {:else if activeTab === "schemas"}
               {#if selectedServiceContractRefs.length === 0}
-                <EmptyState title="No service contract" description="No current contract digest is available for this deployment's instances." />
+                <EmptyState title="No active implementation" description="No accepted implementation offer is active for this deployment." />
               {:else if selectedServiceContractRefs.some((ref) => contractDetailLoading.includes(splitContractRef(ref).digest))}
                 <LoadingState label="Loading service schemas" />
               {:else if selectedSchemaRows.length === 0}
@@ -1374,7 +1447,7 @@
                 <div class="space-y-4">
                   <DataTable>
                       <thead><tr><th>Contract</th><th>Requirement</th><th>Implementing services</th></tr></thead>
-                      <tbody>{#each dependencyContracts as contract (contract.contractId)}{@const implementers = serviceDeploymentsForContract(contract.contractId)}<tr><td class="trellis-identifier font-medium">{contract.contractId}</td><td>{contract.required ? "Required" : "Optional"}</td><td><div class="flex flex-wrap gap-1">{#each implementers as implementer (implementer.deploymentId)}<a class="btn btn-ghost btn-xs trellis-identifier" href={serviceDetailHref(implementer.deploymentId)}>{implementer.deploymentId}</a>{:else}<span class="text-xs text-base-content/50">No service deployment found</span>{/each}</div></td></tr>{:else}<tr><td colspan="3" class="text-base-content/50">No contract dependencies.</td></tr>{/each}</tbody>
+                          <tbody>{#each dependencyContracts as contract (contract.contractId)}{@const implementers = serviceDeploymentsForContract(contract.contractId)}<tr><td class="trellis-identifier font-medium">{contract.contractId}</td><td>{contract.required ? "Required" : "Optional"}</td><td><div class="flex flex-wrap gap-1">{#each implementers as implementer (implementer.deploymentId)}<a class="btn btn-ghost btn-xs trellis-identifier" href={resolve("/(app)/admin/services/[deploymentId]", { deploymentId: implementer.deploymentId })}>{implementer.deploymentId}</a>{:else}<span class="text-xs text-base-content/50">No service deployment found</span>{/each}</div></td></tr>{:else}<tr><td colspan="3" class="text-base-content/50">No contract dependencies.</td></tr>{/each}</tbody>
                   </DataTable>
 
                   <DataTable>

@@ -7,22 +7,22 @@ import {
 import type { TrellisStorage } from "../storage/db.ts";
 import { deploymentEnvelopeCapabilities } from "../storage/schema.ts";
 import type {
-  DeploymentContractEvidence,
   DeploymentEnvelope,
   DeploymentGrantOverride,
   DeploymentPortalRoute,
   DeploymentResourceBinding,
   EnvelopeExpansionRequest,
   EnvelopeHistoryEntry,
+  ImplementationOffer,
 } from "./schemas.ts";
 import {
-  SqlDeploymentContractEvidenceRepository,
   SqlDeploymentEnvelopeRepository,
   SqlDeploymentGrantOverrideRepository,
   SqlDeploymentPortalRouteRepository,
   SqlDeploymentResourceBindingRepository,
   SqlEnvelopeExpansionRequestRepository,
   SqlEnvelopeHistoryRepository,
+  SqlImplementationOfferRepository,
 } from "./storage.ts";
 
 async function withEnvelopeRepositories(
@@ -32,7 +32,7 @@ async function withEnvelopeRepositories(
       portalRoutes: SqlDeploymentPortalRouteRepository;
       grantOverrides: SqlDeploymentGrantOverrideRepository;
       resourceBindings: SqlDeploymentResourceBindingRepository;
-      contractEvidence: SqlDeploymentContractEvidenceRepository;
+      implementationOffers: SqlImplementationOfferRepository;
       expansionRequests: SqlEnvelopeExpansionRequestRepository;
       history: SqlEnvelopeHistoryRepository;
     },
@@ -53,7 +53,7 @@ async function withEnvelopeRepositories(
       portalRoutes: new SqlDeploymentPortalRouteRepository(storage.db),
       grantOverrides: new SqlDeploymentGrantOverrideRepository(storage.db),
       resourceBindings: new SqlDeploymentResourceBindingRepository(storage.db),
-      contractEvidence: new SqlDeploymentContractEvidenceRepository(storage.db),
+      implementationOffers: new SqlImplementationOfferRepository(storage.db),
       expansionRequests: new SqlEnvelopeExpansionRequestRepository(storage.db),
       history: new SqlEnvelopeHistoryRepository(storage.db),
     }, storage);
@@ -154,6 +154,28 @@ function makeExpansionRequest(
       capabilities: ["a.use"],
       resources: [{ kind: "kv", alias: "cache", required: true }],
     },
+    ...overrides,
+  };
+}
+
+function makeImplementationOffer(
+  overrides: Partial<ImplementationOffer> = {},
+): ImplementationOffer {
+  return {
+    offerId: "offer-svc-a",
+    deploymentKind: "service",
+    deploymentId: "svc-a",
+    instanceId: "svc-instance-a",
+    contractId: "a.contract@v1",
+    contractDigest: "sha256-a",
+    lineageKey: "service:svc-a:a.contract@v1",
+    status: "accepted",
+    liveness: "healthy",
+    firstOfferedAt: "2026-05-07T00:00:00.000Z",
+    acceptedAt: "2026-05-07T00:00:01.000Z",
+    lastRefreshedAt: "2026-05-07T00:00:01.000Z",
+    staleAt: null,
+    expiresAt: null,
     ...overrides,
   };
 }
@@ -279,7 +301,7 @@ Deno.test("deployment envelope expansion appends deltas without replacing concur
   await withEnvelopeRepositories(async ({
     envelopes,
     resourceBindings,
-    contractEvidence,
+    implementationOffers,
   }) => {
     const original = makeEnvelope();
     await envelopes.put(original);
@@ -304,14 +326,6 @@ Deno.test("deployment envelope expansion appends deltas without replacing concur
         resources: [],
       },
       resourceBindings: [],
-      contractEvidence: {
-        deploymentId: "svc-a",
-        contractId: "new-a.contract@v1",
-        contractDigest: "sha256-expansion-a",
-        contract: { id: "new-a.contract@v1" },
-        firstSeenAt: "2026-05-07T00:00:02.000Z",
-        lastSeenAt: "2026-05-07T00:00:02.000Z",
-      },
     });
 
     await envelopes.putExpansion({
@@ -340,14 +354,6 @@ Deno.test("deployment envelope expansion appends deltas without replacing concur
         createdAt: "2026-05-07T00:00:03.000Z",
         updatedAt: "2026-05-07T00:00:03.000Z",
       }],
-      contractEvidence: {
-        deploymentId: "svc-a",
-        contractId: "new-b.contract@v1",
-        contractDigest: "sha256-expansion-b",
-        contract: { id: "new-b.contract@v1" },
-        firstSeenAt: "2026-05-07T00:00:03.000Z",
-        lastSeenAt: "2026-05-07T00:00:03.000Z",
-      },
     });
 
     assertEquals(
@@ -397,10 +403,10 @@ Deno.test("deployment envelope expansion appends deltas without replacing concur
       [{ kind: "kv", alias: "cache-b", binding: { bucket: "svc_cache_b" } }],
     );
     assertEquals(
-      (await contractEvidence.listByDeployment("svc-a")).map((evidence) =>
-        evidence.contractDigest
+      (await implementationOffers.listByDeployment("service", "svc-a")).map(
+        (offer) => offer.contractDigest,
       ),
-      ["sha256-expansion-a", "sha256-expansion-b"],
+      [],
     );
   });
 });
@@ -409,7 +415,7 @@ Deno.test("deployment envelope approval expands and marks request approved atomi
   await withEnvelopeRepositories(async ({
     envelopes,
     expansionRequests,
-    contractEvidence,
+    implementationOffers,
   }) => {
     const original = makeEnvelope();
     await envelopes.put(original);
@@ -444,14 +450,6 @@ Deno.test("deployment envelope approval expands and marks request approved atomi
         resources: [],
       },
       resourceBindings: [],
-      contractEvidence: {
-        deploymentId: "svc-a",
-        contractId: "new.contract@v1",
-        contractDigest: "sha256-new",
-        contract: { id: "new.contract@v1" },
-        firstSeenAt: "2026-05-07T00:00:04.000Z",
-        lastSeenAt: "2026-05-07T00:00:04.000Z",
-      },
       request: {
         requestId: "req-approval",
         state: "approved",
@@ -517,18 +515,18 @@ Deno.test("deployment envelope approval expands and marks request approved atomi
     );
     assertEquals(nextPending.requestId, "req-after-approval");
     assertEquals(
-      (await contractEvidence.get("svc-a", "sha256-new"))?.contractId,
-      "new.contract@v1",
+      (await implementationOffers.get("offer-new"))?.contractId,
+      undefined,
     );
   });
 });
 
-Deno.test("portal routes, grant overrides, resources, and evidence support create read update list", async () => {
+Deno.test("portal routes, grant overrides, resources, and offers support create read update list", async () => {
   await withEnvelopeRepositories(async ({
     portalRoutes,
     grantOverrides,
     resourceBindings,
-    contractEvidence,
+    implementationOffers,
   }) => {
     const route: DeploymentPortalRoute = {
       deploymentId: "svc-a",
@@ -607,40 +605,48 @@ Deno.test("portal routes, grant overrides, resources, and evidence support creat
       },
     );
 
-    const evidence: DeploymentContractEvidence = {
-      deploymentId: "svc-a",
+    const offer = makeImplementationOffer({
+      offerId: "offer-app",
       contractId: "app@v1",
       contractDigest: "sha256-app",
-      contract: { id: "app@v1" },
-      firstSeenAt: "2026-05-07T00:00:00.000Z",
-      lastSeenAt: "2026-05-07T00:00:01.000Z",
-    };
-    await contractEvidence.put(evidence);
-    await contractEvidence.put({
-      ...evidence,
-      lastSeenAt: "2026-05-07T00:00:02.000Z",
+      lineageKey: "service:svc-a:app@v1",
+      lastRefreshedAt: "2026-05-07T00:00:01.000Z",
+    });
+    await implementationOffers.put(offer);
+    await implementationOffers.put({
+      ...offer,
+      lastRefreshedAt: "2026-05-07T00:00:02.000Z",
     });
     assertEquals(
-      (await contractEvidence.listByDeployment("svc-a"))[0]?.lastSeenAt,
+      (await implementationOffers.listByDeployment("service", "svc-a"))[0]
+        ?.lastRefreshedAt,
       "2026-05-07T00:00:02.000Z",
     );
-    await contractEvidence.put({
-      ...evidence,
-      contractDigest: "sha256-app-next",
-      lastSeenAt: "2026-05-07T00:00:03.000Z",
+    await implementationOffers.put({
+      ...offer,
+      offerId: "offer-app-next",
+      instanceId: "svc-a-2",
+      status: "offered",
+      acceptedAt: null,
+      lastRefreshedAt: "2026-05-07T00:00:03.000Z",
     });
-    const deleted = await contractEvidence.deleteEvidence({
-      contractId: "app@v1",
-      contractDigests: ["sha256-app"],
-    });
-    assertEquals(deleted.map((record) => record.contractDigest), [
-      "sha256-app",
-    ]);
     assertEquals(
-      (await contractEvidence.listByContractId("app@v1")).map((record) =>
-        record.contractDigest
+      (await implementationOffers.listActiveByContractId("app@v1")).map(
+        (record) => record.contractDigest,
       ),
-      ["sha256-app-next"],
+      ["sha256-app"],
+    );
+    assertEquals(
+      (await implementationOffers.listByDeployment("service", "svc-a")).map(
+        (record) => record.offerId,
+      ),
+      ["offer-app", "offer-app-next"],
+    );
+    assertEquals(
+      (await implementationOffers.latestAcceptedByLineage(
+        "service:svc-a:app@v1",
+      ))?.contractDigest,
+      "sha256-app",
     );
   });
 });
@@ -664,6 +670,41 @@ Deno.test("expansion requests round-trip deltas and update state", async () => {
         request.requestId
       ),
       ["req-a"],
+    );
+  });
+});
+
+Deno.test("expansion requests return latest approved request by contract id", async () => {
+  await withEnvelopeRepositories(async ({ expansionRequests }) => {
+    await expansionRequests.put(makeExpansionRequest({
+      requestId: "req-old",
+      state: "approved",
+      createdAt: "2026-05-07T00:00:01.000Z",
+      decidedAt: "2026-05-07T00:00:03.000Z",
+      decidedBy: { type: "user", id: "admin" },
+      decisionReason: "old",
+    }));
+    await expansionRequests.put(makeExpansionRequest({
+      requestId: "req-pending",
+      createdAt: "2026-05-07T00:00:04.000Z",
+    }));
+    await expansionRequests.put(makeExpansionRequest({
+      requestId: "req-new",
+      state: "approved",
+      createdAt: "2026-05-07T00:00:02.000Z",
+      decidedAt: "2026-05-07T00:00:05.000Z",
+      decidedBy: { type: "user", id: "admin" },
+      decisionReason: "new",
+    }));
+
+    assertEquals(
+      (await expansionRequests.latestApprovedByContractId("a.contract@v1"))
+        ?.requestId,
+      "req-new",
+    );
+    assertEquals(
+      await expansionRequests.latestApprovedByContractId("missing@v1"),
+      undefined,
     );
   });
 });

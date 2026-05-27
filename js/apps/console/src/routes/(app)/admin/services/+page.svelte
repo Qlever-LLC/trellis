@@ -68,31 +68,14 @@
   });
   const disabledCount = $derived(deployments.filter((deployment) => deployment.disabled).length);
 
-  function serviceHref(deploymentId: string): string {
-    return `/admin/services/${encodeURIComponent(deploymentId)}`;
-  }
-
-  function contractHref(digest: string): string {
-    return `/admin/services/contracts/${encodeURIComponent(digest)}`;
-  }
-
-  function contractRef(contractId?: string | null, contractDigest?: string | null): string | null {
-    const id = contractId?.trim();
-    const digest = contractDigest?.trim();
-    return id && digest ? `${id}:${digest}` : null;
-  }
-
-  function contractRefMatches(contractId: string, contractDigest: string, refs: readonly string[]): boolean {
-    const ref = contractRef(contractId, contractDigest);
-    return ref ? refs.includes(ref) : false;
-  }
-
-  function contractRefsForInstances(serviceInstances: ServiceInstance[]): ContractRef[] {
+  function contractRefsForHealthService(service: HealthServiceView | null): ContractRef[] {
     const refs: ContractRef[] = [];
-    for (const instance of serviceInstances) {
-      if (!instance.currentContractId || !instance.currentContractDigest) continue;
-      const exists = refs.some((ref) => ref.contractId === instance.currentContractId && ref.digest === instance.currentContractDigest);
-      if (!exists) refs.push({ contractId: instance.currentContractId, digest: instance.currentContractDigest });
+    for (const instance of service?.instances ?? []) {
+      const id = instance.contractId.trim();
+      const digest = instance.contractDigest.trim();
+      if (!id || !digest) continue;
+      const exists = refs.some((ref) => ref.contractId === id && ref.digest === digest);
+      if (!exists) refs.push({ contractId: id, digest });
     }
     return refs;
   }
@@ -103,8 +86,7 @@
     const instanceIds = serviceInstances.map((instance) => instance.instanceId);
     const byRuntimeInstance = services.find((service) => service.instances.some((instance) => instanceIds.includes(instance.instanceId)));
     if (byRuntimeInstance) return byRuntimeInstance;
-    const refs = contractRefsForInstances(serviceInstances).map((ref) => `${ref.contractId}:${ref.digest}`);
-    return services.find((service) => service.instances.some((instance) => contractRefMatches(instance.contractId, instance.contractDigest, refs))) ?? null;
+    return null;
   }
 
   function statusLabel(status: string): string {
@@ -236,8 +218,8 @@
   <PageToolbar title="Service runtime" description="Service deployments, runtime instances, active health, and contract documentation.">
     {#snippet actions()}
       <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
-      <a class="btn btn-ghost btn-sm" href="/admin/services/contracts">Contract docs</a>
-      <a class="btn btn-outline btn-sm" href={resolve("/admin/services/new")}>Create service</a>
+      <a class="btn btn-ghost btn-sm" href={resolve("/(app)/admin/services/contracts")}>Contract docs</a>
+      <a class="btn btn-outline btn-sm" href={resolve("/(app)/admin/services/new")}>Create service</a>
     {/snippet}
   </PageToolbar>
 
@@ -263,7 +245,7 @@
                 <td>{expansionRequestSummary(request)}</td>
                 <td><span class="badge badge-outline badge-xs">{request.requestedByKind}</span></td>
                 <td class="text-base-content/60">{formatDate(request.createdAt)}</td>
-                <td><a class="btn btn-warning btn-outline btn-xs" href={serviceHref(request.deploymentId)}>Review</a></td>
+                <td><a class="btn btn-warning btn-outline btn-xs" href={resolve("/(app)/admin/services/[deploymentId]", { deploymentId: request.deploymentId })}>Review</a></td>
               </tr>
             {/each}
           </tbody>
@@ -294,10 +276,10 @@
               {@const activeServiceInstances = serviceInstances.filter((instance) => !instance.disabled)}
               {@const healthService = healthServiceForDeployment(deployment.deploymentId, serviceInstances, healthServices)}
               {@const rowStatus = deployment.disabled ? "Disabled" : (healthService ? statusLabel(healthService.status) : (activeServiceInstances.length > 0 ? "Enabled" : "No instances"))}
-              {@const refs = contractRefsForInstances(serviceInstances)}
+              {@const refs = contractRefsForHealthService(healthService)}
               <tr class="hover:bg-base-200/60">
                 <td class="min-w-72">
-                  <a class="btn btn-ghost h-auto min-h-0 justify-start gap-2 px-2 py-1 text-left" href={serviceHref(deployment.deploymentId)}>
+                  <a class="btn btn-ghost h-auto min-h-0 justify-start gap-2 px-2 py-1 text-left" href={resolve("/(app)/admin/services/[deploymentId]", { deploymentId: deployment.deploymentId })}>
                     <span class={["h-2.5 w-2.5 rounded-full", dotClassForStatus(rowStatus)]}></span><span class="trellis-identifier font-medium">{deployment.deploymentId}</span>
                   </a>
                 </td>
@@ -308,9 +290,9 @@
                 <td>
                   <div class="flex flex-wrap gap-1">
                     {#each refs as ref (`${ref.contractId}:${ref.digest}`)}
-                      <a class="badge badge-outline badge-sm trellis-identifier" href={contractHref(ref.digest)}>{ref.contractId}</a>
+                      <a class="badge badge-outline badge-sm trellis-identifier" href={resolve("/(app)/admin/services/contracts/[digest]", { digest: ref.digest })}>{ref.contractId}</a>
                     {:else}
-                      <span class="text-xs text-base-content/50">No current contract</span>
+                      <span class="text-xs text-base-content/50">No live contract</span>
                     {/each}
                   </div>
                 </td>
@@ -332,7 +314,7 @@
               <td class="trellis-identifier font-medium">{contract.id}</td>
               <td>{contractKind(contract)}</td>
               <td class="trellis-identifier text-base-content/60">{contract.digest}</td>
-              <td><a class="btn btn-ghost btn-xs" href={contractHref(contract.digest)}>Open docs</a></td>
+              <td><a class="btn btn-ghost btn-xs" href={resolve("/(app)/admin/services/contracts/[digest]", { digest: contract.digest })}>Open docs</a></td>
             </tr>
           {:else}
             <tr><td colspan="4" class="text-base-content/50">No catalog contracts available.</td></tr>

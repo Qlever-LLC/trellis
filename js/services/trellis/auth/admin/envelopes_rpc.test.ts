@@ -1,21 +1,16 @@
 import { assert, assertEquals } from "@std/assert";
-import { Result } from "@qlever-llc/result";
+import { type BaseError, Result } from "@qlever-llc/result";
 import {
   digestContractManifest,
   type TrellisContractV1,
 } from "@qlever-llc/trellis/contracts";
-import type {
-  AuthEnvelopesChangesPreviewResponse,
-  AuthEnvelopesExpandResponse,
-  AuthEnvelopesGetResponse,
-  AuthEnvelopesShrinkResponse,
-} from "../../../../packages/trellis/auth/protocol.ts";
-
 import { createTestContracts } from "../../catalog/test_contracts.ts";
-import type { ContractResourceBindings } from "../../catalog/resources.ts";
+import type {
+  ContractResourceBindings,
+  ResourceProvisioningOptions,
+} from "../../catalog/resources.ts";
 import type { ContractRecord } from "../../catalog/schemas.ts";
 import type {
-  DeploymentContractEvidence,
   DeploymentEnvelope,
   DeploymentGrantOverride,
   DeploymentResourceBinding,
@@ -23,6 +18,7 @@ import type {
   EnvelopeExpansionRequest,
   EnvelopeHistoryEntry,
   IdentityEnvelopeRecord,
+  ImplementationOffer,
   Session,
 } from "../schemas.ts";
 import {
@@ -64,6 +60,20 @@ const EMPTY_BOUNDARY: EnvelopeBoundary = {
   resources: [],
 };
 
+function mustTake<
+  T,
+  E extends BaseError<{
+    id: string;
+    type: string;
+    message: string;
+    context?: Record<string, unknown>;
+    traceId?: string;
+  }>,
+>(result: Result<T, E>): T {
+  if (result.isErr()) throw result.error;
+  return result.take() as T;
+}
+
 class InMemoryDeploymentEnvelopeStorage {
   #records = new Map<string, DeploymentEnvelope>();
   putCount = 0;
@@ -71,7 +81,6 @@ class InMemoryDeploymentEnvelopeStorage {
     envelope: DeploymentEnvelope;
     delta: EnvelopeBoundary;
     resourceBindings: DeploymentResourceBinding[];
-    contractEvidence: DeploymentContractEvidence;
     history?: EnvelopeHistoryEntry;
     request: { requestId: string; state: "approved" };
   }) => Promise<boolean>;
@@ -95,7 +104,7 @@ class InMemoryDeploymentEnvelopeStorage {
     envelope: DeploymentEnvelope;
     delta: EnvelopeBoundary;
     resourceBindings: DeploymentResourceBinding[];
-    contractEvidence: DeploymentContractEvidence;
+    history?: EnvelopeHistoryEntry;
     request: { requestId: string; state: "approved" };
   }): Promise<boolean> {
     await Promise.resolve();
@@ -132,6 +141,20 @@ class InMemoryEnvelopeHistoryStorage {
   async put(record: EnvelopeHistoryEntry): Promise<void> {
     await Promise.resolve();
     this.records.push(record);
+  }
+
+  seed(record: EnvelopeHistoryEntry): void {
+    this.records.push(record);
+  }
+
+  async listByScope(
+    scopeKind: EnvelopeHistoryEntry["scopeKind"],
+    scopeId: string,
+  ): Promise<EnvelopeHistoryEntry[]> {
+    await Promise.resolve();
+    return this.records.filter((record) =>
+      record.scopeKind === scopeKind && record.scopeId === scopeId
+    );
   }
 }
 
@@ -285,47 +308,6 @@ class InMemoryDeploymentGrantOverrideStorage {
   }
 }
 
-class InMemoryDeploymentContractEvidenceStorage {
-  #records = new Map<string, DeploymentContractEvidence>();
-  putCount = 0;
-
-  async get(
-    deploymentId: string,
-    contractDigest: string,
-  ): Promise<DeploymentContractEvidence | undefined> {
-    await Promise.resolve();
-    return this.#records.get(`${deploymentId}:${contractDigest}`);
-  }
-
-  async put(record: DeploymentContractEvidence): Promise<void> {
-    await Promise.resolve();
-    this.putCount += 1;
-    this.#records.set(
-      `${record.deploymentId}:${record.contractDigest}`,
-      record,
-    );
-  }
-
-  seed(record: DeploymentContractEvidence): void {
-    this.#records.set(
-      `${record.deploymentId}:${record.contractDigest}`,
-      record,
-    );
-  }
-
-  async listByDeployment(
-    deploymentId: string,
-  ): Promise<DeploymentContractEvidence[]> {
-    await Promise.resolve();
-    return [...this.#records.values()]
-      .filter((record) => record.deploymentId === deploymentId)
-      .sort((left, right) =>
-        left.contractId.localeCompare(right.contractId) ||
-        left.contractDigest.localeCompare(right.contractDigest)
-      );
-  }
-}
-
 class InMemoryContractStorage {
   #records = new Map<string, ContractRecord>();
   putCount = 0;
@@ -339,6 +321,25 @@ class InMemoryContractStorage {
   async get(digest: string): Promise<ContractRecord | undefined> {
     await Promise.resolve();
     return this.#records.get(digest);
+  }
+}
+
+class InMemoryImplementationOfferStorage {
+  #records: ImplementationOffer[] = [];
+
+  seed(record: ImplementationOffer): void {
+    this.#records.push(record);
+  }
+
+  async listByDeployment(
+    deploymentKind: ImplementationOffer["deploymentKind"],
+    deploymentId: string,
+  ): Promise<ImplementationOffer[]> {
+    await Promise.resolve();
+    return this.#records.filter((record) =>
+      record.deploymentKind === deploymentKind &&
+      record.deploymentId === deploymentId
+    );
   }
 }
 
@@ -381,6 +382,21 @@ class InMemoryEnvelopeExpansionRequestStorage {
   async get(requestId: string): Promise<EnvelopeExpansionRequest | undefined> {
     await Promise.resolve();
     return this.#records.find((record) => record.requestId === requestId);
+  }
+
+  async latestApprovedByContractId(
+    contractId: string,
+  ): Promise<EnvelopeExpansionRequest | undefined> {
+    await Promise.resolve();
+    return this.#records
+      .filter((record) =>
+        record.contractId === contractId && record.state === "approved"
+      )
+      .sort((left, right) =>
+        (right.decidedAt ?? "").localeCompare(left.decidedAt ?? "") ||
+        right.createdAt.localeCompare(left.createdAt) ||
+        right.requestId.localeCompare(left.requestId)
+      )[0];
   }
 
   async updateState(record: {
@@ -509,6 +525,25 @@ function serviceContract(): TrellisContractV1 {
   };
 }
 
+function eventConsumerServiceContract(): TrellisContractV1 {
+  return {
+    ...serviceContract(),
+    uses: {
+      required: {
+        platform: {
+          contract: "acme.platform@v1",
+          events: { subscribe: ["Changed"] },
+        },
+      },
+    },
+    eventConsumers: {
+      ingest: {
+        events: [{ use: "platform", event: "Changed" }],
+      },
+    },
+  } as TrellisContractV1;
+}
+
 function resourceContract(): TrellisContractV1 {
   return {
     ...serviceContract(),
@@ -555,6 +590,27 @@ function makeEnvelope(
   };
 }
 
+function makeImplementationOffer(
+  contract = serviceContract(),
+): ImplementationOffer {
+  return {
+    offerId: "offer-1",
+    deploymentKind: "service",
+    deploymentId: "billing.default",
+    instanceId: "instance-1",
+    contractId: contract.id,
+    contractDigest: digestContractManifest(contract),
+    lineageKey: contract.id,
+    status: "accepted",
+    liveness: "healthy",
+    firstOfferedAt: "2026-05-07T00:00:00.000Z",
+    acceptedAt: "2026-05-07T00:00:00.000Z",
+    lastRefreshedAt: "2026-05-07T00:00:00.000Z",
+    staleAt: null,
+    expiresAt: null,
+  };
+}
+
 function expandedBoundary(): EnvelopeBoundary {
   return {
     contracts: [
@@ -584,19 +640,6 @@ function shrunkBoundary(): EnvelopeBoundary {
   };
 }
 
-function makeEvidence(
-  contract = serviceContract(),
-): DeploymentContractEvidence {
-  return {
-    deploymentId: "billing.default",
-    contractId: contract.id,
-    contractDigest: digestContractManifest(contract),
-    contract,
-    firstSeenAt: "2026-05-07T00:00:00.000Z",
-    lastSeenAt: "2026-05-07T00:00:00.000Z",
-  };
-}
-
 function makeServiceSession(contract = serviceContract()): Session {
   return {
     type: "service",
@@ -610,20 +653,21 @@ function makeServiceSession(contract = serviceContract()): Session {
     instanceId: "instance-1",
     deploymentId: "billing.default",
     instanceKey: "session-key-1",
-    currentContractId: contract.id,
-    currentContractDigest: digestContractManifest(contract),
+    contractId: contract.id,
+    contractDigest: digestContractManifest(contract),
   };
 }
 
 function makeDeps(options: {
   envelope?: DeploymentEnvelope;
   contracts?: ReturnType<typeof createTestContracts>;
-  provisionResourceBindings?: () => Promise<ContractResourceBindings>;
+  provisionResourceBindings?: (
+    options: ResourceProvisioningOptions,
+  ) => Promise<ContractResourceBindings>;
 } = {}) {
   const envelopes = new InMemoryDeploymentEnvelopeStorage();
   envelopes.seed(options.envelope ?? makeEnvelope());
   const resources = new InMemoryDeploymentResourceBindingStorage();
-  const evidence = new InMemoryDeploymentContractEvidenceStorage();
   const contractStorage = new InMemoryContractStorage();
   const history = new InMemoryEnvelopeHistoryStorage();
   const contracts = options.contracts ?? createTestContracts([{
@@ -633,7 +677,6 @@ function makeDeps(options: {
   return {
     envelopes,
     resources,
-    evidence,
     contractStorage,
     history,
     handler: createAuthEnvelopesExpandHandler({
@@ -642,10 +685,15 @@ function makeDeps(options: {
       deploymentEnvelopeStorage: envelopes,
       envelopeHistoryStorage: history,
       deploymentResourceBindingStorage: resources,
-      deploymentContractEvidenceStorage: evidence,
-      provisionResourceBindings: options.provisionResourceBindings
-        ? async () => await options.provisionResourceBindings?.() ?? {}
-        : async () => ({}),
+      provisionResources: options.provisionResourceBindings
+        ? async (_nats, _contract, _deploymentId, provisioningOptions) => ({
+          bindings: await options.provisionResourceBindings?.(
+            provisioningOptions ?? {},
+          ) ?? {},
+          created: [],
+          adopted: [],
+        })
+        : async () => ({ bindings: {}, created: [], adopted: [] }),
       now: () => new Date("2026-05-07T01:00:00.000Z"),
       logger: { trace: () => {} },
     }),
@@ -679,7 +727,7 @@ Deno.test("Auth.Envelopes.List returns admin-visible envelope authority rows", a
     context: adminContext,
   });
   if (result.isErr()) throw result.error;
-  const value = result.take();
+  const value = mustTake(result);
   if (!("entries" in value)) throw new Error("expected page response");
 
   assertEquals(
@@ -698,7 +746,8 @@ Deno.test("Auth.Envelopes.List returns admin-visible envelope authority rows", a
 Deno.test("Auth.Envelopes.Get returns envelope detail for Console review", async () => {
   const envelopes = new InMemoryDeploymentEnvelopeStorage();
   const resources = new InMemoryDeploymentResourceBindingStorage();
-  const evidence = new InMemoryDeploymentContractEvidenceStorage();
+  const history = new InMemoryEnvelopeHistoryStorage();
+  const offers = new InMemoryImplementationOfferStorage();
   const requests = new InMemoryEnvelopeExpansionRequestStorage();
   const portalRoutes = new InMemoryDeploymentPortalRouteStorage();
   const grantOverrides = new InMemoryDeploymentGrantOverrideStorage();
@@ -715,7 +764,19 @@ Deno.test("Auth.Envelopes.Get returns envelope detail for Console review", async
     createdAt: "2026-05-07T00:00:00.000Z",
     updatedAt: "2026-05-07T00:00:00.000Z",
   });
-  evidence.seed(makeEvidence(contract));
+  history.seed({
+    entryId: "envh-1",
+    scopeKind: "deployment",
+    scopeId: "billing.default",
+    action: "expand",
+    delta: expandedBoundary(),
+    resultingUpdatedAt: "2026-05-07T00:00:00.000Z",
+    actor: null,
+    reason: null,
+    source: { contractId: contract.id, contractDigest: digest },
+    createdAt: "2026-05-07T00:00:00.000Z",
+  });
+  offers.seed(makeImplementationOffer(contract));
   requests.seed({
     requestId: "req-1",
     deploymentId: "billing.default",
@@ -751,7 +812,8 @@ Deno.test("Auth.Envelopes.Get returns envelope detail for Console review", async
   const handler = createAuthEnvelopesGetHandler({
     deploymentEnvelopeStorage: envelopes,
     deploymentResourceBindingStorage: resources,
-    deploymentContractEvidenceStorage: evidence,
+    envelopeHistoryStorage: history,
+    implementationOfferStorage: offers,
     envelopeExpansionRequestStorage: requests,
     deploymentPortalRouteStorage: portalRoutes,
     deploymentGrantOverrideStorage: grantOverrides,
@@ -762,18 +824,33 @@ Deno.test("Auth.Envelopes.Get returns envelope detail for Console review", async
     input: { deploymentId: "billing.default" },
     context: adminContext,
   });
-  const value = result.take() as AuthEnvelopesGetResponse;
+  const value = mustTake(result);
 
   assertEquals(value.envelope.deploymentId, "billing.default");
   assertEquals(value.resourceBindings.map((binding) => binding.alias), [
     "cache",
   ]);
-  assertEquals(value.contractEvidence.map((record) => record.contractDigest), [
-    digest,
+  assertEquals(value.contractHistory.map((record) => record.entryId), [
+    "envh-1",
   ]);
+  assertEquals(
+    value.implementationOffers.map((record) => record.contractDigest),
+    [
+      digest,
+    ],
+  );
   assertEquals(value.expansionRequests.map((request) => request.requestId), [
     "req-1",
   ]);
+  assertEquals(value.expansionRequests[0]?.contract, {
+    id: contract.id,
+    digest,
+    redacted: true,
+    format: contract.format,
+    displayName: contract.displayName,
+    description: contract.description,
+    kind: contract.kind,
+  });
   assertEquals(value.portalRoute?.portalId, "ops");
   assertEquals(value.grantOverrides.map((override) => override.capability), [
     "billing.call",
@@ -811,8 +888,7 @@ Deno.test("Auth.Envelopes.GrantOverrides.List returns compact paged grant overri
     input: { limit: 1, offset: 0 },
     context: adminContext,
   });
-  if (result.isErr()) throw result.error;
-  const value = result.take() as unknown as {
+  const value = mustTake(result) as {
     entries: DeploymentGrantOverride[];
     count: number;
     nextOffset?: number;
@@ -859,7 +935,9 @@ Deno.test("Auth.Envelopes.GrantOverrides.Put replaces deployment override rows",
     input: { deploymentId: "billing.default", overrides: [override] },
     context: adminContext,
   });
-  const value = result.take() as { grantOverrides: DeploymentGrantOverride[] };
+  const value = mustTake(result) as {
+    grantOverrides: DeploymentGrantOverride[];
+  };
 
   assertEquals(value.grantOverrides, [override]);
   assertEquals(await grantOverrides.listByDeployment("billing.default"), [
@@ -897,7 +975,9 @@ Deno.test("Auth.Envelopes.GrantOverrides.Remove removes exact matching rows", as
     input: { deploymentId: "billing.default", overrides: [removed] },
     context: adminContext,
   });
-  const value = result.take() as { grantOverrides: DeploymentGrantOverride[] };
+  const value = mustTake(result) as {
+    grantOverrides: DeploymentGrantOverride[];
+  };
 
   assertEquals(value.grantOverrides, [retained]);
   assertEquals(await grantOverrides.listByDeployment("billing.default"), [
@@ -964,7 +1044,7 @@ Deno.test("Auth.EnvelopeExpansions.List returns filtered expansion requests", as
   });
 
   if (result.isErr()) throw result.error;
-  const value = result.take();
+  const value = mustTake(result);
   if (!("entries" in value)) throw new Error("expected page response");
   assertEquals(
     value.entries.map((request: EnvelopeExpansionRequest) => request.requestId),
@@ -977,11 +1057,20 @@ Deno.test("Auth.EnvelopeExpansions.List returns filtered expansion requests", as
   assertEquals(value.limit, 100);
   assertEquals(value.nextOffset, undefined);
   assertEquals(value.entries[0]?.delta, expandedBoundary());
+  assertEquals(value.entries[0]?.contract, {
+    id: contract.id,
+    digest: digestContractManifest(contract),
+    redacted: true,
+    format: contract.format,
+    displayName: contract.displayName,
+    description: contract.description,
+    kind: contract.kind,
+  });
 });
 
-Deno.test("Auth.Envelopes.Expand expands modeled rows and stores evidence", async () => {
+Deno.test("Auth.Envelopes.Expand expands modeled rows and stores history", async () => {
   const contract = serviceContract();
-  const { handler, envelopes, evidence, contractStorage, history } = makeDeps();
+  const { handler, envelopes, contractStorage, history } = makeDeps();
 
   const result = await handler({
     input: {
@@ -993,9 +1082,8 @@ Deno.test("Auth.Envelopes.Expand expands modeled rows and stores evidence", asyn
   });
 
   if (result.isErr()) throw result.error;
-  const value = result.take() as AuthEnvelopesExpandResponse;
+  const value = mustTake(result);
   assertEquals(envelopes.putCount, 1);
-  assertEquals(evidence.putCount, 1);
   assertEquals(contractStorage.putCount, 1);
   const storedContract = await contractStorage.get(
     digestContractManifest(contract),
@@ -1011,7 +1099,7 @@ Deno.test("Auth.Envelopes.Expand expands modeled rows and stores evidence", asyn
   ]);
   assertEquals(value.delta.contracts, value.envelope.boundary.contracts);
   assertEquals(
-    value.contractEvidence.contractDigest,
+    value.contractHistory[0]?.source.contractDigest,
     digestContractManifest(contract),
   );
   assertEquals(history.records.length, 1);
@@ -1048,7 +1136,7 @@ Deno.test("Auth.Envelopes.Expand resolves required dependency surfaces from know
   });
 
   if (result.isErr()) throw result.error;
-  const value = result.take() as AuthEnvelopesExpandResponse;
+  const value = mustTake(result);
   assertEquals(value.delta.contracts, [
     { contractId: "acme.billing@v1", required: true },
     { contractId: "acme.platform@v1", required: true },
@@ -1071,7 +1159,7 @@ Deno.test("Auth.Envelopes.Expand resolves required dependency surfaces from know
 
 Deno.test("Auth.EnvelopeExpansions.Approve expands envelope from pending request", async () => {
   const contract = serviceContract();
-  const { envelopes, resources, evidence, contractStorage } = makeDeps();
+  const { envelopes, resources, contractStorage } = makeDeps();
   const requests = new InMemoryEnvelopeExpansionRequestStorage();
   envelopes.onApproveExpansion = async (record) => {
     const updated = await requests.updateState({
@@ -1082,7 +1170,6 @@ Deno.test("Auth.EnvelopeExpansions.Approve expands envelope from pending request
       decisionReason: "demo approval",
     });
     for (const binding of record.resourceBindings) await resources.put(binding);
-    await evidence.put(record.contractEvidence);
     return updated;
   };
   requests.seed({
@@ -1108,9 +1195,12 @@ Deno.test("Auth.EnvelopeExpansions.Approve expands envelope from pending request
     contractStorage,
     deploymentEnvelopeStorage: envelopes,
     deploymentResourceBindingStorage: resources,
-    deploymentContractEvidenceStorage: evidence,
     envelopeExpansionRequestStorage: requests,
-    provisionResourceBindings: async () => ({}),
+    provisionResources: async () => ({
+      bindings: {},
+      created: [],
+      adopted: [],
+    }),
     now: () => new Date("2026-05-07T01:00:00.000Z"),
     logger: { trace: () => {} },
   });
@@ -1121,12 +1211,20 @@ Deno.test("Auth.EnvelopeExpansions.Approve expands envelope from pending request
   });
 
   if (result.isErr()) throw result.error;
-  const value = result.take();
+  const value = mustTake(result);
   if (Result.isErr(value)) throw value.error;
   assertEquals(value.request.state, "approved");
   assertEquals(value.request.decisionReason, "demo approval");
+  assertEquals(value.request.contract, {
+    id: contract.id,
+    digest: digestContractManifest(contract),
+    redacted: true,
+    format: contract.format,
+    displayName: contract.displayName,
+    description: contract.description,
+    kind: contract.kind,
+  });
   assertEquals(envelopes.putCount, 1);
-  assertEquals(evidence.putCount, 1);
   assertEquals(contractStorage.putCount, 1);
   assertEquals(
     JSON.parse(
@@ -1158,7 +1256,7 @@ Deno.test("Auth.EnvelopeExpansions.Approve keeps inactive ambiguous dependencies
       },
     },
   });
-  const { envelopes, resources, evidence, contractStorage } = makeDeps({
+  const { envelopes, resources, contractStorage } = makeDeps({
     contracts,
   });
   const requests = new InMemoryEnvelopeExpansionRequestStorage();
@@ -1170,7 +1268,6 @@ Deno.test("Auth.EnvelopeExpansions.Approve keeps inactive ambiguous dependencies
       decidedBy: { type: "user", id: "admin" },
       decisionReason: "approve own boundary",
     });
-    await evidence.put(record.contractEvidence);
     return updated;
   };
   requests.seed({
@@ -1193,9 +1290,12 @@ Deno.test("Auth.EnvelopeExpansions.Approve keeps inactive ambiguous dependencies
     contractStorage,
     deploymentEnvelopeStorage: envelopes,
     deploymentResourceBindingStorage: resources,
-    deploymentContractEvidenceStorage: evidence,
     envelopeExpansionRequestStorage: requests,
-    provisionResourceBindings: async () => ({}),
+    provisionResources: async () => ({
+      bindings: {},
+      created: [],
+      adopted: [],
+    }),
     now: () => new Date("2026-05-07T01:00:00.000Z"),
     logger: { trace: () => {} },
   });
@@ -1209,7 +1309,7 @@ Deno.test("Auth.EnvelopeExpansions.Approve keeps inactive ambiguous dependencies
   });
 
   if (result.isErr()) throw result.error;
-  const value = result.take();
+  const value = mustTake(result);
   if (Result.isErr(value)) throw value.error;
   assertEquals(value.request.state, "approved");
   assertEquals(value.delta.contracts, [
@@ -1230,9 +1330,235 @@ Deno.test("Auth.EnvelopeExpansions.Approve keeps inactive ambiguous dependencies
   );
 });
 
+Deno.test("Auth.EnvelopeExpansions.Approve provisions event consumers using active dependency entries", async () => {
+  const contract = eventConsumerServiceContract();
+  const activeDependency = dependencyContract();
+  const staleDependency = {
+    ...activeDependency,
+    schemas: {
+      ...activeDependency.schemas,
+      BillingConfirmSubscriptionCheckoutResponseSchema: {
+        type: "object",
+        properties: { legacy: { type: "string" } },
+      },
+    },
+  } satisfies TrellisContractV1;
+  const contracts = createTestContracts([{
+    digest: "platform-active",
+    contract: activeDependency,
+  }]);
+  contracts.addKnownTestContract({
+    digest: "platform-stale",
+    contract: staleDependency,
+  });
+  const { envelopes, resources, contractStorage } = makeDeps({ contracts });
+  const requests = new InMemoryEnvelopeExpansionRequestStorage();
+  const seenDependencyDigests: string[][] = [];
+  envelopes.onApproveExpansion = async (record) => {
+    for (const binding of record.resourceBindings) await resources.put(binding);
+    return await requests.updateState({
+      requestId: record.request.requestId,
+      state: "approved",
+      decidedAt: "2026-05-07T01:00:00.000Z",
+      decidedBy: { type: "user", id: "admin" },
+      decisionReason: null,
+    });
+  };
+  requests.seed({
+    requestId: "request-consumer",
+    deploymentId: "billing.default",
+    requestedByKind: "service",
+    requestedBy: { instanceId: "svc-1" },
+    contractId: contract.id,
+    contractDigest: digestContractManifest(contract),
+    contract,
+    state: "pending",
+    createdAt: "2026-05-07T00:00:00.000Z",
+    decidedAt: null,
+    decidedBy: null,
+    decisionReason: null,
+    delta: EMPTY_BOUNDARY,
+  });
+  const handler = createAuthEnvelopesApproveRequestHandler({
+    contracts,
+    contractStorage,
+    deploymentEnvelopeStorage: envelopes,
+    deploymentResourceBindingStorage: resources,
+    envelopeExpansionRequestStorage: requests,
+    provisionResources: async (_nats, _contract, _deploymentId, options) => {
+      seenDependencyDigests.push(
+        (options?.knownContractEntries ?? []).map((entry) => entry.digest),
+      );
+      return {
+        bindings: {
+          eventConsumers: {
+            ingest: {
+              stream: "trellis",
+              consumerName: "billing-ingest",
+              filterSubjects: ["events.v1.platform.Changed"],
+              replay: "new",
+              ordering: "strict",
+              concurrency: 1,
+              ackWaitMs: 300000,
+              maxDeliver: 6,
+              backoffMs: [5000, 30000, 120000, 600000, 1800000],
+            },
+          },
+        },
+        created: [],
+        adopted: [],
+      };
+    },
+    now: () => new Date("2026-05-07T01:00:00.000Z"),
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { requestId: "request-consumer" },
+    context: adminContext,
+  });
+
+  if (result.isErr()) throw result.error;
+  const value = mustTake(result);
+  if (Result.isErr(value)) throw value.error;
+  assertEquals(value.request.state, "approved");
+  assertEquals(seenDependencyDigests, [["platform-active"]]);
+  assertEquals(
+    resources.list().map((binding) => [
+      binding.kind,
+      binding.alias,
+      binding.binding,
+    ]),
+    [[
+      "event-consumer",
+      "ingest",
+      {
+        stream: "trellis",
+        consumerName: "billing-ingest",
+        filterSubjects: ["events.v1.platform.Changed"],
+        replay: "new",
+        ordering: "strict",
+        concurrency: 1,
+        ackWaitMs: 300000,
+        maxDeliver: 6,
+        backoffMs: [5000, 30000, 120000, 600000, 1800000],
+      },
+    ]],
+  );
+});
+
+Deno.test("Auth.EnvelopeExpansions.Approve provisions event consumers using latest approved dependency fallback", async () => {
+  const contract = eventConsumerServiceContract();
+  const approvedDependency = dependencyContract();
+  const staleDependency = {
+    ...approvedDependency,
+    schemas: {
+      ...approvedDependency.schemas,
+      BillingConfirmSubscriptionCheckoutResponseSchema: {
+        type: "object",
+        properties: { legacy: { type: "string" } },
+      },
+    },
+  } satisfies TrellisContractV1;
+  const contracts = createTestContracts();
+  contracts.addKnownTestContract({
+    digest: "platform-stale",
+    contract: staleDependency,
+  });
+  const { envelopes, resources, contractStorage } = makeDeps({ contracts });
+  const requests = new InMemoryEnvelopeExpansionRequestStorage();
+  const seenDependencyDigests: string[][] = [];
+  envelopes.onApproveExpansion = async (record) => {
+    for (const binding of record.resourceBindings) await resources.put(binding);
+    return await requests.updateState({
+      requestId: record.request.requestId,
+      state: "approved",
+      decidedAt: "2026-05-07T01:00:00.000Z",
+      decidedBy: { type: "user", id: "admin" },
+      decisionReason: null,
+    });
+  };
+  requests.seed({
+    requestId: "request-platform-approved",
+    deploymentId: "platform.default",
+    requestedByKind: "service",
+    requestedBy: { instanceId: "platform-svc" },
+    contractId: approvedDependency.id,
+    contractDigest: digestContractManifest(approvedDependency),
+    contract: approvedDependency,
+    state: "approved",
+    createdAt: "2026-05-06T00:00:00.000Z",
+    decidedAt: "2026-05-06T01:00:00.000Z",
+    decidedBy: { type: "user", id: "admin" },
+    decisionReason: null,
+    delta: EMPTY_BOUNDARY,
+  });
+  requests.seed({
+    requestId: "request-consumer-approved-fallback",
+    deploymentId: "billing.default",
+    requestedByKind: "service",
+    requestedBy: { instanceId: "svc-1" },
+    contractId: contract.id,
+    contractDigest: digestContractManifest(contract),
+    contract,
+    state: "pending",
+    createdAt: "2026-05-07T00:00:00.000Z",
+    decidedAt: null,
+    decidedBy: null,
+    decisionReason: null,
+    delta: EMPTY_BOUNDARY,
+  });
+  const handler = createAuthEnvelopesApproveRequestHandler({
+    contracts,
+    contractStorage,
+    deploymentEnvelopeStorage: envelopes,
+    deploymentResourceBindingStorage: resources,
+    envelopeExpansionRequestStorage: requests,
+    provisionResources: async (_nats, _contract, _deploymentId, options) => {
+      seenDependencyDigests.push(
+        (options?.knownContractEntries ?? []).map((entry) => entry.digest),
+      );
+      return {
+        bindings: {
+          eventConsumers: {
+            ingest: {
+              stream: "trellis",
+              consumerName: "billing-ingest",
+              filterSubjects: ["events.v1.platform.Changed"],
+              replay: "new",
+              ordering: "strict",
+              concurrency: 1,
+              ackWaitMs: 300000,
+              maxDeliver: 6,
+              backoffMs: [5000, 30000, 120000, 600000, 1800000],
+            },
+          },
+        },
+        created: [],
+        adopted: [],
+      };
+    },
+    now: () => new Date("2026-05-07T01:00:00.000Z"),
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { requestId: "request-consumer-approved-fallback" },
+    context: adminContext,
+  });
+
+  if (result.isErr()) throw result.error;
+  const value = mustTake(result);
+  if (Result.isErr(value)) throw value.error;
+  assertEquals(value.request.state, "approved");
+  assertEquals(seenDependencyDigests, [[
+    digestContractManifest(approvedDependency),
+  ]]);
+});
+
 Deno.test("Auth.EnvelopeExpansions.Approve rejects terminal requests", async () => {
   const contract = serviceContract();
-  const { envelopes, resources, evidence, contractStorage } = makeDeps();
+  const { envelopes, resources, contractStorage } = makeDeps();
   const requests = new InMemoryEnvelopeExpansionRequestStorage();
   requests.seed({
     requestId: "request-approved",
@@ -1257,7 +1583,6 @@ Deno.test("Auth.EnvelopeExpansions.Approve rejects terminal requests", async () 
     contractStorage,
     deploymentEnvelopeStorage: envelopes,
     deploymentResourceBindingStorage: resources,
-    deploymentContractEvidenceStorage: evidence,
     envelopeExpansionRequestStorage: requests,
     logger: { trace: () => {} },
   });
@@ -1301,9 +1626,18 @@ Deno.test("Auth.EnvelopeExpansions.Reject rejects pending request", async () => 
   });
 
   if (result.isErr()) throw result.error;
-  const value = result.take();
+  const value = mustTake(result);
   if (Result.isErr(value)) throw value.error;
   assertEquals(value.request.state, "rejected");
+  assertEquals(value.request.contract, {
+    id: contract.id,
+    digest: digestContractManifest(contract),
+    redacted: true,
+    format: contract.format,
+    displayName: contract.displayName,
+    description: contract.description,
+    kind: contract.kind,
+  });
   assertEquals(value.request.decisionReason, "not needed");
   assertEquals((await requests.get("request-1"))?.state, "rejected");
 });
@@ -1342,7 +1676,7 @@ Deno.test("Auth.EnvelopeExpansions.Reject rejects terminal requests", async () =
 });
 
 Deno.test("Auth.Envelopes.Expand rejects expected digest mismatch", async () => {
-  const { handler, envelopes, resources, evidence } = makeDeps();
+  const { handler, envelopes, resources } = makeDeps();
   const result = await handler({
     input: {
       deploymentId: "billing.default",
@@ -1355,11 +1689,10 @@ Deno.test("Auth.Envelopes.Expand rejects expected digest mismatch", async () => 
   assert(result.isErr());
   assertEquals(envelopes.putCount, 0);
   assertEquals(resources.putCount, 0);
-  assertEquals(evidence.putCount, 0);
 });
 
 Deno.test("Auth.Envelopes.Expand rejects invalid contract", async () => {
-  const { handler, envelopes, evidence } = makeDeps();
+  const { handler, envelopes } = makeDeps();
   const result = await handler({
     input: {
       deploymentId: "billing.default",
@@ -1371,7 +1704,6 @@ Deno.test("Auth.Envelopes.Expand rejects invalid contract", async () => {
 
   assert(result.isErr());
   assertEquals(envelopes.putCount, 0);
-  assertEquals(evidence.putCount, 0);
 });
 
 Deno.test("Auth.Envelopes.Expand provisions and stores resource delta bindings", async () => {
@@ -1428,7 +1760,7 @@ Deno.test("Auth.Envelopes.Expand provisions and stores resource delta bindings",
       ["store", "uploads"],
     ],
   );
-  const value = result.take() as AuthEnvelopesExpandResponse;
+  const value = mustTake(result);
   assertEquals(value.resourceBindings.length, 3);
 });
 
@@ -1496,14 +1828,14 @@ Deno.test("Auth.Envelopes.Expand repairs missing bindings for existing envelope 
       ["store", "uploads"],
     ],
   );
-  const value = result.take() as AuthEnvelopesExpandResponse;
+  const value = mustTake(result);
   assertEquals(value.resourceBindings.length, 3);
   assertEquals(value.delta.resources, []);
 });
 
 Deno.test("Auth.Envelopes.Expand rejects missing non-transfer resource bindings", async () => {
   const contract = resourceContract();
-  const { handler, envelopes, resources, evidence } = makeDeps({
+  const { handler, envelopes, resources } = makeDeps({
     provisionResourceBindings: async () => ({
       kv: { cache: { bucket: "svc_cache", history: 2, ttlMs: 1000 } },
     }),
@@ -1521,10 +1853,104 @@ Deno.test("Auth.Envelopes.Expand rejects missing non-transfer resource bindings"
   assert(result.isErr());
   assertEquals(envelopes.putCount, 0);
   assertEquals(resources.list(), []);
-  assertEquals(evidence.putCount, 0);
 });
 
-Deno.test("Auth.Envelopes.Expand accepts missing optional resource bindings", async () => {
+Deno.test("Auth.Envelopes.Expand reuses stored internal resource names when reprovisioning", async () => {
+  const contract = resourceContract();
+  let provisioningOptions: ResourceProvisioningOptions | undefined;
+  const { handler, resources } = makeDeps({
+    provisionResourceBindings: async (options) => {
+      provisioningOptions = options;
+      return {
+        kv: {
+          cache: {
+            bucket: options.existingResourceNames?.kv?.cache ?? "new_kv",
+            history: 2,
+            ttlMs: 1000,
+          },
+        },
+        store: {
+          uploads: {
+            name: options.existingResourceNames?.store?.uploads ?? "new_store",
+            ttlMs: 2000,
+            maxTotalBytes: 100000,
+          },
+        },
+      };
+    },
+  });
+  resources.seed({
+    deploymentId: "billing.default",
+    kind: "kv",
+    alias: "cache",
+    binding: { bucket: "tr_kv_existing", history: 1, ttlMs: 1000 },
+    limits: null,
+    createdAt: "2026-05-07T00:00:00.000Z",
+    updatedAt: "2026-05-07T00:00:00.000Z",
+  });
+  resources.seed({
+    deploymentId: "billing.default",
+    kind: "store",
+    alias: "uploads",
+    binding: { name: "tr_obj_existing", ttlMs: 1, maxTotalBytes: 100000 },
+    limits: null,
+    createdAt: "2026-05-07T00:00:00.000Z",
+    updatedAt: "2026-05-07T00:00:00.000Z",
+  });
+  resources.seed({
+    deploymentId: "billing.default",
+    kind: "jobs",
+    alias: "reconcile",
+    binding: {
+      namespace: "tr_jobs_existing",
+      workStream: "JOBS_WORK",
+      queueType: "reconcile",
+      publishPrefix: "trellis.jobs.tr_jobs_existing.tr_jq_existing",
+      workSubject: "trellis.work.tr_jobs_existing.tr_jq_existing",
+      consumerName: "tr_jobs_existing_tr_jq_existing",
+      payload: { schema: "Empty" },
+      maxDeliver: 3,
+      backoffMs: [5000],
+      ackWaitMs: 300000,
+      progress: true,
+      logs: true,
+      dlq: true,
+      concurrency: 1,
+    },
+    limits: null,
+    createdAt: "2026-05-07T00:00:00.000Z",
+    updatedAt: "2026-05-07T00:00:00.000Z",
+  });
+
+  const result = await handler({
+    input: {
+      deploymentId: "billing.default",
+      contract,
+      expectedDigest: digestContractManifest(contract),
+    },
+    context: adminContext,
+  });
+
+  if (result.isErr()) throw result.error;
+  assertEquals(
+    provisioningOptions?.existingResourceNames?.kv?.cache,
+    "tr_kv_existing",
+  );
+  assertEquals(
+    provisioningOptions?.existingResourceNames?.store?.uploads,
+    "tr_obj_existing",
+  );
+  assertEquals(
+    resources.list().find((binding) => binding.kind === "kv")?.binding.bucket,
+    "tr_kv_existing",
+  );
+  assertEquals(
+    resources.list().find((binding) => binding.kind === "store")?.binding.name,
+    "tr_obj_existing",
+  );
+});
+
+Deno.test("Auth.Envelopes.Expand rejects missing optional resource bindings", async () => {
   const contract: TrellisContractV1 = {
     ...resourceContract(),
     resources: {
@@ -1583,20 +2009,13 @@ Deno.test("Auth.Envelopes.Expand accepts missing optional resource bindings", as
     context: adminContext,
   });
 
-  if (result.isErr()) throw result.error;
-  assertEquals(
-    resources.list().map((binding) => [binding.kind, binding.alias]),
-    [
-      ["jobs", "reconcile"],
-      ["kv", "cache"],
-      ["store", "uploads"],
-    ],
-  );
+  assert(result.isErr());
+  assertEquals(resources.list(), []);
 });
 
 Deno.test("Auth.Envelopes.Expand is idempotent for repeated expansion", async () => {
   const contract = serviceContract();
-  const { handler, envelopes, evidence } = makeDeps();
+  const { handler, envelopes } = makeDeps();
   const input = {
     deploymentId: "billing.default",
     contract,
@@ -1609,8 +2028,7 @@ Deno.test("Auth.Envelopes.Expand is idempotent for repeated expansion", async ()
   if (second.isErr()) throw second.error;
 
   assertEquals(envelopes.putCount, 1);
-  assertEquals(evidence.putCount, 2);
-  const value = second.take() as AuthEnvelopesExpandResponse;
+  const value = mustTake(second);
   assertEquals(value.delta, EMPTY_BOUNDARY);
 });
 
@@ -1637,8 +2055,6 @@ Deno.test("Auth.Envelopes.Changes.Preview reports shrink impact without mutating
     createdAt: "2026-05-07T00:00:00.000Z",
     updatedAt: "2026-05-07T00:00:00.000Z",
   });
-  const evidence = new InMemoryDeploymentContractEvidenceStorage();
-  evidence.seed(makeEvidence());
   const identityEnvelopes = new InMemoryIdentityEnvelopeStorage();
   identityEnvelopes.seed({
     identityEnvelopeId: "identity-envelope-1",
@@ -1700,7 +2116,6 @@ Deno.test("Auth.Envelopes.Changes.Preview reports shrink impact without mutating
     ]),
     deploymentEnvelopeStorage: envelopes,
     deploymentResourceBindingStorage: resources,
-    deploymentContractEvidenceStorage: evidence,
     identityEnvelopeStorage: identityEnvelopes,
     envelopeExpansionRequestStorage: requests,
     sessionStorage: sessions,
@@ -1716,7 +2131,7 @@ Deno.test("Auth.Envelopes.Changes.Preview reports shrink impact without mutating
   });
 
   if (result.isErr()) throw result.error;
-  const value = result.take() as AuthEnvelopesChangesPreviewResponse;
+  const value = mustTake(result);
   assertEquals(envelopes.putCount, 0);
   assertEquals(value.impact.removed.contracts, [
     { contractId: "acme.platform@v1", required: true },
@@ -1756,8 +2171,6 @@ Deno.test("Auth.Envelopes.Changes.Preview fails closed for unknown session contr
     deploymentEnvelopeStorage: envelopes,
     deploymentResourceBindingStorage:
       new InMemoryDeploymentResourceBindingStorage(),
-    deploymentContractEvidenceStorage:
-      new InMemoryDeploymentContractEvidenceStorage(),
     sessionStorage: sessions,
     logger: { trace: () => {} },
   });
@@ -1790,8 +2203,6 @@ Deno.test("Auth.Envelopes.Changes.Preview uses known digest fallback boundaries"
     deploymentEnvelopeStorage: envelopes,
     deploymentResourceBindingStorage:
       new InMemoryDeploymentResourceBindingStorage(),
-    deploymentContractEvidenceStorage:
-      new InMemoryDeploymentContractEvidenceStorage(),
     sessionStorage: sessions,
     logger: { trace: () => {} },
   });
@@ -1805,7 +2216,7 @@ Deno.test("Auth.Envelopes.Changes.Preview uses known digest fallback boundaries"
   });
 
   if (result.isErr()) throw result.error;
-  const value = result.take() as AuthEnvelopesChangesPreviewResponse;
+  const value = mustTake(result);
   assertEquals(
     value.impact.impactedSessions.map((session) => session.sessionKey),
     ["session-key-1"],
@@ -1838,8 +2249,6 @@ Deno.test("Auth.Envelopes.Shrink rejects proposed boundaries that add authority"
     deploymentEnvelopeStorage: envelopes,
     deploymentResourceBindingStorage:
       new InMemoryDeploymentResourceBindingStorage(),
-    deploymentContractEvidenceStorage:
-      new InMemoryDeploymentContractEvidenceStorage(),
     sessionStorage: new InMemorySessionStorage(),
     logger: { trace: () => {} },
   });
@@ -1857,7 +2266,7 @@ Deno.test("Auth.Envelopes.Shrink rejects proposed boundaries that add authority"
   assertEquals(envelopes.putCount, 0);
 });
 
-Deno.test("Auth.Envelopes.Shrink requires confirmation, revokes impacted sessions, and retains resources and evidence", async () => {
+Deno.test("Auth.Envelopes.Shrink requires confirmation, revokes impacted sessions, and retains resources", async () => {
   const envelopes = new InMemoryDeploymentEnvelopeStorage();
   envelopes.seed(makeEnvelope(expandedBoundary()));
   const resources = new InMemoryDeploymentResourceBindingStorage();
@@ -1870,9 +2279,7 @@ Deno.test("Auth.Envelopes.Shrink requires confirmation, revokes impacted session
     createdAt: "2026-05-07T00:00:00.000Z",
     updatedAt: "2026-05-07T00:00:00.000Z",
   });
-  const evidence = new InMemoryDeploymentContractEvidenceStorage();
   const contract = serviceContract();
-  evidence.seed(makeEvidence(contract));
   const sessions = new InMemorySessionStorage();
   sessions.seed("session-key-1", makeServiceSession());
   const history = new InMemoryEnvelopeHistoryStorage();
@@ -1888,7 +2295,6 @@ Deno.test("Auth.Envelopes.Shrink requires confirmation, revokes impacted session
     deploymentEnvelopeStorage: envelopes,
     envelopeHistoryStorage: history,
     deploymentResourceBindingStorage: resources,
-    deploymentContractEvidenceStorage: evidence,
     envelopeExpansionRequestStorage:
       new InMemoryEnvelopeExpansionRequestStorage(),
     sessionStorage: sessions,
@@ -1924,14 +2330,13 @@ Deno.test("Auth.Envelopes.Shrink requires confirmation, revokes impacted session
   });
 
   if (applied.isErr()) throw applied.error;
-  const value = applied.take() as AuthEnvelopesShrinkResponse;
+  const value = mustTake(applied);
   assertEquals(value.envelope.boundary, shrunkBoundary());
   assertEquals(value.retainedResources, [{ kind: "kv", alias: "cache" }]);
   assertEquals(
     resources.list().map((binding) => [binding.kind, binding.alias]),
     [["kv", "cache"]],
   );
-  assertEquals((await evidence.listByDeployment("billing.default")).length, 1);
   assertEquals(sessions.deleted, ["session-key-1"]);
   assertEquals(kicked, [{ serverId: "server-a", clientId: 7 }]);
   assertEquals(history.records.length, 1);

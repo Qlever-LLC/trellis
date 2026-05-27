@@ -36,8 +36,8 @@ function createServiceSession(
     instanceId: "svc-instance-a",
     deploymentId: "svc-a",
     instanceKey: "service-key-a",
-    currentContractId: "svc.contract@v1",
-    currentContractDigest: "sha256-a",
+    contractId: "svc.contract@v1",
+    contractDigest: "sha256-a",
     ...overrides,
   };
 }
@@ -143,6 +143,9 @@ Deno.test("disconnect cleanup deletes pending expansion requests for service ses
   const deletedConnections: string[] = [];
   const cancelledInstances: string[] = [];
   const publishedEvents: unknown[] = [];
+  const noopEventPublisher = {
+    publish: (_payload: Record<string, unknown>) => AsyncResult.ok(undefined),
+  };
 
   await __testing__.processDisconnectMessage({
     connectionsKV: {
@@ -161,6 +164,10 @@ Deno.test("disconnect cleanup deletes pending expansion requests for service ses
         return 1;
       },
     },
+    implementationOfferStorage: {
+      listByInstance: () => Promise.resolve([]),
+      put: () => Promise.resolve(),
+    },
     logger: {
       trace: () => undefined,
       debug: () => undefined,
@@ -172,13 +179,27 @@ Deno.test("disconnect cleanup deletes pending expansion requests for service ses
       subject: "$SYS.ACCOUNT.T.DISCONNECT",
       string: () => JSON.stringify({ client: { user_nkey: TEST_USER_NKEY } }),
     },
+    offerStaleGraceMs: 30_000,
     sessionStorage: {
       getOneBySessionKey: async () => createServiceSession(),
     },
     trellis: {
-      publish: (_event, payload) => {
-        publishedEvents.push(payload);
-        return AsyncResult.ok(undefined);
+      event: {
+        auth: {
+          connectionsClosed: {
+            publish: (payload) => {
+              publishedEvents.push(payload);
+              return AsyncResult.ok(undefined);
+            },
+          },
+          connectionsKicked: noopEventPublisher,
+          connectionsOpened: noopEventPublisher,
+          deviceUserAuthoritiesApproved: noopEventPublisher,
+          deviceUserAuthoritiesRequested: noopEventPublisher,
+          deviceUserAuthoritiesResolved: noopEventPublisher,
+          deviceUserAuthoritiesReviewRequested: noopEventPublisher,
+          sessionsRevoked: noopEventPublisher,
+        },
       },
     },
   });

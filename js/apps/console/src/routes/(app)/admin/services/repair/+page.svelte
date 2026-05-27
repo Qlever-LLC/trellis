@@ -71,7 +71,6 @@
     success: true;
     issueId: string;
     action: CatalogIssueAction["action"];
-    deletedEvidence: unknown[];
   };
   type CatalogOutput = {
     catalog: {
@@ -131,8 +130,8 @@
   }
 
   function actionCopy(action: CatalogIssueAction): string {
-    if (action.action === "keep-current") return "Do not accept the proposed forced update. The current contract remains active.";
-    return "Accept the forced update and replace the current contract evidence for this contract ID.";
+    if (action.action === "keep-current") return "Do not accept the proposed forced update. The active implementation offers remain unchanged.";
+    return "Accept the forced update and replace active implementations for this contract ID.";
   }
 
   function actionLabel(action: CatalogIssueAction): string {
@@ -148,9 +147,9 @@
 
   function issueSummary(issue: CatalogIssue): string {
     if (issue.kind === "incompatible-active-contract") {
-      return `A forced contract update is pending for ${issue.contractId ?? "this contract"}. Accepting it destructively replaces the current contract evidence for that contract ID.`;
+      return `A forced contract update is pending for ${issue.contractId ?? "this contract"}. Accepting it destructively replaces accepted implementation offers for that contract ID.`;
     }
-    return `This forced contract update affects ${issue.contractId ?? "a contract"}. Review the current and proposed contract evidence before choosing whether to accept it.`;
+    return `This forced contract update affects ${issue.contractId ?? "a contract"}. Review the active and proposed implementations before choosing whether to accept it.`;
   }
 
   function issueTitle(issue: CatalogIssue): string {
@@ -408,7 +407,7 @@
       }
       const confirmed = await confirmationModal?.confirm({
         title: "Accept forced contract update?",
-        message: "This destructively replaces the current catalog evidence for this contract ID. Services still using the current contract may fail to reconnect.",
+        message: "This destructively replaces active implementations for this contract ID. Services still using the active contract may fail to reconnect.",
         confirmLabel: actionLabel(action),
         targetLabel: "Contract ID",
         targetName: contractId,
@@ -418,7 +417,7 @@
     } else if (action.action === "keep-current") {
       const confirmed = await confirmationModal?.confirm({
         title: "Do not accept forced update?",
-        message: "The current contract remains active and the proposed update is not accepted.",
+        message: "The active implementations remain unchanged and the proposed update is not accepted.",
         confirmLabel: actionLabel(action),
         targetLabel: "Forced update",
         targetName: selectedIssue.issueId,
@@ -437,7 +436,7 @@
   <PageToolbar title="Forced Contract Update" description="Review pending forced contract updates and decide whether to accept them for active service contracts.">
     {#snippet actions()}
       <button class="btn btn-ghost btn-sm" onclick={load} disabled={loading}>Refresh</button>
-      <a class="btn btn-ghost btn-sm" href={resolve("/admin/services")}>Back to services</a>
+      <a class="btn btn-ghost btn-sm" href={resolve("/(app)/admin/services")}>Back to services</a>
     {/snippet}
   </PageToolbar>
 

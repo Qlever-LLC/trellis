@@ -15,7 +15,6 @@ import type {
 import type {
   SqlAccountFlowRepository,
   SqlCapabilityGroupRepository,
-  SqlDeploymentContractEvidenceRepository,
   SqlDeploymentEnvelopeRepository,
   SqlDeploymentGrantOverrideRepository,
   SqlDeploymentPortalRouteRepository,
@@ -46,7 +45,7 @@ type AuthRegistrationDeps =
     deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
     envelopeHistoryStorage: SqlEnvelopeHistoryRepository;
     deploymentResourceBindingStorage: SqlDeploymentResourceBindingRepository;
-    deploymentContractEvidenceStorage: SqlDeploymentContractEvidenceRepository;
+    implementationOfferStorage: AuthRuntimeDeps["implementationOfferStorage"];
     deploymentPortalRouteStorage: SqlDeploymentPortalRouteRepository;
     deploymentGrantOverrideStorage: SqlDeploymentGrantOverrideRepository;
     envelopeExpansionRequestStorage: SqlEnvelopeExpansionRequestRepository;

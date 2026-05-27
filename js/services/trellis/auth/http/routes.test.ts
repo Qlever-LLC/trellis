@@ -192,6 +192,54 @@ Deno.test("auth HTTP rate-limit key ignores spoofable forwarding headers", () =>
   );
 });
 
+Deno.test({
+  name: "auth HTTP routes enforce configured rate limit",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({}, {}, {}, {
+      config: { ...config, httpRateLimit: { windowMs: 60_000, max: 1 } },
+    });
+    const env = { remoteAddr: { hostname: "203.0.113.30", port: 12345 } };
+
+    const first = await app.request("http://trellis/auth/requests", {
+      method: "POST",
+      body: "not-json",
+    }, env);
+    const second = await app.request("http://trellis/auth/requests", {
+      method: "POST",
+      body: "not-json",
+    }, env);
+
+    assertEquals(first.status, 400);
+    assertEquals(second.status, 429);
+    assertStringIncludes(await second.text(), "Too many requests");
+  },
+});
+
+Deno.test({
+  name: "auth HTTP routes skip rate limit when disabled",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({}, {}, {}, {
+      config: { ...config, httpRateLimit: { windowMs: 60_000, max: 0 } },
+    });
+    const env = { remoteAddr: { hostname: "203.0.113.31", port: 12345 } };
+
+    const first = await app.request("http://trellis/auth/requests", {
+      method: "POST",
+      body: "not-json",
+    }, env);
+    const second = await app.request("http://trellis/auth/requests", {
+      method: "POST",
+      body: "not-json",
+    }, env);
+
+    assertEquals(first.status, 400);
+    assertEquals(second.status, 400);
+  },
+});
+
 async function registerTestRoutes(
   flowOverride: Partial<BrowserFlowRecord> = {},
   storageOverride: Record<string, unknown> = {},
@@ -253,7 +301,6 @@ async function registerTestRoutes(
     deploymentEnvelopeStorage: storage,
     deploymentGrantOverrideStorage: storage,
     deploymentResourceBindingStorage: storage,
-    deploymentContractEvidenceStorage: storage,
     envelopeExpansionRequestStorage: storage,
     config,
     kick: async () => {},
@@ -399,7 +446,6 @@ async function registerLocalLoginTestRoutes(options: {
     deploymentEnvelopeStorage: emptyStorage,
     deploymentGrantOverrideStorage: emptyStorage,
     deploymentResourceBindingStorage: emptyStorage,
-    deploymentContractEvidenceStorage: emptyStorage,
     envelopeExpansionRequestStorage: emptyStorage,
     config,
     kick: async () => {},
@@ -2092,7 +2138,6 @@ Deno.test({
       deploymentEnvelopeStorage: emptyStorage,
       deploymentGrantOverrideStorage: emptyStorage,
       deploymentResourceBindingStorage: emptyStorage,
-      deploymentContractEvidenceStorage: emptyStorage,
       envelopeExpansionRequestStorage: emptyStorage,
       config,
       kick: async () => {},
@@ -2414,7 +2459,6 @@ Deno.test({
       deploymentEnvelopeStorage: emptyStorage,
       deploymentGrantOverrideStorage: emptyStorage,
       deploymentResourceBindingStorage: emptyStorage,
-      deploymentContractEvidenceStorage: emptyStorage,
       envelopeExpansionRequestStorage: emptyStorage,
       config,
       kick: async () => {},
@@ -2696,7 +2740,6 @@ Deno.test({
       deploymentEnvelopeStorage: emptyStorage,
       deploymentGrantOverrideStorage: emptyStorage,
       deploymentResourceBindingStorage: emptyStorage,
-      deploymentContractEvidenceStorage: emptyStorage,
       envelopeExpansionRequestStorage: emptyStorage,
       config,
       kick: async () => {},

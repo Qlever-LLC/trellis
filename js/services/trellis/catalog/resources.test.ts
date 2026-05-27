@@ -3,16 +3,21 @@ import { assertEquals, assertRejects } from "@std/assert";
 import { CONTRACT as TRELLIS_JOBS_CONTRACT } from "#trellis-generated-sdk/jobs";
 
 import {
+  existingResourceNamesFromBindings,
+  generateInternalResourceName,
   getEventConsumerGroupRequests,
   getJobsQueueRequests,
   getKvResourceRequests,
   getResourcePermissionGrants,
   getStoreResourceRequests,
   provisionContractResourceBindings,
+  provisionContractResources,
+  type ProvisionedContractResources,
   purgeContractResourceBindings,
   reconcileKvResourceConfig,
   reconcileStoreResourceConfig,
   type ResourcePurgeManager,
+  rollbackProvisionedContractResources,
 } from "./resources.ts";
 
 function eventDependencyContract(): TrellisContractV1 {
@@ -69,6 +74,71 @@ Deno.test("resource requests apply KV defaults", () => {
       ttlMs: 0,
     },
   ]);
+});
+
+Deno.test("internal resource names are opaque Trellis-owned identifiers", () => {
+  const names = [
+    generateInternalResourceName("kv"),
+    generateInternalResourceName("store"),
+    generateInternalResourceName("eventConsumer"),
+    generateInternalResourceName("jobsNamespace"),
+    generateInternalResourceName("jobsQueue"),
+  ];
+
+  for (const name of names) {
+    assertEquals(/^tr_[a-z]+_[0-9a-z]+$/.test(name), true);
+    assertEquals(name.includes("billing"), false);
+    assertEquals(name.includes("audit"), false);
+    assertEquals(name.includes("cache"), false);
+  }
+  assertEquals(new Set(names).size, names.length);
+});
+
+Deno.test("existing resource names are extracted from stored bindings", () => {
+  assertEquals(
+    existingResourceNamesFromBindings([
+      {
+        kind: "kv",
+        alias: "cache",
+        binding: { bucket: "tr_kv_existing", history: 1, ttlMs: 0 },
+      },
+      {
+        kind: "store",
+        alias: "uploads",
+        binding: { name: "tr_obj_existing", ttlMs: 0 },
+      },
+      {
+        kind: "event-consumer",
+        alias: "ingest",
+        binding: { consumerName: "tr_cons_existing", stream: "trellis" },
+      },
+      {
+        kind: "jobs",
+        alias: "reconcile",
+        binding: {
+          namespace: "tr_jobs_existing",
+          publishPrefix: "trellis.jobs.tr_jobs_existing.tr_jq_existing",
+          workSubject: "trellis.work.tr_jobs_existing.tr_jq_existing",
+          consumerName: "tr_jobs_existing_tr_jq_existing",
+        },
+      },
+    ]),
+    {
+      kv: { cache: "tr_kv_existing" },
+      store: { uploads: "tr_obj_existing" },
+      eventConsumers: { ingest: "tr_cons_existing" },
+      jobs: {
+        namespace: "tr_jobs_existing",
+        queues: {
+          reconcile: {
+            publishPrefix: "trellis.jobs.tr_jobs_existing.tr_jq_existing",
+            workSubject: "trellis.work.tr_jobs_existing.tr_jq_existing",
+            consumerName: "tr_jobs_existing_tr_jq_existing",
+          },
+        },
+      },
+    },
+  );
 });
 
 Deno.test("resource requests apply store defaults and runtime object limits", () => {
@@ -166,6 +236,81 @@ Deno.test("event consumer requests resolve approved subscribe filters", () => {
   );
 });
 
+Deno.test("event consumer requests ignore incompatible unused dependency schemas", () => {
+  const currentDependency = eventDependencyContract();
+  const staleDependency = {
+    ...currentDependency,
+    schemas: {
+      ...currentDependency.schemas,
+      BillingConfirmSubscriptionCheckoutResponseSchema: {
+        type: "object",
+        properties: { legacy: { type: "string" } },
+      },
+    },
+  } satisfies TrellisContractV1;
+  const currentDependencyWithUnusedSchema = {
+    ...currentDependency,
+    schemas: {
+      ...currentDependency.schemas,
+      BillingConfirmSubscriptionCheckoutResponseSchema: {
+        type: "object",
+        properties: { current: { type: "number" } },
+      },
+    },
+  } satisfies TrellisContractV1;
+  const contract = {
+    ...CONTRACT,
+    uses: {
+      required: {
+        events: {
+          contract: "events.example@v1",
+          events: { subscribe: ["Changed"] },
+        },
+      },
+    },
+    eventConsumers: {
+      ingest: {
+        events: [{ use: "events", event: "Changed" }],
+      },
+    },
+  } as TrellisContractV1;
+
+  assertEquals(
+    getEventConsumerGroupRequests(contract, {
+      knownContractEntries: [
+        {
+          digest: "events-current",
+          contract: currentDependencyWithUnusedSchema,
+        },
+        { digest: "events-stale", contract: staleDependency },
+      ],
+      envelopeBoundary: {
+        contracts: [],
+        surfaces: [{
+          contractId: "events.example@v1",
+          kind: "event",
+          name: "Changed",
+          action: "subscribe",
+          required: true,
+        }],
+        capabilities: [],
+        resources: [],
+      },
+    }),
+    [{
+      alias: "ingest",
+      stream: "trellis",
+      filterSubjects: ["events.v1.Example.Changed.*"],
+      replay: "new",
+      ordering: "strict",
+      concurrency: 1,
+      ackWaitMs: 300000,
+      maxDeliver: 6,
+      backoffMs: [5000, 30000, 120000, 600000, 1800000],
+    }],
+  );
+});
+
 Deno.test("event consumer requests ignore unrelated uses during dependency resolution", () => {
   const contract = {
     ...CONTRACT,
@@ -245,7 +390,7 @@ Deno.test("store resources require NATS during provisioning", async () => {
   );
 });
 
-Deno.test("optional resources do not require NATS and do not create bindings", async () => {
+Deno.test("optional KV resources require NATS during provisioning", async () => {
   const contract = {
     ...CONTRACT,
     resources: {
@@ -256,6 +401,25 @@ Deno.test("optional resources do not require NATS and do not create bindings", a
           required: false,
         },
       },
+    },
+  } as TrellisContractV1;
+
+  await assertRejects(
+    () =>
+      provisionContractResourceBindings(
+        undefined,
+        contract,
+        "audit.default",
+      ),
+    Error,
+    "NATS connection is required to provision KV resources",
+  );
+});
+
+Deno.test("optional store resources require NATS during provisioning", async () => {
+  const contract = {
+    ...CONTRACT,
+    resources: {
       store: {
         uploads: {
           purpose: "Temporary uploaded files awaiting processing",
@@ -265,14 +429,88 @@ Deno.test("optional resources do not require NATS and do not create bindings", a
     },
   } as TrellisContractV1;
 
-  assertEquals(
-    await provisionContractResourceBindings(
-      undefined,
-      contract,
-      "audit.default",
-    ),
-    {},
+  await assertRejects(
+    () =>
+      provisionContractResourceBindings(
+        undefined,
+        contract,
+        "audit.default",
+      ),
+    Error,
+    "NATS connection is required to provision store resources",
   );
+});
+
+Deno.test("resource provisioning reports empty created and adopted sets", async () => {
+  const result = await provisionContractResources(
+    undefined,
+    {
+      ...CONTRACT,
+      resources: {},
+    } as TrellisContractV1,
+    "audit.default",
+  );
+
+  assertEquals(result, {
+    bindings: {},
+    created: [],
+    adopted: [],
+  });
+});
+
+Deno.test("resource rollback deletes only resources created by the attempt", async () => {
+  const deletedKvBuckets: string[] = [];
+  const deletedObjectStores: string[] = [];
+  const deletedConsumers: Array<{ stream: string; consumerName: string }> = [];
+  const manager: ResourcePurgeManager = {
+    async deleteKvBucket(bucket) {
+      deletedKvBuckets.push(bucket);
+    },
+    async deleteObjectStore(name) {
+      deletedObjectStores.push(name);
+    },
+    async deleteEventConsumer(stream, consumerName) {
+      deletedConsumers.push({ stream, consumerName });
+    },
+  };
+  const result: ProvisionedContractResources = {
+    bindings: {
+      jobs: {
+        namespace: "billing_jobs",
+        workStream: "JOBS_WORK",
+        queues: {},
+      },
+    },
+    created: [
+      { kind: "kv", alias: "cache", name: "svc_billing_cache" },
+      { kind: "store", alias: "uploads", name: "svc_billing_uploads" },
+      {
+        kind: "eventConsumer",
+        alias: "ingest",
+        stream: "trellis",
+        name: "svc_billing_ingest",
+      },
+    ],
+    adopted: [
+      { kind: "kv", alias: "state", name: "svc_billing_state" },
+      { kind: "store", alias: "exports", name: "svc_billing_exports" },
+      {
+        kind: "eventConsumer",
+        alias: "replay",
+        stream: "trellis",
+        name: "svc_billing_replay",
+      },
+    ],
+  };
+
+  await rollbackProvisionedContractResources(result, manager);
+
+  assertEquals(deletedKvBuckets, ["svc_billing_cache"]);
+  assertEquals(deletedObjectStores, ["svc_billing_uploads"]);
+  assertEquals(deletedConsumers, [{
+    stream: "trellis",
+    consumerName: "svc_billing_ingest",
+  }]);
 });
 
 Deno.test("resource purge deletes bound KV buckets and object stores", async () => {
@@ -408,7 +646,7 @@ Deno.test("required resources still require NATS when optional resources are pre
         "audit.default",
       ),
     Error,
-    "NATS connection is required to provision store resources",
+    "NATS connection is required to provision KV resources",
   );
 });
 

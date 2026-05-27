@@ -26,7 +26,6 @@ import { upsertUserProjectionInSql } from "../session/projection.ts";
 import type {
   SqlAccountFlowRepository,
   SqlCapabilityGroupRepository,
-  SqlDeploymentContractEvidenceRepository,
   SqlDeploymentEnvelopeRepository,
   SqlDeploymentGrantOverrideRepository,
   SqlDeploymentPortalRouteRepository,
@@ -38,6 +37,7 @@ import type {
   SqlDeviceProvisioningSecretRepository,
   SqlEnvelopeExpansionRequestRepository,
   SqlIdentityEnvelopeRepository,
+  SqlImplementationOfferRepository,
   SqlLocalCredentialRepository,
   SqlLoginPortalRepository,
   SqlServiceDeploymentRepository,
@@ -141,7 +141,7 @@ export type AuthHttpRouteOptions = {
   deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
   deploymentGrantOverrideStorage: SqlDeploymentGrantOverrideRepository;
   deploymentResourceBindingStorage: SqlDeploymentResourceBindingRepository;
-  deploymentContractEvidenceStorage: SqlDeploymentContractEvidenceRepository;
+  implementationOfferStorage: SqlImplementationOfferRepository;
   envelopeExpansionRequestStorage: SqlEnvelopeExpansionRequestRepository;
   config: Config;
   kick: (serverId: string, clientId: number) => Promise<void>;
@@ -604,7 +604,7 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
       contractId: args.resolution.plan.contract.id,
       contractDisplayName: args.resolution.plan.contract.displayName,
       contractDescription: args.resolution.plan.contract.description,
-      ...(args.resolution.app ? { app: args.resolution.app } : {}),
+      app,
       ...(args.approvalSource
         ? { approvalSource: args.approvalSource }
         : args.resolution.effectiveApproval.kind === "stored_approval"

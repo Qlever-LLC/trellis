@@ -334,16 +334,14 @@ async fn run_required_dependency_closure_fixture(
         "integration harness required dependency known inactive",
     )
     .await?;
-    let approved_consumer = connect_service(
+    assert_service_connect_fails(
         trellis_url,
         REQUIRED_CONSUMER_CONTRACT_ID,
         &active_consumer_contract_json,
         &required_consumer_digest,
         &consumer_seed,
-        30_000,
     )
     .await?;
-    drop(approved_consumer);
     auth_client
         .enable_service_deployment(REQUIRED_DEPLOYMENT_ID)
         .await
@@ -557,7 +555,7 @@ async fn run_cyclic_required_dependency_fixture(
     )
     .await?;
 
-    connect_service(
+    let cycle_a_client = connect_service(
         trellis_url,
         CYCLE_A_CONTRACT_ID,
         &cycle_a_contract_json,
@@ -566,7 +564,7 @@ async fn run_cyclic_required_dependency_fixture(
         30_000,
     )
     .await?;
-    connect_service(
+    let cycle_b_client = connect_service(
         trellis_url,
         CYCLE_B_CONTRACT_ID,
         &cycle_b_contract_json,
@@ -575,6 +573,8 @@ async fn run_cyclic_required_dependency_fixture(
         30_000,
     )
     .await?;
+    drop(cycle_b_client);
+    drop(cycle_a_client);
 
     Ok(())
 }

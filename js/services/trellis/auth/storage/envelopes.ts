@@ -1,9 +1,19 @@
-import { and, count, eq, inArray, type SQL } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  type SQL,
+} from "drizzle-orm";
 import Value from "typebox/value";
 
 import type { TrellisStorageDb } from "../../storage/db.ts";
 import {
-  deploymentContractEvidence,
   deploymentEnvelopeCapabilities,
   deploymentEnvelopeContracts,
   deploymentEnvelopeResources,
@@ -18,10 +28,9 @@ import {
   envelopeExpansionRequests,
   envelopeExpansionRequestSurfaces,
   envelopeHistoryEntries,
+  implementationOffers,
 } from "../../storage/schema.ts";
 import {
-  type DeploymentContractEvidence,
-  DeploymentContractEvidenceSchema,
   type DeploymentEnvelope,
   DeploymentEnvelopeSchema,
   type DeploymentGrantOverride,
@@ -38,6 +47,8 @@ import {
   EnvelopeExpansionRequestStateUpdateSchema,
   type EnvelopeHistoryEntry,
   EnvelopeHistoryEntrySchema,
+  type ImplementationOffer,
+  ImplementationOfferSchema,
 } from "../schemas.ts";
 import {
   type BoundedListQuery,
@@ -55,8 +66,8 @@ type GrantOverrideRow = typeof deploymentGrantOverrides.$inferSelect;
 type GrantOverrideInsert = typeof deploymentGrantOverrides.$inferInsert;
 type ResourceBindingRow = typeof deploymentResourceBindings.$inferSelect;
 type ResourceBindingInsert = typeof deploymentResourceBindings.$inferInsert;
-type ContractEvidenceRow = typeof deploymentContractEvidence.$inferSelect;
-type ContractEvidenceInsert = typeof deploymentContractEvidence.$inferInsert;
+type ImplementationOfferRow = typeof implementationOffers.$inferSelect;
+type ImplementationOfferInsert = typeof implementationOffers.$inferInsert;
 type ExpansionRequestRow = typeof envelopeExpansionRequests.$inferSelect;
 type ExpansionRequestInsert = typeof envelopeExpansionRequests.$inferInsert;
 type HistoryEntryRow = typeof envelopeHistoryEntries.$inferSelect;
@@ -191,42 +202,16 @@ function encodeResourceBinding(
   };
 }
 
-function decodeContractEvidenceRow(
-  row: ContractEvidenceRow,
-): DeploymentContractEvidence {
-  return Value.Decode(DeploymentContractEvidenceSchema, {
-    deploymentId: row.deploymentId,
-    contractId: row.contractId,
-    contractDigest: row.contractDigest,
-    contract: parseJsonField("deployment contract evidence", row.contractJson),
-    firstSeenAt: row.firstSeenAt,
-    lastSeenAt: row.lastSeenAt,
-    ignoredAt: row.ignoredAt,
-    ignoredBy: row.ignoredByJson === null ? null : parseJsonField(
-      "deployment contract evidence ignored_by",
-      row.ignoredByJson,
-    ),
-    ignoreReason: row.ignoreReason,
-  });
+function decodeImplementationOfferRow(
+  row: ImplementationOfferRow,
+): ImplementationOffer {
+  return Value.Decode(ImplementationOfferSchema, row);
 }
 
-function encodeContractEvidence(
-  record: DeploymentContractEvidence,
-): ContractEvidenceInsert {
-  const decoded = Value.Decode(DeploymentContractEvidenceSchema, record);
-  return {
-    deploymentId: decoded.deploymentId,
-    contractId: decoded.contractId,
-    contractDigest: decoded.contractDigest,
-    contractJson: JSON.stringify(decoded.contract),
-    firstSeenAt: decoded.firstSeenAt,
-    lastSeenAt: decoded.lastSeenAt,
-    ignoredAt: decoded.ignoredAt ?? null,
-    ignoredByJson: decoded.ignoredBy === undefined || decoded.ignoredBy === null
-      ? null
-      : JSON.stringify(decoded.ignoredBy),
-    ignoreReason: decoded.ignoreReason ?? null,
-  };
+function encodeImplementationOffer(
+  record: ImplementationOffer,
+): ImplementationOfferInsert {
+  return Value.Decode(ImplementationOfferSchema, record);
 }
 
 function decodeExpansionRequest(
@@ -465,15 +450,11 @@ export class SqlDeploymentEnvelopeRepository {
     await this.put(record);
   }
 
-  /**
-   * Stores an expanded envelope, deployment-owned resource bindings, and
-   * contract evidence in one transaction.
-   */
+  /** Stores an expanded envelope and deployment-owned resource bindings in one transaction. */
   async putExpansion(record: {
     envelope: DeploymentEnvelope;
     delta: EnvelopeBoundary;
     resourceBindings: DeploymentResourceBinding[];
-    contractEvidence: DeploymentContractEvidence;
     history?: EnvelopeHistoryEntry;
   }): Promise<void> {
     const envelope = Value.Decode(DeploymentEnvelopeSchema, record.envelope);
@@ -482,7 +463,6 @@ export class SqlDeploymentEnvelopeRepository {
     const resourceBindings = record.resourceBindings.map((binding) =>
       encodeResourceBinding(binding)
     );
-    const contractEvidence = encodeContractEvidence(record.contractEvidence);
     const history = record.history === undefined
       ? undefined
       : encodeHistoryEntry(record.history);
@@ -590,18 +570,6 @@ export class SqlDeploymentEnvelopeRepository {
           });
       }
 
-      await tx.insert(deploymentContractEvidence).values(contractEvidence)
-        .onConflictDoUpdate({
-          target: [
-            deploymentContractEvidence.deploymentId,
-            deploymentContractEvidence.contractDigest,
-          ],
-          set: {
-            contractId: contractEvidence.contractId,
-            contractJson: contractEvidence.contractJson,
-            lastSeenAt: contractEvidence.lastSeenAt,
-          },
-        });
       if (history !== undefined) {
         await tx.insert(envelopeHistoryEntries).values(history);
       }
@@ -616,7 +584,6 @@ export class SqlDeploymentEnvelopeRepository {
     envelope: DeploymentEnvelope;
     delta: EnvelopeBoundary;
     resourceBindings: DeploymentResourceBinding[];
-    contractEvidence: DeploymentContractEvidence;
     history?: EnvelopeHistoryEntry;
     request: {
       requestId: string;
@@ -632,7 +599,6 @@ export class SqlDeploymentEnvelopeRepository {
     const resourceBindings = record.resourceBindings.map((binding) =>
       encodeResourceBinding(binding)
     );
-    const contractEvidence = encodeContractEvidence(record.contractEvidence);
     const history = record.history === undefined
       ? undefined
       : encodeHistoryEntry(record.history);
@@ -750,19 +716,6 @@ export class SqlDeploymentEnvelopeRepository {
             },
           });
       }
-
-      await tx.insert(deploymentContractEvidence).values(contractEvidence)
-        .onConflictDoUpdate({
-          target: [
-            deploymentContractEvidence.deploymentId,
-            deploymentContractEvidence.contractDigest,
-          ],
-          set: {
-            contractId: contractEvidence.contractId,
-            contractJson: contractEvidence.contractJson,
-            lastSeenAt: contractEvidence.lastSeenAt,
-          },
-        });
 
       if (history !== undefined) {
         await tx.insert(envelopeHistoryEntries).values(history);
@@ -1283,180 +1236,218 @@ export class SqlDeploymentResourceBindingRepository {
   }
 }
 
-/** Stores deployment contract evidence JSON in SQL. */
-export class SqlDeploymentContractEvidenceRepository {
+/** Stores implementation offers in SQL. */
+export class SqlImplementationOfferRepository {
   readonly #db: TrellisStorageDb;
 
-  /** Creates a contract evidence repository backed by a Trellis storage DB. */
+  /** Creates an implementation offer repository backed by a Trellis storage DB. */
   constructor(db: TrellisStorageDb) {
     this.#db = db;
   }
 
-  /** Returns contract evidence by deployment and digest. */
-  async get(
-    deploymentId: string,
-    contractDigest: string,
-  ): Promise<DeploymentContractEvidence | undefined> {
-    const rows = await this.#db.select().from(deploymentContractEvidence).where(
-      and(
-        eq(deploymentContractEvidence.deploymentId, deploymentId),
-        eq(deploymentContractEvidence.contractDigest, contractDigest),
-      ),
+  /** Returns an implementation offer by offer id. */
+  async get(offerId: string): Promise<ImplementationOffer | undefined> {
+    const rows = await this.#db.select().from(implementationOffers).where(
+      eq(implementationOffers.offerId, offerId),
     ).limit(1);
     const row = rows[0];
-    return row === undefined ? undefined : decodeContractEvidenceRow(row);
+    return row === undefined ? undefined : decodeImplementationOfferRow(row);
   }
 
-  /** Returns contract evidence rows for a digest ordered by deployment id. */
-  async listByDigest(
-    contractDigest: string,
-  ): Promise<DeploymentContractEvidence[]> {
-    const rows = await this.#db.select().from(deploymentContractEvidence).where(
-      eq(deploymentContractEvidence.contractDigest, contractDigest),
-    ).orderBy(
-      deploymentContractEvidence.deploymentId,
-      deploymentContractEvidence.contractId,
-    );
-    return rows.map((row) => decodeContractEvidenceRow(row));
-  }
-
-  /** Returns contract evidence rows for the requested digests. */
-  async listByDigests(
-    contractDigests: Iterable<string>,
-  ): Promise<DeploymentContractEvidence[]> {
-    const requested = [...new Set(contractDigests)];
-    if (requested.length === 0) return [];
-    const rows = await this.#db.select().from(deploymentContractEvidence).where(
-      inArray(deploymentContractEvidence.contractDigest, requested),
-    ).orderBy(
-      deploymentContractEvidence.contractDigest,
-      deploymentContractEvidence.deploymentId,
-      deploymentContractEvidence.contractId,
-    );
-    return rows.map((row) => decodeContractEvidenceRow(row));
-  }
-
-  /** Returns contract evidence rows for a contract id ordered by digest. */
-  async listByContractId(
-    contractId: string,
-  ): Promise<DeploymentContractEvidence[]> {
-    const rows = await this.#db.select().from(deploymentContractEvidence).where(
-      eq(deploymentContractEvidence.contractId, contractId),
-    ).orderBy(
-      deploymentContractEvidence.contractDigest,
-      deploymentContractEvidence.deploymentId,
-    );
-    return rows.map((row) => decodeContractEvidenceRow(row));
-  }
-
-  /** Returns evidence for deployments that have seen a contract id. */
-  async listByDeploymentsAndContractId(
-    deploymentIds: Iterable<string>,
-    contractId: string,
-  ): Promise<DeploymentContractEvidence[]> {
-    const requested = [...new Set(deploymentIds)];
-    if (requested.length === 0) return [];
-    const rows = await this.#db.select().from(deploymentContractEvidence).where(
+  /** Returns implementation offers for one deployment ordered by contract and digest. */
+  async listByDeployment(
+    deploymentKind: ImplementationOffer["deploymentKind"],
+    deploymentId: string,
+  ): Promise<ImplementationOffer[]> {
+    const rows = await this.#db.select().from(implementationOffers).where(
       and(
-        inArray(deploymentContractEvidence.deploymentId, requested),
-        eq(deploymentContractEvidence.contractId, contractId),
+        eq(implementationOffers.deploymentKind, deploymentKind),
+        eq(implementationOffers.deploymentId, deploymentId),
       ),
     ).orderBy(
-      deploymentContractEvidence.deploymentId,
-      deploymentContractEvidence.contractDigest,
+      implementationOffers.contractId,
+      implementationOffers.contractDigest,
     );
-    return rows.map((row) => decodeContractEvidenceRow(row));
+    return rows.map((row) => decodeImplementationOfferRow(row));
   }
 
-  /** Returns evidence for requested deployments ordered by deployment and digest. */
-  async listByDeployments(
+  /** Returns implementation offers for one instance ordered by contract and digest. */
+  async listByInstance(instanceId: string): Promise<ImplementationOffer[]> {
+    const rows = await this.#db.select().from(implementationOffers).where(
+      eq(implementationOffers.instanceId, instanceId),
+    ).orderBy(
+      implementationOffers.contractId,
+      implementationOffers.contractDigest,
+    );
+    return rows.map((row) => decodeImplementationOfferRow(row));
+  }
+
+  /** Returns active offers ordered by contract, digest, and deployment. */
+  async listActive(
+    evaluationTime: Date = new Date(),
+  ): Promise<ImplementationOffer[]> {
+    const now = evaluationTime.toISOString();
+    const rows = await this.#db.select().from(implementationOffers).where(
+      and(
+        eq(implementationOffers.status, "accepted"),
+        isNotNull(implementationOffers.acceptedAt),
+        or(
+          isNull(implementationOffers.staleAt),
+          gt(implementationOffers.staleAt, now),
+        ),
+        or(
+          isNull(implementationOffers.expiresAt),
+          gt(implementationOffers.expiresAt, now),
+        ),
+      ),
+    ).orderBy(
+      implementationOffers.contractId,
+      implementationOffers.contractDigest,
+      implementationOffers.deploymentId,
+      implementationOffers.instanceId,
+      implementationOffers.offerId,
+    );
+    return rows.map((row) => decodeImplementationOfferRow(row));
+  }
+
+  /** Returns active offers for a contract id ordered by digest and deployment. */
+  async listActiveByContractId(
+    contractId: string,
+    evaluationTime: Date = new Date(),
+  ): Promise<ImplementationOffer[]> {
+    const now = evaluationTime.toISOString();
+    const rows = await this.#db.select().from(implementationOffers).where(
+      and(
+        eq(implementationOffers.contractId, contractId),
+        eq(implementationOffers.status, "accepted"),
+        isNotNull(implementationOffers.acceptedAt),
+        or(
+          isNull(implementationOffers.staleAt),
+          gt(implementationOffers.staleAt, now),
+        ),
+        or(
+          isNull(implementationOffers.expiresAt),
+          gt(implementationOffers.expiresAt, now),
+        ),
+      ),
+    ).orderBy(
+      implementationOffers.contractDigest,
+      implementationOffers.deploymentId,
+      implementationOffers.instanceId,
+    );
+    return rows.map((row) => decodeImplementationOfferRow(row));
+  }
+
+  /** Returns active offers for the requested contract digests. */
+  async listActiveByDigests(
+    contractDigests: Iterable<string>,
+    evaluationTime: Date = new Date(),
+  ): Promise<ImplementationOffer[]> {
+    const requested = [...new Set(contractDigests)];
+    if (requested.length === 0) return [];
+    const now = evaluationTime.toISOString();
+    const rows = await this.#db.select().from(implementationOffers).where(
+      and(
+        inArray(implementationOffers.contractDigest, requested),
+        eq(implementationOffers.status, "accepted"),
+        isNotNull(implementationOffers.acceptedAt),
+        or(
+          isNull(implementationOffers.staleAt),
+          gt(implementationOffers.staleAt, now),
+        ),
+        or(
+          isNull(implementationOffers.expiresAt),
+          gt(implementationOffers.expiresAt, now),
+        ),
+      ),
+    ).orderBy(
+      implementationOffers.contractDigest,
+      implementationOffers.deploymentId,
+      implementationOffers.instanceId,
+    );
+    return rows.map((row) => decodeImplementationOfferRow(row));
+  }
+
+  /** Returns the latest accepted offer for a lineage, if one exists. */
+  async latestAcceptedByLineage(
+    lineageKey: string,
+  ): Promise<ImplementationOffer | undefined> {
+    const rows = await this.#db.select().from(implementationOffers).where(
+      and(
+        eq(implementationOffers.lineageKey, lineageKey),
+        eq(implementationOffers.status, "accepted"),
+      ),
+    ).orderBy(
+      desc(implementationOffers.acceptedAt),
+      desc(implementationOffers.lastRefreshedAt),
+      implementationOffers.offerId,
+    ).limit(1);
+    const row = rows[0];
+    return row === undefined ? undefined : decodeImplementationOfferRow(row);
+  }
+
+  /** Returns implementation offers for deployments that serve a contract id. */
+  async listByDeploymentsAndContractId(
+    deploymentKind: ImplementationOffer["deploymentKind"],
     deploymentIds: Iterable<string>,
-  ): Promise<DeploymentContractEvidence[]> {
+    contractId: string,
+  ): Promise<ImplementationOffer[]> {
     const requested = [...new Set(deploymentIds)];
     if (requested.length === 0) return [];
-    const rows = await this.#db.select().from(deploymentContractEvidence).where(
-      inArray(deploymentContractEvidence.deploymentId, requested),
+    const rows = await this.#db.select().from(implementationOffers).where(
+      and(
+        eq(implementationOffers.deploymentKind, deploymentKind),
+        inArray(implementationOffers.deploymentId, requested),
+        eq(implementationOffers.contractId, contractId),
+      ),
     ).orderBy(
-      deploymentContractEvidence.deploymentId,
-      deploymentContractEvidence.contractId,
-      deploymentContractEvidence.contractDigest,
+      implementationOffers.deploymentId,
+      implementationOffers.contractDigest,
     );
-    return rows.map((row) => decodeContractEvidenceRow(row));
+    return rows.map((row) => decodeImplementationOfferRow(row));
   }
 
-  /** Inserts or replaces deployment contract evidence. */
-  async put(record: DeploymentContractEvidence): Promise<void> {
-    const row = encodeContractEvidence(record);
-    await this.#db.insert(deploymentContractEvidence).values(row)
+  /** Inserts or replaces an implementation offer by offer id. */
+  async put(record: ImplementationOffer): Promise<void> {
+    const row = encodeImplementationOffer(record);
+    await this.#db.insert(implementationOffers).values(row)
       .onConflictDoUpdate({
-        target: [
-          deploymentContractEvidence.deploymentId,
-          deploymentContractEvidence.contractDigest,
-        ],
+        target: implementationOffers.offerId,
         set: {
+          deploymentKind: row.deploymentKind,
+          deploymentId: row.deploymentId,
+          instanceId: row.instanceId,
           contractId: row.contractId,
-          contractJson: row.contractJson,
-          firstSeenAt: row.firstSeenAt,
-          lastSeenAt: row.lastSeenAt,
-          ignoredAt: row.ignoredAt,
-          ignoredByJson: row.ignoredByJson,
-          ignoreReason: row.ignoreReason,
+          status: row.status,
+          liveness: row.liveness,
+          firstOfferedAt: row.firstOfferedAt,
+          acceptedAt: row.acceptedAt,
+          lastRefreshedAt: row.lastRefreshedAt,
+          staleAt: row.staleAt,
+          expiresAt: row.expiresAt,
         },
       });
   }
 
-  /** Deletes selected deployment contract evidence rows for one contract id. */
-  async deleteEvidence(args: {
-    contractId: string;
-    contractDigests: Iterable<string>;
-  }): Promise<DeploymentContractEvidence[]> {
-    const contractDigests = [...new Set(args.contractDigests)];
-    if (contractDigests.length === 0) return [];
-    const where = and(
-      eq(deploymentContractEvidence.contractId, args.contractId),
-      inArray(deploymentContractEvidence.contractDigest, contractDigests),
-    );
-    const rows = await this.#db.select().from(deploymentContractEvidence).where(
-      where,
-    ).orderBy(
-      deploymentContractEvidence.deploymentId,
-      deploymentContractEvidence.contractId,
-      deploymentContractEvidence.contractDigest,
-    );
-    await this.#db.delete(deploymentContractEvidence).where(where);
-    return rows.map((row) => decodeContractEvidenceRow(row));
-  }
-
-  /** Updates deployment contract evidence. */
-  async update(record: DeploymentContractEvidence): Promise<void> {
+  /** Updates an implementation offer. */
+  async update(record: ImplementationOffer): Promise<void> {
     await this.put(record);
   }
 
-  /** Returns contract evidence for one deployment ordered by contract id and digest. */
-  async listByDeployment(
-    deploymentId: string,
-  ): Promise<DeploymentContractEvidence[]> {
-    const rows = await this.#db.select().from(deploymentContractEvidence).where(
-      eq(deploymentContractEvidence.deploymentId, deploymentId),
-    ).orderBy(
-      deploymentContractEvidence.contractId,
-      deploymentContractEvidence.contractDigest,
-    );
-    return rows.map((row) => decodeContractEvidenceRow(row));
-  }
-
-  /** Returns a bounded page of contract evidence ordered by deployment, contract id, and digest. */
+  /** Returns a bounded page of implementation offers in deterministic order. */
   async listPage(
     query: BoundedListQuery,
-  ): Promise<DeploymentContractEvidence[]> {
+  ): Promise<ImplementationOffer[]> {
     const { offset, limit } = boundedListQuery(query);
-    const rows = await this.#db.select().from(deploymentContractEvidence)
+    const rows = await this.#db.select().from(implementationOffers)
       .orderBy(
-        deploymentContractEvidence.deploymentId,
-        deploymentContractEvidence.contractId,
-        deploymentContractEvidence.contractDigest,
+        implementationOffers.deploymentKind,
+        implementationOffers.deploymentId,
+        implementationOffers.contractId,
+        implementationOffers.contractDigest,
+        implementationOffers.offerId,
       ).limit(limit).offset(offset);
-    return rows.map((row) => decodeContractEvidenceRow(row));
+    return rows.map((row) => decodeImplementationOfferRow(row));
   }
 }
 
@@ -1669,6 +1660,28 @@ export class SqlEnvelopeExpansionRequestRepository {
       ),
     ).returning({ requestId: envelopeExpansionRequests.requestId });
     return updated.length > 0;
+  }
+
+  /** Returns the latest approved expansion request for one contract id. */
+  async latestApprovedByContractId(
+    contractId: string,
+  ): Promise<EnvelopeExpansionRequest | undefined> {
+    const rows = await this.#db.select().from(envelopeExpansionRequests).where(
+      and(
+        eq(envelopeExpansionRequests.contractId, contractId),
+        eq(envelopeExpansionRequests.state, "approved"),
+      ),
+    ).orderBy(
+      desc(envelopeExpansionRequests.decidedAt),
+      desc(envelopeExpansionRequests.createdAt),
+      desc(envelopeExpansionRequests.requestId),
+    ).limit(1);
+    const row = rows[0];
+    if (row === undefined) return undefined;
+    return decodeExpansionRequest(
+      row,
+      await this.#deltaForRequest(row.requestId),
+    );
   }
 
   /** Deletes pending service-originated expansion requests for one requester instance. */

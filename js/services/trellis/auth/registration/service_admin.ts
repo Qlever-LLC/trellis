@@ -23,7 +23,6 @@ import type { AuthContractsRuntime, RpcRegistrar } from "./types.ts";
 import type { AuthRuntimeDeps, RuntimeKV } from "../runtime_deps.ts";
 import type { Connection } from "../schemas.ts";
 import type {
-  SqlDeploymentContractEvidenceRepository,
   SqlDeploymentEnvelopeRepository,
   SqlDeploymentGrantOverrideRepository,
   SqlDeploymentPortalRouteRepository,
@@ -32,6 +31,7 @@ import type {
   SqlEnvelopeExpansionRequestRepository,
   SqlEnvelopeHistoryRepository,
   SqlIdentityEnvelopeRepository,
+  SqlImplementationOfferRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlSessionRepository,
@@ -48,7 +48,7 @@ export async function registerServiceAdminRpcs(deps: {
   deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
   envelopeHistoryStorage: SqlEnvelopeHistoryRepository;
   deploymentResourceBindingStorage: SqlDeploymentResourceBindingRepository;
-  deploymentContractEvidenceStorage: SqlDeploymentContractEvidenceRepository;
+  implementationOfferStorage: SqlImplementationOfferRepository;
   deploymentPortalRouteStorage: SqlDeploymentPortalRouteRepository;
   deploymentGrantOverrideStorage: SqlDeploymentGrantOverrideRepository;
   envelopeExpansionRequestStorage: SqlEnvelopeExpansionRequestRepository;
@@ -92,7 +92,8 @@ export async function registerServiceAdminRpcs(deps: {
     createAuthEnvelopesGetHandler({
       deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
       deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
-      deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
+      envelopeHistoryStorage: deps.envelopeHistoryStorage,
+      implementationOfferStorage: deps.implementationOfferStorage,
       envelopeExpansionRequestStorage: deps.envelopeExpansionRequestStorage,
       deploymentPortalRouteStorage: deps.deploymentPortalRouteStorage,
       deploymentGrantOverrideStorage: deps.deploymentGrantOverrideStorage,
@@ -126,7 +127,6 @@ export async function registerServiceAdminRpcs(deps: {
       deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
       envelopeHistoryStorage: deps.envelopeHistoryStorage,
       deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
-      deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
       nats: deps.natsTrellis,
       resourceProvisioningOptions: {
         jetstreamReplicas: deps.config.nats.jetstream.replicas,
@@ -141,7 +141,6 @@ export async function registerServiceAdminRpcs(deps: {
       deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
       envelopeHistoryStorage: deps.envelopeHistoryStorage,
       deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
-      deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
       envelopeExpansionRequestStorage: deps.envelopeExpansionRequestStorage,
       nats: deps.natsTrellis,
       resourceProvisioningOptions: {
@@ -167,7 +166,6 @@ export async function registerServiceAdminRpcs(deps: {
       contracts: deps.contracts,
       deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
       deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
-      deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
       identityEnvelopeStorage: deps.contractApprovalStorage,
       envelopeExpansionRequestStorage: deps.envelopeExpansionRequestStorage,
       sessionStorage: deps.sessionStorage,
@@ -180,7 +178,6 @@ export async function registerServiceAdminRpcs(deps: {
       deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
       envelopeHistoryStorage: deps.envelopeHistoryStorage,
       deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
-      deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
       identityEnvelopeStorage: deps.contractApprovalStorage,
       envelopeExpansionRequestStorage: deps.envelopeExpansionRequestStorage,
       sessionStorage: deps.sessionStorage,

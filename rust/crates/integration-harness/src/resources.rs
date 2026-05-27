@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Child, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
@@ -34,7 +34,6 @@ use trellis::service::{
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
 use crate::deno_fixture::{deno_fixture_log_paths, deno_fixture_path};
-use crate::nats::ensure_resource_conflict_streams;
 use crate::workspace::repo_root;
 
 const PASSING_CASES: usize = 7;
@@ -221,8 +220,6 @@ impl trellis::client::RpcDescriptor for HarnessTsResourcesRpc {
 
 pub(crate) async fn run_resources_fixture(
     trellis_url: &str,
-    nats_url: &str,
-    trellis_creds: &Path,
     admin_login: &AdminLoginOutcome,
     browser: &BrowserContainer,
 ) -> Result<usize> {
@@ -236,7 +233,6 @@ pub(crate) async fn run_resources_fixture(
             .create_service_deployment(HARNESS_DEPLOYMENT_ID, vec!["harness".to_string()])
             .await
             .into_diagnostic()?;
-        ensure_optional_resource_conflicts(nats_url, trellis_creds, HARNESS_DEPLOYMENT_ID).await?;
 
         let sdk_auth_client = SdkAuthClient::new(&admin_client);
         let service_contract_json = harness_service_contract_json()?;
@@ -257,8 +253,6 @@ pub(crate) async fn run_resources_fixture(
             &sdk_auth_client,
             &service_contract_json,
             &contract_digest,
-            nats_url,
-            trellis_creds,
         )
         .await?;
 
@@ -292,11 +286,11 @@ pub(crate) async fn run_resources_fixture(
         Arc::clone(&service_client),
     )
     .map_err(|error| miette!("failed to create resources service runtime: {error}"))?;
-    if service.kv_binding("optionalRecords").is_ok() {
-        return Err(miette!("optionalRecords KV binding should be absent"));
+    if service.kv_binding("optionalRecords").is_err() {
+        return Err(miette!("optionalRecords KV binding should be present"));
     }
-    if service.store_binding("optionalBlobs").is_ok() {
-        return Err(miette!("optionalBlobs store binding should be absent"));
+    if service.store_binding("optionalBlobs").is_err() {
+        return Err(miette!("optionalBlobs store binding should be present"));
     }
     let kv_binding = service
         .kv_binding("records")
@@ -374,15 +368,11 @@ async fn assert_pending_resource_service_approval(
     sdk_auth_client: &SdkAuthClient<'_>,
     contract_json: &str,
     contract_digest: &str,
-    nats_url: &str,
-    trellis_creds: &Path,
 ) -> Result<()> {
     auth_client
         .create_service_deployment(HARNESS_PENDING_DEPLOYMENT_ID, vec!["harness".to_string()])
         .await
         .into_diagnostic()?;
-    ensure_optional_resource_conflicts(nats_url, trellis_creds, HARNESS_PENDING_DEPLOYMENT_ID)
-        .await?;
     let (service_seed, service_key) = generate_session_keypair();
     auth_client
         .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
@@ -504,14 +494,18 @@ fn assert_resource_bootstrap_binding(client: &TrellisClient, contract_digest: &s
             kv.ttl_ms
         ));
     }
-    if binding
+    let optional_kv = binding
         .resources
         .kv
         .as_ref()
-        .is_some_and(|resources| resources.contains_key("optionalRecords"))
-    {
+        .and_then(|resources| resources.get("optionalRecords"))
+        .ok_or_else(|| miette!("pending resource binding did not include optionalRecords KV"))?;
+    if optional_kv.bucket.is_empty() || optional_kv.history != 1 || optional_kv.ttl_ms != 0 {
         return Err(miette!(
-            "pending resource binding unexpectedly included optionalRecords KV"
+            "pending resource optionalRecords KV binding had unexpected limits: bucket={}, history={}, ttl_ms={}",
+            optional_kv.bucket,
+            optional_kv.history,
+            optional_kv.ttl_ms
         ));
     }
 
@@ -529,32 +523,24 @@ fn assert_resource_bootstrap_binding(client: &TrellisClient, contract_digest: &s
             store.max_total_bytes
         ));
     }
-    if binding
+    let optional_store = binding
         .resources
         .store
         .as_ref()
-        .is_some_and(|resources| resources.contains_key("optionalBlobs"))
+        .and_then(|resources| resources.get("optionalBlobs"))
+        .ok_or_else(|| miette!("pending resource binding did not include optionalBlobs store"))?;
+    if optional_store.name.is_empty()
+        || optional_store.ttl_ms != 0
+        || optional_store.max_total_bytes != Some(4_194_304)
     {
         return Err(miette!(
-            "pending resource binding unexpectedly included optionalBlobs store"
+            "pending resource optionalBlobs store binding had unexpected limits: name={}, ttl_ms={}, max_total_bytes={:?}",
+            optional_store.name,
+            optional_store.ttl_ms,
+            optional_store.max_total_bytes
         ));
     }
     Ok(())
-}
-
-async fn ensure_optional_resource_conflicts(
-    nats_url: &str,
-    trellis_creds: &Path,
-    deployment_id: &str,
-) -> Result<()> {
-    ensure_resource_conflict_streams(
-        nats_url,
-        trellis_creds,
-        deployment_id,
-        HARNESS_CONTRACT_ID,
-        &[("kv", "optionalRecords"), ("store", "optionalBlobs")],
-    )
-    .await
 }
 
 async fn exercise_rust_resources(

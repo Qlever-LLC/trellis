@@ -51,8 +51,6 @@ function decodeServiceInstanceRow(row: ServiceInstanceRow): ServiceInstance {
     deploymentId: row.deploymentId,
     instanceKey: row.instanceKey,
     disabled: row.disabled,
-    currentContractId: row.currentContractId ?? undefined,
-    currentContractDigest: row.currentContractDigest ?? undefined,
     capabilities: parseJsonField(
       "service instance capabilities",
       row.capabilities,
@@ -75,8 +73,6 @@ function encodeServiceInstanceRecord(
     deploymentId: record.deploymentId,
     instanceKey: record.instanceKey,
     disabled: record.disabled,
-    currentContractId: record.currentContractId ?? null,
-    currentContractDigest: record.currentContractDigest ?? null,
     capabilities: JSON.stringify(record.capabilities),
     resourceBindings: record.resourceBindings === undefined
       ? null
@@ -232,8 +228,6 @@ export class SqlServiceInstanceRepository {
         deploymentId: row.deploymentId,
         instanceKey: row.instanceKey,
         disabled: row.disabled,
-        currentContractId: row.currentContractId,
-        currentContractDigest: row.currentContractDigest,
         capabilities: row.capabilities,
         resourceBindings: row.resourceBindings,
         createdAt: row.createdAt,
@@ -296,22 +290,6 @@ export class SqlServiceInstanceRepository {
     );
   }
 
-  /** Returns instances running one of the requested current contract digests. */
-  async listByCurrentContractDigests(
-    contractDigests: Iterable<string>,
-  ): Promise<ServiceInstance[]> {
-    const requested = [...new Set(contractDigests)];
-    if (requested.length === 0) return [];
-    const rows = await this.#db.select().from(serviceInstances).where(
-      inArray(serviceInstances.currentContractDigest, requested),
-    ).orderBy(
-      serviceInstances.currentContractDigest,
-      serviceInstances.deploymentId,
-      serviceInstances.instanceId,
-    );
-    return rows.map((row: ServiceInstanceRow) => decodeServiceInstanceRow(row));
-  }
-
   /** Returns service instances for one deployment ordered by instance id. */
   async listByDeployment(
     deploymentId: string,
@@ -327,20 +305,15 @@ export class SqlServiceInstanceRepository {
     return rows.map((row: ServiceInstanceRow) => decodeServiceInstanceRow(row));
   }
 
-  /** Returns instances for deployments running one of the requested digests. */
-  async listByDeploymentAndDigest(
+  /** Returns instances for deployments ordered by deployment and instance id. */
+  async listByDeployments(
     deploymentIds: Iterable<string>,
-    contractDigests: Iterable<string>,
     filters: DisabledFilter = {},
   ): Promise<ServiceInstance[]> {
     const requestedDeployments = [...new Set(deploymentIds)];
-    const requestedDigests = [...new Set(contractDigests)];
-    if (requestedDeployments.length === 0 || requestedDigests.length === 0) {
-      return [];
-    }
+    if (requestedDeployments.length === 0) return [];
     const conditions: SQL[] = [
       inArray(serviceInstances.deploymentId, requestedDeployments),
-      inArray(serviceInstances.currentContractDigest, requestedDigests),
     ];
     if (filters.disabled !== undefined) {
       conditions.push(eq(serviceInstances.disabled, filters.disabled));
@@ -349,7 +322,6 @@ export class SqlServiceInstanceRepository {
       and(...conditions),
     ).orderBy(
       serviceInstances.deploymentId,
-      serviceInstances.currentContractDigest,
       serviceInstances.instanceId,
     );
     return rows.map((row: ServiceInstanceRow) => decodeServiceInstanceRow(row));

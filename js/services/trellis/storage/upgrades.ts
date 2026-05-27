@@ -5,12 +5,7 @@ import { ServiceSessionSchema } from "../auth/schemas.ts";
 import { analyzeContract } from "../catalog/analysis.ts";
 import { validateContractManifest } from "../catalog/store.ts";
 import type { TrellisStorageDb } from "./db.ts";
-import {
-  contracts,
-  serviceInstances,
-  sessions,
-  trellisUpgrades,
-} from "./schema.ts";
+import { contracts, sessions, trellisUpgrades } from "./schema.ts";
 
 /** Upgrade id for the one-time contract digest projection v1 reindex. */
 const CONTRACT_DIGEST_REINDEX_UPGRADE_ID =
@@ -120,9 +115,6 @@ async function runContractDigestProjectionV1Reindex(
           analysis: JSON.stringify(analyzed.analysis),
         },
       });
-      await tx.update(serviceInstances)
-        .set({ currentContractDigest: validated.digest })
-        .where(eq(serviceInstances.currentContractDigest, row.digest));
       await tx.delete(contracts).where(eq(contracts.digest, row.digest));
     });
     reindexed += 1;

@@ -23,7 +23,6 @@ import {
   type DeploymentEnvelope,
   type DeploymentResourceBinding,
   type EnvelopeBoundary,
-  type IdentityEnvelopeRecord,
   ServiceInstanceSchema,
 } from "../schemas.ts";
 import type {
@@ -33,10 +32,6 @@ import type {
 } from "../storage.ts";
 import type { StaticDecode } from "typebox";
 import { revokeRuntimeAccessForSession } from "../session/revoke_runtime_access.ts";
-import {
-  collectDeploymentContractEvidenceDigests,
-  purgeUnusedInstalledContracts,
-} from "./contract_gc.ts";
 import {
   type AdminCaller,
   requireAdmin,
@@ -92,9 +87,6 @@ type ServiceInstanceStorage = {
     filters: { deploymentId?: string; disabled?: boolean },
     query: BoundedListQuery,
   ): Promise<ListPage<ServiceInstance>>;
-  listByCurrentContractDigests?(
-    contractDigests: Iterable<string>,
-  ): Promise<ServiceInstance[]>;
   listByDeployment(
     deploymentId: string,
     filters?: { disabled?: boolean },
@@ -107,33 +99,6 @@ type RuntimeKickDeps = {
     & Partial<
       Pick<SqlSessionRepository, "listEntries" | "listEntriesByContractDigests">
     >;
-};
-type InstalledContractCleanupDeps = {
-  builtinContractDigests?: Iterable<string>;
-  contractStorage?: { delete(digest: string): Promise<void> };
-  deviceDeploymentStorage?: {
-    listByDeploymentIds?(
-      deploymentIds: Iterable<string>,
-      filters?: { disabled?: boolean },
-    ): Promise<Array<{ deploymentId: string; disabled?: boolean }>>;
-  };
-  deploymentContractEvidenceStorage?: {
-    listByDeployment(deploymentId: string): Promise<
-      Array<
-        { deploymentId: string; contractId: string; contractDigest: string }
-      >
-    >;
-    listByDigests?(contractDigests: Iterable<string>): Promise<
-      Array<
-        { deploymentId: string; contractId: string; contractDigest: string }
-      >
-    >;
-  };
-  contractApprovalStorage?: {
-    listByApprovalEvidenceContractDigests?(
-      contractDigests: Iterable<string>,
-    ): Promise<IdentityEnvelopeRecord[]>;
-  };
 };
 type DeploymentResourceBindingStorage = {
   listByDeployment(deploymentId: string): Promise<DeploymentResourceBinding[]>;
@@ -296,14 +261,6 @@ function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-function missingInstalledContractCleanupDependency(
-  name: string,
-): UnexpectedError {
-  return new UnexpectedError({
-    cause: new Error(`unused contract cleanup requires ${name}`),
-  });
-}
-
 function stringField(
   value: Record<string, unknown>,
   field: string,
@@ -355,156 +312,6 @@ function deploymentResourceBindingsToPurgeable(
     }
   }
   return [purgeable];
-}
-
-function buildInstalledContractCleanupDeps(
-  deps:
-    & {
-      serviceDeploymentStorage: ServiceDeploymentStorage;
-      serviceInstanceStorage: ServiceInstanceStorage;
-    }
-    & RuntimeKickDeps
-    & InstalledContractCleanupDeps,
-):
-  | { ok: true; deps: Parameters<typeof purgeUnusedInstalledContracts>[1] }
-  | { ok: false; error: UnexpectedError } {
-  if (!deps.contractStorage) {
-    return {
-      ok: false,
-      error: missingInstalledContractCleanupDependency("contractStorage"),
-    };
-  }
-  if (!deps.deviceDeploymentStorage) {
-    return {
-      ok: false,
-      error: missingInstalledContractCleanupDependency(
-        "deviceDeploymentStorage",
-      ),
-    };
-  }
-  if (!deps.contractApprovalStorage) {
-    return {
-      ok: false,
-      error: missingInstalledContractCleanupDependency(
-        "contractApprovalStorage",
-      ),
-    };
-  }
-  if (!deps.deploymentContractEvidenceStorage) {
-    return {
-      ok: false,
-      error: missingInstalledContractCleanupDependency(
-        "deploymentContractEvidenceStorage",
-      ),
-    };
-  }
-  if (!deps.serviceDeploymentStorage.listByDeploymentIds) {
-    return {
-      ok: false,
-      error: missingInstalledContractCleanupDependency(
-        "serviceDeploymentStorage.listByDeploymentIds",
-      ),
-    };
-  }
-  if (!deps.deviceDeploymentStorage.listByDeploymentIds) {
-    return {
-      ok: false,
-      error: missingInstalledContractCleanupDependency(
-        "deviceDeploymentStorage.listByDeploymentIds",
-      ),
-    };
-  }
-  if (!deps.deploymentContractEvidenceStorage.listByDigests) {
-    return {
-      ok: false,
-      error: missingInstalledContractCleanupDependency(
-        "deploymentContractEvidenceStorage.listByDigests",
-      ),
-    };
-  }
-  if (!deps.serviceInstanceStorage.listByCurrentContractDigests) {
-    return {
-      ok: false,
-      error: missingInstalledContractCleanupDependency(
-        "serviceInstanceStorage.listByCurrentContractDigests",
-      ),
-    };
-  }
-  if (!deps.sessionStorage.listEntriesByContractDigests) {
-    return {
-      ok: false,
-      error: missingInstalledContractCleanupDependency(
-        "sessionStorage.listEntriesByContractDigests",
-      ),
-    };
-  }
-  if (!deps.contractApprovalStorage.listByApprovalEvidenceContractDigests) {
-    return {
-      ok: false,
-      error: missingInstalledContractCleanupDependency(
-        "contractApprovalStorage.listByApprovalEvidenceContractDigests",
-      ),
-    };
-  }
-  const serviceDeploymentStorage = deps.serviceDeploymentStorage
-    .listByDeploymentIds;
-  const deviceDeploymentStorage = deps.deviceDeploymentStorage
-    .listByDeploymentIds;
-  const listEvidenceByDigests = deps.deploymentContractEvidenceStorage
-    .listByDigests;
-  const listInstancesByDigest = deps.serviceInstanceStorage
-    .listByCurrentContractDigests;
-  const listSessionsByDigest = deps.sessionStorage.listEntriesByContractDigests;
-  const listApprovalsByDigest = deps.contractApprovalStorage
-    .listByApprovalEvidenceContractDigests;
-  return {
-    ok: true,
-    deps: {
-      builtinContractDigests: deps.builtinContractDigests ?? [],
-      contractStorage: deps.contractStorage,
-      serviceDeploymentStorage: {
-        listByDeploymentIds: (deploymentIds, filters) =>
-          serviceDeploymentStorage.call(
-            deps.serviceDeploymentStorage,
-            deploymentIds,
-            filters,
-          ),
-      },
-      deviceDeploymentStorage: {
-        listByDeploymentIds: (deploymentIds, filters) =>
-          deviceDeploymentStorage.call(
-            deps.deviceDeploymentStorage,
-            deploymentIds,
-            filters,
-          ),
-      },
-      deploymentContractEvidenceStorage: {
-        listByDigests: (contractDigests) =>
-          listEvidenceByDigests.call(
-            deps.deploymentContractEvidenceStorage,
-            contractDigests,
-          ),
-      },
-      serviceInstanceStorage: {
-        listByCurrentContractDigests: (contractDigests) =>
-          listInstancesByDigest.call(
-            deps.serviceInstanceStorage,
-            contractDigests,
-          ),
-      },
-      sessionStorage: {
-        listEntriesByContractDigests: (contractDigests) =>
-          listSessionsByDigest.call(deps.sessionStorage, contractDigests),
-      },
-      contractApprovalStorage: {
-        listByApprovalEvidenceContractDigests: (contractDigests) =>
-          listApprovalsByDigest.call(
-            deps.contractApprovalStorage,
-            contractDigests,
-          ),
-      },
-    },
-  };
 }
 
 export function createAuthDeploymentsServiceListHandler(
@@ -792,8 +599,7 @@ export function createAuthDeploymentsServiceRemoveHandler(
     & RuntimeKickDeps
     & {
       kick: (serverId: string, clientId: number) => Promise<void>;
-    }
-    & InstalledContractCleanupDeps,
+    },
 ) {
   return async (
     { input: req, context: { caller } }: {
@@ -861,20 +667,11 @@ export function createAuthDeploymentsServiceRemoveHandler(
       validationOpts,
     );
     if (isErr(validated)) return validated;
-    let installedContractCleanupDeps:
-      | Parameters<typeof purgeUnusedInstalledContracts>[1]
-      | undefined;
-    let removedContractEvidence: Array<{
-      deploymentId: string;
-      contractId: string;
-      contractDigest: string;
-    }> = [];
     if (req.purgeUnusedContracts === true) {
-      const cleanupDeps = buildInstalledContractCleanupDeps(deps);
-      if (!cleanupDeps.ok) return Result.err(cleanupDeps.error);
-      installedContractCleanupDeps = cleanupDeps.deps;
-      removedContractEvidence = await deps.deploymentContractEvidenceStorage!
-        .listByDeployment(req.deploymentId);
+      deps.logger?.warn?.(
+        { deploymentId: req.deploymentId },
+        "Unused contract purge no longer applies to offer-backed runtime state and was skipped",
+      );
     }
     const restoreDeletedRecords = async () => {
       await serviceDeploymentStorage.put(existing);
@@ -978,26 +775,6 @@ export function createAuthDeploymentsServiceRemoveHandler(
         refreshed.error,
         restoreDeletedRecords,
       );
-    }
-    if (req.purgeUnusedContracts === true) {
-      if (!installedContractCleanupDeps) {
-        return Result.err(
-          missingInstalledContractCleanupDependency(
-            "installedContractCleanupDeps",
-          ),
-        );
-      }
-      try {
-        await purgeUnusedInstalledContracts(
-          collectDeploymentContractEvidenceDigests(removedContractEvidence),
-          installedContractCleanupDeps,
-        );
-      } catch (error) {
-        deps.logger?.warn?.(
-          { deploymentId: req.deploymentId, error: toError(error) },
-          "Failed to clean up unused installed contracts after service deployment removal",
-        );
-      }
     }
     return Result.ok({ success: true });
   };

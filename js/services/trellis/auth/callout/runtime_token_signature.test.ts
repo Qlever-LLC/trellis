@@ -11,7 +11,7 @@ import {
   getServicePublishSubjectsForContracts,
   getServiceSubscribeSubjectsForContracts,
 } from "../../catalog/permissions.ts";
-import type { DeploymentEnvelope } from "../schemas.ts";
+import type { DeploymentEnvelope, ImplementationOffer } from "../schemas.ts";
 import { __testing__ } from "./callout.ts";
 
 const TEST_SEED = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
@@ -301,14 +301,13 @@ function makeContractRecord(args: {
 async function serviceDigestCheck(args: {
   presentedContractDigest?: string;
   presentedContract?: TrellisContractV1;
-  currentContractDigest?: string;
-  currentContractId?: string;
+  runtimeContractDigest?: string;
   envelope?: DeploymentEnvelope | null;
   contractStorageMiss?: boolean;
   moduleContractKnown?: boolean;
   knownContracts?: Array<{ digest: string; contract: TrellisContractV1 }>;
   activeContracts?: Array<{ digest: string; contract: TrellisContractV1 }>;
-  deploymentEvidenceExists?: boolean;
+  activeOffer?: boolean;
   contractCompatibilityMode?: "strict" | "mutable-dev";
 }) {
   const contracts = createTestContracts();
@@ -335,15 +334,44 @@ async function serviceDigestCheck(args: {
   for (const entry of args.activeContracts ?? []) {
     contracts.activateTestContract(entry);
   }
-  const currentContractDigest = args.currentContractDigest ?? validated.digest;
+  const runtimeContractDigest = args.runtimeContractDigest ?? validated.digest;
   const presentedContractDigest = "presentedContractDigest" in args
     ? args.presentedContractDigest
-    : currentContractDigest;
+    : runtimeContractDigest;
+  const offers: ImplementationOffer[] = typeof presentedContractDigest ===
+        "string" && (args.activeOffer ?? true)
+    ? [{
+      offerId: JSON.stringify([
+        "service",
+        "worker.default",
+        "worker.1",
+        presentedContract.id,
+        presentedContractDigest,
+      ]),
+      deploymentKind: "service",
+      deploymentId: "worker.default",
+      instanceId: "worker.1",
+      contractId: presentedContract.id,
+      contractDigest: presentedContractDigest,
+      lineageKey: JSON.stringify([
+        "service",
+        "worker.default",
+        presentedContract.id,
+      ]),
+      status: "accepted",
+      liveness: "healthy",
+      firstOfferedAt: "2026-01-01T00:00:00.000Z",
+      acceptedAt: "2026-01-01T00:00:00.000Z",
+      lastRefreshedAt: "2026-01-01T00:00:00.000Z",
+      staleAt: null,
+      expiresAt: null,
+    }]
+    : [];
   const digestCheckInput = {
     presentedContractDigest,
     service: {
-      currentContractId: args.currentContractId ?? "trellis.worker@v1",
-      currentContractDigest,
+      instanceId: "worker.1",
+      deploymentId: "worker.default",
     },
     deployment: {
       deploymentId: "worker.default",
@@ -357,21 +385,31 @@ async function serviceDigestCheck(args: {
             : undefined,
         ),
     },
-    deploymentContractEvidenceStorage: {
-      get: (deploymentId: string, digest: string) =>
-        Promise.resolve(
-          args.deploymentEvidenceExists && deploymentId === "worker.default" &&
-            digest === validated.digest
-            ? {
-              deploymentId,
-              contractId: SERVICE_CONTRACT.id,
-              contractDigest: digest,
-              contract: SERVICE_CONTRACT,
-              firstSeenAt: "2026-01-01T00:00:00.000Z",
-              lastSeenAt: "2026-01-01T00:00:00.000Z",
-            }
-            : undefined,
-        ),
+    implementationOfferStorage: {
+      listActiveByDigests: (
+        digests: Iterable<string>,
+        evaluationTime: Date,
+      ) => {
+        const requested = new Set(digests);
+        const now = evaluationTime.toISOString();
+        return Promise.resolve(
+          offers.filter((offer) =>
+            requested.has(offer.contractDigest) &&
+            offer.status === "accepted" &&
+            offer.acceptedAt !== null &&
+            offer.staleAt === null &&
+            (offer.expiresAt === null || offer.expiresAt > now)
+          ),
+        );
+      },
+      put: (offer: ImplementationOffer) => {
+        const index = offers.findIndex((stored) =>
+          stored.offerId === offer.offerId
+        );
+        if (index >= 0) offers[index] = offer;
+        else offers.push(offer);
+        return Promise.resolve();
+      },
     },
     contracts,
     deploymentEnvelopeStorage: {
@@ -382,6 +420,7 @@ async function serviceDigestCheck(args: {
             : args.envelope ?? undefined,
         ),
     },
+    now: new Date("2026-01-01T00:00:10.000Z"),
   };
   return await __testing__.validateServiceRuntimeDigest(digestCheckInput);
 }
@@ -457,7 +496,7 @@ Deno.test("auth callout accepts service reconnect when presented contract id fit
   assertEquals(result.ok, true);
 });
 
-Deno.test("auth callout rejects incompatible same-contract digest replacement in strict mode", async () => {
+Deno.test("auth callout accepts already accepted matching service offer in strict mode", async () => {
   const contracts = createTestContracts();
   const replacement = await contracts.validateContract(
     incompatibleServiceContract(),
@@ -467,7 +506,7 @@ Deno.test("auth callout rejects incompatible same-contract digest replacement in
     presentedContract: replacement.contract,
   });
 
-  assertEquals(result, { ok: false, denial: "contract_changed" });
+  assertEquals(result.ok, true);
 });
 
 Deno.test("auth callout accepts incompatible same-contract digest replacement in mutable-dev mode", async () => {
@@ -720,7 +759,7 @@ Deno.test("service runtime permissions include envelope-granted optional uses", 
   const entries = await __testing__.serviceContractEntriesForPermissions({
     activeContractEntries: [],
     contracts,
-    currentContractDigest: service.digest,
+    contractDigest: service.digest,
     envelopeBoundary,
   });
   assertEquals(entries.ok, true);
@@ -774,7 +813,7 @@ Deno.test("service runtime permissions include known inactive required event use
   const entries = await __testing__.serviceContractEntriesForPermissions({
     activeContractEntries: [],
     contracts,
-    currentContractDigest: service.digest,
+    contractDigest: service.digest,
     envelopeBoundary,
   });
   assertEquals(entries.ok, true);
@@ -829,7 +868,7 @@ Deno.test("service runtime permissions ignore optional uses without granted surf
   const entries = await __testing__.serviceContractEntriesForPermissions({
     activeContractEntries: [],
     contracts,
-    currentContractDigest: service.digest,
+    contractDigest: service.digest,
     envelopeBoundary: {
       contracts: [
         { contractId: SERVICE_CONTRACT.id, required: true },
@@ -929,7 +968,7 @@ Deno.test("service runtime permissions do not promote ungranted optional event u
   const entries = await __testing__.serviceContractEntriesForPermissions({
     activeContractEntries: [],
     contracts,
-    currentContractDigest: service.digest,
+    contractDigest: service.digest,
     envelopeBoundary,
   });
   assertEquals(entries.ok, true);
@@ -962,10 +1001,9 @@ Deno.test("service runtime permission dependency misses deny cleanly", async () 
   assertEquals(entries, { ok: false, denial: "insufficient_permissions" });
 });
 
-Deno.test("auth callout rejects service reconnect when global storage misses even if evidence exists", async () => {
+Deno.test("auth callout rejects service reconnect when global storage misses even if an offer exists", async () => {
   const result = await serviceDigestCheck({
     contractStorageMiss: true,
-    deploymentEvidenceExists: true,
   });
 
   assertEquals(result, { ok: false, denial: "contract_changed" });
@@ -1001,7 +1039,7 @@ Deno.test("auth callout still rejects missing or unknown service digests", async
   );
   assertEquals(
     await serviceDigestCheck({
-      currentContractId: "trellis.other@v1",
+      activeOffer: false,
     }),
     { ok: false, denial: "contract_changed" },
   );
@@ -1020,8 +1058,8 @@ Deno.test("auth callout refreshes existing service session contract metadata", (
       instanceId: "instance-old",
       deploymentId: "worker.old",
       instanceKey: "service-key",
-      currentContractId: "worker.old@v1",
-      currentContractDigest: "digest-old",
+      contractId: "worker.old@v1",
+      contractDigest: "digest-old",
       createdAt: new Date("2026-05-08T00:00:00.000Z"),
       lastAuth: new Date("2026-05-08T00:00:00.000Z"),
     },
@@ -1030,10 +1068,12 @@ Deno.test("auth callout refreshes existing service session contract metadata", (
       deploymentId: "worker.default",
       instanceKey: "service-key",
       disabled: false,
-      currentContractId: "trellis.worker@v1",
-      currentContractDigest: "digest-current",
       capabilities: ["service", "worker.run"],
       createdAt: "2026-05-08T00:00:00.000Z",
+    },
+    contract: {
+      contractId: "trellis.worker@v1",
+      contractDigest: "digest-current",
     },
     deployment: {
       deploymentId: "worker.default",
@@ -1045,8 +1085,8 @@ Deno.test("auth callout refreshes existing service session contract metadata", (
 
   assertEquals(session.deploymentId, "worker.default");
   assertEquals(session.instanceId, "instance-current");
-  assertEquals(session.currentContractId, "trellis.worker@v1");
-  assertEquals(session.currentContractDigest, "digest-current");
+  assertEquals(session.contractId, "trellis.worker@v1");
+  assertEquals(session.contractDigest, "digest-current");
   assertEquals(session.lastAuth, now);
 });
 

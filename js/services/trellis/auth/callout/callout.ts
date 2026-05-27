@@ -82,6 +82,7 @@ import type {
   SqlDeviceDeploymentRepository,
   SqlEnvelopeExpansionRequestRepository,
   SqlIdentityEnvelopeRepository,
+  SqlImplementationOfferRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
 
@@ -585,10 +586,10 @@ function contractWithEnvelopeGrantedOptionalUses(
 async function serviceContractEntriesForPermissions(args: {
   activeContractEntries: RuntimeContractEntry[];
   contracts: CalloutContractDeps;
-  currentContractDigest: string | undefined;
+  contractDigest: string | undefined;
   envelopeBoundary: EnvelopeBoundary | undefined;
 }): Promise<AuthCalloutStageResult<RuntimeContractEntry[]>> {
-  const digest = args.currentContractDigest;
+  const digest = args.contractDigest;
   if (!digest) return stageOk(args.activeContractEntries);
 
   const contract = await args.contracts.getKnownContract(digest);
@@ -605,40 +606,18 @@ async function serviceContractEntriesForPermissions(args: {
   return entries;
 }
 
-async function serviceContractCompatibilityError(input: {
-  contracts: CalloutContractDeps;
-  deployment: Pick<
-    AdminServiceDeployment,
-    "contractCompatibilityMode"
-  >;
-  service: Pick<
-    AdminServiceInstance,
-    "currentContractId" | "currentContractDigest"
-  >;
-  presentedDigest: string;
-  presentedContract: TrellisContractV1;
-}): Promise<string | null> {
-  if (input.deployment.contractCompatibilityMode === "mutable-dev") return null;
-  const currentDigest = input.service.currentContractDigest;
-  if (
-    !currentDigest || currentDigest === input.presentedDigest ||
-    input.service.currentContractId !== input.presentedContract.id
-  ) {
-    return null;
-  }
-  const currentContract = await input.contracts.getContract(currentDigest, {
-    includeInactive: true,
-  });
-  if (!currentContract) return "previous_contract_unknown";
-  try {
-    validateActiveContractCompatibility([
-      { digest: currentDigest, contract: currentContract },
-      { digest: input.presentedDigest, contract: input.presentedContract },
-    ]);
-    return null;
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
+function serviceOfferLineageKey(
+  deploymentId: string,
+  contractId: string,
+): string {
+  return JSON.stringify(["service", deploymentId, contractId]);
+}
+
+function isTrellisContractV1(value: unknown): value is TrellisContractV1 {
+  return typeof value === "object" && value !== null &&
+    "format" in value && value.format === "trellis.contract.v1" &&
+    "id" in value && typeof value.id === "string" &&
+    "kind" in value && typeof value.kind === "string";
 }
 
 async function findDeviceInstanceByIdentityKey(
@@ -781,15 +760,21 @@ async function validateServiceRuntimeDigest(args: {
   presentedContractDigest?: string;
   service: Pick<
     AdminServiceInstance,
-    "currentContractId" | "currentContractDigest"
+    | "deploymentId"
+    | "instanceId"
   >;
   deployment: Pick<
     AdminServiceDeployment,
     "deploymentId" | "contractCompatibilityMode"
   >;
   contractStorage: Pick<SqlContractStorageRepository, "get">;
+  implementationOfferStorage: Pick<
+    SqlImplementationOfferRepository,
+    "listActiveByDigests" | "put"
+  >;
   contracts: CalloutContractDeps;
   deploymentEnvelopeStorage: Pick<SqlDeploymentEnvelopeRepository, "get">;
+  now: Date;
 }): Promise<AuthCalloutStageResult<ServiceRuntimeContract>> {
   const presentedContractDigest = args.presentedContractDigest;
   if (
@@ -799,21 +784,33 @@ async function validateServiceRuntimeDigest(args: {
     return stageDeny("invalid_auth_token");
   }
 
-  const currentContractId = args.service.currentContractId;
+  const activeOffers = await args.implementationOfferStorage
+    .listActiveByDigests([presentedContractDigest], args.now);
+  const matchingOffer = activeOffers.find((offer) =>
+    offer.deploymentKind === "service" &&
+    offer.deploymentId === args.deployment.deploymentId &&
+    offer.instanceId === args.service.instanceId &&
+    offer.contractDigest === presentedContractDigest &&
+    offer.status === "accepted" &&
+    offer.staleAt === null
+  );
+  if (!matchingOffer) return stageDeny("contract_changed");
 
   const contractRecord = await args.contractStorage.get(
     presentedContractDigest,
   );
   let contract: TrellisContractV1;
   if (contractRecord) {
-    if (
-      typeof currentContractId === "string" &&
-      currentContractId.length > 0 &&
-      contractRecord.id !== currentContractId
-    ) {
+    if (contractRecord.id !== matchingOffer.contractId) {
       return stageDeny("contract_changed");
     }
-    contract = JSON.parse(contractRecord.contract) as TrellisContractV1;
+    const validated = await args.contracts.validateContract(
+      JSON.parse(contractRecord.contract),
+    );
+    if (!isTrellisContractV1(validated.contract)) {
+      return stageDeny("contract_changed");
+    }
+    contract = validated.contract;
   } else {
     const knownContract = await args.contracts.getKnownContract(
       presentedContractDigest,
@@ -821,11 +818,7 @@ async function validateServiceRuntimeDigest(args: {
     if (!knownContract) {
       return stageDeny("contract_changed");
     }
-    if (
-      typeof currentContractId === "string" &&
-      currentContractId.length > 0 &&
-      knownContract.id !== currentContractId
-    ) {
+    if (knownContract.id !== matchingOffer.contractId) {
       return stageDeny("contract_changed");
     }
     contract = knownContract;
@@ -871,14 +864,16 @@ async function validateServiceRuntimeDigest(args: {
   );
   const fit = evaluateEnvelopeFit(envelope.boundary, requestedBoundary);
   if (!fit.fits) return stageDeny("service_envelope_miss");
-  const compatibilityError = await serviceContractCompatibilityError({
-    contracts: args.contracts,
-    deployment: args.deployment,
-    service: args.service,
-    presentedDigest: presentedContractDigest,
-    presentedContract: contract,
+  await args.implementationOfferStorage.put({
+    ...matchingOffer,
+    lineageKey: serviceOfferLineageKey(
+      args.deployment.deploymentId,
+      matchingOffer.contractId,
+    ),
+    liveness: "healthy",
+    lastRefreshedAt: args.now.toISOString(),
+    staleAt: null,
   });
-  if (compatibilityError) return stageDeny("contract_changed");
 
   return stageOk({
     contractId: analysis.contract.id,
@@ -899,10 +894,9 @@ function refreshServiceSessionFromInstance(args: {
     instanceId: args.service.instanceId,
     deploymentId: args.service.deploymentId,
     instanceKey: args.service.instanceKey,
-    currentContractId: args.contract?.contractId ??
-      args.service.currentContractId ?? null,
-    currentContractDigest: args.contract?.contractDigest ??
-      args.service.currentContractDigest ?? null,
+    contractId: args.contract?.contractId ?? args.session.contractId,
+    contractDigest: args.contract?.contractDigest ??
+      args.session.contractDigest,
     lastAuth: args.now,
   };
 }
@@ -916,13 +910,20 @@ export function startDisconnectCleanup(deps: {
   logger: AuthRuntimeDeps["logger"];
   natsSystem: AuthRuntimeDeps["natsSystem"];
   sessionStorage: AuthRuntimeDeps["sessionStorage"];
+  implementationOfferStorage: Pick<
+    SqlImplementationOfferRepository,
+    "listByInstance" | "put"
+  >;
+  offerStaleGraceMs: number;
   trellis: AuthRuntimeDeps["trellis"];
 }): BackgroundTaskHandle {
   const {
     connectionsKV,
     envelopeExpansionRequestStorage,
     logger,
+    implementationOfferStorage,
     natsSystem,
+    offerStaleGraceMs,
     sessionStorage,
     trellis,
   } = deps;
@@ -935,7 +936,9 @@ export function startDisconnectCleanup(deps: {
           connectionsKV,
           envelopeExpansionRequestStorage,
           logger,
+          implementationOfferStorage,
           message,
+          offerStaleGraceMs,
           sessionStorage,
           trellis,
         });
@@ -966,7 +969,13 @@ async function processDisconnectMessage(deps: {
     "deletePendingServiceRequestsByRequesterInstanceId"
   >;
   logger: AuthRuntimeDeps["logger"];
+  implementationOfferStorage: Pick<
+    SqlImplementationOfferRepository,
+    "listByInstance" | "put"
+  >;
   message: { subject: string; string(): string };
+  now?: Date;
+  offerStaleGraceMs: number;
   sessionStorage: Pick<
     AuthRuntimeDeps["sessionStorage"],
     "getOneBySessionKey"
@@ -976,8 +985,10 @@ async function processDisconnectMessage(deps: {
   const {
     connectionsKV,
     envelopeExpansionRequestStorage,
+    implementationOfferStorage,
     logger,
     message,
+    offerStaleGraceMs,
     sessionStorage,
     trellis,
   } = deps;
@@ -1043,6 +1054,22 @@ async function processDisconnectMessage(deps: {
           .deletePendingServiceRequestsByRequesterInstanceId(
             sessionValue.instanceId,
           );
+        const now = deps.now ?? new Date();
+        const staleAt = new Date(now.getTime() + offerStaleGraceMs)
+          .toISOString();
+        for (
+          const offer of await implementationOfferStorage.listByInstance(
+            sessionValue.instanceId,
+          )
+        ) {
+          if (offer.status !== "accepted" || offer.staleAt !== null) continue;
+          await implementationOfferStorage.put({
+            ...offer,
+            liveness: "disconnected",
+            lastRefreshedAt: now.toISOString(),
+            staleAt,
+          });
+        }
       }
     }
 
@@ -1063,6 +1090,7 @@ export function startAuthCallout(
     contractApprovalStorage: SqlIdentityEnvelopeRepository;
     deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
     deploymentResourceBindingStorage?: SqlDeploymentResourceBindingRepository;
+    implementationOfferStorage: SqlImplementationOfferRepository;
     connectionsKV: AuthRuntimeDeps["connectionsKV"];
     deviceActivationStorage: AuthRuntimeDeps["deviceActivationStorage"];
     deviceDeploymentStorage: AuthRuntimeDeps["deviceDeploymentStorage"];
@@ -1082,6 +1110,7 @@ export function startAuthCallout(
     connectionsKV,
     deploymentEnvelopeStorage,
     deploymentResourceBindingStorage,
+    implementationOfferStorage,
     deviceActivationStorage,
     deviceDeploymentStorage,
     deviceInstanceStorage,
@@ -1224,6 +1253,8 @@ export function startAuthCallout(
         contractStorage: opts.contractStorage,
         contracts: opts.contracts,
         deploymentEnvelopeStorage,
+        implementationOfferStorage,
+        now,
       });
       if (!digestCheck.ok) return digestCheck;
       serviceRuntimeContract = digestCheck.value;
@@ -1245,10 +1276,8 @@ export function startAuthCallout(
           instanceId: service.instanceId,
           deploymentId: service.deploymentId,
           instanceKey: service.instanceKey,
-          currentContractId: serviceRuntimeContract?.contractId ??
-            service.currentContractId ?? null,
-          currentContractDigest: serviceRuntimeContract?.contractDigest ??
-            service.currentContractDigest ?? null,
+          contractId: serviceRuntimeContract?.contractId ?? null,
+          contractDigest: serviceRuntimeContract?.contractDigest ?? null,
           createdAt: now,
           lastAuth: now,
         });
@@ -1435,8 +1464,9 @@ export function startAuthCallout(
       ? await serviceContractEntriesForPermissions({
         activeContractEntries,
         contracts: opts.contracts,
-        currentContractDigest: principal.value.serviceState
-          ?.currentContractDigest,
+        contractDigest: session.type === "service"
+          ? session.contractDigest ?? undefined
+          : undefined,
         envelopeBoundary: serviceEnvelope?.boundary,
       })
       : stageOk(activeContractEntries);
@@ -1502,8 +1532,9 @@ export function startAuthCallout(
             effectiveCapabilities,
             {
               sessionKey,
-              contractDigest: principal.value.serviceState
-                ?.currentContractDigest,
+              contractDigest: session.type === "service"
+                ? session.contractDigest ?? undefined
+                : undefined,
               envelopeBoundary: serviceEnvelope?.boundary,
             },
             serviceContractEntries.value,
@@ -1517,8 +1548,9 @@ export function startAuthCallout(
             effectiveCapabilities,
             {
               sessionKey,
-              contractDigest: principal.value.serviceState
-                ?.currentContractDigest,
+              contractDigest: session.type === "service"
+                ? session.contractDigest ?? undefined
+                : undefined,
               envelopeBoundary: serviceEnvelope?.boundary,
             },
             serviceContractEntries.value,

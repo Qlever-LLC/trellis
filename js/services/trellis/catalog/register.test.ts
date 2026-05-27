@@ -10,8 +10,23 @@ Deno.test("registerCatalog mounts all catalog RPCs when active contract refresh 
 
   await registerCatalog({
     trellis: {
-      async mount(method, _handler) {
-        mounted.push(method);
+      handle: {
+        rpc: {
+          trellis: {
+            catalog: async (_handler: unknown) => {
+              mounted.push("Trellis.Catalog");
+            },
+            contractGet: async (_handler: unknown) => {
+              mounted.push("Trellis.Contract.Get");
+            },
+            bindingsGet: async (_handler: unknown) => {
+              mounted.push("Trellis.Bindings.Get");
+            },
+            surfaceStatus: async (_handler: unknown) => {
+              mounted.push("Trellis.Surface.Status");
+            },
+          },
+        },
       },
     },
     contracts: {
@@ -24,7 +39,7 @@ Deno.test("registerCatalog mounts all catalog RPCs when active contract refresh 
     deviceInstanceStorage: {} as never,
     deviceDeploymentStorage: {} as never,
     deploymentEnvelopeStorage: {} as never,
-    deploymentContractEvidenceStorage: {} as never,
+    implementationOfferStorage: {} as never,
     connectionsKV: {} as never,
     logger: {
       trace() {},

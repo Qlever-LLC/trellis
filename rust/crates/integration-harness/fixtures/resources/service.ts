@@ -95,11 +95,11 @@ const service = await TrellisService.connect({
   server: { log: undefined },
 }).orThrow();
 
-if (service.kv.optionalRecords !== undefined) {
-  throw new Error("optionalRecords KV binding should be absent");
+if (service.kv.optionalRecords === undefined) {
+  throw new Error("optionalRecords KV binding should be present");
 }
-if ("optionalBlobs" in service.store) {
-  throw new Error("optionalBlobs store binding should be absent");
+if (service.store.optionalBlobs === undefined) {
+  throw new Error("optionalBlobs store binding should be present");
 }
 
 const encoder = new TextEncoder();

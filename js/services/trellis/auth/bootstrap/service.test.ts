@@ -9,11 +9,11 @@ import type { ContractResourceBindings } from "../../catalog/resources.ts";
 import { analyzeContractEnvelopeBoundary } from "../boundary_analysis.ts";
 import { computeEnvelopeDelta } from "../envelope_decision.ts";
 import type {
-  DeploymentContractEvidence,
   DeploymentEnvelope,
   DeploymentResourceBinding,
   EnvelopeBoundary,
   EnvelopeExpansionRequest,
+  ImplementationOffer,
 } from "../schemas.ts";
 import { createServiceBootstrapHandler } from "./service.ts";
 
@@ -157,17 +157,20 @@ function eventDependencyContract(): TrellisContractV1 {
   return {
     ...dependencyContract(),
     rpc: {},
+    schemas: {
+      Empty: { type: "object", properties: { id: { type: "string" } } },
+    },
     events: {
       Changed: {
         version: "v1",
-        subject: "events.v1.dep.Changed.{id}",
-        params: ["id"],
+        subject: "events.v1.dep.Changed.{/id}",
+        params: ["/id"],
         event: { schema: "Empty" },
       },
       Synced: {
         version: "v1",
-        subject: "events.v1.dep.Synced.{id}",
-        params: ["id"],
+        subject: "events.v1.dep.Synced.{/id}",
+        params: ["/id"],
         event: { schema: "Empty" },
       },
     },
@@ -230,10 +233,42 @@ async function validatedContract(contract: TrellisContractV1) {
   return await createTestContracts().validateContract(contract);
 }
 
+function serviceOffer(
+  contract: Awaited<ReturnType<typeof validatedContract>>,
+  overrides: Partial<ImplementationOffer> = {},
+): ImplementationOffer {
+  const now = overrides.acceptedAt ?? TEST_NOW;
+  const deploymentId = overrides.deploymentId ?? "deployment_1";
+  const instanceId = overrides.instanceId ?? "svc_1";
+  return {
+    offerId: overrides.offerId ?? JSON.stringify([
+      "service",
+      deploymentId,
+      instanceId,
+      contract.contract.id,
+      contract.digest,
+    ]),
+    deploymentKind: "service",
+    deploymentId,
+    instanceId,
+    contractId: contract.contract.id,
+    contractDigest: contract.digest,
+    lineageKey: JSON.stringify(["service", deploymentId, contract.contract.id]),
+    status: "accepted",
+    liveness: "healthy",
+    firstOfferedAt: overrides.firstOfferedAt ?? now,
+    acceptedAt: now,
+    lastRefreshedAt: overrides.lastRefreshedAt ?? now,
+    staleAt: overrides.staleAt ?? null,
+    expiresAt: overrides.expiresAt ?? null,
+    ...overrides,
+  };
+}
+
 async function contractBoundary(
   contracts: ReturnType<typeof createTestContracts>,
   contract: TrellisContractV1,
-  options?: { dependencyResolution?: "active" | "known" },
+  options?: { dependencyResolution?: "active" | "activeOrApproved" | "known" },
 ): Promise<EnvelopeBoundary> {
   const analysis = await analyzeContractEnvelopeBoundary(
     contracts,
@@ -249,12 +284,11 @@ async function createApp(args: {
   envelopeDisabled?: boolean;
   instanceDisabled?: boolean;
   nowSeconds?: number;
-  initialEvidence?: DeploymentContractEvidence[];
+  initialOffers?: ImplementationOffer[];
+  initialExpansionRequests?: EnvelopeExpansionRequest[];
   initialBindings?: DeploymentResourceBinding[];
   knownContracts?: ContractEntry[];
   knownExpandedContract?: boolean;
-  currentContractId?: string;
-  currentContractDigest?: string;
   contractCompatibilityMode?: "strict" | "mutable-dev";
   provisionResourceBindings?: (
     contract: TrellisContractV1,
@@ -290,20 +324,19 @@ async function createApp(args: {
     ),
   };
   const services: Array<{
-    currentContractId?: string;
-    currentContractDigest?: string;
     resourceBindings?: Record<string, unknown>;
     capabilities: string[];
   }> = [];
-  const evidence = [...(args.initialEvidence ?? [])];
+  const offers = [...(args.initialOffers ?? [])];
   const bindings = [...(args.initialBindings ?? [])];
-  const expansionRequests: EnvelopeExpansionRequest[] = [];
+  const expansionRequests: EnvelopeExpansionRequest[] = [
+    ...(args.initialExpansionRequests ?? []),
+  ];
   const storedContracts: Array<{ digest: string; contractId: string }> = [];
   const putExpansions: Array<{
     envelope: DeploymentEnvelope;
     delta: EnvelopeBoundary;
     resourceBindings: DeploymentResourceBinding[];
-    contractEvidence: DeploymentContractEvidence;
   }> = [];
 
   const app = new Hono();
@@ -323,8 +356,6 @@ async function createApp(args: {
           deploymentId: "deployment_1",
           instanceKey: auth.sessionKey,
           disabled: args.instanceDisabled ?? false,
-          currentContractId: args.currentContractId,
-          currentContractDigest: args.currentContractDigest,
           capabilities: ["service"],
           createdAt: TEST_NOW,
         };
@@ -350,12 +381,6 @@ async function createApp(args: {
             if (index >= 0) bindings[index] = binding;
             else bindings.push(binding);
           }
-          const index = evidence.findIndex((stored) =>
-            stored.deploymentId === record.contractEvidence.deploymentId &&
-            stored.contractDigest === record.contractEvidence.contractDigest
-          );
-          if (index >= 0) evidence[index] = record.contractEvidence;
-          else evidence.push(record.contractEvidence);
         },
       },
       deploymentResourceBindingStorage: {
@@ -368,19 +393,27 @@ async function createApp(args: {
         },
         listByDeployment: async () => bindings,
       },
-      deploymentContractEvidenceStorage: {
-        get: async (_deploymentId, digest) =>
-          evidence.find((record) => record.contractDigest === digest),
-        put: async (record) => {
-          const index = evidence.findIndex((stored) =>
-            stored.deploymentId === record.deploymentId &&
-            stored.contractDigest === record.contractDigest
+      implementationOfferStorage: {
+        get: async (offerId) =>
+          offers.find((offer) => offer.offerId === offerId),
+        put: async (offer) => {
+          const index = offers.findIndex((stored) =>
+            stored.offerId === offer.offerId
           );
-          if (index >= 0) evidence[index] = record;
-          else evidence.push(record);
+          if (index >= 0) offers[index] = offer;
+          else offers.push(offer);
         },
-        listByDeployment: async (deploymentId) =>
-          evidence.filter((record) => record.deploymentId === deploymentId),
+        latestAcceptedByLineage: async (lineageKey) => {
+          return offers
+            .filter((offer) =>
+              offer.lineageKey === lineageKey && offer.status === "accepted"
+            )
+            .sort((left, right) =>
+              right.acceptedAt!.localeCompare(left.acceptedAt!) ||
+              right.lastRefreshedAt.localeCompare(left.lastRefreshedAt) ||
+              left.offerId.localeCompare(right.offerId)
+            )[0];
+        },
       },
       envelopeExpansionRequestStorage: {
         putPending: async (request) => {
@@ -393,6 +426,17 @@ async function createApp(args: {
           if (existing) return existing;
           expansionRequests.push(request);
           return request;
+        },
+        latestApprovedByContractId: async (contractId) => {
+          return expansionRequests
+            .filter((request) =>
+              request.contractId === contractId && request.state === "approved"
+            )
+            .sort((left, right) =>
+              (right.decidedAt ?? "").localeCompare(left.decidedAt ?? "") ||
+              right.createdAt.localeCompare(left.createdAt) ||
+              right.requestId.localeCompare(left.requestId)
+            )[0];
         },
       },
       storePresentedContract: async ({ contract, digest }) => {
@@ -450,7 +494,7 @@ async function createApp(args: {
     expanded,
     envelope,
     services,
-    evidence,
+    offers,
     bindings,
     expansionRequests,
     storedContracts,
@@ -460,7 +504,7 @@ async function createApp(args: {
 }
 
 Deno.test("POST /bootstrap/service accepts first start when contract fits envelope", async () => {
-  const { contract, bootstrap, services, evidence, bindings, storedContracts } =
+  const { contract, bootstrap, services, offers, bindings, storedContracts } =
     await createApp();
 
   const response = await bootstrap({
@@ -475,8 +519,10 @@ Deno.test("POST /bootstrap/service accepts first start when contract fits envelo
   assertEquals(body.binding.resources, {
     kv: { cache: { bucket: "bucket_cache", history: 1, ttlMs: 0 } },
   });
-  assertEquals(services[0]?.currentContractDigest, contract.digest);
-  assertEquals(evidence.length, 1);
+  assertEquals(offers.length, 1);
+  assertEquals(offers[0]?.status, "accepted");
+  assertEquals(offers[0]?.contractDigest, contract.digest);
+  assertEquals(offers[0]?.staleAt, null);
   assertEquals(bindings.length, 1);
   assertEquals(storedContracts, [{
     digest: contract.digest,
@@ -512,23 +558,9 @@ Deno.test("POST /bootstrap/service accepts different same-contract digest when b
   const oldContract = await validatedContract(baseContract());
   const newContract = await validatedContract(expandedContract());
   const setup = await createApp({
-    initialEvidence: [
-      {
-        deploymentId: "deployment_1",
-        contractId: oldContract.contract.id,
-        contractDigest: oldContract.digest,
-        contract: oldContract.contract,
-        firstSeenAt: "2026-01-01T00:00:00.000Z",
-        lastSeenAt: "2026-01-01T00:00:00.000Z",
-      },
-      {
-        deploymentId: "deployment_1",
-        contractId: newContract.contract.id,
-        contractDigest: newContract.digest,
-        contract: newContract.contract,
-        firstSeenAt: "2026-01-01T00:00:01.000Z",
-        lastSeenAt: "2026-01-01T00:00:01.000Z",
-      },
+    initialOffers: [
+      serviceOffer(oldContract, { acceptedAt: "2026-01-01T00:00:00.000Z" }),
+      serviceOffer(newContract, { acceptedAt: "2026-01-01T00:00:01.000Z" }),
     ],
   });
   setup.contracts.setActiveTestDigests([newContract.digest]);
@@ -545,16 +577,17 @@ Deno.test("POST /bootstrap/service accepts different same-contract digest when b
   assertEquals(body.connectInfo.contractDigest, oldContract.digest);
   assertEquals(body.reason, undefined);
   assertEquals(body.activeContractDigest, undefined);
-  assertEquals(setup.services[0]?.currentContractDigest, oldContract.digest);
-  assertEquals(setup.evidence.length, 2);
+  assertEquals(
+    setup.offers.some((offer) => offer.contractDigest === oldContract.digest),
+    true,
+  );
 });
 
 Deno.test("POST /bootstrap/service rejects incompatible same-contract digest replacement in strict mode", async () => {
   const current = await validatedContract(baseContract());
   const replacement = await validatedContract(incompatibleSchemaContract());
   const setup = await createApp({
-    currentContractId: current.contract.id,
-    currentContractDigest: current.digest,
+    initialOffers: [serviceOffer(current)],
   });
 
   const response = await setup.bootstrap({
@@ -574,8 +607,7 @@ Deno.test("POST /bootstrap/service accepts incompatible same-contract digest rep
   const current = await validatedContract(baseContract());
   const replacement = await validatedContract(incompatibleSchemaContract());
   const setup = await createApp({
-    currentContractId: current.contract.id,
-    currentContractDigest: current.digest,
+    initialOffers: [serviceOffer(current)],
     contractCompatibilityMode: "mutable-dev",
   });
 
@@ -589,15 +621,14 @@ Deno.test("POST /bootstrap/service accepts incompatible same-contract digest rep
   const body = await response.json();
   assertEquals(body.status, "ready");
   assertEquals(body.connectInfo.contractDigest, replacement.digest);
-  assertEquals(setup.services[0]?.currentContractDigest, replacement.digest);
+  assertEquals(setup.offers.at(-1)?.contractDigest, replacement.digest);
 });
 
 Deno.test("POST /bootstrap/service accepts compatible same-contract digest replacement in strict mode", async () => {
   const current = await validatedContract(baseContract());
   const replacement = await validatedContract(compatibleMetadataContract());
   const setup = await createApp({
-    currentContractId: current.contract.id,
-    currentContractDigest: current.digest,
+    initialOffers: [serviceOffer(current)],
   });
 
   const response = await setup.bootstrap({
@@ -610,115 +641,16 @@ Deno.test("POST /bootstrap/service accepts compatible same-contract digest repla
   const body = await response.json();
   assertEquals(body.status, "ready");
   assertEquals(body.connectInfo.contractDigest, replacement.digest);
-  assertEquals(setup.services[0]?.currentContractDigest, replacement.digest);
-});
-
-Deno.test("POST /bootstrap/service clears legacy forced-update metadata after fit", async () => {
-  const oldContract = await validatedContract(baseContract());
-  const newContract = await validatedContract(expandedContract());
-  const setup = await createApp({
-    envelopeBoundary: await contractBoundary(
-      createTestContracts(),
-      newContract.contract,
-    ),
-    initialEvidence: [
-      {
-        deploymentId: "deployment_1",
-        contractId: oldContract.contract.id,
-        contractDigest: oldContract.digest,
-        contract: oldContract.contract,
-        firstSeenAt: "2026-01-01T00:00:00.000Z",
-        lastSeenAt: "2026-01-01T00:00:00.000Z",
-      },
-      {
-        deploymentId: "deployment_1",
-        contractId: newContract.contract.id,
-        contractDigest: newContract.digest,
-        contract: newContract.contract,
-        firstSeenAt: "2026-01-01T00:00:01.000Z",
-        lastSeenAt: "2026-01-01T00:00:01.000Z",
-        ignoredAt: "2026-01-01T00:00:02.000Z",
-        ignoredBy: { userId: "admin" },
-        ignoreReason: "test repair",
-      },
-    ],
-  });
-  setup.contracts.setActiveTestDigests([oldContract.digest]);
-
-  const response = await setup.bootstrap({
-    contractId: newContract.contract.id,
-    contractDigest: newContract.digest,
-    contract: newContract.contract,
-  });
-
-  assertEquals(response.status, 200);
-  const body = await response.json();
-  assertEquals(body.status, "ready");
-  assertEquals(body.connectInfo.contractDigest, newContract.digest);
-  assertEquals(body.reason, undefined);
-  assertEquals(body.activeContractDigest, undefined);
-  assertEquals(setup.services[0]?.currentContractDigest, newContract.digest);
-  assertEquals(setup.evidence.length, 2);
-  assertEquals(setup.evidence[1]?.ignoredAt, undefined);
-});
-
-Deno.test("POST /bootstrap/service clears legacy quarantine metadata on reconnect", async () => {
-  const contract = await validatedContract(expandedContract());
-  const setup = await createApp({
-    envelopeBoundary: await contractBoundary(
-      createTestContracts(),
-      contract.contract,
-    ),
-    initialEvidence: [
-      {
-        deploymentId: "deployment_1",
-        contractId: contract.contract.id,
-        contractDigest: contract.digest,
-        contract: contract.contract,
-        firstSeenAt: "2026-01-01T00:00:00.000Z",
-        lastSeenAt: "2026-01-01T00:00:00.000Z",
-        ignoredAt: "2026-01-01T00:00:01.000Z",
-        ignoredBy: { userId: "admin" },
-        ignoreReason: "test repair",
-      },
-    ],
-  });
-  setup.contracts.setActiveTestDigests([contract.digest]);
-
-  const response = await setup.bootstrap({
-    contractId: contract.contract.id,
-    contractDigest: contract.digest,
-    contract: contract.contract,
-  });
-
-  assertEquals(response.status, 200);
-  assertEquals(setup.evidence.length, 1);
-  assertEquals(setup.evidence[0]?.ignoredAt, undefined);
-  assertEquals(setup.evidence[0]?.ignoredBy, undefined);
-  assertEquals(setup.evidence[0]?.ignoreReason, undefined);
+  assertEquals(setup.offers.at(-1)?.contractDigest, replacement.digest);
 });
 
 Deno.test("POST /bootstrap/service accepts older digest when it remains effective", async () => {
   const oldContract = await validatedContract(baseContract());
   const newContract = await validatedContract(expandedContract());
   const setup = await createApp({
-    initialEvidence: [
-      {
-        deploymentId: "deployment_1",
-        contractId: oldContract.contract.id,
-        contractDigest: oldContract.digest,
-        contract: oldContract.contract,
-        firstSeenAt: "2026-01-01T00:00:00.000Z",
-        lastSeenAt: "2026-01-01T00:00:00.000Z",
-      },
-      {
-        deploymentId: "deployment_1",
-        contractId: newContract.contract.id,
-        contractDigest: newContract.digest,
-        contract: newContract.contract,
-        firstSeenAt: "2026-01-01T00:00:01.000Z",
-        lastSeenAt: "2026-01-01T00:00:01.000Z",
-      },
+    initialOffers: [
+      serviceOffer(oldContract, { acceptedAt: "2026-01-01T00:00:00.000Z" }),
+      serviceOffer(newContract, { acceptedAt: "2026-01-01T00:00:01.000Z" }),
     ],
   });
   setup.contracts.setActiveTestDigests([oldContract.digest]);
@@ -733,7 +665,10 @@ Deno.test("POST /bootstrap/service accepts older digest when it remains effectiv
   const body = await response.json();
   assertEquals(body.status, "ready");
   assertEquals(body.connectInfo.contractDigest, oldContract.digest);
-  assertEquals(setup.services[0]?.currentContractDigest, oldContract.digest);
+  assertEquals(
+    setup.offers.some((offer) => offer.contractDigest === oldContract.digest),
+    true,
+  );
 });
 
 Deno.test("POST /bootstrap/service creates pending request when envelope does not fit", async () => {
@@ -752,6 +687,7 @@ Deno.test("POST /bootstrap/service creates pending request when envelope does no
   assertEquals(setup.expansionRequests.length, 1);
   assertEquals(setup.expansionRequests[0]?.state, "pending");
   assertEquals(setup.services.length, 0);
+  assertEquals(setup.offers.length, 0);
 });
 
 Deno.test("POST /bootstrap/service plans expansion through known inactive required dependency", async () => {
@@ -814,6 +750,10 @@ Deno.test("POST /bootstrap/service waits when known dependency is missing a requ
   assertEquals(body.dependencySurface, "operation");
   assertEquals(body.dependencyReason, "missing");
   assertEquals(body.dependencyKey, "Start");
+  assertEquals(
+    body.message,
+    `Service contract '${service.contract.id}' digest '${service.digest}' is waiting for dependency 'dep' (dep.example@v1) to provide required operation 'Start'.`,
+  );
   assertEquals(setup.expansionRequests.length, 0);
   assertEquals(setup.services.length, 0);
 });
@@ -873,12 +813,60 @@ Deno.test("POST /bootstrap/service resolves required dependency capabilities fro
     contract: service.contract,
   });
 
+  assertEquals(response.status, 202);
+  const body = await response.json();
+  assertEquals(body.reason, "contract_activation_pending");
+  assertEquals(body.dependencyReason, "dependency_not_active");
+  assertEquals(
+    body.message,
+    `Service contract '${service.contract.id}' digest '${service.digest}' is waiting for dependency 'dep' (dep.example@v1) to have an active running implementation.`,
+  );
+  assertEquals(setup.offers.length, 0);
+  assertEquals(setup.bindings.length, 0);
+});
+
+Deno.test("POST /bootstrap/service accepts latest approved dependency when no active offer exists", async () => {
+  const dependency = await validatedContract(dependencyContract());
+  const service = await validatedContract(serviceUsingDependencyContract());
+  const contracts = createTestContracts();
+  contracts.addKnownTestContract({
+    digest: dependency.digest,
+    contract: dependency.contract,
+  });
+  const setup = await createApp({
+    envelopeBoundary: await contractBoundary(
+      contracts,
+      service.contract,
+      { dependencyResolution: "known" },
+    ),
+    initialExpansionRequests: [{
+      requestId: "approved-dep",
+      deploymentId: "dep-deployment",
+      requestedByKind: "service",
+      requestedBy: { instanceId: "dep-svc" },
+      contractId: dependency.contract.id,
+      contractDigest: dependency.digest,
+      contract: dependency.contract,
+      state: "approved",
+      createdAt: "2025-12-31T23:00:00.000Z",
+      decidedAt: "2025-12-31T23:01:00.000Z",
+      decidedBy: { type: "user", id: "admin" },
+      decisionReason: null,
+      delta: EMPTY_BOUNDARY,
+    }],
+  });
+
+  const response = await setup.bootstrap({
+    contractId: service.contract.id,
+    contractDigest: service.digest,
+    contract: service.contract,
+  });
+
   assertEquals(response.status, 200);
-  assertEquals((await response.json()).status, "ready");
-  assertEquals(setup.services[0]?.capabilities, ["dep.read", "service"]);
-  assertEquals(setup.evidence.length, 1);
-  assertEquals(setup.bindings.length, 1);
-  assertEquals(setup.putExpansions.length, 1);
+  const body = await response.json();
+  assertEquals(body.status, "ready");
+  assertEquals(setup.offers.length, 1);
+  assertEquals(setup.services.length, 1);
 });
 
 Deno.test("POST /bootstrap/service reuses pending request for the same contract digest", async () => {
@@ -990,18 +978,11 @@ Deno.test("POST /bootstrap/service reconnects after accepted expansion from glob
   }]);
 });
 
-Deno.test("POST /bootstrap/service does not resolve omitted manifests from deployment evidence", async () => {
+Deno.test("POST /bootstrap/service does not resolve omitted manifests from implementation offers", async () => {
   const expanded = await validatedContract(expandedContract());
   const setup = await createApp({
     knownExpandedContract: false,
-    initialEvidence: [{
-      deploymentId: "deployment_1",
-      contractId: expanded.contract.id,
-      contractDigest: expanded.digest,
-      contract: expanded.contract,
-      firstSeenAt: TEST_NOW,
-      lastSeenAt: TEST_NOW,
-    }],
+    initialOffers: [serviceOffer(expanded)],
   });
   setup.envelope.boundary = await contractBoundary(
     setup.contracts,
@@ -1088,6 +1069,7 @@ Deno.test("POST /bootstrap/service stores jobs bindings in contract resource sha
 
 Deno.test("POST /bootstrap/service stores event consumer bindings", async () => {
   const contract = await validatedContract(eventConsumerContract());
+  const dependency = await validatedContract(eventDependencyContract());
   const binding = {
     stream: "trellis",
     consumerName: "svc_deployment_1_svc_example_ingest_abcd",
@@ -1101,12 +1083,16 @@ Deno.test("POST /bootstrap/service stores event consumer bindings", async () => 
   };
   const setup = await createApp({
     knownContracts: [
-      { digest: "dep-events-digest", contract: eventDependencyContract() },
+      { digest: dependency.digest, contract: dependency.contract },
       { digest: contract.digest, contract: contract.contract },
     ],
     provisionResourceBindings: async () => ({
       eventConsumers: { ingest: binding },
     }),
+  });
+  setup.contracts.activateTestContract({
+    digest: dependency.digest,
+    contract: dependency.contract,
   });
   setup.envelope.boundary = await contractBoundary(
     setup.contracts,
@@ -1137,9 +1123,10 @@ Deno.test("POST /bootstrap/service stores independent event consumer groups", as
       audit: { events: [{ use: "dep", event: "Changed" }] },
     },
   } as ContractWithEventConsumers);
+  const dependency = await validatedContract(eventDependencyContract());
   const setup = await createApp({
     knownContracts: [
-      { digest: "dep-events-digest", contract: eventDependencyContract() },
+      { digest: dependency.digest, contract: dependency.contract },
       { digest: contract.digest, contract: contract.contract },
     ],
     provisionResourceBindings: async () => ({
@@ -1168,6 +1155,10 @@ Deno.test("POST /bootstrap/service stores independent event consumer groups", as
         },
       },
     }),
+  });
+  setup.contracts.activateTestContract({
+    digest: dependency.digest,
+    contract: dependency.contract,
   });
   setup.envelope.boundary = await contractBoundary(
     setup.contracts,
@@ -1208,7 +1199,7 @@ Deno.test("POST /bootstrap/service rejects when provisioning misses a requested 
   assertEquals(setup.services.length, 0);
 });
 
-Deno.test("POST /bootstrap/service accepts missing optional resource bindings", async () => {
+Deno.test("POST /bootstrap/service rejects missing optional resource bindings", async () => {
   const contract = await validatedContract({
     ...baseContract(),
     resources: {
@@ -1246,11 +1237,9 @@ Deno.test("POST /bootstrap/service accepts missing optional resource bindings", 
     contract: contract.contract,
   });
 
-  assertEquals(response.status, 200);
-  assertEquals((await response.json()).binding.resources, {
-    kv: { cache: { bucket: "bucket_cache", history: 1, ttlMs: 0 } },
-  });
-  assertEquals(setup.bindings.map((binding) => binding.alias), ["cache"]);
+  assertEquals(response.status, 409);
+  assertEquals((await response.json()).reason, "resource_binding_missing");
+  assertEquals(setup.bindings, []);
 });
 
 Deno.test("POST /bootstrap/service rejects disabled deployments", async () => {

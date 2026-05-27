@@ -95,8 +95,6 @@ type TestServiceInstance = {
   deploymentId: string;
   instanceKey: string;
   disabled: boolean;
-  currentContractId?: string;
-  currentContractDigest?: string;
   capabilities: string[];
   createdAt: string;
 };
@@ -153,15 +151,6 @@ function userCaller(capabilities: string[]) {
   };
 }
 
-type TestDeploymentContractEvidence = {
-  deploymentId: string;
-  contractId: string;
-  contractDigest: string;
-  contract: Record<string, unknown>;
-  firstSeenAt: string;
-  lastSeenAt: string;
-};
-
 class InMemoryServiceInstanceStorage {
   #instances: TestServiceInstance[] = [];
 
@@ -173,16 +162,12 @@ class InMemoryServiceInstanceStorage {
     return [...this.#instances];
   }
 
-  async listByDeploymentAndDigest(
+  async listByDeployments(
     deploymentIds: Iterable<string>,
-    contractDigests: Iterable<string>,
   ): Promise<TestServiceInstance[]> {
     const requestedDeployments = new Set(deploymentIds);
-    const requestedDigests = new Set(contractDigests);
     return this.#instances.filter((instance) =>
-      requestedDeployments.has(instance.deploymentId) &&
-      instance.currentContractDigest !== undefined &&
-      requestedDigests.has(instance.currentContractDigest)
+      requestedDeployments.has(instance.deploymentId)
     );
   }
 }
@@ -235,26 +220,38 @@ class InMemoryDeviceDeploymentStorage {
   }
 }
 
-class InMemoryDeploymentContractEvidenceStorage {
-  #evidence: TestDeploymentContractEvidence[] = [];
+type TestImplementationOffer = {
+  offerId: string;
+  deploymentKind: "service" | "device";
+  deploymentId: string;
+  instanceId: string | null;
+  contractId: string;
+  contractDigest: string;
+  lineageKey: string;
+  status: "accepted";
+  liveness: "healthy";
+  firstOfferedAt: string;
+  acceptedAt: string;
+  lastRefreshedAt: string;
+  staleAt: null;
+  expiresAt: null;
+};
 
-  seed(record: TestDeploymentContractEvidence): void {
-    this.#evidence.push(record);
+class InMemoryImplementationOfferStorage {
+  #offers: TestImplementationOffer[] = [];
+
+  seed(offer: TestImplementationOffer): void {
+    this.#offers.push(offer);
   }
 
-  async list(): Promise<TestDeploymentContractEvidence[]> {
-    return [...this.#evidence];
-  }
-
-  async listByDeploymentsAndContractId(
-    deploymentIds: Iterable<string>,
+  async listActiveByContractId(
     contractId: string,
-  ): Promise<TestDeploymentContractEvidence[]> {
-    const requestedDeployments = new Set(deploymentIds);
-    return this.#evidence.filter((record) =>
-      requestedDeployments.has(record.deploymentId) &&
-      record.contractId === contractId
-    );
+  ): Promise<TestImplementationOffer[]> {
+    return this.#offers.filter((offer) => offer.contractId === contractId);
+  }
+
+  async listByInstance(instanceId: string): Promise<TestImplementationOffer[]> {
+    return this.#offers.filter((offer) => offer.instanceId === instanceId);
   }
 }
 
@@ -399,8 +396,7 @@ function makeStatusHandler(
   const deviceInstanceStorage = new InMemoryDeviceInstanceStorage();
   const deviceDeploymentStorage = new InMemoryDeviceDeploymentStorage();
   const deploymentEnvelopeStorage = new InMemoryDeploymentEnvelopeStorage();
-  const deploymentContractEvidenceStorage =
-    new InMemoryDeploymentContractEvidenceStorage();
+  const implementationOfferStorage = new InMemoryImplementationOfferStorage();
   const connectionsKV = new InMemoryConnectionsKV();
 
   const handler = createTrellisSurfaceStatusHandler({
@@ -410,7 +406,7 @@ function makeStatusHandler(
     deviceInstanceStorage,
     deviceDeploymentStorage,
     deploymentEnvelopeStorage,
-    deploymentContractEvidenceStorage,
+    implementationOfferStorage,
     connectionsKV,
   });
 
@@ -421,7 +417,7 @@ function makeStatusHandler(
     deviceInstanceStorage,
     deviceDeploymentStorage,
     deploymentEnvelopeStorage,
-    deploymentContractEvidenceStorage,
+    implementationOfferStorage,
     connectionsKV,
   };
 }
@@ -441,7 +437,7 @@ function seedEnabledDeployment(
 
 function seedSurfaceEnvelope(
   deploymentEnvelopeStorage: InMemoryDeploymentEnvelopeStorage,
-  deploymentContractEvidenceStorage: InMemoryDeploymentContractEvidenceStorage,
+  implementationOfferStorage: InMemoryImplementationOfferStorage,
   deploymentId = "deployment-a",
   disabled = false,
   digest = "digest-surface",
@@ -484,13 +480,21 @@ function seedSurfaceEnvelope(
       resources: [],
     },
   });
-  deploymentContractEvidenceStorage.seed({
+  implementationOfferStorage.seed({
+    offerId: `offer-${deploymentId}-${digest}`,
+    deploymentKind: kind === "device" ? "device" : "service",
     deploymentId,
+    instanceId: kind === "device" ? null : `instance-${deploymentId}`,
     contractId: "surface@v1",
     contractDigest: digest,
-    contract: {},
-    firstSeenAt: new Date(0).toISOString(),
-    lastSeenAt: new Date(0).toISOString(),
+    lineageKey: `${deploymentId}:surface@v1`,
+    status: "accepted",
+    liveness: "healthy",
+    firstOfferedAt: new Date(0).toISOString(),
+    acceptedAt: new Date(0).toISOString(),
+    lastRefreshedAt: new Date(0).toISOString(),
+    staleAt: null,
+    expiresAt: null,
   });
 }
 
@@ -602,11 +606,8 @@ Deno.test("Trellis.Contract.Get preserves contract and surface docs", async () =
   );
 });
 
-Deno.test("Trellis.Catalog lists envelope-available known contracts", async () => {
+Deno.test("Trellis.Catalog lists offer-derived active contracts", async () => {
   const store = new InMemoryContracts();
-  const deploymentEnvelopeStorage = new InMemoryDeploymentEnvelopeStorage();
-  const deploymentContractEvidenceStorage =
-    new InMemoryDeploymentContractEvidenceStorage();
   const appContract: TrellisContractV1 = {
     format: "trellis.contract.v1",
     id: "app@v1",
@@ -616,38 +617,18 @@ Deno.test("Trellis.Catalog lists envelope-available known contracts", async () =
   };
   store.add("digest-app", appContract);
   store.add("digest-exports", exportedSchemaContract);
-  deploymentEnvelopeStorage.seed({
-    deploymentId: "deployment-a",
-    kind: "service",
-    disabled: false,
-    createdAt: new Date(0).toISOString(),
-    updatedAt: new Date(0).toISOString(),
-    boundary: {
-      contracts: [{ contractId: "exports@v1", required: true }],
-      surfaces: [],
-      capabilities: [],
-      resources: [],
-    },
-  });
-  deploymentContractEvidenceStorage.seed({
-    deploymentId: "deployment-a",
-    contractId: "exports@v1",
-    contractDigest: "digest-exports",
-    contract: {},
-    firstSeenAt: new Date(0).toISOString(),
-    lastSeenAt: new Date(0).toISOString(),
-  });
 
-  const result = await createTrellisCatalogHandler(
-    store,
-    deploymentEnvelopeStorage,
-    deploymentContractEvidenceStorage,
-  )();
+  const result = await createTrellisCatalogHandler(store)();
 
   assertEquals(takeUnknown(result), {
     catalog: {
       format: "trellis.catalog.v1",
       contracts: [{
+        id: "app@v1",
+        digest: "digest-app",
+        displayName: "App",
+        description: "Known app contract",
+      }, {
         id: "exports@v1",
         digest: "digest-exports",
         displayName: "Exports",
@@ -755,12 +736,12 @@ Deno.test("Trellis.Surface.Status reports unauthorized by envelope", async () =>
   const {
     handler,
     deploymentEnvelopeStorage,
-    deploymentContractEvidenceStorage,
+    implementationOfferStorage,
     connectionsKV,
   } = makeStatusHandler(store);
   seedSurfaceEnvelope(
     deploymentEnvelopeStorage,
-    deploymentContractEvidenceStorage,
+    implementationOfferStorage,
   );
 
   const result = await handler({
@@ -783,20 +764,18 @@ Deno.test("Trellis.Surface.Status reports available without live implementer", a
     serviceDeploymentStorage,
     serviceInstanceStorage,
     deploymentEnvelopeStorage,
-    deploymentContractEvidenceStorage,
+    implementationOfferStorage,
   } = makeStatusHandler(store);
   seedEnabledDeployment(serviceDeploymentStorage);
   seedSurfaceEnvelope(
     deploymentEnvelopeStorage,
-    deploymentContractEvidenceStorage,
+    implementationOfferStorage,
   );
   serviceInstanceStorage.seed({
-    instanceId: "service-a",
+    instanceId: "instance-deployment-a",
     deploymentId: "deployment-a",
     instanceKey: "sk_service_a",
     disabled: false,
-    currentContractId: "surface@v1",
-    currentContractDigest: "digest-surface",
     capabilities: ["service"],
     createdAt: new Date(0).toISOString(),
   });
@@ -827,21 +806,19 @@ Deno.test("Trellis.Surface.Status reports available live implementing service", 
     serviceDeploymentStorage,
     serviceInstanceStorage,
     deploymentEnvelopeStorage,
-    deploymentContractEvidenceStorage,
+    implementationOfferStorage,
     connectionsKV,
   } = makeStatusHandler(store);
   seedEnabledDeployment(serviceDeploymentStorage);
   seedSurfaceEnvelope(
     deploymentEnvelopeStorage,
-    deploymentContractEvidenceStorage,
+    implementationOfferStorage,
   );
   serviceInstanceStorage.seed({
-    instanceId: "service-a",
+    instanceId: "instance-deployment-a",
     deploymentId: "deployment-a",
     instanceKey: "sk_service_a",
     disabled: false,
-    currentContractId: "surface@v1",
-    currentContractDigest: "digest-surface",
     capabilities: ["service"],
     createdAt: new Date(0).toISOString(),
   });
@@ -870,21 +847,19 @@ Deno.test("Trellis.Surface.Status ignores live service for another contract", as
     serviceDeploymentStorage,
     serviceInstanceStorage,
     deploymentEnvelopeStorage,
-    deploymentContractEvidenceStorage,
+    implementationOfferStorage,
     connectionsKV,
   } = makeStatusHandler(store);
   seedEnabledDeployment(serviceDeploymentStorage);
   seedSurfaceEnvelope(
     deploymentEnvelopeStorage,
-    deploymentContractEvidenceStorage,
+    implementationOfferStorage,
   );
   serviceInstanceStorage.seed({
     instanceId: "service-other",
     deploymentId: "deployment-a",
     instanceKey: "sk_service_other",
     disabled: false,
-    currentContractId: "other@v1",
-    currentContractDigest: "digest-other",
     capabilities: ["service"],
     createdAt: new Date(0).toISOString(),
   });
@@ -919,21 +894,19 @@ Deno.test("Trellis.Surface.Status ignores live same-lineage digest without the s
     serviceDeploymentStorage,
     serviceInstanceStorage,
     deploymentEnvelopeStorage,
-    deploymentContractEvidenceStorage,
+    implementationOfferStorage,
     connectionsKV,
   } = makeStatusHandler(store);
   seedEnabledDeployment(serviceDeploymentStorage);
   seedSurfaceEnvelope(
     deploymentEnvelopeStorage,
-    deploymentContractEvidenceStorage,
+    implementationOfferStorage,
   );
   serviceInstanceStorage.seed({
     instanceId: "service-old",
     deploymentId: "deployment-a",
     instanceKey: "sk_service_old",
     disabled: false,
-    currentContractId: "surface@v1",
-    currentContractDigest: "digest-old",
     capabilities: ["service"],
     createdAt: new Date(0).toISOString(),
   });
@@ -967,20 +940,18 @@ Deno.test("Trellis.Surface.Status reports disabled service instance", async () =
     serviceDeploymentStorage,
     serviceInstanceStorage,
     deploymentEnvelopeStorage,
-    deploymentContractEvidenceStorage,
+    implementationOfferStorage,
   } = makeStatusHandler(store);
   seedEnabledDeployment(serviceDeploymentStorage);
   seedSurfaceEnvelope(
     deploymentEnvelopeStorage,
-    deploymentContractEvidenceStorage,
+    implementationOfferStorage,
   );
   serviceInstanceStorage.seed({
-    instanceId: "service-a",
+    instanceId: "instance-deployment-a",
     deploymentId: "deployment-a",
     instanceKey: "sk_service_a",
     disabled: true,
-    currentContractId: "surface@v1",
-    currentContractDigest: "digest-surface",
     capabilities: ["service"],
     createdAt: new Date(0).toISOString(),
   });
@@ -1023,11 +994,11 @@ Deno.test("Trellis.Surface.Status validates action by surface kind", async () =>
   const {
     handler,
     deploymentEnvelopeStorage,
-    deploymentContractEvidenceStorage,
+    implementationOfferStorage,
   } = makeStatusHandler(store);
   seedSurfaceEnvelope(
     deploymentEnvelopeStorage,
-    deploymentContractEvidenceStorage,
+    implementationOfferStorage,
   );
 
   const rpcCallResult = await handler({

@@ -80,6 +80,12 @@ function makeDeps(args: {
 }): ResolveDeviceUserAuthoritiesDeps {
   let review = args.existingReview;
   let activation = args.activation;
+  const eventPublisher = (event: string) => ({
+    publish: (payload: unknown) => {
+      args.publishes?.push({ event, payload });
+      return AsyncResult.ok(undefined);
+    },
+  });
 
   return {
     browserFlowsKV: {
@@ -146,9 +152,25 @@ function makeDeps(args: {
     logger: { trace: () => {}, warn: () => {} },
     sentinelCreds: { jwt: "jwt", seed: "seed" },
     trellis: {
-      publish: (event, payload) => {
-        args.publishes?.push({ event, payload });
-        return AsyncResult.ok(undefined);
+      event: {
+        auth: {
+          connectionsClosed: eventPublisher("connectionsClosed"),
+          connectionsKicked: eventPublisher("connectionsKicked"),
+          connectionsOpened: eventPublisher("connectionsOpened"),
+          deviceUserAuthoritiesApproved: eventPublisher(
+            "Auth.DeviceUserAuthorities.Approved",
+          ),
+          deviceUserAuthoritiesRequested: eventPublisher(
+            "Auth.DeviceUserAuthorities.Requested",
+          ),
+          deviceUserAuthoritiesResolved: eventPublisher(
+            "Auth.DeviceUserAuthorities.Resolved",
+          ),
+          deviceUserAuthoritiesReviewRequested: eventPublisher(
+            "Auth.DeviceUserAuthorities.ReviewRequested",
+          ),
+          sessionsRevoked: eventPublisher("sessionsRevoked"),
+        },
       },
     },
     config,

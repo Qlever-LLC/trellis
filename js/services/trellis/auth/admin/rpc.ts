@@ -32,7 +32,6 @@ import type { DeploymentEnvelope, EnvelopeBoundary } from "../schemas.ts";
 import type {
   BoundedListQuery,
   ListPage,
-  SqlDeploymentContractEvidenceRepository,
   SqlDeviceProvisioningSecretRepository,
   SqlIdentityEnvelopeRepository,
   SqlSessionRepository,
@@ -40,10 +39,6 @@ import type {
 } from "../storage.ts";
 import { MAX_STORAGE_LIST_LIMIT } from "../storage.ts";
 import { revokeRuntimeAccessForSession } from "../session/revoke_runtime_access.ts";
-import {
-  collectDeploymentContractEvidenceDigests,
-  purgeUnusedInstalledContracts,
-} from "./contract_gc.ts";
 import type { ActiveCatalogIssue } from "../../catalog/runtime.ts";
 type RpcUser =
   & StaticDecode<
@@ -229,17 +224,6 @@ export type AdminRpcDeps = {
     get(deploymentId: string): Promise<DeploymentEnvelope | undefined>;
     put(record: DeploymentEnvelope): Promise<void>;
   };
-  deploymentContractEvidenceStorage?:
-    & Pick<
-      SqlDeploymentContractEvidenceRepository,
-      "listPage" | "listByDeployment"
-    >
-    & Partial<
-      Pick<
-        SqlDeploymentContractEvidenceRepository,
-        "listByDigests" | "deleteEvidence"
-      >
-    >;
   deviceInstanceStorage: {
     get(instanceId: string): Promise<DeviceInstance | undefined>;
     put(record: DeviceInstance): Promise<void>;
@@ -293,10 +277,7 @@ export type AdminRpcDeps = {
   serviceInstanceStorage?: {
     listPage(
       query: BoundedListQuery,
-    ): Promise<Array<{ currentContractDigest?: string | null }>>;
-    listByCurrentContractDigests?(
-      contractDigests: Iterable<string>,
-    ): Promise<Array<{ currentContractDigest?: string | null }>>;
+    ): Promise<Array<unknown>>;
   };
   eventPublisher?: {
     event: Pick<
@@ -339,13 +320,6 @@ async function authResolveCatalogIssueHandler(
     success: true;
     issueId: string;
     action: "keep-current" | "force-replace";
-    deletedEvidence: Awaited<
-      ReturnType<
-        NonNullable<
-          AdminRpcDeps["deploymentContractEvidenceStorage"]
-        >["listByDeployment"]
-      >
-    >;
   }, AuthError | UnexpectedError>
 > {
   const authorized = requireAdmin(caller);
@@ -355,15 +329,6 @@ async function authResolveCatalogIssueHandler(
       new UnexpectedError({
         cause: new Error(
           "catalog issue resolution requires getActiveCatalogIssues",
-        ),
-      }),
-    );
-  }
-  if (!ctx.deploymentContractEvidenceStorage?.deleteEvidence) {
-    return Result.err(
-      new UnexpectedError({
-        cause: new Error(
-          "catalog issue resolution requires deploymentContractEvidenceStorage.deleteEvidence",
         ),
       }),
     );
@@ -392,17 +357,11 @@ async function authResolveCatalogIssueHandler(
         action: req.action,
       });
     }
-    const deletedEvidence = await ctx.deploymentContractEvidenceStorage
-      .deleteEvidence({
-        contractId: issue.contractId,
-        contractDigests: action.digests,
-      });
     await ctx.refreshActiveContracts();
     return Result.ok({
       success: true,
       issueId: req.issueId,
       action: req.action,
-      deletedEvidence,
     });
   } catch (error) {
     return Result.err(new UnexpectedError({ cause: toError(error) }));
@@ -451,158 +410,6 @@ function invalidRequest(context?: Record<string, unknown>) {
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
-}
-
-function missingInstalledContractCleanupDependency(
-  name: string,
-): UnexpectedError {
-  return new UnexpectedError({
-    cause: new Error(`unused contract cleanup requires ${name}`),
-  });
-}
-
-function buildInstalledContractCleanupDeps(
-  ctx: AdminRpcContext,
-):
-  | { ok: true; deps: Parameters<typeof purgeUnusedInstalledContracts>[1] }
-  | { ok: false; error: UnexpectedError } {
-  if (!ctx.contractStorage) {
-    return {
-      ok: false,
-      error: missingInstalledContractCleanupDependency("contractStorage"),
-    };
-  }
-  if (!ctx.serviceDeploymentStorage) {
-    return {
-      ok: false,
-      error: missingInstalledContractCleanupDependency(
-        "serviceDeploymentStorage",
-      ),
-    };
-  }
-  if (!ctx.serviceInstanceStorage) {
-    return {
-      ok: false,
-      error: missingInstalledContractCleanupDependency(
-        "serviceInstanceStorage",
-      ),
-    };
-  }
-  if (!ctx.deploymentContractEvidenceStorage) {
-    return {
-      ok: false,
-      error: missingInstalledContractCleanupDependency(
-        "deploymentContractEvidenceStorage",
-      ),
-    };
-  }
-  if (!ctx.serviceDeploymentStorage.listByDeploymentIds) {
-    return {
-      ok: false,
-      error: missingInstalledContractCleanupDependency(
-        "serviceDeploymentStorage.listByDeploymentIds",
-      ),
-    };
-  }
-  if (!ctx.deviceDeploymentStorage.listByDeploymentIds) {
-    return {
-      ok: false,
-      error: missingInstalledContractCleanupDependency(
-        "deviceDeploymentStorage.listByDeploymentIds",
-      ),
-    };
-  }
-  if (!ctx.deploymentContractEvidenceStorage.listByDigests) {
-    return {
-      ok: false,
-      error: missingInstalledContractCleanupDependency(
-        "deploymentContractEvidenceStorage.listByDigests",
-      ),
-    };
-  }
-  if (!ctx.serviceInstanceStorage.listByCurrentContractDigests) {
-    return {
-      ok: false,
-      error: missingInstalledContractCleanupDependency(
-        "serviceInstanceStorage.listByCurrentContractDigests",
-      ),
-    };
-  }
-  if (!ctx.sessionStorage.listEntriesByContractDigests) {
-    return {
-      ok: false,
-      error: missingInstalledContractCleanupDependency(
-        "sessionStorage.listEntriesByContractDigests",
-      ),
-    };
-  }
-  if (!ctx.contractApprovalStorage.listByApprovalEvidenceContractDigests) {
-    return {
-      ok: false,
-      error: missingInstalledContractCleanupDependency(
-        "contractApprovalStorage.listByApprovalEvidenceContractDigests",
-      ),
-    };
-  }
-  const serviceDeploymentStorage = ctx.serviceDeploymentStorage
-    .listByDeploymentIds;
-  const deviceDeploymentStorage =
-    ctx.deviceDeploymentStorage.listByDeploymentIds;
-  const listEvidenceByDigests = ctx.deploymentContractEvidenceStorage
-    .listByDigests;
-  const listInstancesByDigest = ctx.serviceInstanceStorage
-    .listByCurrentContractDigests;
-  const listSessionsByDigest = ctx.sessionStorage.listEntriesByContractDigests;
-  const listApprovalsByDigest = ctx.contractApprovalStorage
-    .listByApprovalEvidenceContractDigests;
-  return {
-    ok: true,
-    deps: {
-      builtinContractDigests: ctx.builtinContractDigests ?? [],
-      contractStorage: ctx.contractStorage,
-      serviceDeploymentStorage: {
-        listByDeploymentIds: (deploymentIds, filters) =>
-          serviceDeploymentStorage.call(
-            ctx.serviceDeploymentStorage,
-            deploymentIds,
-            filters,
-          ),
-      },
-      deviceDeploymentStorage: {
-        listByDeploymentIds: (deploymentIds, filters) =>
-          deviceDeploymentStorage.call(
-            ctx.deviceDeploymentStorage,
-            deploymentIds,
-            filters,
-          ),
-      },
-      deploymentContractEvidenceStorage: {
-        listByDigests: (contractDigests) =>
-          listEvidenceByDigests.call(
-            ctx.deploymentContractEvidenceStorage,
-            contractDigests,
-          ),
-      },
-      serviceInstanceStorage: {
-        listByCurrentContractDigests: (contractDigests) =>
-          listInstancesByDigest.call(
-            ctx.serviceInstanceStorage,
-            contractDigests,
-          ),
-      },
-      sessionStorage: {
-        listEntriesByContractDigests: (contractDigests) =>
-          listSessionsByDigest.call(ctx.sessionStorage, contractDigests),
-      },
-      contractApprovalStorage: {
-        listByApprovalEvidenceContractDigests: (contractDigests) =>
-          listApprovalsByDigest.call(
-            ctx.contractApprovalStorage,
-            contractDigests,
-          ),
-      },
-    },
-  };
 }
 
 async function refreshActiveContracts(
@@ -1212,18 +1019,11 @@ export function createAuthDeploymentsDeviceRemoveHandler(
     };
     const validated = await validateActiveCatalog(removalDeps, validationOpts);
     if (isErr(validated)) return validated;
-    let installedContractCleanupDeps:
-      | Parameters<typeof purgeUnusedInstalledContracts>[1]
-      | undefined;
-    let removedContractEvidence: Awaited<
-      ReturnType<SqlDeploymentContractEvidenceRepository["listByDeployment"]>
-    > = [];
     if (req.purgeUnusedContracts === true) {
-      const cleanupDeps = buildInstalledContractCleanupDeps(ctx);
-      if (!cleanupDeps.ok) return Result.err(cleanupDeps.error);
-      installedContractCleanupDeps = cleanupDeps.deps;
-      removedContractEvidence = await ctx.deploymentContractEvidenceStorage!
-        .listByDeployment(req.deploymentId);
+      ctx.logger.warn(
+        { deploymentId: req.deploymentId },
+        "Unused contract purge no longer applies to offer-backed runtime state and was skipped",
+      );
     }
     const provisioningSecrets: DeviceProvisioningSecret[] = [];
     const activations: DeviceActivation[] = [];
@@ -1310,26 +1110,6 @@ export function createAuthDeploymentsDeviceRemoveHandler(
         refreshed.error,
         restoreDeletedRecords,
       );
-    }
-    if (req.purgeUnusedContracts === true) {
-      if (!installedContractCleanupDeps) {
-        return Result.err(
-          missingInstalledContractCleanupDependency(
-            "installedContractCleanupDeps",
-          ),
-        );
-      }
-      try {
-        await purgeUnusedInstalledContracts(
-          collectDeploymentContractEvidenceDigests(removedContractEvidence),
-          installedContractCleanupDeps,
-        );
-      } catch (error) {
-        ctx.logger.warn(
-          { deploymentId: req.deploymentId, error: toError(error) },
-          "Failed to clean up unused installed contracts after device deployment removal",
-        );
-      }
     }
     for (const review of activationReviews) {
       await deleteBrowserFlow(ctx, review.flowId);

@@ -21,19 +21,26 @@ export type ActiveDeploymentEnvelopeRecord = {
   };
 };
 
-export type ActiveDeploymentContractEvidenceRecord = {
+export type ActiveImplementationOfferRecord = {
+  deploymentKind: "service" | "device";
   deploymentId: string;
+  instanceId: string | null;
   contractId: string;
   contractDigest: string;
-  lastSeenAt?: string;
-  ignoredAt?: string | null;
+  status: "offered" | "accepted" | "stale" | "expired" | "withdrawn";
+  acceptedAt: string | null;
+  firstOfferedAt: string;
+  lastRefreshedAt: string;
+  staleAt: string | null;
+  expiresAt: string | null;
 };
 
 export type ActiveCatalogRecordSet = {
   builtinDigests: Iterable<string>;
   builtinContractIds?: Iterable<string>;
   deploymentEnvelopes: Iterable<ActiveDeploymentEnvelopeRecord>;
-  deploymentContractEvidence: Iterable<ActiveDeploymentContractEvidenceRecord>;
+  implementationOffers?: Iterable<ActiveImplementationOfferRecord>;
+  evaluationTime?: string | Date;
 };
 
 /** Returns persisted records with staged records overlaid by key. */
@@ -54,6 +61,17 @@ export function collectActiveContractDigests(
 ): Set<string> {
   const active = new Set<string>();
   for (const digest of records.builtinDigests) active.add(digest);
+
+  const evaluationTime = records.evaluationTime instanceof Date
+    ? records.evaluationTime.toISOString()
+    : records.evaluationTime ?? new Date().toISOString();
+  for (const offer of records.implementationOffers ?? []) {
+    if (offer.status !== "accepted") continue;
+    if (offer.acceptedAt === null) continue;
+    if (offer.staleAt !== null && offer.staleAt <= evaluationTime) continue;
+    if (offer.expiresAt !== null && offer.expiresAt <= evaluationTime) continue;
+    active.add(offer.contractDigest);
+  }
 
   return active;
 }

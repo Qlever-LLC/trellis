@@ -9,7 +9,6 @@ import { createKick } from "../callout/kick.ts";
 import type {
   SqlAccountFlowRepository,
   SqlCapabilityGroupRepository,
-  SqlDeploymentContractEvidenceRepository,
   SqlDeploymentEnvelopeRepository,
   SqlDeploymentGrantOverrideRepository,
   SqlDeploymentPortalRouteRepository,
@@ -21,6 +20,7 @@ import type {
   SqlDeviceProvisioningSecretRepository,
   SqlEnvelopeExpansionRequestRepository,
   SqlIdentityEnvelopeRepository,
+  SqlImplementationOfferRepository,
   SqlLocalCredentialRepository,
   SqlLoginPortalRepository,
   SqlServiceDeploymentRepository,
@@ -62,8 +62,7 @@ export function registerAuthHttpRoutes(
       deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
       deploymentGrantOverrideStorage: SqlDeploymentGrantOverrideRepository;
       deploymentResourceBindingStorage: SqlDeploymentResourceBindingRepository;
-      deploymentContractEvidenceStorage:
-        SqlDeploymentContractEvidenceRepository;
+      implementationOfferStorage: SqlImplementationOfferRepository;
       envelopeExpansionRequestStorage: SqlEnvelopeExpansionRequestRepository;
       accountFlowStorage: SqlAccountFlowRepository;
       loginPortalStorage: SqlLoginPortalRepository;
@@ -106,7 +105,7 @@ export function registerAuthHttpRoutes(
     deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
     deploymentGrantOverrideStorage: deps.deploymentGrantOverrideStorage,
     deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
-    deploymentContractEvidenceStorage: deps.deploymentContractEvidenceStorage,
+    implementationOfferStorage: deps.implementationOfferStorage,
     envelopeExpansionRequestStorage: deps.envelopeExpansionRequestStorage,
     serviceDeploymentStorage: deps.serviceDeploymentStorage,
     serviceInstanceStorage: deps.serviceInstanceStorage,

@@ -5,6 +5,16 @@ import type {
   EnvelopeBoundary,
 } from "@qlever-llc/trellis/auth";
 
+type ImplementationOffer = {
+  deploymentKind: "service" | "device";
+  deploymentId: string;
+  contractId: string;
+  contractDigest: string;
+  status: "offered" | "accepted" | "stale" | "expired" | "withdrawn";
+  staleAt: string | null;
+  expiresAt: string | null;
+};
+
 type DeploymentResourceBinding =
   AuthEnvelopesGetResponse["resourceBindings"][number];
 type EnvelopeBoundarySurface = EnvelopeBoundary["surfaces"][number];
@@ -88,14 +98,11 @@ export type RuntimeDeployment = {
 
 export type ServiceRuntimeInstance = {
   deploymentId: string;
-  currentContractId?: string;
   disabled: boolean;
 };
 
 export type DeviceRuntimeInstance = {
   deploymentId: string;
-  currentContractId?: string;
-  currentContractDigest?: string;
   state: "registered" | "activated" | "revoked" | "disabled";
 };
 
@@ -297,24 +304,48 @@ function runtimeDeploymentMatchesSurface(
 }
 
 export function serviceRuntimeDeployments(
-  instances: ServiceRuntimeInstance[],
+  offers: ImplementationOffer[],
+  now = Date.now(),
 ): RuntimeDeployment[] {
-  return instances.map((instance) => ({
-    deploymentId: instance.deploymentId,
-    contractId: instance.currentContractId,
-    disabled: instance.disabled,
-  }));
+  return liveImplementationOfferRuntimeDeployments(offers, "service", now);
 }
 
 export function deviceRuntimeDeployments(
-  instances: DeviceRuntimeInstance[],
+  offers: ImplementationOffer[],
+  now = Date.now(),
 ): RuntimeDeployment[] {
-  return instances.map((instance) => ({
-    deploymentId: instance.deploymentId,
-    contractId: instance.currentContractId,
-    contractDigest: instance.currentContractDigest,
-    disabled: instance.state !== "activated",
-  }));
+  return liveImplementationOfferRuntimeDeployments(offers, "device", now);
+}
+
+function liveImplementationOfferRuntimeDeployments(
+  offers: ImplementationOffer[],
+  deploymentKind: ImplementationOffer["deploymentKind"],
+  now: number,
+): RuntimeDeployment[] {
+  return offers
+    .filter((offer) =>
+      offer.deploymentKind === deploymentKind &&
+      implementationOfferIsLive(offer, now)
+    )
+    .map((offer) => ({
+      deploymentId: offer.deploymentId,
+      contractId: offer.contractId,
+      contractDigest: offer.contractDigest,
+      disabled: false,
+    }));
+}
+
+function implementationOfferIsLive(
+  offer: ImplementationOffer,
+  now: number,
+): boolean {
+  return offer.status === "accepted" &&
+    !isElapsedOfferTime(offer.staleAt, now) &&
+    !isElapsedOfferTime(offer.expiresAt, now);
+}
+
+function isElapsedOfferTime(value: string | null, now: number): boolean {
+  return value !== null && Date.parse(value) <= now;
 }
 
 export function chooseSelectedDeployment(

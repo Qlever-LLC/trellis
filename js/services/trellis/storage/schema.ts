@@ -185,8 +185,6 @@ export const serviceInstances = sqliteTable(
     deploymentId: text("deployment_id").notNull(),
     instanceKey: text("instance_key").notNull().unique(),
     disabled: integer("disabled", { mode: "boolean" }).notNull(),
-    currentContractId: text("current_contract_id"),
-    currentContractDigest: text("current_contract_digest"),
     capabilities: text("capabilities").notNull(),
     resourceBindings: text("resource_bindings"),
     createdAt: text("created_at").notNull(),
@@ -194,20 +192,8 @@ export const serviceInstances = sqliteTable(
   (table) => [
     index("service_instances_deployment_id_idx").on(table.deploymentId),
     index("service_instances_disabled_idx").on(table.disabled),
-    index("service_instances_current_contract_digest_idx").on(
-      table.currentContractDigest,
-    ),
     index("service_instances_deployment_disabled_idx").on(
       table.deploymentId,
-      table.disabled,
-    ),
-    index("service_instances_deployment_digest_idx").on(
-      table.deploymentId,
-      table.currentContractDigest,
-    ),
-    index("service_instances_deployment_digest_disabled_idx").on(
-      table.deploymentId,
-      table.currentContractDigest,
       table.disabled,
     ),
   ],
@@ -537,27 +523,45 @@ export const deploymentResourceBindings = sqliteTable(
   ],
 );
 
-export const deploymentContractEvidence = sqliteTable(
-  "deployment_contract_evidence",
+export const implementationOffers = sqliteTable(
+  "implementation_offers",
   {
+    offerId: text("offer_id").primaryKey(),
+    deploymentKind: text("deployment_kind").notNull(),
     deploymentId: text("deployment_id").notNull(),
+    instanceId: text("instance_id"),
     contractId: text("contract_id").notNull(),
     contractDigest: text("contract_digest").notNull(),
-    contractJson: text("contract_json").notNull(),
-    firstSeenAt: text("first_seen_at").notNull(),
-    lastSeenAt: text("last_seen_at").notNull(),
-    ignoredAt: text("ignored_at"),
-    ignoredByJson: text("ignored_by_json"),
-    ignoreReason: text("ignore_reason"),
+    lineageKey: text("lineage_key").notNull(),
+    status: text("status").notNull(),
+    liveness: text("liveness").notNull(),
+    firstOfferedAt: text("first_offered_at").notNull(),
+    acceptedAt: text("accepted_at"),
+    lastRefreshedAt: text("last_refreshed_at").notNull(),
+    staleAt: text("stale_at"),
+    expiresAt: text("expires_at"),
   },
   (table) => [
-    primaryKey({ columns: [table.deploymentId, table.contractDigest] }),
-    index("deployment_contract_evidence_digest_idx").on(
+    index("implementation_offers_lineage_digest_idx").on(
+      table.lineageKey,
       table.contractDigest,
     ),
-    index("deployment_contract_evidence_contract_deployment_idx").on(
+    index("implementation_offers_contract_status_idx").on(
       table.contractId,
+      table.status,
+    ),
+    index("implementation_offers_digest_status_idx").on(
+      table.contractDigest,
+      table.status,
+    ),
+    index("implementation_offers_deployment_idx").on(
+      table.deploymentKind,
       table.deploymentId,
+    ),
+    index("implementation_offers_instance_idx").on(table.instanceId),
+    index("implementation_offers_lineage_accepted_idx").on(
+      table.lineageKey,
+      table.acceptedAt,
     ),
   ],
 );
@@ -705,7 +709,7 @@ export const schema = {
   authLoginPortalRoutes,
   deploymentGrantOverrides,
   deploymentResourceBindings,
-  deploymentContractEvidence,
+  implementationOffers,
   envelopeExpansionRequests,
   envelopeExpansionRequestContracts,
   envelopeExpansionRequestSurfaces,

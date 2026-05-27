@@ -267,9 +267,10 @@ Behavior:
   runtime for the full manifest; the runtime retries with the canonical contract
   emitted by `defineServiceContract(...)` or the generated SDK module
 - service bootstrap validates and analyzes the presented manifest before any
-  envelope decision; invalid manifests fail immediately, while unknown or
-  inactive required `uses` dependencies produce targeted dependency blockers
-  rather than deriving authority from historical manifests
+  envelope decision; invalid manifests fail immediately, while unknown required
+  `uses` dependencies produce targeted dependency blockers unless a latest
+  approved dependency fallback supplies the reviewed dependency shape. Bootstrap
+  does not derive authority from historical manifests.
 - optional `uses` dependencies that are missing or whose requested surfaces are
   missing do not fail bootstrap planning and do not grant runtime authority;
   when they later resolve as active, they require normal envelope expansion and
@@ -288,9 +289,10 @@ Behavior:
 - compatibility mode is separate from envelope expansion and does not retain
   expired offers or history rows as quarantine, repair input, or authority.
 - once the envelope fits, bootstrap verifies that required `uses` dependencies
-  resolve against effective active contracts and the effective envelope. If a
-  required dependency has no effective active contract, bootstrap returns a
-  dependency-not-active blocker and the runtime waits and retries.
+  resolve against effective active contracts or the latest approved dependency
+  fallback and the effective envelope. If a required dependency has neither,
+  bootstrap returns a dependency-not-active blocker and the runtime waits and
+  retries.
 - if a service presents a contract that no longer fits the enabled deployment
   envelope, bootstrap returns `contract_changed` rather than refreshing an old
   offer or issuing credentials for stale authority

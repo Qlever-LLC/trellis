@@ -462,8 +462,8 @@ Deno.test("Auth.Sessions.Me returns user, device, and service envelopes", async 
     instanceId: "svc_1",
     deploymentId: "billing.default",
     instanceKey: serviceSessionKey,
-    currentContractId: null,
-    currentContractDigest: null,
+    contractId: null,
+    contractDigest: null,
     createdAt: baseSessionFields().createdAt,
     lastAuth: baseSessionFields().lastAuth,
   });
@@ -549,8 +549,8 @@ Deno.test("Auth.Sessions.Me validates services with the durable instance deploym
     instanceId: "svc_1",
     deploymentId: "billing.stale",
     instanceKey: "sk_service",
-    currentContractId: null,
-    currentContractDigest: null,
+    contractId: null,
+    contractDigest: null,
     createdAt: baseSessionFields().createdAt,
     lastAuth: baseSessionFields().lastAuth,
   });
@@ -1091,8 +1091,8 @@ Deno.test("Auth.Requests.Validate rejects replayed request ids", async () => {
     instanceId: "instance-1",
     deploymentId: "worker.default",
     instanceKey: auth.sessionKey,
-    currentContractId: "worker.current@v1",
-    currentContractDigest: "digest-current",
+    contractId: "worker.current@v1",
+    contractDigest: "digest-current",
     createdAt: baseSessionFields().createdAt,
     lastAuth: baseSessionFields().lastAuth,
   });
@@ -1109,8 +1109,6 @@ Deno.test("Auth.Requests.Validate rejects replayed request ids", async () => {
         deploymentId: "worker.default",
         instanceKey: auth.sessionKey,
         disabled: false,
-        currentContractId: "worker.current@v1",
-        currentContractDigest: "digest-current",
         capabilities: ["service", "worker.run"],
       }),
     loadServiceDeployment: () =>
@@ -1152,8 +1150,8 @@ Deno.test("Auth.Requests.Validate uses current service instance permissions", as
     instanceId: "instance-1",
     deploymentId: "worker.default",
     instanceKey: auth.sessionKey,
-    currentContractId: "worker.old@v1",
-    currentContractDigest: "digest-old",
+    contractId: "worker.old@v1",
+    contractDigest: "digest-old",
     createdAt: baseSessionFields().createdAt,
     lastAuth: baseSessionFields().lastAuth,
   });
@@ -1170,8 +1168,6 @@ Deno.test("Auth.Requests.Validate uses current service instance permissions", as
         deploymentId: "worker.default",
         instanceKey: auth.sessionKey,
         disabled: false,
-        currentContractId: "worker.current@v1",
-        currentContractDigest: "digest-current",
         capabilities: ["service", "worker.run"],
       }),
     loadServiceDeployment: () =>
@@ -1267,8 +1263,8 @@ Deno.test("Auth.Sessions.List returns explicit participant metadata for app, age
     instanceId: "svc_1",
     deploymentId: "billing.default",
     instanceKey: "sk_service",
-    currentContractId: null,
-    currentContractDigest: null,
+    contractId: null,
+    contractDigest: null,
     ...baseSessionFields(),
   });
 
@@ -2032,8 +2028,8 @@ Deno.test("Auth.Sessions.Revoke disables the service instance so it cannot recon
     instanceId: "svc_1",
     deploymentId: "billing.default",
     instanceKey: "sk_service",
-    currentContractId: null,
-    currentContractDigest: null,
+    contractId: null,
+    contractDigest: null,
     ...baseSessionFields(),
   });
   serviceInstancesKV.seed("svc_1", {

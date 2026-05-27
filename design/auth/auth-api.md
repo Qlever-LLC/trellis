@@ -831,10 +831,12 @@ type DeploymentGrantOverride =
 ```
 
 `DeploymentContractHistoryEntry` records reviewed expansion and retraction
-events. It is audit history, not a standalone authority source. Authority comes
-from deployment envelopes, identity envelopes, and deployment grant overrides.
-History rows do not promote non-builtin contracts into runtime authority or
-active implementation projection.
+events. It is audit history, not a standalone authority source. Control-plane
+approval authority comes from deployment envelopes, identity envelopes, and
+deployment grant overrides; runtime availability for non-builtin service
+contracts comes from accepted implementation offers. History rows do not promote
+non-builtin contracts into runtime authority or active implementation
+projection.
 
 ```ts
 type ServiceInstance = {
@@ -842,12 +844,14 @@ type ServiceInstance = {
   deploymentId: string;
   instanceKey: string;
   disabled: boolean;
-  currentContractId?: string;
-  currentContractDigest?: string;
   capabilities: string[];
   resourceBindings?: Record<string, unknown>;
   createdAt: string;
 };
+
+// Service instances record durable service identity, operator state, and
+// resource bindings only. Presented contract ids and digests live on service
+// sessions and accepted implementation offers, not on service-instance records.
 
 type AuthDeployment =
   | {
@@ -955,9 +959,9 @@ for the durable deployment record:
   `contractId` plus browser `origin`, and session rows match a `contractId` plus
   `sessionPublicKey`.
 - service and device deployment mutations fail closed when required `uses`
-  dependencies are unknown, inactive, or cannot be resolved from effective
-  active contracts; Trellis validates staged state before exposing it to runtime
-  permissions.
+  dependencies are unknown or cannot be resolved from effective active contracts
+  or the latest approved dependency fallback; Trellis validates staged state
+  before exposing it to runtime permissions.
 - catalog refresh, surface-status checks, portal routing resolution, shrink
   previews, and unused installed-contract cleanup use targeted durable-store
   queries for the addressed deployment, digest, route, or binding records rather
@@ -980,12 +984,13 @@ for the durable deployment record:
   which runtime auth uses to grant exact JetStream consumer info, pull-next, and
   ack subjects to service tokens.
 - service bootstrap may create pending expansion requests from presented
-  manifests whose required boundary exceeds the deployment envelope. Unknown or
-  inactive required dependencies return dependency blockers instead of creating
-  reviewable surfaces from historical manifests.
+  manifests whose required boundary exceeds the deployment envelope. Unknown
+  required dependencies return dependency blockers unless a latest approved
+  dependency fallback supplies the reviewed dependency shape; bootstrap does not
+  create reviewable surfaces from historical manifests.
 - if active offers for a required dependency are mutually incompatible, service
   bootstrap reports a catalog repair issue for that active lineage instead of
-  falling back to historical manifests.
+  falling back to approved or historical manifests.
 - missing optional dependency contracts or optional requested surfaces are
   absent from the requested delta and grant no authority. If they later become
   active, a fresh reconnect requests a normal expansion before receiving that
@@ -994,13 +999,19 @@ for the durable deployment record:
   the connected requester and requested delta, and requests created by that
   requester are removed when the requester disconnects. Envelope expansion stays
   separate from same-contract replacement compatibility.
+- envelope expansion request rows returned by review/list/get/decision RPCs
+  include `contractId`, `contractDigest`, `delta`, and a compact redacted
+  contract summary, not the full stored manifest. Approval validates against the
+  full manifest stored with the request so large contracts do not exceed NATS
+  RPC payload limits during Console review.
 - if service bootstrap presents a same-`contractId` digest that is incompatible
   with the deployment's latest accepted offer under `strict` mode, auth returns
   `contract_compatibility_violation`. Deployments may opt into `mutable-dev` for
   local development iteration.
-- if the deployment envelope fits but required dependency surfaces are inactive
-  or unresolved, service bootstrap must not persist liveness state, accept a new
-  offer, or create resource bindings for that ready attempt.
+- if the deployment envelope fits but required dependency surfaces are
+  unresolved by active offers or the latest approved dependency fallback,
+  service bootstrap must not persist liveness state, accept a new offer, or
+  create resource bindings for that ready attempt.
 - if the digest presented at bootstrap no longer fits the enabled deployment
   envelope, service bootstrap returns `contract_changed` and must not refresh
   that offer into authority.

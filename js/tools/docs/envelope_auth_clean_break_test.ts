@@ -47,7 +47,7 @@ const requiredEnvelopeTerms = [
   "identity envelope",
   "deployment envelope",
   "grant override",
-  "contract evidence",
+  "implementation offer",
 ];
 
 Deno.test("envelope auth docs define the clean-break vocabulary", async () => {

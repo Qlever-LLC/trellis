@@ -86,7 +86,7 @@ the portal should not describe that as an inactive contract dependency.
 For device-user authority resolution to succeed, the portal contract boundary
 must fit the relevant device deployment envelope. Trellis fails the authority
 resolution path instead of substituting another contract when the presented
-contract evidence is unknown or exceeds the deployment envelope.
+presented contract is unknown or exceeds the deployment envelope.
 
 If a custom portal needs to call Trellis after login, model that follow-on
 access with a normal `app` contract and deployment-owned portal routing. Passive
