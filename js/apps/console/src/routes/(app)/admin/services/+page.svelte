@@ -1,6 +1,7 @@
 <script lang="ts">
   import { isErr, type BaseError, type Result } from "@qlever-llc/result";
   import { ok } from "@qlever-llc/result";
+  import type { AuthEnvelopeExpansionsListResponse } from "@qlever-llc/trellis/auth";
   import type { HealthHeartbeat } from "@qlever-llc/trellis/health";
   import type {
     AuthDeploymentsListOutput,
@@ -16,6 +17,7 @@
   import Notice from "$lib/components/Notice.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
   import Panel from "$lib/components/Panel.svelte";
+  import { expansionRequestRows, type ExpansionRequestRow } from "$lib/envelope_console";
   import {
     pruneExpiredHealthInstances,
     summarizeHealthServices,
@@ -29,6 +31,7 @@
   type Deployment = Extract<AuthDeploymentsListOutput["entries"][number], { kind: "service" }>;
   type ServiceInstance = AuthServiceInstancesListOutput["entries"][number];
   type CatalogContract = TrellisCatalogOutput["catalog"]["contracts"][number];
+  type ExpansionRequest = AuthEnvelopeExpansionsListResponse["entries"][number];
   type ContractRef = { contractId: string; digest: string };
   type RpcTakeable<T> = { take(): Promise<T | Result<never, BaseError>> };
   type CoreRequest = {
@@ -45,12 +48,19 @@
   let catalogError = $state<string | null>(null);
   let deployments = $state.raw<Deployment[]>([]);
   let instances = $state.raw<ServiceInstance[]>([]);
+  let expansionRequests = $state.raw<ExpansionRequest[]>([]);
   let catalogContracts = $state.raw<CatalogContract[]>([]);
   let healthInstances = $state.raw<Record<string, HealthInstanceView>>({});
   let now = $state(Date.now());
   let search = $state("");
 
   const healthServices = $derived(summarizeHealthServices(healthInstances, now));
+  const serviceDeploymentIds = $derived(new Set(deployments.map((deployment) => deployment.deploymentId)));
+  const pendingExpansionRequestRows = $derived.by(() =>
+    expansionRequestRows(expansionRequests)
+      .filter((request) => request.state === "pending" && serviceDeploymentIds.has(request.deploymentId))
+      .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))
+  );
   const filteredDeployments = $derived.by(() => {
     const term = search.trim().toLowerCase();
     if (!term) return deployments;
@@ -137,20 +147,38 @@
     return typeof kind === "string" ? kind : "contract";
   }
 
+  function plural(count: number, noun: string): string {
+    return `${count} ${noun}${count === 1 ? "" : "s"}`;
+  }
+
+  function expansionRequestSummary(request: ExpansionRequestRow): string {
+    const contracts = request.requiredContracts + request.optionalContracts;
+    const surfaces = request.requiredSurfaces + request.optionalSurfaces;
+    return [
+      plural(contracts, "contract"),
+      plural(surfaces, "surface"),
+      plural(request.resources, "resource"),
+      plural(request.capabilities, "capability"),
+    ].join(" · ");
+  }
+
   async function load() {
     loading = true;
     error = null;
     catalogError = null;
     try {
-      const [deploymentsRes, instancesRes, catalogRes] = await Promise.all([
+      const [deploymentsRes, instancesRes, expansionRequestsRes, catalogRes] = await Promise.all([
         trellis.request("Auth.Deployments.List", { kind: "service", limit: 500, offset: 0 }).take(),
         trellis.request("Auth.ServiceInstances.List", { limit: 500, offset: 0 }).take(),
+        trellis.request("Auth.EnvelopeExpansions.List", { state: "pending", limit: 500, offset: 0 }).take(),
         coreRequest("Trellis.Catalog", {}).take(),
       ]);
       if (isErr(deploymentsRes)) { error = errorMessage(deploymentsRes); return; }
       if (isErr(instancesRes)) { error = errorMessage(instancesRes); return; }
+      if (isErr(expansionRequestsRes)) { error = errorMessage(expansionRequestsRes); return; }
       deployments = (deploymentsRes.entries ?? []).filter((deployment): deployment is Deployment => deployment.kind === "service");
       instances = instancesRes.entries ?? [];
+      expansionRequests = expansionRequestsRes.entries ?? [];
       if (isErr(catalogRes)) {
         catalogError = errorMessage(catalogRes);
         catalogContracts = [];
@@ -220,6 +248,29 @@
   {#if loading}
     <Panel><LoadingState label="Loading services" /></Panel>
   {:else}
+    {#if pendingExpansionRequestRows.length > 0}
+      <Panel title="Pending authority requests" eyebrow={`${pendingExpansionRequestRows.length} awaiting review`}>
+        <DataTable>
+          <thead><tr><th>Deployment</th><th>Contract</th><th>Delta</th><th>Requester</th><th>Created</th><th></th></tr></thead>
+          <tbody>
+            {#each pendingExpansionRequestRows as request (request.requestId)}
+              <tr class="hover:bg-base-200/60">
+                <td class="trellis-identifier font-medium">{request.deploymentId}</td>
+                <td>
+                  <div class="trellis-identifier font-medium">{request.contractId}</div>
+                  <div class="trellis-identifier text-xs text-base-content/50">{request.contractDigest}</div>
+                </td>
+                <td>{expansionRequestSummary(request)}</td>
+                <td><span class="badge badge-outline badge-xs">{request.requestedByKind}</span></td>
+                <td class="text-base-content/60">{formatDate(request.createdAt)}</td>
+                <td><a class="btn btn-warning btn-outline btn-xs" href={serviceHref(request.deploymentId)}>Review</a></td>
+              </tr>
+            {/each}
+          </tbody>
+        </DataTable>
+      </Panel>
+    {/if}
+
     <Panel>
       <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div>
