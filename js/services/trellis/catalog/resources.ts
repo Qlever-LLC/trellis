@@ -104,6 +104,15 @@ type BuiltinStreamBinding = {
 
 type ConsumerInfoLike = Record<string, unknown>;
 
+export type EventConsumerConfigManager = {
+  info(stream: string, consumer: string): Promise<ConsumerInfoLike>;
+  update?(
+    stream: string,
+    consumer: string,
+    config: Record<string, unknown>,
+  ): Promise<ConsumerInfoLike>;
+};
+
 type EventConsumerManager = {
   add(
     stream: string,
@@ -117,6 +126,10 @@ type EventConsumerManager = {
   ): Promise<ConsumerInfoLike>;
   delete?(stream: string, consumer: string): Promise<boolean>;
 };
+
+type JobsQueueBinding = NonNullable<
+  ContractResourceBindings["jobs"]
+>["queues"][string];
 
 export type ContractResourceAnalysis = {
   kv: KvResourceRequest[];
@@ -217,7 +230,8 @@ export type InstalledServiceContractBinding = {
 export type ProvisionedContractResource =
   | { kind: "kv"; alias: string; name: string }
   | { kind: "store"; alias: string; name: string }
-  | { kind: "eventConsumer"; alias: string; stream: string; name: string };
+  | { kind: "eventConsumer"; alias: string; stream: string; name: string }
+  | { kind: "jobsQueueConsumer"; alias: string; stream: string; name: string };
 
 export type ProvisionedContractResources = {
   bindings: ContractResourceBindings;
@@ -422,17 +436,28 @@ async function ensureKvResource(
     action = "adopted";
     kv = await kvm.open(bucket);
   }
-  const jsm = await jetstreamManager(nats);
-  const status = await kv.status();
-  assertKvResourceStream(bucket, status.streamInfo.config);
-  await reconcileKvResourceConfig(
-    {
-      update: (name, config) => jsm.streams.update(name, config),
-    },
-    status,
-    request,
-    options,
-  );
+  try {
+    const jsm = await jetstreamManager(nats);
+    const status = await kv.status();
+    assertKvResourceStream(bucket, status.streamInfo.config);
+    await reconcileKvResourceConfig(
+      {
+        update: (name, config) => jsm.streams.update(name, config),
+      },
+      status,
+      request,
+      options,
+    );
+  } catch (error) {
+    if (action === "created") {
+      try {
+        await kv.destroy();
+      } catch {
+        // The caller will still report the original provisioning failure.
+      }
+    }
+    throw error;
+  }
   return action;
 }
 
@@ -527,19 +552,30 @@ async function ensureStoreResource(
     action = "adopted";
     objectStore = await objm.open(name);
   }
-  const status = await objectStore.status();
-  assertStoreResourceStream(name, status.streamInfo.config);
-  await reconcileStoreResourceConfig(
-    {
-      async update(streamName, config) {
-        const jsm = await jetstreamManager(nats);
-        return jsm.streams.update(streamName, config);
+  try {
+    const status = await objectStore.status();
+    assertStoreResourceStream(name, status.streamInfo.config);
+    await reconcileStoreResourceConfig(
+      {
+        async update(streamName, config) {
+          const jsm = await jetstreamManager(nats);
+          return jsm.streams.update(streamName, config);
+        },
       },
-    },
-    status,
-    store,
-    options,
-  );
+      status,
+      store,
+      options,
+    );
+  } catch (error) {
+    if (action === "created") {
+      try {
+        await objectStore.destroy();
+      } catch {
+        // The caller will still report the original provisioning failure.
+      }
+    }
+    throw error;
+  }
   return action;
 }
 
@@ -714,7 +750,64 @@ async function ensureEventConsumer(
 ): Promise<"created" | "adopted"> {
   const jsm = await jetstreamManager(nats);
   const consumers: EventConsumerManager = jsm.consumers;
-  const config = {
+  const config = toEventConsumerConfig(request, consumerName);
+
+  try {
+    await consumers.add(request.stream, config);
+    return "created";
+  } catch (addError) {
+    try {
+      await reconcileEventConsumerConfig(
+        consumers,
+        request.stream,
+        consumerName,
+        config,
+      );
+      return "adopted";
+    } catch (adoptError) {
+      if (isConsumerNotFoundError(adoptError)) {
+        throw addError;
+      }
+      throw adoptError;
+    }
+  }
+}
+
+async function ensureJobsQueueConsumer(
+  nats: NatsConnection,
+  stream: string,
+  queue: JobsQueueBinding,
+): Promise<"created" | "adopted"> {
+  const jsm = await jetstreamManager(nats);
+  const consumers: EventConsumerManager = jsm.consumers;
+  const config = toJobsQueueConsumerConfig(queue);
+
+  try {
+    await consumers.add(stream, config);
+    return "created";
+  } catch (addError) {
+    try {
+      await reconcileJobsQueueConsumerConfig(
+        consumers,
+        stream,
+        queue.consumerName,
+        config,
+      );
+    } catch (adoptError) {
+      if (isConsumerNotFoundError(adoptError)) {
+        throw addError;
+      }
+      throw adoptError;
+    }
+  }
+  return "adopted";
+}
+
+function toEventConsumerConfig(
+  request: EventConsumerGroupRequest,
+  consumerName: string,
+): Record<string, unknown> {
+  return {
     durable_name: consumerName,
     ack_policy: "explicit",
     deliver_policy: request.replay,
@@ -724,28 +817,155 @@ async function ensureEventConsumer(
     max_ack_pending: request.concurrency,
     backoff: request.backoffMs.map((delay) => delay * 1_000_000),
   };
+}
 
-  try {
-    await consumers.add(request.stream, config);
-    return "created";
-  } catch (addError) {
-    if (consumers.update) {
-      try {
-        await consumers.update(request.stream, consumerName, config);
-        return "adopted";
-      } catch (updateError) {
-        if (!isConsumerNotFoundError(updateError)) {
-          throw updateError;
-        }
+function toJobsQueueConsumerConfig(
+  queue: JobsQueueBinding,
+): Record<string, unknown> {
+  return {
+    durable_name: queue.consumerName,
+    ack_policy: "explicit",
+    filter_subject: queue.workSubject,
+    ack_wait: queue.ackWaitMs * 1_000_000,
+    max_deliver: queue.maxDeliver,
+    max_ack_pending: queue.concurrency,
+    backoff: queue.backoffMs.map((delay) => delay * 1_000_000),
+  };
+}
+
+/**
+ * Updates an existing event consumer when possible and otherwise validates that
+ * the adopted durable consumer exactly matches the requested runtime settings.
+ */
+export async function reconcileEventConsumerConfig(
+  consumers: EventConsumerConfigManager,
+  stream: string,
+  consumerName: string,
+  config: Record<string, unknown>,
+): Promise<void> {
+  if (consumers.update) {
+    try {
+      const info = await consumers.update(stream, consumerName, config);
+      assertEventConsumerConfigMatches(stream, consumerName, info, config);
+      return;
+    } catch (updateError) {
+      if (!isConsumerNotFoundError(updateError)) {
+        throw updateError;
       }
     }
+  }
+
+  const info = await consumers.info(stream, consumerName);
+  assertEventConsumerConfigMatches(stream, consumerName, info, config);
+}
+
+/**
+ * Updates an existing jobs queue durable consumer when possible and otherwise
+ * validates that the adopted consumer matches the queue binding.
+ */
+export async function reconcileJobsQueueConsumerConfig(
+  consumers: EventConsumerConfigManager,
+  stream: string,
+  consumerName: string,
+  config: Record<string, unknown>,
+): Promise<void> {
+  if (consumers.update) {
     try {
-      await consumers.info(request.stream, consumerName);
-      return "adopted";
-    } catch {
-      throw addError;
+      const info = await consumers.update(stream, consumerName, config);
+      assertConsumerConfigMatches(
+        "jobs queue consumer",
+        stream,
+        consumerName,
+        info,
+        config,
+      );
+      return;
+    } catch (updateError) {
+      if (!isConsumerNotFoundError(updateError)) {
+        throw updateError;
+      }
     }
   }
+
+  const info = await consumers.info(stream, consumerName);
+  assertConsumerConfigMatches(
+    "jobs queue consumer",
+    stream,
+    consumerName,
+    info,
+    config,
+  );
+}
+
+function assertEventConsumerConfigMatches(
+  stream: string,
+  consumerName: string,
+  info: ConsumerInfoLike,
+  expected: Record<string, unknown>,
+): void {
+  assertConsumerConfigMatches(
+    "event consumer",
+    stream,
+    consumerName,
+    info,
+    expected,
+  );
+}
+
+function assertConsumerConfigMatches(
+  label: string,
+  stream: string,
+  consumerName: string,
+  info: ConsumerInfoLike,
+  expected: Record<string, unknown>,
+): void {
+  const actual = info.config;
+  if (!isRecord(actual)) {
+    throw new Error(
+      `${label} '${stream}.${consumerName}' info did not include config`,
+    );
+  }
+
+  for (const [key, expectedValue] of Object.entries(expected)) {
+    const normalizedExpected = normalizedConsumerConfigValue(
+      expected,
+      key,
+      expectedValue,
+    );
+    if (!consumerConfigValueEquals(actual[key], normalizedExpected)) {
+      throw new Error(
+        `${label} '${stream}.${consumerName}' config drift for '${key}'`,
+      );
+    }
+  }
+}
+
+function normalizedConsumerConfigValue(
+  expected: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): unknown {
+  const backoff = expected.backoff;
+  if (key === "ack_wait" && Array.isArray(backoff) && backoff.length > 0) {
+    return backoff[0];
+  }
+  return value;
+}
+
+function consumerConfigValueEquals(
+  actual: unknown,
+  expected: unknown,
+): boolean {
+  if (Array.isArray(expected)) {
+    return Array.isArray(actual) &&
+      actual.length === expected.length &&
+      expected.every((value, index) => actual[index] === value);
+  }
+  return actual === expected;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Generates a Trellis-owned physical resource name for a cloud-side binding. */
@@ -1166,40 +1386,61 @@ export async function provisionContractResources(
     }
 
     if (jobs.length > 0) {
+      if (!nats) {
+        throw new Error(
+          "NATS connection is required to provision jobs resources",
+        );
+      }
       const namespace = options.existingResourceNames?.jobs?.namespace ??
         newResourceName("jobsNamespace").slice(0, 32);
-      result.bindings.jobs = {
+      const jobBindings: NonNullable<ContractResourceBindings["jobs"]> = {
         namespace,
         workStream: "JOBS_WORK",
-        queues: Object.fromEntries(
-          jobs.map((queue) => {
-            const existingQueue = options.existingResourceNames?.jobs?.queues?.[
-              queue.queueType
-            ];
-            const queueToken = newResourceName("jobsQueue").slice(0, 48);
-            return [queue.queueType, {
-              queueType: queue.queueType,
-              publishPrefix: existingQueue?.publishPrefix ??
-                `trellis.jobs.${namespace}.${queueToken}`,
-              workSubject: existingQueue?.workSubject ??
-                `trellis.work.${namespace}.${queueToken}`,
-              consumerName: existingQueue?.consumerName ??
-                `${namespace}_${queueToken}`.slice(0, 64),
-              payload: queue.payload,
-              ...(queue.result ? { result: queue.result } : {}),
-              maxDeliver: queue.maxDeliver,
-              backoffMs: [...queue.backoffMs],
-              ackWaitMs: queue.ackWaitMs,
-              ...(queue.defaultDeadlineMs
-                ? { defaultDeadlineMs: queue.defaultDeadlineMs }
-                : {}),
-              progress: queue.progress,
-              logs: queue.logs,
-              dlq: queue.dlq,
-              concurrency: queue.concurrency,
-            }];
-          }),
-        ),
+        queues: {},
+      };
+
+      for (const queue of jobs) {
+        const existingQueue = options.existingResourceNames?.jobs?.queues?.[
+          queue.queueType
+        ];
+        const queueToken = newResourceName("jobsQueue").slice(0, 48);
+        const queueBinding: JobsQueueBinding = {
+          queueType: queue.queueType,
+          publishPrefix: existingQueue?.publishPrefix ??
+            `trellis.jobs.${namespace}.${queueToken}`,
+          workSubject: existingQueue?.workSubject ??
+            `trellis.work.${namespace}.${queueToken}`,
+          consumerName: existingQueue?.consumerName ??
+            `${namespace}_${queueToken}`.slice(0, 64),
+          payload: queue.payload,
+          ...(queue.result ? { result: queue.result } : {}),
+          maxDeliver: queue.maxDeliver,
+          backoffMs: [...queue.backoffMs],
+          ackWaitMs: queue.ackWaitMs,
+          ...(queue.defaultDeadlineMs
+            ? { defaultDeadlineMs: queue.defaultDeadlineMs }
+            : {}),
+          progress: queue.progress,
+          logs: queue.logs,
+          dlq: queue.dlq,
+          concurrency: queue.concurrency,
+        };
+        const action = await ensureJobsQueueConsumer(
+          nats,
+          jobBindings.workStream,
+          queueBinding,
+        );
+        result[action].push({
+          kind: "jobsQueueConsumer",
+          alias: queue.queueType,
+          stream: jobBindings.workStream,
+          name: queueBinding.consumerName,
+        });
+        jobBindings.queues[queue.queueType] = queueBinding;
+      }
+
+      result.bindings.jobs = {
+        ...jobBindings,
       };
     }
 
@@ -1288,7 +1529,6 @@ export function getResourcePermissionGrants(
     publish.add("$JS.API.DIRECT.GET.JOBS");
     publish.add("$JS.API.DIRECT.GET.JOBS.>");
     publish.add("$JS.API.STREAM.MSG.GET.JOBS");
-    publish.add(`$JS.API.CONSUMER.CREATE.${workStream}.>`);
     publish.add(`$JS.API.CONSUMER.INFO.${workStream}.>`);
     publish.add(`$JS.API.CONSUMER.MSG.NEXT.${workStream}.>`);
     publish.add(`$JS.ACK.${workStream}.>`);

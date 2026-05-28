@@ -49,9 +49,10 @@ const HARNESS_JOBS_QUEUE: &str = "document-process";
 const LOCAL_JOBS_DEPLOYMENT_ID: &str = "harness.jobs-local";
 const LOCAL_JOBS_CONTRACT_ID: &str = "trellis.integration-harness.jobs-local@v1";
 const LOCAL_RUST_QUEUE: &str = "rustProcess";
+const LOCAL_RUST_CONCURRENCY_QUEUE: &str = "rustConcurrency";
+const LOCAL_RUST_NATURAL_DEAD_QUEUE: &str = "rustNaturalDead";
 const LOCAL_RUST_SHUTDOWN_QUEUE: &str = "rustShutdown";
 const LOCAL_TS_QUEUE: &str = "tsProcess";
-const LOCAL_RUST_WORKER_CONSUMER: &str = "harness-local-jobs-rust-worker";
 const PASSING_CASES: usize = 29;
 
 #[derive(Debug, Clone, Copy)]
@@ -79,6 +80,16 @@ fn local_jobs_service_contract_json() -> Result<String> {
         },
         "required": ["documentId", "processedBy"]
     });
+    let mut concurrency_queue = job_queue(schema_ref("JobPayload"), Some(schema_ref("JobResult")));
+    concurrency_queue.concurrency = Some(2);
+    let mut natural_dead_queue = job_queue(schema_ref("JobPayload"), Some(schema_ref("JobResult")));
+    natural_dead_queue.max_deliver = Some(2);
+    natural_dead_queue.backoff_ms = Some(vec![100]);
+    natural_dead_queue.ack_wait_ms = Some(100);
+    let mut shutdown_queue = job_queue(schema_ref("JobPayload"), Some(schema_ref("JobResult")));
+    shutdown_queue.max_deliver = Some(5);
+    shutdown_queue.backoff_ms = Some(vec![100]);
+    shutdown_queue.ack_wait_ms = Some(100);
     let manifest = ContractManifestBuilder::new(
         LOCAL_JOBS_CONTRACT_ID,
         "Trellis Integration Harness Service-Local Jobs",
@@ -95,10 +106,9 @@ fn local_jobs_service_contract_json() -> Result<String> {
         LOCAL_RUST_QUEUE,
         job_queue(schema_ref("JobPayload"), Some(schema_ref("JobResult"))),
     )
-    .job_queue(
-        LOCAL_RUST_SHUTDOWN_QUEUE,
-        job_queue(schema_ref("JobPayload"), Some(schema_ref("JobResult"))),
-    )
+    .job_queue(LOCAL_RUST_CONCURRENCY_QUEUE, concurrency_queue)
+    .job_queue(LOCAL_RUST_NATURAL_DEAD_QUEUE, natural_dead_queue)
+    .job_queue(LOCAL_RUST_SHUTDOWN_QUEUE, shutdown_queue)
     .job_queue(
         LOCAL_TS_QUEUE,
         job_queue(schema_ref("JobPayload"), Some(schema_ref("JobResult"))),
@@ -1118,16 +1128,12 @@ async fn assert_natural_max_deliveries_dead(
     jobs_client: &JobsClient<'_>,
     rust_client: &TrellisClient,
 ) -> Result<()> {
-    let mut binding = service_local_runtime_binding(rust_client)?;
-    let queue = binding
+    let binding = service_local_runtime_binding(rust_client)?;
+    binding
         .jobs
         .queues
-        .get_mut(LOCAL_RUST_QUEUE)
-        .ok_or_else(|| miette!("service-local Rust queue binding is missing"))?;
-    queue.consumer_name = LOCAL_RUST_WORKER_CONSUMER.to_string();
-    queue.max_deliver = 2;
-    queue.backoff_ms = vec![100];
-    queue.ack_wait_ms = 100;
+        .get(LOCAL_RUST_NATURAL_DEAD_QUEUE)
+        .ok_or_else(|| miette!("service-local Rust natural-dead queue binding is missing"))?;
 
     let manager = JobManager::new(
         NatsJobEventPublisher::new(rust_client.nats().clone()),
@@ -1135,7 +1141,10 @@ async fn assert_natural_max_deliveries_dead(
         FixedJobMetaSource::new("job-local-natural-dead-1", vec!["2026-03-28T12:04:00.000Z"]),
     );
     let job = manager
-        .create(LOCAL_RUST_QUEUE, json!({ "documentId": "natural-dead" }))
+        .create(
+            LOCAL_RUST_NATURAL_DEAD_QUEUE,
+            json!({ "documentId": "natural-dead" }),
+        )
         .await
         .map_err(|error| miette!("failed to create natural max-deliveries job: {error}"))?;
 
@@ -1165,7 +1174,7 @@ async fn assert_natural_max_deliveries_dead(
             ))
         },
         WorkerHostOptions {
-            queue_types: Some(vec![LOCAL_RUST_QUEUE.to_string()]),
+            queue_types: Some(vec![LOCAL_RUST_NATURAL_DEAD_QUEUE.to_string()]),
             heartbeat_interval: Duration::from_secs(30),
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
         },
@@ -1200,13 +1209,12 @@ async fn assert_cancelled_before_worker_start(
     jobs_client: &JobsClient<'_>,
     rust_client: &TrellisClient,
 ) -> Result<()> {
-    let mut binding = service_local_runtime_binding(rust_client)?;
+    let binding = service_local_runtime_binding(rust_client)?;
     binding
         .jobs
         .queues
-        .get_mut(LOCAL_RUST_QUEUE)
-        .ok_or_else(|| miette!("service-local Rust queue binding is missing"))?
-        .consumer_name = LOCAL_RUST_WORKER_CONSUMER.to_string();
+        .get(LOCAL_RUST_QUEUE)
+        .ok_or_else(|| miette!("service-local Rust queue binding is missing"))?;
     let manager = JobManager::new(
         NatsJobEventPublisher::new(rust_client.nats().clone()),
         binding.jobs.clone(),
@@ -1294,14 +1302,12 @@ async fn assert_queue_concurrency(
     jobs_client: &JobsClient<'_>,
     rust_client: &TrellisClient,
 ) -> Result<()> {
-    let mut binding = service_local_runtime_binding(rust_client)?;
-    let queue = binding
+    let binding = service_local_runtime_binding(rust_client)?;
+    binding
         .jobs
         .queues
-        .get_mut(LOCAL_RUST_QUEUE)
-        .ok_or_else(|| miette!("service-local Rust queue binding is missing"))?;
-    queue.consumer_name = LOCAL_RUST_WORKER_CONSUMER.to_string();
-    queue.concurrency = 2;
+        .get(LOCAL_RUST_CONCURRENCY_QUEUE)
+        .ok_or_else(|| miette!("service-local Rust concurrency queue binding is missing"))?;
 
     let worker = start_worker_host_from_binding(
         rust_client.nats().clone(),
@@ -1324,7 +1330,7 @@ async fn assert_queue_concurrency(
         },
         |_active| async { Ok::<Value, JobProcessError<String>>(json!({ "processed": true })) },
         WorkerHostOptions {
-            queue_types: Some(vec![LOCAL_RUST_QUEUE.to_string()]),
+            queue_types: Some(vec![LOCAL_RUST_CONCURRENCY_QUEUE.to_string()]),
             heartbeat_interval: Duration::from_millis(250),
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
         },
@@ -1352,7 +1358,10 @@ async fn assert_queue_concurrency(
         FixedJobMetaSource::new("job-local-concurrency-a", vec!["2026-03-28T12:06:00.000Z"]),
     );
     let job_a = manager
-        .create(LOCAL_RUST_QUEUE, json!({ "documentId": "concurrency-a" }))
+        .create(
+            LOCAL_RUST_CONCURRENCY_QUEUE,
+            json!({ "documentId": "concurrency-a" }),
+        )
         .await
         .map_err(|error| miette!("failed to create concurrency job A: {error}"))?;
     let manager = JobManager::new(
@@ -1361,7 +1370,10 @@ async fn assert_queue_concurrency(
         FixedJobMetaSource::new("job-local-concurrency-b", vec!["2026-03-28T12:06:00.100Z"]),
     );
     let job_b = manager
-        .create(LOCAL_RUST_QUEUE, json!({ "documentId": "concurrency-b" }))
+        .create(
+            LOCAL_RUST_CONCURRENCY_QUEUE,
+            json!({ "documentId": "concurrency-b" }),
+        )
         .await
         .map_err(|error| miette!("failed to create concurrency job B: {error}"))?;
 
@@ -1380,18 +1392,12 @@ async fn assert_worker_shutdown_requeues(
     jobs_client: &JobsClient<'_>,
     rust_client: &TrellisClient,
 ) -> Result<()> {
-    const SHUTDOWN_REQUEUE_CONSUMER: &str = "harness-local-jobs-rust-shutdown-worker";
-
-    let mut binding = service_local_runtime_binding(rust_client)?;
-    let queue = binding
+    let binding = service_local_runtime_binding(rust_client)?;
+    binding
         .jobs
         .queues
-        .get_mut(LOCAL_RUST_SHUTDOWN_QUEUE)
+        .get(LOCAL_RUST_SHUTDOWN_QUEUE)
         .ok_or_else(|| miette!("service-local Rust shutdown queue binding is missing"))?;
-    queue.consumer_name = SHUTDOWN_REQUEUE_CONSUMER.to_string();
-    queue.ack_wait_ms = 100;
-    queue.backoff_ms = vec![100];
-    queue.max_deliver = 5;
 
     let manager = JobManager::new(
         NatsJobEventPublisher::new(rust_client.nats().clone()),
@@ -1451,16 +1457,12 @@ async fn assert_worker_shutdown_requeues(
         .await
         .map_err(|error| miette!("failed to stop shutdown worker A: {error}"))?;
 
-    let mut binding = service_local_runtime_binding(rust_client)?;
-    let queue = binding
+    let binding = service_local_runtime_binding(rust_client)?;
+    binding
         .jobs
         .queues
-        .get_mut(LOCAL_RUST_SHUTDOWN_QUEUE)
+        .get(LOCAL_RUST_SHUTDOWN_QUEUE)
         .ok_or_else(|| miette!("service-local Rust shutdown queue binding is missing"))?;
-    queue.consumer_name = SHUTDOWN_REQUEUE_CONSUMER.to_string();
-    queue.ack_wait_ms = 100;
-    queue.backoff_ms = vec![100];
-    queue.max_deliver = 5;
     let worker_b = start_worker_host_from_binding(
         rust_client.nats().clone(),
         binding,

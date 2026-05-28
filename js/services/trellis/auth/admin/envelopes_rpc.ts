@@ -15,9 +15,13 @@ import { analyzeContract } from "../../catalog/analysis.ts";
 import {
   type ContractResourceBindings,
   createNatsResourcePurgeManager,
+  type EventConsumerGroupRequest,
   existingResourceNamesFromBindings,
+  getEventConsumerGroupRequests,
+  getJobsQueueRequests,
   getKvResourceRequests,
   getStoreResourceRequests,
+  type JobsQueueRequest,
   type KvResourceRequest,
   provisionContractResources,
   type ProvisionedContractResources,
@@ -461,10 +465,59 @@ function kvBindingMatchesRequest(
 
 function storeBindingMatchesRequest(
   binding: Record<string, unknown>,
-  request: Pick<StoreResourceRequest, "ttlMs" | "maxTotalBytes">,
+  request: Pick<
+    StoreResourceRequest,
+    "ttlMs" | "maxTotalBytes" | "maxObjectBytes"
+  >,
 ): boolean {
   return numberField(binding, "ttlMs") === request.ttlMs &&
-    numberField(binding, "maxTotalBytes") === request.maxTotalBytes;
+    numberField(binding, "maxTotalBytes") === request.maxTotalBytes &&
+    numberField(binding, "maxObjectBytes") === request.maxObjectBytes;
+}
+
+function valueField(
+  record: Record<string, unknown>,
+  key: string,
+): unknown {
+  return record[key];
+}
+
+function valuesMatch(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function jobsBindingMatchesRequest(
+  binding: Record<string, unknown>,
+  request: JobsQueueRequest,
+): boolean {
+  return valueField(binding, "queueType") === request.queueType &&
+    valuesMatch(valueField(binding, "payload"), request.payload) &&
+    valuesMatch(valueField(binding, "result"), request.result) &&
+    numberField(binding, "maxDeliver") === request.maxDeliver &&
+    valuesMatch(valueField(binding, "backoffMs"), request.backoffMs) &&
+    numberField(binding, "ackWaitMs") === request.ackWaitMs &&
+    numberField(binding, "defaultDeadlineMs") === request.defaultDeadlineMs &&
+    valueField(binding, "progress") === request.progress &&
+    valueField(binding, "logs") === request.logs &&
+    valueField(binding, "dlq") === request.dlq &&
+    numberField(binding, "concurrency") === request.concurrency;
+}
+
+function eventConsumerBindingMatchesRequest(
+  binding: Record<string, unknown>,
+  request: EventConsumerGroupRequest,
+): boolean {
+  return valueField(binding, "stream") === request.stream &&
+    valuesMatch(
+      valueField(binding, "filterSubjects"),
+      request.filterSubjects,
+    ) &&
+    valueField(binding, "replay") === request.replay &&
+    valueField(binding, "ordering") === request.ordering &&
+    numberField(binding, "concurrency") === request.concurrency &&
+    numberField(binding, "ackWaitMs") === request.ackWaitMs &&
+    numberField(binding, "maxDeliver") === request.maxDeliver &&
+    valuesMatch(valueField(binding, "backoffMs"), request.backoffMs);
 }
 
 function grantOverrideKey(record: DeploymentGrantOverride): string {
@@ -503,9 +556,22 @@ function grantOverrideDeploymentIdError(input: {
 async function storedResourceKeysNeedingProvisioning(input: {
   deploymentId: string;
   contract: TrellisContractV1;
+  knownContractEntries: ContractEntry[];
   requested: EnvelopeBoundary;
   storage: Pick<DeploymentResourceBindingStorage, "get">;
 }): Promise<Set<string>> {
+  const eventConsumerRequests = new Map(
+    getEventConsumerGroupRequests(input.contract, {
+      knownContractEntries: input.knownContractEntries,
+      envelopeBoundary: input.requested,
+    }).map((request) => [request.alias, request]),
+  );
+  const jobsRequests = new Map(
+    getJobsQueueRequests(input.contract).map((request) => [
+      request.queueType,
+      request,
+    ]),
+  );
   const kvRequests = new Map(
     getKvResourceRequests(input.contract).map((
       request,
@@ -539,6 +605,20 @@ async function storedResourceKeysNeedingProvisioning(input: {
     if (resource.kind === "store") {
       const request = storeRequests.get(resource.alias);
       if (request && !storeBindingMatchesRequest(stored.binding, request)) {
+        needsProvisioning.add(key);
+      }
+    }
+    if (resource.kind === "event-consumer") {
+      const request = eventConsumerRequests.get(resource.alias);
+      if (
+        request && !eventConsumerBindingMatchesRequest(stored.binding, request)
+      ) {
+        needsProvisioning.add(key);
+      }
+    }
+    if (resource.kind === "jobs") {
+      const request = jobsRequests.get(resource.alias);
+      if (request && !jobsBindingMatchesRequest(stored.binding, request)) {
         needsProvisioning.add(key);
       }
     }
@@ -633,6 +713,9 @@ async function buildResourceBindingRecords(input: {
       binding: {
         name: binding.name,
         ttlMs: binding.ttlMs,
+        ...(binding.maxObjectBytes !== undefined
+          ? { maxObjectBytes: binding.maxObjectBytes }
+          : {}),
         ...(binding.maxTotalBytes !== undefined
           ? { maxTotalBytes: binding.maxTotalBytes }
           : {}),
@@ -1293,13 +1376,32 @@ export function createAuthEnvelopesExpandHandler(deps: {
           manager,
         );
       };
-      const resourcesNeedingProvisioning =
-        await storedResourceKeysNeedingProvisioning({
-          deploymentId: req.deploymentId,
-          contract: validated.contract,
-          requested,
-          storage: deps.deploymentResourceBindingStorage,
-        });
+      let knownContractEntries: ContractEntry[];
+      let resourcesNeedingProvisioning: Set<string>;
+      try {
+        knownContractEntries = await knownDependencyEntriesForProvisioning(
+          deps.contracts,
+          deps.envelopeExpansionRequestStorage,
+          validated.contract,
+        );
+        resourcesNeedingProvisioning =
+          await storedResourceKeysNeedingProvisioning({
+            deploymentId: req.deploymentId,
+            contract: validated.contract,
+            knownContractEntries,
+            requested,
+            storage: deps.deploymentResourceBindingStorage,
+          });
+      } catch (error) {
+        if (error instanceof ContractUseDependencyError) {
+          return invalidDependency(error);
+        }
+        const cause = toError(error);
+        if (cause.message.startsWith("event consumer group '")) {
+          return invalidResourceDependency(cause);
+        }
+        throw error;
+      }
       const existingResourceBindings =
         await storedResourceBindingsForRequestedResources({
           deploymentId: req.deploymentId,
@@ -1319,12 +1421,7 @@ export function createAuthEnvelopesExpandHandler(deps: {
                 existingResourceNames: existingResourceNamesFromBindings(
                   existingResourceBindings,
                 ),
-                knownContractEntries:
-                  await knownDependencyEntriesForProvisioning(
-                    deps.contracts,
-                    deps.envelopeExpansionRequestStorage,
-                    validated.contract,
-                  ),
+                knownContractEntries,
                 envelopeBoundary: requested,
               },
             );
@@ -1375,12 +1472,17 @@ export function createAuthEnvelopesExpandHandler(deps: {
           updatedAt: now,
           boundary: mergeBoundaries(current.boundary, delta),
         };
-      await deps.contractStorage.put(contractStorageRecord({
-        digest: analysis.contract.digest,
-        contract: validated.contract,
-        canonical: validated.canonical,
-        installedAt: new Date(now),
-      }));
+      try {
+        await deps.contractStorage.put(contractStorageRecord({
+          digest: analysis.contract.digest,
+          contract: validated.contract,
+          canonical: validated.canonical,
+          installedAt: new Date(now),
+        }));
+      } catch (error) {
+        await rollbackCreatedResources();
+        throw error;
+      }
 
       const history = envelopeHistoryRecord({
         scopeId: req.deploymentId,
@@ -1409,16 +1511,21 @@ export function createAuthEnvelopesExpandHandler(deps: {
             throw error;
           }
         } else {
+          let persistedState = false;
           try {
             if (envelope !== current) {
               await deps.deploymentEnvelopeStorage.put(envelope);
+              persistedState = true;
             }
             for (const binding of resourceBindings) {
               await deps.deploymentResourceBindingStorage.put(binding);
+              persistedState = true;
             }
             await deps.envelopeHistoryStorage?.put(history);
           } catch (error) {
-            await rollbackCreatedResources();
+            if (!persistedState) {
+              await rollbackCreatedResources();
+            }
             throw error;
           }
         }
@@ -1456,25 +1563,17 @@ export function createAuthEnvelopesApproveRequestHandler(deps: {
   now?: () => Date;
   logger: Pick<AuthRuntimeDeps["logger"], "trace">;
 }) {
-  let provisionedForApproval: ProvisionedContractResources | undefined;
-  const rollbackApprovalResources = async () => {
-    if (
-      !provisionedForApproval || provisionedForApproval.created.length === 0
-    ) {
+  const rollbackApprovalResources = async (
+    provisioned: ProvisionedContractResources | undefined,
+  ) => {
+    if (!provisioned || provisioned.created.length === 0) {
       return;
     }
     const manager = deps.resourcePurgeManager ??
       (deps.nats ? createNatsResourcePurgeManager(deps.nats) : undefined);
     if (!manager) return;
-    await rollbackProvisionedContractResources(provisionedForApproval, manager);
+    await rollbackProvisionedContractResources(provisioned, manager);
   };
-  const expand = createAuthEnvelopesExpandHandler(deps, {
-    persist: !deps.deploymentEnvelopeStorage.approveExpansion,
-    dependencyResolution: "knownOrPending",
-    onProvisioned: (resources) => {
-      provisionedForApproval = resources;
-    },
-  });
   return async (args: {
     input: { requestId: string; reason?: string };
     context: { caller: RpcUser };
@@ -1497,6 +1596,14 @@ export function createAuthEnvelopesApproveRequestHandler(deps: {
     }, "RPC request");
 
     try {
+      let provisionedForApproval: ProvisionedContractResources | undefined;
+      const expand = createAuthEnvelopesExpandHandler(deps, {
+        persist: !deps.deploymentEnvelopeStorage.approveExpansion,
+        dependencyResolution: "knownOrPending",
+        onProvisioned: (resources) => {
+          provisionedForApproval = resources;
+        },
+      });
       const request = await deps.envelopeExpansionRequestStorage.get?.(
         req.requestId,
       );
@@ -1569,11 +1676,11 @@ export function createAuthEnvelopesApproveRequestHandler(deps: {
             request: stateUpdate,
           });
         } catch (error) {
-          await rollbackApprovalResources();
+          await rollbackApprovalResources(provisionedForApproval);
           throw error;
         }
         if (!updated) {
-          await rollbackApprovalResources();
+          await rollbackApprovalResources(provisionedForApproval);
           return invalid(
             "/requestId",
             "envelope expansion request is not pending",
@@ -1585,7 +1692,6 @@ export function createAuthEnvelopesApproveRequestHandler(deps: {
           stateUpdate,
         );
         if (!updated) {
-          await rollbackApprovalResources();
           return invalid(
             "/requestId",
             "envelope expansion request is not pending",

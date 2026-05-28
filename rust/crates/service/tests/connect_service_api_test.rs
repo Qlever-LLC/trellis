@@ -173,6 +173,7 @@ fn resources() -> ServiceResourceBindings {
                 },
             )]),
         }),
+        event_consumers: BTreeMap::new(),
     }
 }
 

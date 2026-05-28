@@ -32,9 +32,24 @@ const contract = defineServiceContract({ schemas }, (ref) => ({
       payload: ref.schema("JobPayload"),
       result: ref.schema("JobResult"),
     },
+    rustConcurrency: {
+      payload: ref.schema("JobPayload"),
+      result: ref.schema("JobResult"),
+      concurrency: 2,
+    },
+    rustNaturalDead: {
+      payload: ref.schema("JobPayload"),
+      result: ref.schema("JobResult"),
+      maxDeliver: 2,
+      backoffMs: [100],
+      ackWaitMs: 100,
+    },
     rustShutdown: {
       payload: ref.schema("JobPayload"),
       result: ref.schema("JobResult"),
+      maxDeliver: 5,
+      backoffMs: [100],
+      ackWaitMs: 100,
     },
     tsProcess: {
       payload: ref.schema("JobPayload"),

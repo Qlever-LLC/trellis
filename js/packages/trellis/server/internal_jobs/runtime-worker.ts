@@ -87,10 +87,6 @@ type StartNatsConsumerDeps = {
   nats: Pick<NatsConnection, "subscribe">;
   jsm: {
     consumers: {
-      add(
-        stream: string,
-        config: Record<string, unknown>,
-      ): Promise<ConsumerInfoLike>;
       info(stream: string, consumer: string): Promise<ConsumerInfoLike>;
     };
     direct?: DirectMessageReader;
@@ -494,7 +490,7 @@ export async function startNatsQueueWorker<TResult>(
       },
     },
   };
-  const info = await ensureConsumerInfo(jsm, options.binding.workStream, queue);
+  const info = await getConsumerInfo(jsm, options.binding.workStream, queue);
   const consumer = js.consumers.getConsumerFromInfo(info);
   const cancelSubscription = options.nats.subscribe(
     `${queue.publishPrefix}.*.cancelled`,
@@ -641,39 +637,22 @@ export async function startNatsWorkerHostFromBinding<TResult>(
   });
 }
 
-async function ensureConsumerInfo(
+async function getConsumerInfo(
   jsm: {
     consumers: {
-      add(
-        stream: string,
-        config: Record<string, unknown>,
-      ): Promise<ConsumerInfoLike>;
       info(stream: string, consumer: string): Promise<ConsumerInfoLike>;
     };
   },
   stream: string,
   queue: JobsQueueBinding,
 ): Promise<ConsumerInfoLike> {
-  const config = {
-    durable_name: queue.consumerName,
-    ack_policy: "explicit",
-    filter_subject: queue.workSubject,
-    ack_wait: queue.ackWaitMs * 1_000_000,
-    max_deliver: queue.maxDeliver,
-    backoff: queue.backoffMs.map((delay) => delay * 1_000_000),
-  };
-
   try {
-    return await jsm.consumers.add(stream, config);
-  } catch (addError) {
-    try {
-      return await jsm.consumers.info(stream, queue.consumerName);
-    } catch (infoError) {
-      if (isStreamNotFoundError(addError) || isStreamNotFoundError(infoError)) {
-        throw new JobsInfrastructureMissingError(stream, queue.queueType);
-      }
-      throw infoError;
+    return await jsm.consumers.info(stream, queue.consumerName);
+  } catch (error) {
+    if (isStreamNotFoundError(error) || isConsumerNotFoundError(error)) {
+      throw new JobsInfrastructureMissingError(stream, queue.queueType);
     }
+    throw error;
   }
 }
 
@@ -681,6 +660,13 @@ function isStreamNotFoundError(error: unknown): boolean {
   return error instanceof Error && (
     error.name === "StreamNotFoundError" ||
     error.message.includes("stream not found")
+  );
+}
+
+function isConsumerNotFoundError(error: unknown): boolean {
+  return error instanceof Error && (
+    error.name === "ConsumerNotFoundError" ||
+    error.message.includes("consumer not found")
   );
 }
 

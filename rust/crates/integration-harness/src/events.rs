@@ -551,7 +551,7 @@ pub(crate) async fn run_events_fixture(
         .map_err(|error| miette!("Rust denied subscribe case failed: {error}"))?;
     assert_ts_service_event_consumer(
         trellis_url,
-        &setup_login.state,
+        &publish_only_login.state,
         browser,
         &consumer_contract_digest,
         &consumer_service_seed,

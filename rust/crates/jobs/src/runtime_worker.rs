@@ -851,44 +851,86 @@ fn map_ack_error(error: async_nats::Error) -> RuntimeWorkerError {
     RuntimeWorkerError::Ack(error.to_string())
 }
 
-fn worker_consumer_config(queue: &JobsQueueBinding) -> consumer::pull::Config {
-    consumer::pull::Config {
-        durable_name: Some(queue.consumer_name.clone()),
-        filter_subject: queue.work_subject.clone(),
-        ack_policy: consumer::AckPolicy::Explicit,
-        ack_wait: Duration::from_millis(queue.ack_wait_ms),
-        max_deliver: i64::try_from(queue.max_deliver).unwrap_or(i64::MAX),
-        backoff: queue
-            .backoff_ms
-            .iter()
-            .copied()
-            .map(Duration::from_millis)
-            .collect(),
-        ..Default::default()
-    }
-}
-
 async fn ensure_worker_consumer(
     jetstream: &jetstream::Context,
     work_stream: &str,
     queue: &JobsQueueBinding,
 ) -> Result<consumer::PullConsumer, RuntimeWorkerError> {
-    match jetstream
-        .create_consumer_on_stream(worker_consumer_config(queue), work_stream)
+    let consumer = jetstream
+        .get_consumer_from_stream(&queue.consumer_name, work_stream)
         .await
-    {
-        Ok(consumer) => Ok(consumer),
-        Err(create_error) => jetstream
-            .get_consumer_from_stream(&queue.consumer_name, work_stream)
-            .await
-            .map_err(|get_error| RuntimeWorkerError::Consumer {
-                consumer: queue.consumer_name.clone(),
-                subject: queue.work_subject.clone(),
-                details: format!(
-                    "create or update failed: {create_error}; existing consumer lookup failed: {get_error}"
-                ),
-            }),
+        .map_err(|error| RuntimeWorkerError::Consumer {
+            consumer: queue.consumer_name.clone(),
+            subject: queue.work_subject.clone(),
+            details: error.to_string(),
+        })?;
+    if let Some(details) = worker_consumer_mismatch(consumer.cached_info(), queue) {
+        return Err(RuntimeWorkerError::Consumer {
+            consumer: queue.consumer_name.clone(),
+            subject: queue.work_subject.clone(),
+            details,
+        });
     }
+    Ok(consumer)
+}
+
+fn worker_consumer_mismatch(info: &consumer::Info, queue: &JobsQueueBinding) -> Option<String> {
+    let config = &info.config;
+    if config.durable_name.as_deref() != Some(queue.consumer_name.as_str()) {
+        return Some(format!(
+            "stale consumer durable {:?}, expected {:?}",
+            config.durable_name, queue.consumer_name
+        ));
+    }
+    if config.filter_subject != queue.work_subject {
+        return Some(format!(
+            "stale consumer filter subject {:?}, expected {:?}",
+            config.filter_subject, queue.work_subject
+        ));
+    }
+    if config.ack_policy != consumer::AckPolicy::Explicit {
+        return Some(format!(
+            "stale consumer ack policy {:?}, expected explicit",
+            config.ack_policy
+        ));
+    }
+    let expected_ack_wait = expected_consumer_ack_wait(queue);
+    if config.ack_wait != expected_ack_wait {
+        return Some(format!(
+            "stale consumer ack wait {:?}, expected {:?}",
+            config.ack_wait, expected_ack_wait
+        ));
+    }
+    let expected_max_deliver = i64::try_from(queue.max_deliver).unwrap_or(i64::MAX);
+    if config.max_deliver != expected_max_deliver {
+        return Some(format!(
+            "stale consumer max deliver {}, expected {}",
+            config.max_deliver, expected_max_deliver
+        ));
+    }
+    let expected_backoff = queue
+        .backoff_ms
+        .iter()
+        .copied()
+        .map(Duration::from_millis)
+        .collect::<Vec<_>>();
+    if config.backoff != expected_backoff {
+        return Some(format!(
+            "stale consumer backoff {:?}, expected {:?}",
+            config.backoff, expected_backoff
+        ));
+    }
+    None
+}
+
+fn expected_consumer_ack_wait(queue: &JobsQueueBinding) -> Duration {
+    Duration::from_millis(
+        queue
+            .backoff_ms
+            .first()
+            .copied()
+            .unwrap_or(queue.ack_wait_ms),
+    )
 }
 
 async fn lifecycle_stream(

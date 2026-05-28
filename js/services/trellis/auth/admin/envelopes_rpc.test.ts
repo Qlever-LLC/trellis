@@ -1856,7 +1856,18 @@ Deno.test("Auth.Envelopes.Expand rejects missing non-transfer resource bindings"
 });
 
 Deno.test("Auth.Envelopes.Expand reuses stored internal resource names when reprovisioning", async () => {
-  const contract = resourceContract();
+  const contract = {
+    ...resourceContract(),
+    resources: {
+      ...resourceContract().resources,
+      store: {
+        uploads: {
+          ...resourceContract().resources!.store!.uploads,
+          maxObjectBytes: 512,
+        },
+      },
+    },
+  } as TrellisContractV1;
   let provisioningOptions: ResourceProvisioningOptions | undefined;
   const { handler, resources } = makeDeps({
     provisionResourceBindings: async (options) => {
@@ -1873,7 +1884,34 @@ Deno.test("Auth.Envelopes.Expand reuses stored internal resource names when repr
           uploads: {
             name: options.existingResourceNames?.store?.uploads ?? "new_store",
             ttlMs: 2000,
+            maxObjectBytes: 512,
             maxTotalBytes: 100000,
+          },
+        },
+        jobs: {
+          namespace: options.existingResourceNames?.jobs?.namespace ??
+            "billing_jobs",
+          workStream: "JOBS_WORK",
+          queues: {
+            reconcile: {
+              queueType: "reconcile",
+              publishPrefix: options.existingResourceNames?.jobs?.queues
+                ?.reconcile?.publishPrefix ??
+                "trellis.jobs.billing.reconcile",
+              workSubject:
+                options.existingResourceNames?.jobs?.queues?.reconcile
+                  ?.workSubject ?? "trellis.work.billing.reconcile",
+              consumerName: options.existingResourceNames?.jobs?.queues
+                ?.reconcile?.consumerName ?? "billing-reconcile",
+              payload: { schema: "Empty" },
+              maxDeliver: 3,
+              backoffMs: [5000],
+              ackWaitMs: 300000,
+              progress: true,
+              logs: true,
+              dlq: true,
+              concurrency: 1,
+            },
           },
         },
       };
@@ -1892,7 +1930,12 @@ Deno.test("Auth.Envelopes.Expand reuses stored internal resource names when repr
     deploymentId: "billing.default",
     kind: "store",
     alias: "uploads",
-    binding: { name: "tr_obj_existing", ttlMs: 1, maxTotalBytes: 100000 },
+    binding: {
+      name: "tr_obj_existing",
+      ttlMs: 2000,
+      maxObjectBytes: 128,
+      maxTotalBytes: 100000,
+    },
     limits: null,
     createdAt: "2026-05-07T00:00:00.000Z",
     updatedAt: "2026-05-07T00:00:00.000Z",
@@ -1909,7 +1952,7 @@ Deno.test("Auth.Envelopes.Expand reuses stored internal resource names when repr
       workSubject: "trellis.work.tr_jobs_existing.tr_jq_existing",
       consumerName: "tr_jobs_existing_tr_jq_existing",
       payload: { schema: "Empty" },
-      maxDeliver: 3,
+      maxDeliver: 1,
       backoffMs: [5000],
       ackWaitMs: 300000,
       progress: true,
@@ -1941,6 +1984,25 @@ Deno.test("Auth.Envelopes.Expand reuses stored internal resource names when repr
     "tr_obj_existing",
   );
   assertEquals(
+    provisioningOptions?.existingResourceNames?.jobs?.namespace,
+    "tr_jobs_existing",
+  );
+  assertEquals(
+    provisioningOptions?.existingResourceNames?.jobs?.queues?.reconcile
+      ?.publishPrefix,
+    "trellis.jobs.tr_jobs_existing.tr_jq_existing",
+  );
+  assertEquals(
+    provisioningOptions?.existingResourceNames?.jobs?.queues?.reconcile
+      ?.workSubject,
+    "trellis.work.tr_jobs_existing.tr_jq_existing",
+  );
+  assertEquals(
+    provisioningOptions?.existingResourceNames?.jobs?.queues?.reconcile
+      ?.consumerName,
+    "tr_jobs_existing_tr_jq_existing",
+  );
+  assertEquals(
     resources.list().find((binding) => binding.kind === "kv")?.binding.bucket,
     "tr_kv_existing",
   );
@@ -1948,6 +2010,90 @@ Deno.test("Auth.Envelopes.Expand reuses stored internal resource names when repr
     resources.list().find((binding) => binding.kind === "store")?.binding.name,
     "tr_obj_existing",
   );
+  assertEquals(
+    resources.list().find((binding) => binding.kind === "store")?.binding
+      .maxObjectBytes,
+    512,
+  );
+  const jobsBinding = resources.list().find((binding) =>
+    binding.kind === "jobs"
+  )?.binding;
+  assertEquals(jobsBinding?.namespace, "tr_jobs_existing");
+  assertEquals(
+    jobsBinding?.publishPrefix,
+    "trellis.jobs.tr_jobs_existing.tr_jq_existing",
+  );
+  assertEquals(
+    jobsBinding?.workSubject,
+    "trellis.work.tr_jobs_existing.tr_jq_existing",
+  );
+  assertEquals(jobsBinding?.consumerName, "tr_jobs_existing_tr_jq_existing");
+  assertEquals(jobsBinding?.maxDeliver, 3);
+});
+
+Deno.test("Auth.Envelopes.Expand rewrites stale event consumer bindings", async () => {
+  const contract = eventConsumerServiceContract();
+  let provisioningOptions: ResourceProvisioningOptions | undefined;
+  const { handler, resources } = makeDeps({
+    provisionResourceBindings: async (options) => {
+      provisioningOptions = options;
+      return {
+        eventConsumers: {
+          ingest: {
+            stream: "trellis",
+            consumerName: options.existingResourceNames?.eventConsumers
+              ?.ingest ?? "billing-ingest",
+            filterSubjects: ["events.v1.platform.Changed"],
+            replay: "new",
+            ordering: "strict",
+            concurrency: 1,
+            ackWaitMs: 300000,
+            maxDeliver: 6,
+            backoffMs: [5000, 30000, 120000, 600000, 1800000],
+          },
+        },
+      };
+    },
+  });
+  resources.seed({
+    deploymentId: "billing.default",
+    kind: "event-consumer",
+    alias: "ingest",
+    binding: {
+      stream: "trellis",
+      consumerName: "billing-ingest-existing",
+      filterSubjects: ["events.v1.platform.LegacyChanged"],
+      replay: "new",
+      ordering: "strict",
+      concurrency: 1,
+      ackWaitMs: 300000,
+      maxDeliver: 6,
+      backoffMs: [5000, 30000, 120000, 600000, 1800000],
+    },
+    limits: null,
+    createdAt: "2026-05-07T00:00:00.000Z",
+    updatedAt: "2026-05-07T00:00:00.000Z",
+  });
+
+  const result = await handler({
+    input: {
+      deploymentId: "billing.default",
+      contract,
+      expectedDigest: digestContractManifest(contract),
+    },
+    context: adminContext,
+  });
+
+  if (result.isErr()) throw result.error;
+  assertEquals(
+    provisioningOptions?.existingResourceNames?.eventConsumers?.ingest,
+    "billing-ingest-existing",
+  );
+  const binding = resources.list().find((record) =>
+    record.kind === "event-consumer"
+  )?.binding;
+  assertEquals(binding?.consumerName, "billing-ingest-existing");
+  assertEquals(binding?.filterSubjects, ["events.v1.platform.Changed"]);
 });
 
 Deno.test("Auth.Envelopes.Expand rejects missing optional resource bindings", async () => {

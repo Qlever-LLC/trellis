@@ -1,6 +1,11 @@
-import { assertEquals } from "@std/assert";
+import type { NatsConnection } from "@nats-io/nats-core";
+import { assertEquals, assertRejects } from "@std/assert";
 import { JobManager } from "./job-manager.ts";
-import { startQueueWorkerLoop } from "./runtime-worker.ts";
+import {
+  JobsInfrastructureMissingError,
+  startNatsQueueWorker,
+  startQueueWorkerLoop,
+} from "./runtime-worker.ts";
 import type { Job, JobContext } from "./types.ts";
 
 const jobContext: JobContext = {
@@ -178,4 +183,89 @@ Deno.test("startQueueWorkerLoop prefers latest lifecycle event over stale projec
 
   assertEquals(acked, 1);
   assertEquals(handled, 1);
+});
+
+Deno.test("startNatsQueueWorker reads approved existing consumer only", async () => {
+  const requestedConsumers: Array<{ stream: string; consumerName: string }> =
+    [];
+
+  const worker = await startNatsQueueWorker({
+    nats: {
+      subscribe(): ReturnType<NatsConnection["subscribe"]> {
+        return cancelSubscription(() => {}) as ReturnType<
+          NatsConnection["subscribe"]
+        >;
+      },
+    },
+    jsm: {
+      consumers: {
+        info(stream, consumerName) {
+          requestedConsumers.push({ stream, consumerName });
+          return Promise.resolve({ config: {} });
+        },
+      },
+    },
+    js: {
+      consumers: {
+        getConsumerFromInfo() {
+          return {
+            consume() {
+              return Promise.resolve((async function* () {})());
+            },
+          };
+        },
+      },
+    },
+    manager: new JobManager({ nc: { publish: () => {} }, jobs: jobsBinding }),
+    binding: { jobs: jobsBinding, workStream: "JOBS_WORK" },
+    queueType: "refresh",
+    handler: () => Promise.resolve({}),
+  });
+
+  await worker.stop();
+
+  assertEquals(requestedConsumers, [{
+    stream: "JOBS_WORK",
+    consumerName: "svc-refresh",
+  }]);
+});
+
+Deno.test("startNatsQueueWorker fails closed when approved consumer is missing", async () => {
+  await assertRejects(
+    () =>
+      startNatsQueueWorker({
+        nats: {
+          subscribe(): ReturnType<NatsConnection["subscribe"]> {
+            return cancelSubscription(() => {}) as ReturnType<
+              NatsConnection["subscribe"]
+            >;
+          },
+        },
+        jsm: {
+          consumers: {
+            info() {
+              const error = new Error("consumer not found");
+              error.name = "ConsumerNotFoundError";
+              return Promise.reject(error);
+            },
+          },
+        },
+        js: {
+          consumers: {
+            getConsumerFromInfo() {
+              throw new Error("consumer should not be built");
+            },
+          },
+        },
+        manager: new JobManager({
+          nc: { publish: () => {} },
+          jobs: jobsBinding,
+        }),
+        binding: { jobs: jobsBinding, workStream: "JOBS_WORK" },
+        queueType: "refresh",
+        handler: () => Promise.resolve({}),
+      }),
+    JobsInfrastructureMissingError,
+    "Jobs work stream 'JOBS_WORK' was not found while starting queue 'refresh'",
+  );
 });

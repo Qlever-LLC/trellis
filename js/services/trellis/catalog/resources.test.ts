@@ -14,6 +14,8 @@ import {
   provisionContractResources,
   type ProvisionedContractResources,
   purgeContractResourceBindings,
+  reconcileEventConsumerConfig,
+  reconcileJobsQueueConsumerConfig,
   reconcileKvResourceConfig,
   reconcileStoreResourceConfig,
   type ResourcePurgeManager,
@@ -490,6 +492,12 @@ Deno.test("resource rollback deletes only resources created by the attempt", asy
         stream: "trellis",
         name: "svc_billing_ingest",
       },
+      {
+        kind: "jobsQueueConsumer",
+        alias: "reconcile",
+        stream: "JOBS_WORK",
+        name: "svc_billing_reconcile",
+      },
     ],
     adopted: [
       { kind: "kv", alias: "state", name: "svc_billing_state" },
@@ -510,6 +518,9 @@ Deno.test("resource rollback deletes only resources created by the attempt", asy
   assertEquals(deletedConsumers, [{
     stream: "trellis",
     consumerName: "svc_billing_ingest",
+  }, {
+    stream: "JOBS_WORK",
+    consumerName: "svc_billing_reconcile",
   }]);
 });
 
@@ -771,6 +782,182 @@ Deno.test("resource permission grants include exact event consumer subjects", ()
   assertEquals(
     grants.publish.includes("$JS.API.CONSUMER.DURABLE.CREATE.trellis.>"),
     false,
+  );
+});
+
+Deno.test("event consumer reconciliation updates changed consumer config", async () => {
+  const requestedConfig: Record<string, unknown> = {
+    durable_name: "svc_events_ingest",
+    ack_policy: "explicit",
+    deliver_policy: "all",
+    filter_subjects: ["events.v1.Example.Changed.*"],
+    ack_wait: 45_000_000_000,
+    max_deliver: 8,
+    max_ack_pending: 2,
+    backoff: [1_000_000_000, 5_000_000_000],
+  };
+  const updates: Array<{
+    stream: string;
+    consumerName: string;
+    config: Record<string, unknown>;
+  }> = [];
+
+  await reconcileEventConsumerConfig(
+    {
+      info() {
+        return Promise.reject(new Error("info should not be called"));
+      },
+      update(stream, consumerName, config) {
+        updates.push({ stream, consumerName, config });
+        return Promise.resolve({
+          config: { ...config, ack_wait: 1_000_000_000 },
+        });
+      },
+    },
+    "trellis",
+    "svc_events_ingest",
+    requestedConfig,
+  );
+
+  assertEquals(updates, [{
+    stream: "trellis",
+    consumerName: "svc_events_ingest",
+    config: requestedConfig,
+  }]);
+});
+
+Deno.test("event consumer reconciliation adopts matching existing config", async () => {
+  const requestedConfig: Record<string, unknown> = {
+    durable_name: "svc_events_ingest",
+    ack_policy: "explicit",
+    deliver_policy: "new",
+    filter_subjects: ["events.v1.Example.Changed.*"],
+    ack_wait: 300_000_000_000,
+    max_deliver: 5,
+    max_ack_pending: 1,
+    backoff: [5_000_000_000],
+  };
+
+  await reconcileEventConsumerConfig(
+    {
+      info(stream, consumerName) {
+        assertEquals(stream, "trellis");
+        assertEquals(consumerName, "svc_events_ingest");
+        return Promise.resolve({
+          config: { ...requestedConfig, ack_wait: 5_000_000_000 },
+        });
+      },
+    },
+    "trellis",
+    "svc_events_ingest",
+    requestedConfig,
+  );
+});
+
+Deno.test("event consumer reconciliation rejects stale existing config without update", async () => {
+  const requestedConfig: Record<string, unknown> = {
+    durable_name: "svc_events_ingest",
+    ack_policy: "explicit",
+    deliver_policy: "all",
+    filter_subjects: ["events.v1.Example.Changed.*"],
+    ack_wait: 300_000_000_000,
+    max_deliver: 5,
+    max_ack_pending: 1,
+    backoff: [5_000_000_000],
+  };
+
+  await assertRejects(
+    () =>
+      reconcileEventConsumerConfig(
+        {
+          info() {
+            return Promise.resolve({
+              config: {
+                ...requestedConfig,
+                filter_subjects: ["events.v1.Example.Deleted.*"],
+              },
+            });
+          },
+        },
+        "trellis",
+        "svc_events_ingest",
+        requestedConfig,
+      ),
+    Error,
+    "event consumer 'trellis.svc_events_ingest' config drift for 'filter_subjects'",
+  );
+});
+
+Deno.test("jobs queue consumer reconciliation updates changed consumer config", async () => {
+  const requestedConfig: Record<string, unknown> = {
+    durable_name: "svc_refresh",
+    ack_policy: "explicit",
+    filter_subject: "trellis.work.svc.refresh",
+    ack_wait: 45_000_000_000,
+    max_deliver: 8,
+    max_ack_pending: 2,
+    backoff: [1_000_000_000, 5_000_000_000],
+  };
+  const updates: Array<{
+    stream: string;
+    consumerName: string;
+    config: Record<string, unknown>;
+  }> = [];
+
+  await reconcileJobsQueueConsumerConfig(
+    {
+      info() {
+        return Promise.reject(new Error("info should not be called"));
+      },
+      update(stream, consumerName, config) {
+        updates.push({ stream, consumerName, config });
+        return Promise.resolve({
+          config: { ...config, ack_wait: 1_000_000_000 },
+        });
+      },
+    },
+    "JOBS_WORK",
+    "svc_refresh",
+    requestedConfig,
+  );
+
+  assertEquals(updates, [{
+    stream: "JOBS_WORK",
+    consumerName: "svc_refresh",
+    config: requestedConfig,
+  }]);
+});
+
+Deno.test("jobs queue consumer reconciliation rejects stale existing config without update", async () => {
+  const requestedConfig: Record<string, unknown> = {
+    durable_name: "svc_refresh",
+    ack_policy: "explicit",
+    filter_subject: "trellis.work.svc.refresh",
+    ack_wait: 300_000_000_000,
+    max_deliver: 5,
+    max_ack_pending: 1,
+    backoff: [5_000_000_000],
+  };
+
+  await assertRejects(
+    () =>
+      reconcileJobsQueueConsumerConfig(
+        {
+          info() {
+            return Promise.resolve({
+              config: {
+                ...requestedConfig,
+                filter_subject: "trellis.work.svc.rebuild",
+              },
+            });
+          },
+        },
+        "JOBS_WORK",
+        "svc_refresh",
+        requestedConfig,
+      ),
+    Error,
+    "jobs queue consumer 'JOBS_WORK.svc_refresh' config drift for 'filter_subject'",
   );
 });
 
@@ -1148,7 +1335,7 @@ Deno.test("jobs resource grants use service-visible queue bindings", () => {
   );
   assertEquals(
     grants.publish.includes("$JS.API.CONSUMER.CREATE.JOBS_WORK.>"),
-    true,
+    false,
   );
   assertEquals(
     grants.publish.includes("$JS.API.CONSUMER.INFO.JOBS_WORK.>"),

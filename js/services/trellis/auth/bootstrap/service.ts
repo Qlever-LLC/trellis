@@ -1,16 +1,15 @@
 import type { Context } from "@hono/hono";
 import { AsyncResult } from "@qlever-llc/result";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
-import type { NatsConnection } from "@nats-io/nats-core";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 import type { ContractsModule } from "../../catalog/runtime.ts";
 import {
-  type ContractResourceBindings,
-  existingResourceNamesFromBindings,
-  provisionContractResourceBindings,
-  type ResourceProvisioningOptions,
+  getEventConsumerGroupRequests,
+  getJobsQueueRequests,
+  getKvResourceRequests,
+  getStoreResourceRequests,
 } from "../../catalog/resources.ts";
 import {
   type ContractEntry,
@@ -144,14 +143,6 @@ export type ServiceBootstrapDeps = {
     contractDigest: string;
     sig: string;
   }): Promise<boolean>;
-  nats?: NatsConnection;
-  provisionResourceBindings?: (
-    nats: NatsConnection | undefined,
-    contract: TrellisContractV1,
-    deploymentId: string,
-    options?: ResourceProvisioningOptions,
-  ) => Promise<ContractResourceBindings>;
-  resourceProvisioningOptions?: ResourceProvisioningOptions;
   nowSeconds?(): number;
   now?(): Date;
   createExpansionRequestId?(): string;
@@ -407,129 +398,6 @@ function missingResourceBindingKeys(
   return missing.sort((left, right) => left.localeCompare(right));
 }
 
-async function buildResourceBindingRecords(input: {
-  deploymentId: string;
-  bindings: ContractResourceBindings;
-  requested: EnvelopeBoundary;
-  existing: Map<string, DeploymentResourceBinding>;
-  now: string;
-}): Promise<DeploymentResourceBinding[]> {
-  const requestedKeys = new Set(
-    input.requested.resources
-      .filter((resource) => resource.kind !== "transfer")
-      .map((resource) => resourceKey(resource.kind, resource.alias)),
-  );
-  const records: DeploymentResourceBinding[] = [];
-
-  for (const [alias, binding] of Object.entries(input.bindings.kv ?? {})) {
-    if (!requestedKeys.has(resourceKey("kv", alias))) continue;
-    const existing = input.existing.get(resourceKey("kv", alias));
-    records.push({
-      deploymentId: input.deploymentId,
-      kind: "kv",
-      alias,
-      binding: {
-        bucket: binding.bucket,
-        history: binding.history,
-        ttlMs: binding.ttlMs,
-        ...(binding.maxValueBytes !== undefined
-          ? { maxValueBytes: binding.maxValueBytes }
-          : {}),
-      },
-      limits: null,
-      createdAt: existing?.createdAt ?? input.now,
-      updatedAt: input.now,
-    });
-  }
-
-  for (const [alias, binding] of Object.entries(input.bindings.store ?? {})) {
-    if (!requestedKeys.has(resourceKey("store", alias))) continue;
-    const existing = input.existing.get(resourceKey("store", alias));
-    records.push({
-      deploymentId: input.deploymentId,
-      kind: "store",
-      alias,
-      binding: {
-        name: binding.name,
-        ttlMs: binding.ttlMs,
-        ...(binding.maxTotalBytes !== undefined
-          ? { maxTotalBytes: binding.maxTotalBytes }
-          : {}),
-      },
-      limits: null,
-      createdAt: existing?.createdAt ?? input.now,
-      updatedAt: input.now,
-    });
-  }
-
-  if (input.bindings.jobs) {
-    for (const [alias, queue] of Object.entries(input.bindings.jobs.queues)) {
-      if (!requestedKeys.has(resourceKey("jobs", alias))) continue;
-      const existing = input.existing.get(resourceKey("jobs", alias));
-      records.push({
-        deploymentId: input.deploymentId,
-        kind: "jobs",
-        alias,
-        binding: {
-          namespace: input.bindings.jobs.namespace,
-          workStream: input.bindings.jobs.workStream,
-          queueType: queue.queueType,
-          publishPrefix: queue.publishPrefix,
-          workSubject: queue.workSubject,
-          consumerName: queue.consumerName,
-          payload: queue.payload,
-          ...(queue.result ? { result: queue.result } : {}),
-          maxDeliver: queue.maxDeliver,
-          backoffMs: queue.backoffMs,
-          ackWaitMs: queue.ackWaitMs,
-          ...(queue.defaultDeadlineMs
-            ? { defaultDeadlineMs: queue.defaultDeadlineMs }
-            : {}),
-          progress: queue.progress,
-          logs: queue.logs,
-          dlq: queue.dlq,
-          concurrency: queue.concurrency,
-        },
-        limits: null,
-        createdAt: existing?.createdAt ?? input.now,
-        updatedAt: input.now,
-      });
-    }
-  }
-
-  for (
-    const [alias, consumer] of Object.entries(
-      input.bindings.eventConsumers ?? {},
-    )
-  ) {
-    if (!requestedKeys.has(resourceKey("event-consumer", alias))) continue;
-    const existing = input.existing.get(resourceKey("event-consumer", alias));
-    records.push({
-      deploymentId: input.deploymentId,
-      kind: "event-consumer",
-      alias,
-      binding: {
-        stream: consumer.stream,
-        consumerName: consumer.consumerName,
-        filterSubjects: consumer.filterSubjects,
-        replay: consumer.replay,
-        ordering: consumer.ordering,
-        concurrency: consumer.concurrency,
-        ackWaitMs: consumer.ackWaitMs,
-        maxDeliver: consumer.maxDeliver,
-        backoffMs: consumer.backoffMs,
-      },
-      limits: null,
-      createdAt: existing?.createdAt ?? input.now,
-      updatedAt: input.now,
-    });
-  }
-
-  return records.sort((left, right) =>
-    left.kind.localeCompare(right.kind) || left.alias.localeCompare(right.alias)
-  );
-}
-
 async function knownDependencyEntriesForProvisioning(
   deps: Pick<
     ServiceBootstrapDeps["contracts"],
@@ -585,6 +453,127 @@ async function approvedFallbackEntry(
     return undefined;
   }
   return { digest: validated.digest, contract: validated.contract };
+}
+
+function numberField(
+  record: Record<string, unknown>,
+  key: string,
+): number | undefined {
+  const value = record[key];
+  return typeof value === "number" ? value : undefined;
+}
+
+function booleanField(
+  record: Record<string, unknown>,
+  key: string,
+): boolean | undefined {
+  const value = record[key];
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function stringField(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function storedResourceBindingMismatchKeys(input: {
+  contract: TrellisContractV1;
+  requested: EnvelopeBoundary;
+  bindings: DeploymentResourceBinding[];
+  knownContractEntries: ContractEntry[];
+}): string[] {
+  const requestedKeys = new Set(
+    input.requested.resources
+      .filter((resource) => resource.kind !== "transfer")
+      .map((resource) => resourceKey(resource.kind, resource.alias)),
+  );
+  const mismatches: string[] = [];
+  const bindingByKey = new Map(
+    input.bindings.map((binding) => [
+      resourceKey(binding.kind, binding.alias),
+      binding,
+    ]),
+  );
+
+  for (const request of getKvResourceRequests(input.contract)) {
+    const key = resourceKey("kv", request.alias);
+    if (!requestedKeys.has(key)) continue;
+    const binding = bindingByKey.get(key)?.binding;
+    if (!binding) continue;
+    if (
+      numberField(binding, "history") !== request.history ||
+      numberField(binding, "ttlMs") !== request.ttlMs ||
+      numberField(binding, "maxValueBytes") !== request.maxValueBytes
+    ) {
+      mismatches.push(key);
+    }
+  }
+
+  for (const request of getStoreResourceRequests(input.contract)) {
+    const key = resourceKey("store", request.alias);
+    if (!requestedKeys.has(key)) continue;
+    const binding = bindingByKey.get(key)?.binding;
+    if (!binding) continue;
+    if (
+      numberField(binding, "ttlMs") !== request.ttlMs ||
+      numberField(binding, "maxTotalBytes") !== request.maxTotalBytes ||
+      numberField(binding, "maxObjectBytes") !== request.maxObjectBytes
+    ) {
+      mismatches.push(key);
+    }
+  }
+
+  for (const request of getJobsQueueRequests(input.contract)) {
+    const key = resourceKey("jobs", request.queueType);
+    if (!requestedKeys.has(key)) continue;
+    const binding = bindingByKey.get(key)?.binding;
+    if (!binding) continue;
+    if (
+      stringField(binding, "queueType") !== request.queueType ||
+      !sameJsonRecord(binding.payload, request.payload) ||
+      !sameJsonRecord(binding.result, request.result) ||
+      numberField(binding, "maxDeliver") !== request.maxDeliver ||
+      !sameJsonRecord(binding.backoffMs, request.backoffMs) ||
+      numberField(binding, "ackWaitMs") !== request.ackWaitMs ||
+      numberField(binding, "defaultDeadlineMs") !==
+        request.defaultDeadlineMs ||
+      booleanField(binding, "progress") !== request.progress ||
+      booleanField(binding, "logs") !== request.logs ||
+      booleanField(binding, "dlq") !== request.dlq ||
+      numberField(binding, "concurrency") !== request.concurrency
+    ) {
+      mismatches.push(key);
+    }
+  }
+
+  for (
+    const request of getEventConsumerGroupRequests(input.contract, {
+      knownContractEntries: input.knownContractEntries,
+      envelopeBoundary: input.requested,
+    })
+  ) {
+    const key = resourceKey("event-consumer", request.alias);
+    if (!requestedKeys.has(key)) continue;
+    const binding = bindingByKey.get(key)?.binding;
+    if (!binding) continue;
+    if (
+      stringField(binding, "stream") !== request.stream ||
+      !sameJsonRecord(binding.filterSubjects, request.filterSubjects) ||
+      stringField(binding, "replay") !== request.replay ||
+      stringField(binding, "ordering") !== request.ordering ||
+      numberField(binding, "concurrency") !== request.concurrency ||
+      numberField(binding, "ackWaitMs") !== request.ackWaitMs ||
+      numberField(binding, "maxDeliver") !== request.maxDeliver ||
+      !sameJsonRecord(binding.backoffMs, request.backoffMs)
+    ) {
+      mismatches.push(key);
+    }
+  }
+
+  return mismatches.sort((left, right) => left.localeCompare(right));
 }
 
 function boundaryContractDeps(deps: ServiceBootstrapDeps) {
@@ -987,69 +976,14 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
 
     const existingBindings = await deps.deploymentResourceBindingStorage
       .listByDeployment(service.deploymentId);
-    const existingBindingByKey = new Map(
-      existingBindings.map((binding) => [
-        resourceKey(binding.kind, binding.alias),
-        binding,
-      ]),
-    );
     const requestedResourceKeys = new Set(
       requestedBoundary.resources
         .filter((resource) => resource.kind !== "transfer")
         .map((resource) => resourceKey(resource.kind, resource.alias)),
     );
-    let resourceBindingRecords = existingBindings.filter((binding) =>
+    const resourceBindingRecords = existingBindings.filter((binding) =>
       requestedResourceKeys.has(resourceKey(binding.kind, binding.alias))
     );
-    const requestedEventConsumers = requestedBoundary.resources.some(
-      (resource) => resource.kind === "event-consumer",
-    );
-    if (
-      resourceBindingRecords.length < requestedResourceKeys.size ||
-      requestedEventConsumers
-    ) {
-      const provisioned = await (deps.provisionResourceBindings ??
-        provisionContractResourceBindings)(
-          deps.nats,
-          contract,
-          service.deploymentId,
-          {
-            ...deps.resourceProvisioningOptions,
-            existingResourceNames: existingResourceNamesFromBindings(
-              existingBindings,
-            ),
-            knownContractEntries: await knownDependencyEntriesForProvisioning(
-              deps.contracts,
-              deps.envelopeExpansionRequestStorage,
-              contract,
-            ),
-            envelopeBoundary: deploymentEnvelope.boundary,
-          },
-        );
-      resourceBindingRecords = await buildResourceBindingRecords({
-        deploymentId: service.deploymentId,
-        bindings: provisioned,
-        requested: requestedBoundary,
-        existing: existingBindingByKey,
-        now,
-      });
-      const recordByKey = new Map(
-        existingBindings
-          .filter((binding) =>
-            requestedResourceKeys.has(resourceKey(binding.kind, binding.alias))
-          )
-          .map((
-            binding,
-          ) => [resourceKey(binding.kind, binding.alias), binding]),
-      );
-      for (const record of resourceBindingRecords) {
-        recordByKey.set(resourceKey(record.kind, record.alias), record);
-      }
-      resourceBindingRecords = [...recordByKey.values()].sort((left, right) =>
-        left.kind.localeCompare(right.kind) ||
-        left.alias.localeCompare(right.alias)
-      );
-    }
 
     const missingResourceBindings = missingResourceBindingKeys(
       requestedBoundary,
@@ -1059,23 +993,32 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       return c.json(
         bootstrapFailure(
           "resource_binding_missing",
-          "Resource provisioning did not produce all requested resource bindings.",
+          "Stored resource bindings are missing for requested resources.",
           { missingResourceBindings },
         ),
         409,
       );
     }
 
-    if (deps.deploymentEnvelopeStorage.putExpansion) {
-      await deps.deploymentEnvelopeStorage.putExpansion({
-        envelope: deploymentEnvelope,
-        delta: emptyBoundary(),
-        resourceBindings: resourceBindingRecords,
-      });
-    } else {
-      for (const binding of resourceBindingRecords) {
-        await deps.deploymentResourceBindingStorage.put(binding);
-      }
+    const mismatchedResourceBindings = storedResourceBindingMismatchKeys({
+      contract,
+      requested: requestedBoundary,
+      bindings: resourceBindingRecords,
+      knownContractEntries: await knownDependencyEntriesForProvisioning(
+        deps.contracts,
+        deps.envelopeExpansionRequestStorage,
+        contract,
+      ),
+    });
+    if (mismatchedResourceBindings.length > 0) {
+      return c.json(
+        bootstrapFailure(
+          "resource_binding_mismatch",
+          "Stored resource bindings are stale for requested resources.",
+          { mismatchedResourceBindings },
+        ),
+        409,
+      );
     }
 
     const resourceBindings = resourceBindingsForResponse(

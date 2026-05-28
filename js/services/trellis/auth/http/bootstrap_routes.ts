@@ -58,10 +58,6 @@ export function registerBootstrapRoutes(
       deploymentResourceBindingStorage: opts.deploymentResourceBindingStorage,
       implementationOfferStorage: opts.implementationOfferStorage,
       envelopeExpansionRequestStorage: opts.envelopeExpansionRequestStorage,
-      nats: opts.runtimeDeps.natsTrellis,
-      resourceProvisioningOptions: {
-        jetstreamReplicas: config.nats.jetstream.replicas,
-      },
       storePresentedContract: async ({ contract, digest, canonical }) => {
         if (await opts.contractStorage.has(digest)) return;
         await opts.contractStorage.put({

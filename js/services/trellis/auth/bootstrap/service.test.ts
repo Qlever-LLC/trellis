@@ -5,7 +5,6 @@ import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 
 import { createTestContracts } from "../../catalog/test_contracts.ts";
 import type { ContractEntry } from "../../catalog/uses.ts";
-import type { ContractResourceBindings } from "../../catalog/resources.ts";
 import { analyzeContractEnvelopeBoundary } from "../boundary_analysis.ts";
 import { computeEnvelopeDelta } from "../envelope_decision.ts";
 import type {
@@ -265,6 +264,48 @@ function serviceOffer(
   };
 }
 
+function kvBinding(alias: string): DeploymentResourceBinding {
+  return {
+    deploymentId: "deployment_1",
+    kind: "kv",
+    alias,
+    binding: { bucket: `bucket_${alias}`, history: 1, ttlMs: 0 },
+    limits: null,
+    createdAt: TEST_NOW,
+    updatedAt: TEST_NOW,
+  };
+}
+
+function jobsBindingRecord(
+  alias: string,
+  binding: Record<string, unknown>,
+): DeploymentResourceBinding {
+  return {
+    deploymentId: "deployment_1",
+    kind: "jobs",
+    alias,
+    binding,
+    limits: null,
+    createdAt: TEST_NOW,
+    updatedAt: TEST_NOW,
+  };
+}
+
+function eventConsumerBindingRecord(
+  alias: string,
+  binding: Record<string, unknown>,
+): DeploymentResourceBinding {
+  return {
+    deploymentId: "deployment_1",
+    kind: "event-consumer",
+    alias,
+    binding,
+    limits: null,
+    createdAt: TEST_NOW,
+    updatedAt: TEST_NOW,
+  };
+}
+
 async function contractBoundary(
   contracts: ReturnType<typeof createTestContracts>,
   contract: TrellisContractV1,
@@ -290,9 +331,6 @@ async function createApp(args: {
   knownContracts?: ContractEntry[];
   knownExpandedContract?: boolean;
   contractCompatibilityMode?: "strict" | "mutable-dev";
-  provisionResourceBindings?: (
-    contract: TrellisContractV1,
-  ) => Promise<ContractResourceBindings>;
 } = {}) {
   const auth = await createAuth({ sessionKeySeed: TEST_SEED });
   const contract = await validatedContract(baseContract());
@@ -446,17 +484,6 @@ async function createApp(args: {
       verifyIdentityProof: async ({ sessionKey, iat, contractDigest, sig }) =>
         sessionKey === auth.sessionKey &&
         sig === await auth.natsConnectSigForIat(iat, contractDigest),
-      provisionResourceBindings: async (_nats, provisioned) =>
-        args.provisionResourceBindings
-          ? await args.provisionResourceBindings(provisioned)
-          : {
-            kv: Object.fromEntries(
-              Object.keys(provisioned.resources?.kv ?? {}).map((alias) => [
-                alias,
-                { bucket: `bucket_${alias}`, history: 1, ttlMs: 0 },
-              ]),
-            ),
-          },
       nowSeconds: () => args.nowSeconds ?? TEST_IAT,
       now: () => new Date(TEST_NOW),
       createExpansionRequestId: () => "req_1",
@@ -504,13 +531,12 @@ async function createApp(args: {
 }
 
 Deno.test("POST /bootstrap/service accepts first start when contract fits envelope", async () => {
-  const { contract, bootstrap, services, offers, bindings, storedContracts } =
-    await createApp();
+  const setup = await createApp({ initialBindings: [kvBinding("cache")] });
 
-  const response = await bootstrap({
-    contractId: contract.contract.id,
-    contractDigest: contract.digest,
-    contract: contract.contract,
+  const response = await setup.bootstrap({
+    contractId: setup.contract.contract.id,
+    contractDigest: setup.contract.digest,
+    contract: setup.contract.contract,
   });
 
   assertEquals(response.status, 200);
@@ -519,19 +545,21 @@ Deno.test("POST /bootstrap/service accepts first start when contract fits envelo
   assertEquals(body.binding.resources, {
     kv: { cache: { bucket: "bucket_cache", history: 1, ttlMs: 0 } },
   });
-  assertEquals(offers.length, 1);
-  assertEquals(offers[0]?.status, "accepted");
-  assertEquals(offers[0]?.contractDigest, contract.digest);
-  assertEquals(offers[0]?.staleAt, null);
-  assertEquals(bindings.length, 1);
-  assertEquals(storedContracts, [{
-    digest: contract.digest,
-    contractId: contract.contract.id,
+  assertEquals(setup.offers.length, 1);
+  assertEquals(setup.offers[0]?.status, "accepted");
+  assertEquals(setup.offers[0]?.contractDigest, setup.contract.digest);
+  assertEquals(setup.offers[0]?.staleAt, null);
+  assertEquals(setup.bindings.length, 1);
+  assertEquals(setup.storedContracts, [{
+    digest: setup.contract.digest,
+    contractId: setup.contract.contract.id,
   }]);
 });
 
 Deno.test("POST /bootstrap/service accepts new contract within envelope", async () => {
-  const setup = await createApp();
+  const setup = await createApp({
+    initialBindings: [kvBinding("cache"), kvBinding("secondary")],
+  });
   setup.envelope.boundary = await contractBoundary(
     setup.contracts,
     setup.expanded.contract,
@@ -562,6 +590,7 @@ Deno.test("POST /bootstrap/service accepts different same-contract digest when b
       serviceOffer(oldContract, { acceptedAt: "2026-01-01T00:00:00.000Z" }),
       serviceOffer(newContract, { acceptedAt: "2026-01-01T00:00:01.000Z" }),
     ],
+    initialBindings: [kvBinding("cache")],
   });
   setup.contracts.setActiveTestDigests([newContract.digest]);
 
@@ -608,6 +637,7 @@ Deno.test("POST /bootstrap/service accepts incompatible same-contract digest rep
   const replacement = await validatedContract(incompatibleSchemaContract());
   const setup = await createApp({
     initialOffers: [serviceOffer(current)],
+    initialBindings: [kvBinding("cache")],
     contractCompatibilityMode: "mutable-dev",
   });
 
@@ -629,6 +659,7 @@ Deno.test("POST /bootstrap/service accepts compatible same-contract digest repla
   const replacement = await validatedContract(compatibleMetadataContract());
   const setup = await createApp({
     initialOffers: [serviceOffer(current)],
+    initialBindings: [kvBinding("cache")],
   });
 
   const response = await setup.bootstrap({
@@ -652,6 +683,7 @@ Deno.test("POST /bootstrap/service accepts older digest when it remains effectiv
       serviceOffer(oldContract, { acceptedAt: "2026-01-01T00:00:00.000Z" }),
       serviceOffer(newContract, { acceptedAt: "2026-01-01T00:00:01.000Z" }),
     ],
+    initialBindings: [kvBinding("cache")],
   });
   setup.contracts.setActiveTestDigests([oldContract.digest]);
 
@@ -834,6 +866,7 @@ Deno.test("POST /bootstrap/service accepts latest approved dependency when no ac
     contract: dependency.contract,
   });
   const setup = await createApp({
+    initialBindings: [kvBinding("cache")],
     envelopeBoundary: await contractBoundary(
       contracts,
       service.contract,
@@ -953,7 +986,10 @@ Deno.test("POST /bootstrap/service treats incompatible known dependency manifest
 });
 
 Deno.test("POST /bootstrap/service reconnects after accepted expansion from global contract storage", async () => {
-  const setup = await createApp({ knownExpandedContract: false });
+  const setup = await createApp({
+    knownExpandedContract: false,
+    initialBindings: [kvBinding("cache"), kvBinding("secondary")],
+  });
   const first = await setup.bootstrap({
     contractId: setup.expanded.contract.id,
     contractDigest: setup.expanded.digest,
@@ -1004,7 +1040,7 @@ Deno.test("POST /bootstrap/service returns stored resource bindings", async () =
     deploymentId: "deployment_1",
     kind: "kv",
     alias: "cache",
-    binding: { bucket: "stored_cache", history: 3, ttlMs: 60000 },
+    binding: { bucket: "stored_cache", history: 1, ttlMs: 0 },
     limits: null,
     createdAt: TEST_NOW,
     updatedAt: TEST_NOW,
@@ -1023,7 +1059,7 @@ Deno.test("POST /bootstrap/service returns stored resource bindings", async () =
   });
 });
 
-Deno.test("POST /bootstrap/service stores jobs bindings in contract resource shape", async () => {
+Deno.test("POST /bootstrap/service returns jobs bindings in contract resource shape", async () => {
   const contract = await validatedContract(jobsContract());
   const jobsBinding = {
     namespace: "deployment_1_jobs",
@@ -1037,18 +1073,23 @@ Deno.test("POST /bootstrap/service stores jobs bindings in contract resource sha
         payload: { schema: "CacheEntry" },
         result: { schema: "Empty" },
         maxDeliver: 3,
-        backoffMs: [1000, 5000],
-        ackWaitMs: 30000,
-        defaultDeadlineMs: 60000,
+        backoffMs: [5000, 30000, 120000, 600000, 1800000],
+        ackWaitMs: 300000,
         progress: true,
         logs: true,
         dlq: true,
-        concurrency: 2,
+        concurrency: 1,
       },
     },
   };
   const setup = await createApp({
-    provisionResourceBindings: async () => ({ jobs: jobsBinding }),
+    initialBindings: [
+      jobsBindingRecord("process", {
+        namespace: jobsBinding.namespace,
+        workStream: jobsBinding.workStream,
+        ...jobsBinding.queues.process,
+      }),
+    ],
   });
   setup.envelope.boundary = await contractBoundary(
     setup.contracts,
@@ -1067,7 +1108,7 @@ Deno.test("POST /bootstrap/service stores jobs bindings in contract resource sha
   assertEquals(setup.services[0]?.resourceBindings, expected);
 });
 
-Deno.test("POST /bootstrap/service stores event consumer bindings", async () => {
+Deno.test("POST /bootstrap/service returns event consumer bindings", async () => {
   const contract = await validatedContract(eventConsumerContract());
   const dependency = await validatedContract(eventDependencyContract());
   const binding = {
@@ -1078,17 +1119,15 @@ Deno.test("POST /bootstrap/service stores event consumer bindings", async () => 
     ordering: "strict" as const,
     concurrency: 1,
     ackWaitMs: 300000,
-    maxDeliver: 5,
-    backoffMs: [5000, 30000],
+    maxDeliver: 6,
+    backoffMs: [5000, 30000, 120000, 600000, 1800000],
   };
   const setup = await createApp({
     knownContracts: [
       { digest: dependency.digest, contract: dependency.contract },
       { digest: contract.digest, contract: contract.contract },
     ],
-    provisionResourceBindings: async () => ({
-      eventConsumers: { ingest: binding },
-    }),
+    initialBindings: [eventConsumerBindingRecord("ingest", binding)],
   });
   setup.contracts.activateTestContract({
     digest: dependency.digest,
@@ -1115,7 +1154,7 @@ Deno.test("POST /bootstrap/service stores event consumer bindings", async () => 
   ]);
 });
 
-Deno.test("POST /bootstrap/service stores independent event consumer groups", async () => {
+Deno.test("POST /bootstrap/service returns independent event consumer groups", async () => {
   const contract = await validatedContract({
     ...eventConsumerContract(),
     eventConsumers: {
@@ -1124,37 +1163,37 @@ Deno.test("POST /bootstrap/service stores independent event consumer groups", as
     },
   } as ContractWithEventConsumers);
   const dependency = await validatedContract(eventDependencyContract());
+  const auditBinding = {
+    stream: "trellis",
+    consumerName: "audit-consumer",
+    filterSubjects: ["events.v1.dep.Changed.*"],
+    replay: "new",
+    ordering: "strict",
+    concurrency: 1,
+    ackWaitMs: 300000,
+    maxDeliver: 6,
+    backoffMs: [5000, 30000, 120000, 600000, 1800000],
+  };
+  const ingestBinding = {
+    stream: "trellis",
+    consumerName: "ingest-consumer",
+    filterSubjects: ["events.v1.dep.Changed.*"],
+    replay: "new",
+    ordering: "strict",
+    concurrency: 1,
+    ackWaitMs: 300000,
+    maxDeliver: 6,
+    backoffMs: [5000, 30000, 120000, 600000, 1800000],
+  };
   const setup = await createApp({
     knownContracts: [
       { digest: dependency.digest, contract: dependency.contract },
       { digest: contract.digest, contract: contract.contract },
     ],
-    provisionResourceBindings: async () => ({
-      eventConsumers: {
-        audit: {
-          stream: "trellis",
-          consumerName: "audit-consumer",
-          filterSubjects: ["events.v1.dep.Changed.*"],
-          replay: "new",
-          ordering: "strict",
-          concurrency: 1,
-          ackWaitMs: 300000,
-          maxDeliver: 5,
-          backoffMs: [5000],
-        },
-        ingest: {
-          stream: "trellis",
-          consumerName: "ingest-consumer",
-          filterSubjects: ["events.v1.dep.Changed.*"],
-          replay: "new",
-          ordering: "strict",
-          concurrency: 1,
-          ackWaitMs: 300000,
-          maxDeliver: 5,
-          backoffMs: [5000],
-        },
-      },
-    }),
+    initialBindings: [
+      eventConsumerBindingRecord("audit", auditBinding),
+      eventConsumerBindingRecord("ingest", ingestBinding),
+    ],
   });
   setup.contracts.activateTestContract({
     digest: dependency.digest,
@@ -1179,13 +1218,12 @@ Deno.test("POST /bootstrap/service stores independent event consumer groups", as
   ]);
 });
 
-Deno.test("POST /bootstrap/service rejects when provisioning misses a requested resource binding", async () => {
+Deno.test("POST /bootstrap/service rejects missing stored resource bindings", async () => {
   const setup = await createApp({
     envelopeBoundary: await contractBoundary(
       createTestContracts(),
       baseContract(),
     ),
-    provisionResourceBindings: async () => ({ kv: {} }),
   });
 
   const response = await setup.bootstrap({
@@ -1226,9 +1264,7 @@ Deno.test("POST /bootstrap/service rejects missing optional resource bindings", 
       },
     ),
     knownContracts: [{ digest: contract.digest, contract: contract.contract }],
-    provisionResourceBindings: async () => ({
-      kv: { cache: { bucket: "bucket_cache", history: 1, ttlMs: 0 } },
-    }),
+    initialBindings: [kvBinding("cache")],
   });
 
   const response = await setup.bootstrap({
@@ -1239,7 +1275,164 @@ Deno.test("POST /bootstrap/service rejects missing optional resource bindings", 
 
   assertEquals(response.status, 409);
   assertEquals((await response.json()).reason, "resource_binding_missing");
-  assertEquals(setup.bindings, []);
+  assertEquals(setup.bindings, [kvBinding("cache")]);
+});
+
+Deno.test("POST /bootstrap/service rejects stale KV resource bindings", async () => {
+  const setup = await createApp({
+    initialBindings: [{
+      ...kvBinding("cache"),
+      binding: { bucket: "bucket_cache", history: 2, ttlMs: 0 },
+    }],
+  });
+
+  const response = await setup.bootstrap({
+    contractId: setup.contract.contract.id,
+    contractDigest: setup.contract.digest,
+    contract: setup.contract.contract,
+  });
+
+  assertEquals(response.status, 409);
+  const body = await response.json();
+  assertEquals(body.reason, "resource_binding_mismatch");
+  assertEquals(body.mismatchedResourceBindings, ["kv\u001fcache"]);
+  assertEquals(setup.services.length, 0);
+});
+
+Deno.test("POST /bootstrap/service rejects stale store resource bindings", async () => {
+  const contract = await validatedContract({
+    ...baseContract(),
+    resources: {
+      store: {
+        objects: {
+          purpose: "Store objects",
+          ttlMs: 60000,
+          maxTotalBytes: 1000,
+          maxObjectBytes: 500,
+        },
+      },
+    },
+  });
+  const setup = await createApp({
+    knownContracts: [{ digest: contract.digest, contract: contract.contract }],
+    envelopeBoundary: await contractBoundary(
+      createTestContracts(),
+      contract.contract,
+    ),
+    initialBindings: [{
+      deploymentId: "deployment_1",
+      kind: "store",
+      alias: "objects",
+      binding: {
+        name: "objects",
+        ttlMs: 60000,
+        maxTotalBytes: 1000,
+        maxObjectBytes: 250,
+      },
+      limits: null,
+      createdAt: TEST_NOW,
+      updatedAt: TEST_NOW,
+    }],
+  });
+
+  const response = await setup.bootstrap({
+    contractId: contract.contract.id,
+    contractDigest: contract.digest,
+    contract: contract.contract,
+  });
+
+  assertEquals(response.status, 409);
+  const body = await response.json();
+  assertEquals(body.reason, "resource_binding_mismatch");
+  assertEquals(body.mismatchedResourceBindings, ["store\u001fobjects"]);
+  assertEquals(setup.services.length, 0);
+});
+
+Deno.test("POST /bootstrap/service rejects stale jobs bindings", async () => {
+  const contract = await validatedContract(jobsContract());
+  const setup = await createApp({
+    envelopeBoundary: await contractBoundary(
+      createTestContracts(),
+      contract.contract,
+    ),
+    initialBindings: [
+      jobsBindingRecord("process", {
+        namespace: "deployment_1_jobs",
+        workStream: "JOBS_WORK",
+        queueType: "process",
+        publishPrefix: "trellis.jobs.deployment_1_jobs.process",
+        workSubject: "trellis.work.deployment_1_jobs.process",
+        consumerName: "deployment-1-process",
+        payload: { schema: "CacheEntry" },
+        result: { schema: "Empty" },
+        maxDeliver: 4,
+        backoffMs: [1000, 5000],
+        ackWaitMs: 30000,
+        progress: true,
+        logs: true,
+        dlq: true,
+        concurrency: 2,
+      }),
+    ],
+  });
+
+  const response = await setup.bootstrap({
+    contractId: contract.contract.id,
+    contractDigest: contract.digest,
+    contract: contract.contract,
+  });
+
+  assertEquals(response.status, 409);
+  const body = await response.json();
+  assertEquals(body.reason, "resource_binding_mismatch");
+  assertEquals(body.mismatchedResourceBindings, ["jobs\u001fprocess"]);
+  assertEquals(setup.services.length, 0);
+});
+
+Deno.test("POST /bootstrap/service rejects stale event consumer bindings", async () => {
+  const contract = await validatedContract(eventConsumerContract());
+  const dependency = await validatedContract(eventDependencyContract());
+  const contracts = createTestContracts();
+  contracts.addKnownTestContract({
+    digest: dependency.digest,
+    contract: dependency.contract,
+  });
+  const setup = await createApp({
+    knownContracts: [
+      { digest: dependency.digest, contract: dependency.contract },
+      { digest: contract.digest, contract: contract.contract },
+    ],
+    envelopeBoundary: await contractBoundary(contracts, contract.contract, {
+      dependencyResolution: "known",
+    }),
+    initialBindings: [eventConsumerBindingRecord("ingest", {
+      stream: "trellis",
+      consumerName: "svc_deployment_1_svc_example_ingest_abcd",
+      filterSubjects: ["events.v1.dep.Changed.*"],
+      replay: "new",
+      ordering: "strict",
+      concurrency: 1,
+      ackWaitMs: 300000,
+      maxDeliver: 5,
+      backoffMs: [5000, 30000, 120000, 600000],
+    })],
+  });
+  setup.contracts.activateTestContract({
+    digest: dependency.digest,
+    contract: dependency.contract,
+  });
+
+  const response = await setup.bootstrap({
+    contractId: contract.contract.id,
+    contractDigest: contract.digest,
+    contract: contract.contract,
+  });
+
+  assertEquals(response.status, 409);
+  const body = await response.json();
+  assertEquals(body.reason, "resource_binding_mismatch");
+  assertEquals(body.mismatchedResourceBindings, ["event-consumer\u001fingest"]);
+  assertEquals(setup.services.length, 0);
 });
 
 Deno.test("POST /bootstrap/service rejects disabled deployments", async () => {
