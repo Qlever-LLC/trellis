@@ -7,13 +7,22 @@ import { Value } from "typebox/value";
 import { verifyDeviceWaitSignature } from "@qlever-llc/trellis/auth";
 import type { ContractsModule } from "../../catalog/runtime.ts";
 import { deviceInstanceId } from "../admin/shared.ts";
-import { analyzeContractEnvelopeBoundary } from "../boundary_analysis.ts";
+import { analyzeContractProposal } from "../contract_proposal_analysis.ts";
 import {
-  computeEnvelopeDelta,
-  evaluateEnvelopeFit,
-} from "../envelope_decision.ts";
+  computeAuthorityNeedsDelta,
+  evaluateProposalNeedsFit,
+} from "../authority_needs_decision.ts";
 import { SignatureSchema } from "../schemas.ts";
-import type { DeploymentEnvelope, EnvelopeBoundary } from "../schemas.ts";
+import type {
+  AuthorityNeedSet,
+  AuthoritySurfaceAction,
+  AuthoritySurfaceKind,
+  DeploymentAuthority,
+  DeploymentAuthorityMaterialization,
+  DeploymentAuthorityPlan,
+  DeploymentAuthorityResourceKind,
+} from "../schemas.ts";
+import type { BoundedListQuery } from "../storage.ts";
 import { isDeviceProofIatFresh } from "../device_activation/shared.ts";
 
 const DigestSchema = Type.String({ pattern: "^[A-Za-z0-9_-]+$" });
@@ -58,8 +67,21 @@ type DeviceActivation = {
   revokedAt: string | null;
 };
 
-type DeploymentEnvelopeStorage = {
-  get(deploymentId: string): Promise<DeploymentEnvelope | undefined>;
+type DeploymentAuthorityStorage = {
+  get(deploymentId: string): Promise<DeploymentAuthority | undefined>;
+};
+
+type DeploymentAuthorityPlanStorage = {
+  listFiltered(
+    filters: { deploymentId?: string; state?: string },
+    query: BoundedListQuery,
+  ): Promise<DeploymentAuthorityPlan[]>;
+};
+
+type MaterializedAuthorityStorage = {
+  get(
+    deploymentId: string,
+  ): Promise<DeploymentAuthorityMaterialization | undefined>;
 };
 
 type DeviceConnectInfo = {
@@ -110,7 +132,9 @@ export type DeviceConnectInfoResolverDeps = {
     instanceId: string,
   ): Promise<DeviceActivation | null>;
   loadDeviceDeployment(deploymentId: string): Promise<DeviceDeployment | null>;
-  deploymentEnvelopeStorage: DeploymentEnvelopeStorage;
+  deploymentAuthorityStorage: DeploymentAuthorityStorage;
+  deploymentAuthorityPlanStorage: DeploymentAuthorityPlanStorage;
+  materializedAuthorityStorage: MaterializedAuthorityStorage;
 };
 
 export type DeviceConnectInfoDeps = DeviceConnectInfoResolverDeps & {
@@ -155,23 +179,144 @@ function buildDeviceConnectInfo(args: {
   };
 }
 
-const EMPTY_BOUNDARY: EnvelopeBoundary = {
+const EMPTY_AUTHORITY_NEEDS: AuthorityNeedSet = {
   contracts: [],
   surfaces: [],
   capabilities: [],
   resources: [],
 };
 
-function mergeBoundaries(...boundaries: EnvelopeBoundary[]): EnvelopeBoundary {
-  return computeEnvelopeDelta(EMPTY_BOUNDARY, {
-    contracts: boundaries.flatMap((boundary) => boundary.contracts),
-    surfaces: boundaries.flatMap((boundary) => boundary.surfaces),
-    capabilities: boundaries.flatMap((boundary) => boundary.capabilities),
-    resources: boundaries.flatMap((boundary) => boundary.resources),
+function mergeAuthorityNeeds(...needs: AuthorityNeedSet[]): AuthorityNeedSet {
+  return computeAuthorityNeedsDelta(EMPTY_AUTHORITY_NEEDS, {
+    contracts: needs.flatMap((needSet) => needSet.contracts),
+    surfaces: needs.flatMap((needSet) => needSet.surfaces),
+    capabilities: needs.flatMap((needSet) => needSet.capabilities),
+    resources: needs.flatMap((needSet) => needSet.resources),
   });
 }
 
-async function resolveDeviceEnvelopeContract(input: {
+function desiredStateAuthorityNeeds(
+  authority: DeploymentAuthority,
+): AuthorityNeedSet {
+  return mergeAuthorityNeeds({
+    contracts: authority.desiredState.needs.flatMap((need) =>
+      need.kind === "contract"
+        ? [{ contractId: need.contractId, required: need.required }]
+        : []
+    ),
+    surfaces: authority.desiredState.needs.flatMap((need) =>
+      need.kind === "surface"
+        ? [{ ...need.surface, required: need.required }]
+        : []
+    ),
+    capabilities: authority.desiredState.needs.flatMap((need) =>
+      need.kind === "capability" ? [need.capability] : []
+    ),
+    resources: authority.desiredState.needs.flatMap((need) =>
+      need.kind === "resource"
+        ? [{ ...need.resource, required: need.required }]
+        : []
+    ),
+  }, {
+    contracts: [],
+    surfaces: authority.desiredState.surfaces.map((surface) => ({
+      ...surface,
+      required: true,
+    })),
+    capabilities: authority.desiredState.capabilities,
+    resources: authority.desiredState.resources,
+  });
+}
+
+function authoritySurfaceKind(
+  value: unknown,
+): AuthoritySurfaceKind | undefined {
+  switch (value) {
+    case "rpc":
+    case "operation":
+    case "event":
+    case "feed":
+      return value;
+    default:
+      return undefined;
+  }
+}
+
+function authoritySurfaceAction(
+  value: unknown,
+): AuthoritySurfaceAction | undefined {
+  switch (value) {
+    case "call":
+    case "publish":
+    case "subscribe":
+    case "observe":
+    case "cancel":
+      return value;
+    default:
+      return undefined;
+  }
+}
+
+function authorityResourceKind(
+  value: unknown,
+): DeploymentAuthorityResourceKind | undefined {
+  switch (value) {
+    case "kv":
+    case "store":
+    case "jobs":
+    case "event-consumer":
+    case "transfer":
+      return value;
+    default:
+      return undefined;
+  }
+}
+
+function materializedAuthorityNeeds(
+  materialized: DeploymentAuthorityMaterialization,
+): AuthorityNeedSet {
+  return mergeAuthorityNeeds({
+    contracts: [],
+    surfaces: materialized.grants.flatMap((grant) => {
+      const kind = authoritySurfaceKind(grant.surfaceKind);
+      const action = authoritySurfaceAction(grant.action);
+      return grant.kind === "surface" && typeof grant.contractId === "string" &&
+          kind !== undefined && typeof grant.name === "string" &&
+          (grant.action === undefined || action !== undefined)
+        ? [{
+          contractId: grant.contractId,
+          kind,
+          name: grant.name,
+          ...(action === undefined ? {} : { action }),
+          required: true,
+        }]
+        : [];
+    }),
+    capabilities: materialized.grants.flatMap((grant) =>
+      grant.kind === "capability" && typeof grant.capability === "string"
+        ? [grant.capability]
+        : []
+    ),
+    resources: materialized.grants.flatMap((grant) => {
+      const kind = authorityResourceKind(grant.resourceKind);
+      return grant.kind === "resource" && kind !== undefined &&
+          typeof grant.alias === "string"
+        ? [{ kind, alias: grant.alias, required: true }]
+        : [];
+    }),
+  });
+}
+
+function runtimeAuthorityNeeds(needs: AuthorityNeedSet): AuthorityNeedSet {
+  return {
+    contracts: [],
+    surfaces: needs.surfaces,
+    capabilities: needs.capabilities,
+    resources: needs.resources,
+  };
+}
+
+async function resolveDeviceAuthorityContract(input: {
   deps: DeviceConnectInfoResolverDeps;
   deploymentId: string;
   contractDigest: string;
@@ -179,10 +324,10 @@ async function resolveDeviceEnvelopeContract(input: {
   | { status: "ready"; contract: TrellisContractV1 }
   | { status: "not_ready"; reason: string }
 > {
-  const deploymentEnvelope = await input.deps.deploymentEnvelopeStorage.get(
+  const deploymentAuthority = await input.deps.deploymentAuthorityStorage.get(
     input.deploymentId,
   );
-  if (!deploymentEnvelope || deploymentEnvelope.disabled) {
+  if (!deploymentAuthority || deploymentAuthority.disabled) {
     return { status: "not_ready", reason: "device_deployment_not_found" };
   }
 
@@ -191,27 +336,71 @@ async function resolveDeviceEnvelopeContract(input: {
     {
       includeInactive: true,
     },
-  );
+  ) ?? await acceptedAuthorityPlanContract(input);
   if (!contract) {
     return { status: "not_ready", reason: "contract_digest_not_allowed" };
   }
 
-  const analysis = await analyzeContractEnvelopeBoundary(
+  const analysis = await analyzeContractProposal(
     input.deps.contracts,
     contract,
   );
-  const requestedBoundary = mergeBoundaries(
+  const requestedAuthority = mergeAuthorityNeeds(
     analysis.required,
     analysis.contributedAvailability,
   );
-  const fit = evaluateEnvelopeFit(
-    deploymentEnvelope.boundary,
-    requestedBoundary,
+  const fit = evaluateProposalNeedsFit(
+    desiredStateAuthorityNeeds(deploymentAuthority),
+    requestedAuthority,
   );
   if (!fit.fits) {
-    return { status: "not_ready", reason: "device_envelope_miss" };
+    return { status: "not_ready", reason: "authority_needs_not_authorized" };
+  }
+
+  const materializedAuthority = await input.deps.materializedAuthorityStorage
+    .get(
+      input.deploymentId,
+    );
+  if (
+    materializedAuthority === undefined ||
+    materializedAuthority.desiredVersion !== deploymentAuthority.version ||
+    materializedAuthority.status === "pending"
+  ) {
+    return { status: "not_ready", reason: "authority_reconciliation_pending" };
+  }
+  if (materializedAuthority.status === "failed") {
+    return { status: "not_ready", reason: "authority_reconciliation_failed" };
+  }
+  const materializedFit = evaluateProposalNeedsFit(
+    materializedAuthorityNeeds(materializedAuthority),
+    runtimeAuthorityNeeds(requestedAuthority),
+  );
+  if (!materializedFit.fits) {
+    return { status: "not_ready", reason: "authority_needs_not_materialized" };
   }
   return { status: "ready", contract };
+}
+
+async function acceptedAuthorityPlanContract(input: {
+  deps: DeviceConnectInfoResolverDeps;
+  deploymentId: string;
+  contractDigest: string;
+}): Promise<TrellisContractV1 | undefined> {
+  const plans = await input.deps.deploymentAuthorityPlanStorage.listFiltered(
+    { deploymentId: input.deploymentId, state: "accepted" },
+    { limit: 500 },
+  );
+  for (const plan of plans) {
+    if (plan.proposal.contractDigest !== input.contractDigest) continue;
+    if (plan.proposal.contract === undefined) continue;
+    const validated = await input.deps.contracts.validateContract(
+      plan.proposal.contract,
+    );
+    if (validated.digest === input.contractDigest) {
+      return validated.contract;
+    }
+  }
+  return undefined;
 }
 
 export async function resolveDeviceConnectInfo(
@@ -239,7 +428,7 @@ export async function resolveDeviceConnectInfo(
     if (deployment.reviewMode === "required") {
       return { status: "activation_required" };
     }
-    const contractResult = await resolveDeviceEnvelopeContract({
+    const contractResult = await resolveDeviceAuthorityContract({
       deps,
       deploymentId: deployment.deploymentId,
       contractDigest: input.contractDigest,
@@ -271,7 +460,7 @@ export async function resolveDeviceConnectInfo(
     return { status: "not_ready", reason: "device_deployment_not_found" };
   }
 
-  const contractResult = await resolveDeviceEnvelopeContract({
+  const contractResult = await resolveDeviceAuthorityContract({
     deps,
     deploymentId: deployment.deploymentId,
     contractDigest: input.contractDigest,
@@ -329,9 +518,16 @@ export function createDeviceConnectInfoHandler(deps: DeviceConnectInfoDeps) {
     if (result.status === "not_ready") {
       if (
         result.reason === "contract_digest_not_allowed" ||
-        result.reason === "device_envelope_miss"
+        result.reason === "authority_needs_not_authorized" ||
+        result.reason === "authority_needs_not_materialized"
       ) {
         return c.json({ reason: result.reason }, 403);
+      }
+      if (
+        result.reason === "authority_reconciliation_pending" ||
+        result.reason === "authority_reconciliation_failed"
+      ) {
+        return c.json({ reason: result.reason }, 202);
       }
       if (result.reason === "device_deployment_not_found") {
         return c.json({ reason: result.reason }, 404);

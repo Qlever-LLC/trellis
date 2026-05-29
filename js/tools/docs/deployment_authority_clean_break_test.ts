@@ -38,22 +38,23 @@ const legacyAuthorityPatterns = [
   /\binstalled contract(?:s| record| records| digest| digests)?\b/gi,
 ];
 
-const requiredEnvelopeTerms = [
-  "envelope",
-  "boundary",
-  "delta",
-  "availability",
-  "liveness",
-  "identity envelope",
-  "deployment envelope",
+const requiredAuthorityTerms = [
+  "deployment authority",
+  "materialized authority",
+  "authority update",
+  "authority migration",
+  "reconciliation",
+  "contract proposal",
+  "identity authority",
+  "identity grant",
   "grant override",
   "implementation offer",
 ];
 
-Deno.test("envelope auth docs define the clean-break vocabulary", async () => {
+Deno.test("deployment authority docs define the clean-break vocabulary", async () => {
   const text = await Deno.readTextFile(repoFile("design/auth/trellis-auth.md"));
 
-  for (const term of requiredEnvelopeTerms) {
+  for (const term of requiredAuthorityTerms) {
     assert(
       text.toLowerCase().includes(term),
       `design/auth/trellis-auth.md should define '${term}'`,
@@ -61,16 +62,19 @@ Deno.test("envelope auth docs define the clean-break vocabulary", async () => {
   }
 });
 
-Deno.test("auth API docs use grouped resource-first auth names", async () => {
+Deno.test("auth API docs use deployment authority names", async () => {
   const text = await Deno.readTextFile(repoFile("design/auth/auth-api.md"));
 
   for (
     const rpc of [
       "Auth.Deployments.Create",
       "Auth.Devices.List",
-      "Auth.Envelopes.Expand",
-      "Auth.Envelopes.Shrink",
-      "Auth.EnvelopeExpansions.Approve",
+      "Auth.DeploymentAuthority.Plan",
+      "Auth.DeploymentAuthority.AcceptUpdate",
+      "Auth.DeploymentAuthority.AcceptMigration",
+      "Auth.DeploymentAuthority.Reconcile",
+      "Auth.IdentityGrants.List",
+      "Auth.IdentityGrants.Revoke",
     ]
   ) {
     assert(text.includes(rpc), `auth-api.md should document ${rpc}`);

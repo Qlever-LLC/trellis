@@ -1,11 +1,11 @@
 <script lang="ts">
   import { isErr, type BaseError, type Result } from "@qlever-llc/result";
-  import type { AuthEnvelopeExpansionsListResponse } from "@qlever-llc/trellis/auth";
   import type {
     AuthDeviceUserAuthoritiesReviewsListOutput,
     AuthServiceInstancesListOutput,
   } from "@qlever-llc/trellis/sdk/auth";
-  import { resolve } from "$app/paths";
+  import type { DeploymentAuthorityKind, DeploymentAuthorityPlan } from "@qlever-llc/trellis/auth";
+  import { base, resolve } from "$app/paths";
   import { onMount } from "svelte";
   import DataTable from "$lib/components/DataTable.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
@@ -22,7 +22,6 @@
     contractDependencyProviderContract,
     contractDependencyRequiredThing,
     isContractDependencyBlock,
-    isForcedUpdateRepair,
   } from "$lib/catalog_issues";
   import { getTrellis } from "$lib/trellis";
   import type {
@@ -31,7 +30,7 @@
 
   type ServiceInstance = AuthServiceInstancesListOutput["entries"][number];
   type Job = JobsListOutput["entries"][number];
-  type ExpansionRequest = AuthEnvelopeExpansionsListResponse["entries"][number];
+  type DeploymentAuthority = { deploymentId: string; kind: DeploymentAuthorityKind; disabled: boolean };
   type DeviceReview = AuthDeviceUserAuthoritiesReviewsListOutput["entries"][number];
   type CatalogIssue = {
     issueId: string;
@@ -48,6 +47,10 @@
   type RpcTakeable<T> = { take(): Promise<T | Result<never, BaseError>> };
   type CoreRequest = {
     (method: "Trellis.Catalog", input: Record<string, never>): RpcTakeable<CatalogOutput>;
+  };
+  type AuthorityRequest = {
+    (method: "Auth.DeploymentAuthority.List", input: { limit: number; offset: number }): RpcTakeable<{ entries?: DeploymentAuthority[] }>;
+    (method: "Auth.DeploymentAuthority.Plans.List", input: { state: "pending"; limit: number; offset: number }): RpcTakeable<{ entries?: DeploymentAuthorityPlan[] }>;
   };
   type OverviewInstance = {
     service: string;
@@ -67,6 +70,7 @@
 
   const trellis = getTrellis();
   const coreRequest = trellis.request.bind(trellis) as CoreRequest;
+  const authorityRequest = trellis.request.bind(trellis) as AuthorityRequest;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -77,7 +81,8 @@
   let jobsUnavailableMessage = $state<string | null>(null);
   let jobs = $state<Job[]>([]);
   let catalogIssues = $state.raw<CatalogIssue[]>([]);
-  let pendingExpansionRequests = $state.raw<ExpansionRequest[]>([]);
+  let deploymentAuthorities = $state.raw<DeploymentAuthority[]>([]);
+  let pendingAuthorityPlans = $state.raw<DeploymentAuthorityPlan[]>([]);
   let pendingDeviceReviews = $state.raw<DeviceReview[]>([]);
 
   const activeInstances = $derived(instances.filter((instance) => !instance.disabled).length);
@@ -88,12 +93,11 @@
   const disabledTotal = $derived(disabledInstances);
   const activeJobCount = $derived(jobs.filter((job) => job.state === "active").length);
   const totalJobCount = $derived(jobs.length);
-  const pendingWorkTotal = $derived(pendingExpansionRequests.length + pendingDeviceReviews.length);
-  const pendingServiceAuthority = $derived(pendingExpansionRequests.filter((request) => request.requestedByKind === "service").length);
-  const pendingDeviceAuthority = $derived(pendingExpansionRequests.length - pendingServiceAuthority);
+  const pendingWorkTotal = $derived(pendingDeviceReviews.length + pendingAuthorityPlans.length);
+  const serviceAuthorityTotal = $derived(deploymentAuthorities.filter((authority) => authority.kind === "service" && !authority.disabled).length);
+  const deviceAuthorityTotal = $derived(deploymentAuthorities.filter((authority) => authority.kind === "device" && !authority.disabled).length);
   const dependencyBlocks = $derived(catalogIssues.filter(isContractDependencyBlock));
-  const forcedUpdateRepairs = $derived(catalogIssues.filter(isForcedUpdateRepair));
-  const catalogWarningCount = $derived(dependencyBlocks.length + forcedUpdateRepairs.length);
+  const catalogWarningCount = $derived(dependencyBlocks.length);
 
   const topology = $derived([
     { icon: "box", label: "Service instances", value: serviceInstanceTotal, detail: `${activeInstances} enabled / ${disabledTotal} disabled`, tone: "text-neutral bg-base-300/60" },
@@ -107,7 +111,7 @@
     { label: "Sessions", value: sessionCount },
     { label: "Connections", value: connectionCount },
     { label: "Jobs", value: totalJobCount, badge: `${activeJobCount} active`, badgeClass: "badge-neutral" },
-    { label: "Warnings", value: catalogWarningCount, detail: catalogIssueError ? "Catalog unavailable" : dependencyBlocks.length > 0 ? "contract blocks" : "forced updates" },
+    { label: "Warnings", value: catalogWarningCount, detail: catalogIssueError ? "Catalog unavailable" : "contract blocks" },
   ]);
 
   function dependencyKindText(requiredThing: string): string | null {
@@ -121,13 +125,6 @@
   function dependencySurfaceName(requiredThing: string): string | null {
     const separator = requiredThing.indexOf(" ");
     return separator > 0 ? requiredThing.slice(separator + 1) : null;
-  }
-
-  function forcedUpdateSummary(issue: CatalogIssue): string {
-    if (issue.kind === "incompatible-active-contract") {
-      return `Two active versions of ${issue.contractId ?? "a contract"} describe the same API differently.`;
-    }
-    return `A forced contract update affects ${issue.contractId ?? "a contract"}.`;
   }
 
   function toOverviewInstance(instance: ServiceInstance): OverviewInstance {
@@ -205,24 +202,27 @@
     catalogIssueError = null;
     jobsUnavailableMessage = null;
     try {
-      const [sessionsRes, connectionsRes, instancesRes, expansionRequestsRes, deviceReviewsRes, catalogRes] = await Promise.all([
+      const [sessionsRes, connectionsRes, instancesRes, authoritiesRes, authorityPlansRes, deviceReviewsRes, catalogRes] = await Promise.all([
         trellis.request("Auth.Sessions.List", { limit: 500, offset: 0 }).take(),
         trellis.request("Auth.Connections.List", { limit: 500, offset: 0 }).take(),
         trellis.request("Auth.ServiceInstances.List", { limit: 500, offset: 0 }).take(),
-        trellis.request("Auth.EnvelopeExpansions.List", { state: "pending", limit: 500, offset: 0 }).take(),
+        authorityRequest("Auth.DeploymentAuthority.List", { limit: 500, offset: 0 }).take(),
+        authorityRequest("Auth.DeploymentAuthority.Plans.List", { state: "pending", limit: 500, offset: 0 }).take(),
         trellis.request("Auth.DeviceUserAuthorities.Reviews.List", { state: "pending", limit: 500, offset: 0 }).take(),
         coreRequest("Trellis.Catalog", {}).take(),
       ]);
       if (isErr(sessionsRes)) { error = errorMessage(sessionsRes); return; }
       if (isErr(connectionsRes)) { error = errorMessage(connectionsRes); return; }
       if (isErr(instancesRes)) { error = errorMessage(instancesRes); return; }
-      if (isErr(expansionRequestsRes)) { error = errorMessage(expansionRequestsRes); return; }
+      if (isErr(authoritiesRes)) { error = errorMessage(authoritiesRes); return; }
+      if (isErr(authorityPlansRes)) { error = errorMessage(authorityPlansRes); return; }
       if (isErr(deviceReviewsRes)) { error = errorMessage(deviceReviewsRes); return; }
       if (isErr(catalogRes)) catalogIssueError = errorMessage(catalogRes);
       sessionCount = sessionsRes.entries?.length ?? 0;
       connectionCount = connectionsRes.entries?.length ?? 0;
       instances = instancesRes.entries ?? [];
-      pendingExpansionRequests = expansionRequestsRes.entries ?? [];
+      deploymentAuthorities = authoritiesRes.entries ?? [];
+      pendingAuthorityPlans = authorityPlansRes.entries ?? [];
       pendingDeviceReviews = deviceReviewsRes.entries ?? [];
       catalogIssues = isErr(catalogRes) ? [] : catalogRes.catalog.issues ?? [];
 
@@ -294,16 +294,6 @@
           </div>
         </div>
         <a class="btn btn-warning btn-outline btn-sm" href={resolve("/admin/services")}>Open services</a>
-      </Notice>
-    {/if}
-
-    {#if forcedUpdateRepairs.length > 0}
-      <Notice variant="warning" class="mb-4 items-start">
-        <div class="min-w-0">
-          <div class="font-medium">Forced Contract Update needed</div>
-          <div class="mt-1 text-sm">{forcedUpdateSummary(forcedUpdateRepairs[0])} Review whether to accept the forced update.</div>
-        </div>
-        <a class="btn btn-warning btn-outline btn-sm" href={resolve("/admin/services/repair")}>Open forced update</a>
       </Notice>
     {/if}
 
@@ -404,11 +394,12 @@
         <section class="card trellis-card overflow-hidden bg-base-100">
           <div class="flex h-14 items-center justify-between border-b border-base-300 px-5"><h2 class="card-title text-base">Pending Work</h2><span class="badge badge-sm {pendingWorkTotal > 0 ? 'badge-warning' : 'badge-ghost'}">{pendingWorkTotal} pending</span></div>
           {#if pendingWorkTotal === 0}
-            <div class="px-5 py-3 text-sm text-base-content/60">No authority expansion or device activation reviews waiting.</div>
+            <div class="px-5 py-3 text-sm text-base-content/60">No device activation reviews or authority plans waiting.</div>
           {:else}
             <div class="divide-y divide-base-300 text-sm">
-              <a class="flex items-center justify-between px-5 py-2.5 hover:bg-base-200/50" href={resolve("/admin/services")}>Service authority <span class="badge badge-outline badge-sm">{pendingServiceAuthority}</span></a>
-              <a class="flex items-center justify-between px-5 py-2.5 hover:bg-base-200/50" href={resolve("/admin/devices")}>Device reviews / authority <span class="badge badge-outline badge-sm">{pendingDeviceReviews.length + pendingDeviceAuthority}</span></a>
+              <a class="flex items-center justify-between px-5 py-2.5 hover:bg-base-200/50" href={`${base}/admin/authority/plans`}>Authority plans <span class="badge badge-warning badge-sm">{pendingAuthorityPlans.length}</span></a>
+              <a class="flex items-center justify-between px-5 py-2.5 hover:bg-base-200/50" href={resolve("/admin/services")}>Service deployment authority <span class="badge badge-outline badge-sm">{serviceAuthorityTotal}</span></a>
+              <a class="flex items-center justify-between px-5 py-2.5 hover:bg-base-200/50" href={resolve("/admin/devices")}>Device reviews / authority <span class="badge badge-outline badge-sm">{pendingDeviceReviews.length + deviceAuthorityTotal}</span></a>
             </div>
           {/if}
         </section>

@@ -2,16 +2,16 @@ import { HTTPException } from "@hono/hono/http-exception";
 import { approvalCapabilityKeys } from "@qlever-llc/trellis/auth";
 
 import {
-  type EnvelopeBoundary,
+  type AuthorityNeedSet,
   type PendingAuth,
   type SessionApprovalSource,
   type SessionIdentity,
 } from "../schemas.ts";
 import {
-  computeEnvelopeDelta,
-  type EnvelopeIdentityAnchor,
-  evaluateEnvelopeFit,
-} from "../envelope_decision.ts";
+  type AuthorityIdentityAnchor,
+  computeAuthorityNeedsDelta,
+  evaluateProposalNeedsFit,
+} from "../authority_needs_decision.ts";
 import {
   type ApprovalResolution,
   buildAppIdentity,
@@ -60,22 +60,22 @@ export type CurrentUserSession = {
   delegatedCapabilities: string[];
   delegatedPublishSubjects: string[];
   delegatedSubscribeSubjects: string[];
-  identityEnvelope?: EnvelopeBoundary;
+  identityAuthorityNeeds?: AuthorityNeedSet;
   approvalSource?: SessionApprovalSource;
-  identityAnchor?: EnvelopeIdentityAnchor;
+  identityAnchor?: AuthorityIdentityAnchor;
   sessionPublicKey?: string;
 };
 
 export type UserFacingApprovalResolution =
   | {
     status: "approved";
-    source: "existing_envelope" | "user_decision" | "deployment_grant";
+    source: "existing_identity_grant" | "user_decision" | "deployment_grant";
   }
-  | { status: "approval_required"; delta: EnvelopeBoundary }
+  | { status: "approval_required"; delta: AuthorityNeedSet }
   | { status: "insufficient_capabilities"; missingCapabilities: string[] }
-  | { status: "unavailable"; missingAvailability: EnvelopeBoundary };
+  | { status: "unavailable"; missingAvailability: AuthorityNeedSet };
 
-const EMPTY_BOUNDARY: EnvelopeBoundary = {
+const EMPTY_AUTHORITY_NEEDS: AuthorityNeedSet = {
   contracts: [],
   surfaces: [],
   capabilities: [],
@@ -123,7 +123,7 @@ function isSubset(requested: string[], current: string[]): boolean {
 
 function boundaryFromApprovalPlan(
   resolution: ApprovalResolution,
-): EnvelopeBoundary {
+): AuthorityNeedSet {
   return {
     contracts: [],
     surfaces: [],
@@ -133,8 +133,8 @@ function boundaryFromApprovalPlan(
 }
 
 function sameIdentityAnchor(
-  left: EnvelopeIdentityAnchor,
-  right: EnvelopeIdentityAnchor,
+  left: AuthorityIdentityAnchor,
+  right: AuthorityIdentityAnchor,
 ): boolean {
   if (left.contractId !== right.contractId) {
     return false;
@@ -154,7 +154,7 @@ function sameIdentityAnchor(
 
 function currentSessionIdentityAnchor(
   session: CurrentUserSession,
-): EnvelopeIdentityAnchor {
+): AuthorityIdentityAnchor {
   if (session.identityAnchor) return session.identityAnchor;
   const sessionContractId = session.app?.contractId ?? session.contractId;
   const sessionOrigin = session.app?.origin;
@@ -175,7 +175,7 @@ function currentSessionIdentityAnchor(
 function requestedIdentityAnchor(args: {
   sessionKey: string;
   resolution: ApprovalResolution;
-}): EnvelopeIdentityAnchor {
+}): AuthorityIdentityAnchor {
   if (args.resolution.app?.origin) {
     return {
       kind: "web",
@@ -193,9 +193,9 @@ function requestedIdentityAnchor(args: {
 
 export function resolveCurrentSessionApproval(
   args: {
-    requestedIdentity: EnvelopeIdentityAnchor;
+    requestedIdentity: AuthorityIdentityAnchor;
     resolution: ApprovalResolution;
-    systemAvailabilityEnvelope?: EnvelopeBoundary;
+    systemAvailabilityAuthority?: AuthorityNeedSet;
   } & CurrentUserSession,
 ): UserFacingApprovalResolution {
   if (args.resolution.missingCapabilities.length > 0) {
@@ -205,22 +205,22 @@ export function resolveCurrentSessionApproval(
     };
   }
 
-  const requestedBoundary = args.resolution.requestedBoundary ??
+  const requestedAuthority = args.resolution.requestedAuthority ??
     boundaryFromApprovalPlan(args.resolution);
-  const requestedAvailabilityBoundary = {
-    ...requestedBoundary,
+  const requestedAvailabilityAuthority = {
+    ...requestedAuthority,
     capabilities: [],
   };
-  const systemAvailabilityEnvelope = args.systemAvailabilityEnvelope ??
-    args.resolution.systemAvailabilityEnvelope;
-  const systemAvailabilityFit = systemAvailabilityEnvelope
-    ? evaluateEnvelopeFit(
-      systemAvailabilityEnvelope,
-      requestedAvailabilityBoundary,
+  const systemAvailabilityAuthority = args.systemAvailabilityAuthority ??
+    args.resolution.systemAvailabilityAuthority;
+  const systemAvailabilityFit = systemAvailabilityAuthority
+    ? evaluateProposalNeedsFit(
+      systemAvailabilityAuthority,
+      requestedAvailabilityAuthority,
     )
     : {
       fits: true,
-      missingAvailability: EMPTY_BOUNDARY,
+      missingAvailability: EMPTY_AUTHORITY_NEEDS,
       missingCapabilities: [],
     };
   if (!systemAvailabilityFit.fits) {
@@ -232,14 +232,17 @@ export function resolveCurrentSessionApproval(
 
   const existingIdentity = currentSessionIdentityAnchor(args);
   if (!sameIdentityAnchor(existingIdentity, args.requestedIdentity)) {
-    return { status: "approval_required", delta: EMPTY_BOUNDARY };
+    return { status: "approval_required", delta: EMPTY_AUTHORITY_NEEDS };
   }
 
-  if (!args.identityEnvelope) {
-    return { status: "approval_required", delta: requestedBoundary };
+  if (!args.identityAuthorityNeeds) {
+    return { status: "approval_required", delta: requestedAuthority };
   }
 
-  const delta = computeEnvelopeDelta(args.identityEnvelope, requestedBoundary);
+  const delta = computeAuthorityNeedsDelta(
+    args.identityAuthorityNeeds,
+    requestedAuthority,
+  );
   if (
     delta.contracts.length > 0 || delta.surfaces.length > 0 ||
     delta.capabilities.length > 0 || delta.resources.length > 0
@@ -253,7 +256,7 @@ export function resolveCurrentSessionApproval(
       args.delegatedPublishSubjects,
     )
   ) {
-    return { status: "approval_required", delta: EMPTY_BOUNDARY };
+    return { status: "approval_required", delta: EMPTY_AUTHORITY_NEEDS };
   }
   if (
     !isSubset(
@@ -261,10 +264,10 @@ export function resolveCurrentSessionApproval(
       args.delegatedSubscribeSubjects,
     )
   ) {
-    return { status: "approval_required", delta: EMPTY_BOUNDARY };
+    return { status: "approval_required", delta: EMPTY_AUTHORITY_NEEDS };
   }
 
-  return { status: "approved", source: "existing_envelope" };
+  return { status: "approved", source: "existing_identity_grant" };
 }
 
 export function createAuthStartRequestHandler(deps: {

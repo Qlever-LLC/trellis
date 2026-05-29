@@ -42,7 +42,8 @@ Generated SDKs expose surface-first facades: `client.rpc.<group>.<leaf>(input)`,
 Prepared events support durable publish flows. `prepare(...)` returns a
 `PreparedTrellisEvent`; services can persist prepared events in SQL or NATS KV
 outbox repositories and later publish them with `client.publishPrepared(...)`,
-or dispatch them with `dispatchOutbox` from `@qlever-llc/trellis/service`.
+dispatch them with `dispatchOutbox`, or run an `OutboxDispatcher` and call
+`notify()` after an outbox transaction commits.
 
 Durable service event consumption is contract-declared. Add an `eventConsumers`
 group to the service contract and call the generated listener with

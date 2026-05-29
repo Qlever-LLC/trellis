@@ -1,20 +1,18 @@
-use std::collections::BTreeMap;
-
 use bytes::Bytes;
 use miette::{miette, IntoDiagnostic, Result};
 use serde_json::{json, to_string, Value};
 use trellis::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
-use trellis::client::{ServiceConnectOptions, TrellisClient};
+use trellis::client::{ServiceConnectWithContractOptions, TrellisClient};
 use trellis::contracts::{
     digest_contract_json, rpc, use_contract, ContractKind, ContractManifestBuilder,
 };
 use trellis::sdk::auth::{
     AuthCapabilitiesListRequest, AuthCapabilityGroupsDeleteRequest, AuthCapabilityGroupsGetRequest,
     AuthCapabilityGroupsListRequest, AuthCapabilityGroupsPutRequest, AuthClient as SdkAuthClient,
-    AuthConnectionsListRequest, AuthDeploymentsCreateRequest, AuthDeploymentsListRequest,
-    AuthDevicesListRequest, AuthDevicesProvisionRequest, AuthEnvelopesExpandRequest,
-    AuthEnvelopesGetRequest, AuthEnvelopesListRequest, AuthIdentitiesGrantsListRequest,
-    AuthIdentitiesListRequest, AuthPortalsGetRequest, AuthPortalsListRequest,
+    AuthConnectionsListRequest, AuthDeploymentAuthorityGetRequest,
+    AuthDeploymentAuthorityListRequest, AuthDeploymentsCreateRequest, AuthDeploymentsListRequest,
+    AuthDevicesListRequest, AuthDevicesProvisionRequest, AuthIdentitiesListRequest,
+    AuthIdentityGrantsListRequest, AuthPortalsGetRequest, AuthPortalsListRequest,
     AuthPortalsLoginSettingsGetRequest, AuthPortalsPutRequest, AuthPortalsRemoveRequest,
     AuthPortalsRoutesPutRequest, AuthPortalsRoutesRemoveRequest, AuthServiceInstancesListRequest,
     AuthServiceInstancesProvisionRequest, AuthSessionsListRequest, AuthUserIdentitiesListRequest,
@@ -28,6 +26,7 @@ use trellis::sdk::core::{
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
+use crate::deployment_authority::plan_accept_reconcile_deployment_authority;
 
 const ADMIN_API_PASSING_CASES: usize = 40;
 const PASSWORD_CHANGE_PASSING_CASES: usize = 3;
@@ -226,9 +225,10 @@ pub(crate) async fn run_admin_api_fixture(
     auth_client
         .rpc()
         .auth()
-        .identities_grants_list(&AuthIdentitiesGrantsListRequest {
+        .identity_grants_list(&AuthIdentityGrantsListRequest {
             limit: 100,
             offset: None,
+            user: None,
         })
         .await
         .into_diagnostic()?;
@@ -342,46 +342,34 @@ pub(crate) async fn run_admin_api_fixture(
     let device_contract_id = format!("trellis.integration-admin-device-{suffix}@v1");
     let device_contract_json = device_contract_json(&device_contract_id)?;
     let device_contract_digest = digest_contract_json(&device_contract_json).into_diagnostic()?;
-    let expanded = auth_client
-        .rpc()
-        .auth()
-        .envelopes_expand(&AuthEnvelopesExpandRequest {
-            contract: contract_json_object(&service_contract_json)?,
-            deployment_id: service_deployment_id.clone(),
-            expected_digest: service_contract_digest.clone(),
-        })
-        .await
-        .into_diagnostic()?;
-    if expanded.envelope.deployment_id != service_deployment_id {
+    let service_plan = plan_accept_reconcile_deployment_authority(
+        &auth_client,
+        &service_deployment_id,
+        &service_contract_json,
+        &service_contract_digest,
+        "integration harness admin service authority setup",
+    )
+    .await?;
+    if service_plan.get("deploymentId").and_then(Value::as_str)
+        != Some(service_deployment_id.as_str())
+    {
         return Err(miette!(
-            "Auth.Envelopes.Expand returned envelope for unexpected deployment `{}`",
-            expanded.envelope.deployment_id
+            "Auth.DeploymentAuthority.Plan returned plan for unexpected deployment"
         ));
     }
-    if !expanded.contract_history.iter().any(|entry| {
-        entry.scope_id == service_deployment_id
-            && entry.source.contract_id.as_deref() == Some(service_contract_id.as_str())
-            && entry.source.contract_digest.as_deref() == Some(service_contract_digest.as_str())
-    }) {
-        return Err(miette!(
-            "Auth.Envelopes.Expand contract history did not identify expanded service contract `{service_contract_id}`"
-        ));
-    }
-    auth_client
-        .rpc()
-        .auth()
-        .envelopes_expand(&AuthEnvelopesExpandRequest {
-            contract: contract_json_object(&device_contract_json)?,
-            deployment_id: device_deployment_id.clone(),
-            expected_digest: device_contract_digest.clone(),
-        })
-        .await
-        .into_diagnostic()?;
+    plan_accept_reconcile_deployment_authority(
+        &auth_client,
+        &device_deployment_id,
+        &device_contract_json,
+        &device_contract_digest,
+        "integration harness admin device authority setup",
+    )
+    .await?;
 
-    let envelopes = auth_client
+    let authorities = auth_client
         .rpc()
         .auth()
-        .envelopes_list(&AuthEnvelopesListRequest {
+        .deployment_authority_list(&AuthDeploymentAuthorityListRequest {
             disabled: None,
             kind: None,
             limit: 100,
@@ -389,41 +377,29 @@ pub(crate) async fn run_admin_api_fixture(
         })
         .await
         .into_diagnostic()?;
-    if !envelopes
+    if !authorities
         .entries
         .iter()
-        .any(|envelope| envelope.deployment_id == service_deployment_id)
+        .any(|authority| authority.deployment_id == service_deployment_id)
     {
         return Err(miette!(
-            "Auth.Envelopes.List did not include `{service_deployment_id}`"
+            "Auth.DeploymentAuthority.List did not include `{service_deployment_id}`"
         ));
     }
 
-    let envelope = auth_client
+    let authority = auth_client
         .rpc()
         .auth()
-        .envelopes_get(&AuthEnvelopesGetRequest {
+        .deployment_authority_get(&AuthDeploymentAuthorityGetRequest {
             deployment_id: service_deployment_id.clone(),
         })
         .await
         .into_diagnostic()?;
-    if !envelope.contract_history.iter().any(|entry| {
-        entry.scope_id == service_deployment_id
-            && entry.source.contract_id.as_deref() == Some(service_contract_id.as_str())
-            && entry.source.contract_digest.as_deref() == Some(service_contract_digest.as_str())
+    if !authority.authority.desired_state.needs.iter().any(|need| {
+        need.get("contractId").and_then(Value::as_str) == Some(service_contract_id.as_str())
     }) {
         return Err(miette!(
-            "Auth.Envelopes.Get contract history did not identify expanded service contract `{service_contract_id}`"
-        ));
-    }
-    if envelope.implementation_offers.iter().any(|offer| {
-        offer.deployment_id == service_deployment_id
-            && offer.contract_id == service_contract_id
-            && offer.contract_digest == service_contract_digest
-            && offer.status == "accepted"
-    }) {
-        return Err(miette!(
-            "Auth.Envelopes.Get included an accepted service offer before service bootstrap for `{service_contract_id}`"
+            "Auth.DeploymentAuthority.Get desired state did not identify service contract `{service_contract_id}`"
         ));
     }
     let cold_catalog = core_client
@@ -473,30 +449,26 @@ pub(crate) async fn run_admin_api_fixture(
         trellis_url,
         &service_contract_id,
         &service_contract_digest,
+        &service_contract_json,
         &service_seed,
     )
     .await?;
-    let envelope_after_service_bootstrap = auth_client
+    let authority_after_service_bootstrap = auth_client
         .rpc()
         .auth()
-        .envelopes_get(&AuthEnvelopesGetRequest {
+        .deployment_authority_get(&AuthDeploymentAuthorityGetRequest {
             deployment_id: service_deployment_id.clone(),
         })
         .await
         .into_diagnostic()?;
-    if !envelope_after_service_bootstrap
-        .implementation_offers
-        .iter()
-        .any(|offer| {
-            offer.deployment_id == service_deployment_id
-                && offer.contract_id == service_contract_id
-                && offer.contract_digest == service_contract_digest
-                && offer.deployment_kind == "service"
-                && offer.status == "accepted"
-        })
+    if authority_after_service_bootstrap
+        .materialized_authority
+        .get("status")
+        .and_then(Value::as_str)
+        != Some("current")
     {
         return Err(miette!(
-            "Auth.Envelopes.Get implementation offers did not include accepted service offer for `{service_contract_id}` after service bootstrap"
+            "Auth.DeploymentAuthority.Get materialized authority was not current after service bootstrap"
         ));
     }
     let active_catalog = core_client
@@ -579,7 +551,7 @@ pub(crate) async fn run_admin_api_fixture(
         .await
         .into_diagnostic()?;
     if surface_status.status.get("state") != Some(&json!("unavailable"))
-        || surface_status.status.get("reason") != Some(&json!("envelope_unavailable"))
+        || surface_status.status.get("reason") != Some(&json!("authority_unavailable"))
     {
         return Err(miette!(
             "Trellis.Surface.Status returned unexpected status {}",
@@ -897,7 +869,7 @@ async fn assert_trellis_surface_status_unavailable(
         .await
         .into_diagnostic()?;
     if surface_status.status.get("state") != Some(&json!("unavailable"))
-        || surface_status.status.get("reason") != Some(&json!("envelope_unavailable"))
+        || surface_status.status.get("reason") != Some(&json!("authority_unavailable"))
     {
         return Err(miette!(
             "Trellis.Surface.Status returned unexpected inactive device surface status {}",
@@ -911,17 +883,22 @@ async fn assert_trellis_bindings_get(
     trellis_url: &str,
     contract_id: &str,
     contract_digest: &str,
+    contract_json: &str,
     service_seed: &str,
 ) -> Result<()> {
-    let service_client = TrellisClient::connect_service(ServiceConnectOptions {
-        trellis_url,
-        contract_id,
-        contract_digest,
-        session_key_seed_base64url: service_seed,
-        timeout_ms: 5_000,
-    })
-    .await
-    .into_diagnostic()?;
+    let service_client =
+        TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
+            trellis_url,
+            contract_id,
+            contract_digest,
+            contract_json,
+            session_key_seed_base64url: service_seed,
+            timeout_ms: 5_000,
+            retry_delay_ms: 200,
+            authority_pending_timeout_ms: 5_000,
+        })
+        .await
+        .into_diagnostic()?;
     let response = service_client
         .call::<TrellisBindingsGetRpc>(&TrellisBindingsGetRequest {
             contract_id: Some(contract_id.to_string()),
@@ -1069,9 +1046,4 @@ fn current_iat() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs() as i64)
         .unwrap_or_default()
-}
-
-fn contract_json_object(contract_json: &str) -> Result<BTreeMap<String, Value>> {
-    serde_json::from_str(contract_json)
-        .map_err(|error| miette!("failed to parse admin API contract JSON: {error}"))
 }

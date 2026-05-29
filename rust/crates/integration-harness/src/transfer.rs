@@ -20,7 +20,6 @@ use trellis::contracts::{
     ContractManifestBuilder,
 };
 use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
-use trellis::sdk::auth::types::AuthEnvelopesExpandRequest;
 use trellis::service::{
     plan_download_transfer_grant, plan_upload_transfer_grant, spawn_download_transfer_endpoint,
     spawn_upload_transfer_endpoint_with_completion, ConnectedServiceRuntime,
@@ -33,6 +32,7 @@ use trellis::service::{
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
 use crate::deno_fixture::{deno_fixture_log_paths, deno_fixture_path};
+use crate::deployment_authority::plan_accept_reconcile_deployment_authority;
 use crate::workspace::repo_root;
 
 const HARNESS_DEPLOYMENT_ID: &str = "harness.transfer";
@@ -385,16 +385,14 @@ pub(crate) async fn run_transfer_fixture(
 
         let contract_digest = digest_contract_json(&service_contract_json).into_diagnostic()?;
         let sdk_auth_client = SdkAuthClient::new(&admin_client);
-        sdk_auth_client
-            .rpc()
-            .auth()
-            .envelopes_expand(&AuthEnvelopesExpandRequest {
-                contract: contract_json_object(&service_contract_json)?,
-                deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
-                expected_digest: contract_digest.clone(),
-            })
-            .await
-            .into_diagnostic()?;
+        plan_accept_reconcile_deployment_authority(
+            &sdk_auth_client,
+            HARNESS_DEPLOYMENT_ID,
+            &service_contract_json,
+            &contract_digest,
+            "integration harness transfer service setup",
+        )
+        .await?;
 
         let (rust_service_seed, rust_service_key) = generate_session_keypair();
         auth_client
@@ -1183,7 +1181,7 @@ async fn connect_service_with_retry(
         session_key_seed_base64url: service_seed,
         timeout_ms: 5_000,
         retry_delay_ms: 250,
-        approval_timeout_ms: 30_000,
+        authority_pending_timeout_ms: 30_000,
     })
     .await
 }
@@ -1193,9 +1191,4 @@ fn unique_suffix() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
         .unwrap_or_default()
-}
-
-fn contract_json_object(contract_json: &str) -> Result<BTreeMap<String, Value>> {
-    serde_json::from_str(contract_json)
-        .map_err(|error| miette!("failed to parse harness transfer contract JSON: {error}"))
 }

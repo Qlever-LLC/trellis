@@ -1,6 +1,6 @@
 <script lang="ts">
   import { isErr, type AsyncResult, type BaseError } from "@qlever-llc/result";
-  import type { DeploymentGrantOverride } from "@qlever-llc/trellis/auth";
+  import type { DeploymentAuthorityGrantOverride } from "@qlever-llc/trellis/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
   import ConfirmationModal from "$lib/components/ConfirmationModal.svelte";
@@ -19,21 +19,21 @@
     limit: number;
   };
   type GrantOverrideListOutput = {
-    entries: DeploymentGrantOverride[];
+    entries: DeploymentAuthorityGrantOverride[];
     nextOffset?: number;
   };
   type GrantOverrideMutationOutput = {
-    grantOverrides: DeploymentGrantOverride[];
+    grantOverrides: DeploymentAuthorityGrantOverride[];
   };
   type GrantOverrideMutationInput = {
     deploymentId: string;
-    overrides: DeploymentGrantOverride[];
+    overrides: DeploymentAuthorityGrantOverride[];
   };
   type AuthRpcClient = {
-    request(subject: "Auth.Envelopes.GrantOverrides.List", input: ListPageInput): AsyncResult<GrantOverrideListOutput, BaseError>;
-    request(subject: "Auth.Envelopes.GrantOverrides.Remove", input: GrantOverrideMutationInput): AsyncResult<GrantOverrideMutationOutput, BaseError>;
+    request(subject: "Auth.DeploymentAuthority.GrantOverrides.List", input: ListPageInput): AsyncResult<GrantOverrideListOutput, BaseError>;
+    request(subject: "Auth.DeploymentAuthority.GrantOverrides.Remove", input: GrantOverrideMutationInput): AsyncResult<GrantOverrideMutationOutput, BaseError>;
   };
-  type GrantOverrideRow = DeploymentGrantOverride;
+  type GrantOverrideRow = DeploymentAuthorityGrantOverride;
   type GrantOverrideGroup = {
     key: string;
     deploymentId: string;
@@ -68,7 +68,7 @@
     return Array.from(new Set(values.map((value) => value.trim()).filter((value) => value.length > 0)));
   }
 
-  function grantOverrideKey(override: DeploymentGrantOverride): string {
+  function grantOverrideKey(override: DeploymentAuthorityGrantOverride): string {
     return [
       override.deploymentId,
       override.identityKind,
@@ -80,7 +80,7 @@
     ].join("|");
   }
 
-  function grantTargetKey(override: DeploymentGrantOverride): string {
+  function grantTargetKey(override: DeploymentAuthorityGrantOverride): string {
     return [
       override.deploymentId,
       override.identityKind,
@@ -90,7 +90,7 @@
     ].join("|");
   }
 
-  function grantOverrideReference(override: DeploymentGrantOverride): string {
+  function grantOverrideReference(override: DeploymentAuthorityGrantOverride): string {
     return override.grantKind === "capability" ? override.capability : override.capabilityGroupKey;
   }
 
@@ -127,7 +127,7 @@
     })).sort((left, right) => left.key.localeCompare(right.key));
   }
 
-  function rowToOverride(row: GrantOverrideRow): DeploymentGrantOverride {
+  function rowToOverride(row: GrantOverrideRow): DeploymentAuthorityGrantOverride {
     if (row.identityKind === "web") {
       if (row.grantKind === "capability") {
         return {
@@ -203,11 +203,11 @@
     }
   }
 
-  async function loadAllGrantOverrides(): Promise<DeploymentGrantOverride[]> {
-    const entries: DeploymentGrantOverride[] = [];
+  async function loadAllGrantOverrides(): Promise<DeploymentAuthorityGrantOverride[]> {
+    const entries: DeploymentAuthorityGrantOverride[] = [];
     let offset = 0;
     while (true) {
-      const response = await authRpc.request("Auth.Envelopes.GrantOverrides.List", { limit: 500, offset }).take();
+      const response = await authRpc.request("Auth.DeploymentAuthority.GrantOverrides.List", { limit: 500, offset }).take();
       if (isErr(response)) throw new Error(errorMessage(response));
       entries.push(...response.entries);
       if (response.nextOffset === undefined) return entries;
@@ -221,7 +221,7 @@
     error = null;
     saved = null;
     try {
-      const response = await authRpc.request("Auth.Envelopes.GrantOverrides.Remove", {
+      const response = await authRpc.request("Auth.DeploymentAuthority.GrantOverrides.Remove", {
         deploymentId: group.deploymentId,
         overrides: group.rows.map(rowToOverride),
       }).take();
@@ -276,7 +276,7 @@
     <div class="flex flex-col gap-3 border-y border-base-300 bg-base-100/45 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
       <div class="min-w-0">
         <p class="text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-base-content/45">Grant override policy</p>
-        <p class="mt-1 text-sm text-base-content/60">Overrides can satisfy approval prompts when an enabled authority deployment makes a matching web origin or session key request available.</p>
+        <p class="mt-1 text-sm text-base-content/60">Overrides can satisfy delegated grant prompts when an enabled deployment authority makes a matching web origin or session key request available.</p>
       </div>
       <div class="flex shrink-0 flex-wrap items-center gap-2">
         <span class="badge badge-ghost badge-sm">{groupGrantOverrides(rows).length} grants</span>
@@ -287,7 +287,7 @@
 
     <Panel title="Grant overrides" eyebrow="Primary policy table">
       {#if rows.length === 0}
-        <EmptyState title="No grant overrides" description="No authority deployment grant overrides are configured across the loaded envelopes." />
+        <EmptyState title="No grant overrides" description="No deployment authority grant overrides are configured." />
       {:else}
         <DataTable size="xs" fixed class="grants-table min-w-[920px] border-b border-base-300 bg-base-100/30">
             <colgroup>

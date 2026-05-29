@@ -7,7 +7,14 @@ import type {
   TrellisContractV1,
 } from "@qlever-llc/trellis/contracts";
 
-import { getContractResourceAnalysis } from "../catalog/resources.ts";
+import {
+  type EventConsumerGroupRequest,
+  getContractResourceAnalysis,
+  getEventConsumerGroupRequests,
+  type JobsQueueRequest,
+  type KvResourceRequest,
+  type StoreResourceRequest,
+} from "../catalog/resources.ts";
 import type { ContractsModule } from "../catalog/runtime.ts";
 import {
   type ContractEntry,
@@ -18,15 +25,15 @@ import {
 } from "../catalog/uses.ts";
 import { operationControlCapabilityRules } from "../catalog/permissions.ts";
 import type {
-  EnvelopeBoundary,
-  EnvelopeBoundaryContract,
-  EnvelopeBoundaryResource,
-  EnvelopeBoundarySurface,
-  EnvelopeSurfaceAction,
-  EnvelopeSurfaceKind,
+  AuthorityNeedSet,
+  AuthorityNeedSetContract,
+  AuthorityNeedSetResource,
+  AuthorityNeedSetSurface,
+  AuthoritySurfaceAction,
+  AuthoritySurfaceKind,
 } from "./schemas.ts";
 
-const EMPTY_BOUNDARY: EnvelopeBoundary = {
+const EMPTY_AUTHORITY_NEEDS: AuthorityNeedSet = {
   contracts: [],
   surfaces: [],
   capabilities: [],
@@ -50,19 +57,19 @@ type ContractUsesGrouped = {
 
 type ContractWithUses = TrellisContractV1 & { uses?: ContractUses };
 
-export type ContractEnvelopeBoundary = {
+export type ContractProposalAnalysis = {
   contract: {
     id: string;
     digest: string;
     kind: TrellisContractV1["kind"];
   };
-  required: EnvelopeBoundary;
-  optional: EnvelopeBoundary;
-  resources: EnvelopeBoundaryResource[];
-  contributedAvailability: EnvelopeBoundary;
+  required: AuthorityNeedSet;
+  optional: AuthorityNeedSet;
+  resources: AuthorityNeedSetResource[];
+  contributedAvailability: AuthorityNeedSet;
 };
 
-type ContractBoundaryDeps =
+type ContractProposalDeps =
   & Pick<
     ContractsModule,
     "validateContract" | "getActiveEntries"
@@ -70,20 +77,20 @@ type ContractBoundaryDeps =
   & {
     getKnownEntriesByContractId?:
       ContractsModule["getKnownEntriesByContractId"];
-    getApprovedFallbackEntryByContractId?: (
+    getAcceptedFallbackEntryByContractId?: (
       contractId: string,
     ) => Promise<ContractEntry | undefined>;
   };
 
-type ContractEnvelopeBoundaryOptions = {
+type ContractProposalAnalysisOptions = {
   dependencyResolution?:
     | "active"
-    | "activeOrApproved"
+    | "activeOrAccepted"
     | "known"
     | "knownOrPending";
 };
 
-function emptyBoundary(): EnvelopeBoundary {
+function emptyAuthorityNeeds(): AuthorityNeedSet {
   return {
     contracts: [],
     surfaces: [],
@@ -109,12 +116,12 @@ function withUses(
 }
 
 function pushSurface(
-  surfaces: EnvelopeBoundarySurface[],
+  surfaces: AuthorityNeedSetSurface[],
   options: {
     contractId: string;
-    kind: EnvelopeSurfaceKind;
+    kind: AuthoritySurfaceKind;
     name: string;
-    action: EnvelopeSurfaceAction;
+    action: AuthoritySurfaceAction;
     required: boolean;
   },
 ): void {
@@ -122,26 +129,40 @@ function pushSurface(
 }
 
 function addTransferResource(
-  resources: EnvelopeBoundaryResource[],
+  resources: AuthorityNeedSetResource[],
+  contractId: string,
+  surfaceKind: "rpc" | "operation",
+  surfaceName: string,
   direction: "receive" | "send",
   required: boolean,
+  transfer?: { direction?: string; store?: string; key?: string },
 ): void {
   resources.push({
     kind: "transfer",
-    alias: direction === "receive" ? "download" : "upload",
+    alias: `${contractId}:${surfaceKind}:${surfaceName}:${direction}`,
     required,
+    definition: {
+      type: "transfer",
+      direction,
+      contractId,
+      surfaceKind,
+      surface: surfaceName,
+      materialization: "backing-store",
+      ...(transfer?.store === undefined ? {} : { store: transfer.store }),
+      ...(transfer?.key === undefined ? {} : { key: transfer.key }),
+    },
   });
 }
 
 function addRpc(
-  boundary: EnvelopeBoundary,
+  needs: AuthorityNeedSet,
   contractId: string,
   name: string,
   method: ContractRpcMethod,
   required: boolean,
   options: { includeCapabilities?: boolean } = {},
 ): void {
-  pushSurface(boundary.surfaces, {
+  pushSurface(needs.surfaces, {
     contractId,
     kind: "rpc",
     name,
@@ -149,15 +170,23 @@ function addRpc(
     required,
   });
   if (options.includeCapabilities ?? true) {
-    boundary.capabilities.push(...(method.capabilities?.call ?? []));
+    needs.capabilities.push(...(method.capabilities?.call ?? []));
   }
   if (method.transfer?.direction === "receive") {
-    addTransferResource(boundary.resources, "receive", required);
+    addTransferResource(
+      needs.resources,
+      contractId,
+      "rpc",
+      name,
+      "receive",
+      required,
+      method.transfer,
+    );
   }
 }
 
 function addOperation(
-  boundary: EnvelopeBoundary,
+  needs: AuthorityNeedSet,
   contractId: string,
   name: string,
   operation: ContractOperation,
@@ -165,7 +194,7 @@ function addOperation(
   options: { includeCapabilities?: boolean } = {},
 ): void {
   const includeCapabilities = options.includeCapabilities ?? true;
-  pushSurface(boundary.surfaces, {
+  pushSurface(needs.surfaces, {
     contractId,
     kind: "operation",
     name,
@@ -173,10 +202,10 @@ function addOperation(
     required,
   });
   if (includeCapabilities) {
-    boundary.capabilities.push(...(operation.capabilities?.call ?? []));
+    needs.capabilities.push(...(operation.capabilities?.call ?? []));
   }
 
-  pushSurface(boundary.surfaces, {
+  pushSurface(needs.surfaces, {
     contractId,
     kind: "operation",
     name,
@@ -184,15 +213,15 @@ function addOperation(
     required,
   });
   if (includeCapabilities) {
-    boundary.capabilities.push(
+    needs.capabilities.push(
       ...(operation.capabilities?.observe ?? operation.capabilities?.call ??
         []),
     );
-    boundary.capabilities.push(...(operation.capabilities?.control ?? []));
+    needs.capabilities.push(...(operation.capabilities?.control ?? []));
   }
 
   if (operation.cancel) {
-    pushSurface(boundary.surfaces, {
+    pushSurface(needs.surfaces, {
       contractId,
       kind: "operation",
       name,
@@ -200,17 +229,25 @@ function addOperation(
       required,
     });
     for (const capabilities of operationControlCapabilityRules(operation)) {
-      if (includeCapabilities) boundary.capabilities.push(...capabilities);
+      if (includeCapabilities) needs.capabilities.push(...capabilities);
     }
   }
 
   if (operation.transfer?.direction === "send") {
-    addTransferResource(boundary.resources, "send", required);
+    addTransferResource(
+      needs.resources,
+      contractId,
+      "operation",
+      name,
+      "send",
+      required,
+      operation.transfer,
+    );
   }
 }
 
 function addEvent(
-  boundary: EnvelopeBoundary,
+  needs: AuthorityNeedSet,
   contractId: string,
   name: string,
   event: ContractEvent,
@@ -218,7 +255,7 @@ function addEvent(
   required: boolean,
   options: { includeCapabilities?: boolean } = {},
 ): void {
-  pushSurface(boundary.surfaces, {
+  pushSurface(needs.surfaces, {
     contractId,
     kind: "event",
     name,
@@ -226,19 +263,19 @@ function addEvent(
     required,
   });
   if (options.includeCapabilities ?? true) {
-    boundary.capabilities.push(...(event.capabilities?.[action] ?? []));
+    needs.capabilities.push(...(event.capabilities?.[action] ?? []));
   }
 }
 
 function addFeed(
-  boundary: EnvelopeBoundary,
+  needs: AuthorityNeedSet,
   contractId: string,
   name: string,
   feed: ContractFeed,
   required: boolean,
   options: { includeCapabilities?: boolean } = {},
 ): void {
-  pushSurface(boundary.surfaces, {
+  pushSurface(needs.surfaces, {
     contractId,
     kind: "feed",
     name,
@@ -246,11 +283,11 @@ function addFeed(
     required,
   });
   if (options.includeCapabilities ?? true) {
-    boundary.capabilities.push(...(feed.capabilities?.subscribe ?? []));
+    needs.capabilities.push(...(feed.capabilities?.subscribe ?? []));
   }
 }
 
-function surfaceKey(surface: EnvelopeBoundarySurface): string {
+function surfaceKey(surface: AuthorityNeedSetSurface): string {
   return [
     surface.contractId,
     surface.kind,
@@ -260,29 +297,29 @@ function surfaceKey(surface: EnvelopeBoundarySurface): string {
   ].join("\u001f");
 }
 
-function resourceKey(resource: EnvelopeBoundaryResource): string {
+function resourceKey(resource: AuthorityNeedSetResource): string {
   return [resource.kind, resource.alias, String(resource.required)].join(
     "\u001f",
   );
 }
 
-function contractKey(contract: EnvelopeBoundaryContract): string {
+function contractKey(contract: AuthorityNeedSetContract): string {
   return [contract.contractId, String(contract.required)].join("\u001f");
 }
 
-function normalizeBoundary(boundary: EnvelopeBoundary): EnvelopeBoundary {
-  const contracts = new Map<string, EnvelopeBoundaryContract>();
-  for (const contract of boundary.contracts) {
+function normalizeAuthorityNeeds(needs: AuthorityNeedSet): AuthorityNeedSet {
+  const contracts = new Map<string, AuthorityNeedSetContract>();
+  for (const contract of needs.contracts) {
     contracts.set(contractKey(contract), contract);
   }
 
-  const surfaces = new Map<string, EnvelopeBoundarySurface>();
-  for (const surface of boundary.surfaces) {
+  const surfaces = new Map<string, AuthorityNeedSetSurface>();
+  for (const surface of needs.surfaces) {
     surfaces.set(surfaceKey(surface), surface);
   }
 
-  const resources = new Map<string, EnvelopeBoundaryResource>();
-  for (const resource of boundary.resources) {
+  const resources = new Map<string, AuthorityNeedSetResource>();
+  for (const resource of needs.resources) {
     resources.set(resourceKey(resource), resource);
   }
 
@@ -295,10 +332,10 @@ function normalizeBoundary(boundary: EnvelopeBoundary): EnvelopeBoundary {
       left.contractId.localeCompare(right.contractId) ||
       left.kind.localeCompare(right.kind) ||
       left.name.localeCompare(right.name) ||
-      left.action.localeCompare(right.action) ||
+      (left.action ?? "").localeCompare(right.action ?? "") ||
       String(left.required).localeCompare(String(right.required))
     ),
-    capabilities: sortUniqueStrings(boundary.capabilities),
+    capabilities: sortUniqueStrings(needs.capabilities),
     resources: [...resources.values()].sort((left, right) =>
       left.kind.localeCompare(right.kind) ||
       left.alias.localeCompare(right.alias) ||
@@ -334,7 +371,7 @@ function selectResolvableKnownOrPendingUses(args: {
   }
 
   // Stale inactive manifests can be incompatible with each other and have no
-  // direct admin repair action. Treat those dependencies as unresolved blockers.
+  // direct admin remediation path. Treat those dependencies as unresolved blockers.
   const entriesByContractId = groupEntriesByContractId(args.entries);
   const selectedEntries = new Map<string, ContractEntry>();
   const selectedUses: ContractUsesFlat = {};
@@ -368,20 +405,20 @@ function selectResolvableKnownOrPendingUses(args: {
   };
 }
 
-async function deriveUseBoundary(
-  contracts: ContractBoundaryDeps,
+async function deriveUseNeeds(
+  contracts: ContractProposalDeps,
   contract: TrellisContractV1,
   key: "required" | "optional",
   uses: ContractUsesFlat | undefined,
-  options: ContractEnvelopeBoundaryOptions,
-): Promise<EnvelopeBoundary> {
+  options: ContractProposalAnalysisOptions,
+): Promise<AuthorityNeedSet> {
   const required = key === "required";
-  const boundary = emptyBoundary();
+  const needs = emptyAuthorityNeeds();
   const dependencyResolution = options.dependencyResolution ?? "active";
   let entries = dependencyResolution === "active"
     ? await contracts.getActiveEntries()
-    : dependencyResolution === "activeOrApproved"
-    ? await getActiveOrApprovedDependencyEntries(contracts, uses)
+    : dependencyResolution === "activeOrAccepted"
+    ? await getActiveOrAcceptedDependencyEntries(contracts, uses)
     : await getKnownDependencyEntries(contracts, uses);
   let entryIds = new Set(entries.map((entry) => entry.contract.id));
   let resolvableUses = dependencyResolution === "knownOrPending"
@@ -402,7 +439,7 @@ async function deriveUseBoundary(
 
   const contractWithUses = withUses(contract, key, resolvableUses);
   const resolved = dependencyResolution === "active" ||
-      dependencyResolution === "activeOrApproved"
+      dependencyResolution === "activeOrAccepted"
     ? resolveContractUsesFromEntries(entries, contractWithUses)
     : resolveContractUsesFromKnownEntries(entries, contractWithUses);
 
@@ -411,18 +448,18 @@ async function deriveUseBoundary(
       entryIds.has(use.contract) ||
       (required && dependencyResolution === "knownOrPending")
     ) {
-      boundary.contracts.push({ contractId: use.contract, required });
+      needs.contracts.push({ contractId: use.contract, required });
     }
   }
 
   for (const method of resolved.rpcCalls) {
-    boundary.contracts.push({ contractId: method.contractId, required });
-    addRpc(boundary, method.contractId, method.key, method.method, required);
+    needs.contracts.push({ contractId: method.contractId, required });
+    addRpc(needs, method.contractId, method.key, method.method, required);
   }
   for (const operation of resolved.operationCalls) {
-    boundary.contracts.push({ contractId: operation.contractId, required });
+    needs.contracts.push({ contractId: operation.contractId, required });
     addOperation(
-      boundary,
+      needs,
       operation.contractId,
       operation.key,
       operation.operation,
@@ -430,9 +467,9 @@ async function deriveUseBoundary(
     );
   }
   for (const event of resolved.eventPublishes) {
-    boundary.contracts.push({ contractId: event.contractId, required });
+    needs.contracts.push({ contractId: event.contractId, required });
     addEvent(
-      boundary,
+      needs,
       event.contractId,
       event.key,
       event.event,
@@ -441,9 +478,9 @@ async function deriveUseBoundary(
     );
   }
   for (const event of resolved.eventSubscribes) {
-    boundary.contracts.push({ contractId: event.contractId, required });
+    needs.contracts.push({ contractId: event.contractId, required });
     addEvent(
-      boundary,
+      needs,
       event.contractId,
       event.key,
       event.event,
@@ -452,15 +489,15 @@ async function deriveUseBoundary(
     );
   }
   for (const feed of resolved.feedSubscribes) {
-    boundary.contracts.push({ contractId: feed.contractId, required });
-    addFeed(boundary, feed.contractId, feed.key, feed.feed, required);
+    needs.contracts.push({ contractId: feed.contractId, required });
+    addFeed(needs, feed.contractId, feed.key, feed.feed, required);
   }
 
-  return normalizeBoundary(boundary);
+  return normalizeAuthorityNeeds(needs);
 }
 
-async function getActiveOrApprovedDependencyEntries(
-  contracts: ContractBoundaryDeps,
+async function getActiveOrAcceptedDependencyEntries(
+  contracts: ContractProposalDeps,
   uses: ContractUsesFlat | undefined,
 ): Promise<ContractEntry[]> {
   const activeEntries = await contracts.getActiveEntries();
@@ -479,7 +516,7 @@ async function getActiveOrApprovedDependencyEntries(
     )
   ) {
     if (activeContractIds.has(contractId)) continue;
-    const fallback = await contracts.getApprovedFallbackEntryByContractId?.(
+    const fallback = await contracts.getAcceptedFallbackEntryByContractId?.(
       contractId,
     );
     if (fallback) entriesByDigest.set(fallback.digest, fallback);
@@ -501,7 +538,7 @@ function usesForKnownEntries(
 }
 
 async function getKnownDependencyEntries(
-  contracts: ContractBoundaryDeps,
+  contracts: ContractProposalDeps,
   uses: ContractUsesFlat | undefined,
 ): Promise<ContractEntry[]> {
   if (!uses || Object.keys(uses).length === 0) return [];
@@ -521,12 +558,12 @@ async function getKnownDependencyEntries(
     )
   ) {
     const activeEntries = activeEntriesByContractId.get(contractId);
-    const approvedFallback = activeEntries === undefined
-      ? await contracts.getApprovedFallbackEntryByContractId?.(contractId)
+    const acceptedFallback = activeEntries === undefined
+      ? await contracts.getAcceptedFallbackEntryByContractId?.(contractId)
       : undefined;
     const dependencyEntries = activeEntries ??
-      (approvedFallback
-        ? [approvedFallback]
+      (acceptedFallback
+        ? [acceptedFallback]
         : await contracts.getKnownEntriesByContractId(contractId));
     for (const entry of dependencyEntries) {
       entriesByDigest.set(entry.digest, entry);
@@ -547,30 +584,157 @@ function optionalUsesWithoutRequiredAliases(
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function contractSchemaMetadata(
+  contract: TrellisContractV1,
+  schema: { schema?: string } | undefined,
+): Record<string, unknown> | undefined {
+  if (!schema?.schema) return undefined;
+  return {
+    name: schema.schema,
+    exported: contract.exports?.schemas?.includes(schema.schema) ?? false,
+  };
+}
+
+function kvDefinition(
+  contract: TrellisContractV1,
+  resource: KvResourceRequest,
+): Record<string, unknown> {
+  const declared = contract.resources?.kv?.[resource.alias];
+  const schema = contractSchemaMetadata(contract, declared?.schema);
+  return {
+    type: "kv",
+    history: resource.history,
+    ttlMs: resource.ttlMs,
+    ...(resource.maxValueBytes === undefined
+      ? {}
+      : { maxValueBytes: resource.maxValueBytes }),
+    ...(schema === undefined ? {} : { schema }),
+  };
+}
+
+function storeDefinition(
+  resource: StoreResourceRequest,
+): Record<string, unknown> {
+  return {
+    type: "store",
+    ttlMs: resource.ttlMs,
+    ...(resource.maxObjectBytes === undefined
+      ? {}
+      : { maxObjectBytes: resource.maxObjectBytes }),
+    ...(resource.maxTotalBytes === undefined
+      ? {}
+      : { maxTotalBytes: resource.maxTotalBytes }),
+  };
+}
+
+function jobsDefinition(queue: JobsQueueRequest): Record<string, unknown> {
+  return {
+    type: "jobs-queue",
+    queueType: queue.queueType,
+    payload: queue.payload,
+    ...(queue.result === undefined ? {} : { result: queue.result }),
+    maxDeliver: queue.maxDeliver,
+    backoffMs: queue.backoffMs,
+    ackWaitMs: queue.ackWaitMs,
+    ...(queue.defaultDeadlineMs === undefined
+      ? {}
+      : { defaultDeadlineMs: queue.defaultDeadlineMs }),
+    progress: queue.progress,
+    logs: queue.logs,
+    dlq: queue.dlq,
+    concurrency: queue.concurrency,
+  };
+}
+
+function eventConsumerEventRefs(
+  contract: TrellisContractV1,
+  alias: string,
+): Array<{ use: string; event: string }> {
+  const group = validatedEventConsumers(contract)[alias];
+  if (!isRecord(group) || !Array.isArray(group.events)) return [];
+  return group.events.flatMap((eventRef) => {
+    if (!isRecord(eventRef)) return [];
+    if (
+      typeof eventRef.use !== "string" || typeof eventRef.event !== "string"
+    ) {
+      return [];
+    }
+    return [{ use: eventRef.use, event: eventRef.event }];
+  });
+}
+
+function eventConsumerDefinition(
+  contract: TrellisContractV1,
+  consumer: EventConsumerGroupRequest,
+): Record<string, unknown> {
+  return {
+    type: "event-consumer",
+    stream: consumer.stream,
+    filterSubjects: consumer.filterSubjects,
+    eventRefs: eventConsumerEventRefs(contract, consumer.alias),
+    replay: consumer.replay,
+    ordering: consumer.ordering,
+    concurrency: consumer.concurrency,
+    ackWaitMs: consumer.ackWaitMs,
+    maxDeliver: consumer.maxDeliver,
+    backoffMs: consumer.backoffMs,
+  };
+}
+
+async function deriveEventConsumerRequests(
+  contracts: ContractProposalDeps,
+  contract: TrellisContractV1,
+  groupedUses: ContractUsesGrouped,
+  requested: Pick<AuthorityNeedSet, "surfaces">,
+  options: ContractProposalAnalysisOptions,
+): Promise<EventConsumerGroupRequest[]> {
+  if (Object.keys(validatedEventConsumers(contract)).length === 0) return [];
+  const uses = { ...groupedUses.required, ...groupedUses.optional };
+  const dependencyResolution = options.dependencyResolution ?? "active";
+  const entries = dependencyResolution === "active"
+    ? await contracts.getActiveEntries()
+    : dependencyResolution === "activeOrAccepted"
+    ? await getActiveOrAcceptedDependencyEntries(contracts, uses)
+    : await getKnownDependencyEntries(contracts, uses);
+  return getEventConsumerGroupRequests(contract, {
+    knownContractEntries: entries,
+    authorityNeeds: requested,
+  });
+}
+
 function deriveContractResources(
   contract: TrellisContractV1,
-): EnvelopeBoundaryResource[] {
+  eventConsumers: EventConsumerGroupRequest[],
+): AuthorityNeedSetResource[] {
   const resources = getContractResourceAnalysis(contract);
   return [
-    ...Object.keys(validatedEventConsumers(contract)).map((alias) => ({
+    ...eventConsumers.map((consumer) => ({
       kind: "event-consumer" as const,
-      alias,
+      alias: consumer.alias,
       required: true,
+      definition: eventConsumerDefinition(contract, consumer),
     })),
     ...resources.jobs.map((job) => ({
       kind: "jobs" as const,
       alias: job.queueType,
       required: true,
+      definition: jobsDefinition(job),
     })),
     ...resources.kv.map((resource) => ({
       kind: "kv" as const,
       alias: resource.alias,
       required: resource.required,
+      definition: kvDefinition(contract, resource),
     })),
     ...resources.store.map((resource) => ({
       kind: "store" as const,
       alias: resource.alias,
       required: resource.required,
+      definition: storeDefinition(resource),
     })),
   ].sort((left, right) =>
     left.kind.localeCompare(right.kind) || left.alias.localeCompare(right.alias)
@@ -588,92 +752,116 @@ function validatedEventConsumers(
 
 function deriveOwnTransferResources(
   contract: TrellisContractV1,
-): EnvelopeBoundaryResource[] {
-  const resources: EnvelopeBoundaryResource[] = [];
-  for (const method of Object.values(contract.rpc ?? {})) {
+): AuthorityNeedSetResource[] {
+  const resources: AuthorityNeedSetResource[] = [];
+  for (const [name, method] of Object.entries(contract.rpc ?? {})) {
     if (method.transfer?.direction === "receive") {
-      addTransferResource(resources, "receive", true);
+      addTransferResource(
+        resources,
+        contract.id,
+        "rpc",
+        name,
+        "receive",
+        true,
+        method.transfer,
+      );
     }
   }
-  for (const operation of Object.values(contract.operations ?? {})) {
+  for (const [name, operation] of Object.entries(contract.operations ?? {})) {
     if (operation.transfer?.direction === "send") {
-      addTransferResource(resources, "send", true);
+      addTransferResource(
+        resources,
+        contract.id,
+        "operation",
+        name,
+        "send",
+        true,
+        operation.transfer,
+      );
     }
   }
-  return normalizeBoundary({ ...EMPTY_BOUNDARY, resources }).resources;
+  return normalizeAuthorityNeeds({ ...EMPTY_AUTHORITY_NEEDS, resources })
+    .resources;
 }
 
 function deriveContributedAvailability(
   contract: TrellisContractV1,
-): EnvelopeBoundary {
-  const boundary = emptyBoundary();
-  boundary.contracts.push({ contractId: contract.id, required: true });
+): AuthorityNeedSet {
+  const needs = emptyAuthorityNeeds();
+  needs.contracts.push({ contractId: contract.id, required: true });
 
   for (const [name, method] of Object.entries(contract.rpc ?? {})) {
-    addRpc(boundary, contract.id, name, method, true, {
+    addRpc(needs, contract.id, name, method, true, {
       includeCapabilities: false,
     });
   }
   for (const [name, operation] of Object.entries(contract.operations ?? {})) {
-    addOperation(boundary, contract.id, name, operation, true, {
+    addOperation(needs, contract.id, name, operation, true, {
       includeCapabilities: false,
     });
   }
   for (const [name, event] of Object.entries(contract.events ?? {})) {
-    addEvent(boundary, contract.id, name, event, "publish", true, {
+    addEvent(needs, contract.id, name, event, "publish", true, {
       includeCapabilities: false,
     });
-    addEvent(boundary, contract.id, name, event, "subscribe", true, {
+    addEvent(needs, contract.id, name, event, "subscribe", true, {
       includeCapabilities: false,
     });
   }
   for (const [name, feed] of Object.entries(contract.feeds ?? {})) {
-    addFeed(boundary, contract.id, name, feed, true, {
+    addFeed(needs, contract.id, name, feed, true, {
       includeCapabilities: false,
     });
   }
 
-  boundary.resources = [];
-  return normalizeBoundary(boundary);
+  needs.resources = [];
+  return normalizeAuthorityNeeds(needs);
 }
 
 /**
- * Validates a raw contract and derives the reusable envelope boundaries for it.
+ * Validates a raw contract and derives the reusable desired need sets for it.
  */
-export async function analyzeContractEnvelopeBoundary(
-  contracts: ContractBoundaryDeps,
+export async function analyzeContractProposal(
+  contracts: ContractProposalDeps,
   rawContract: unknown,
-  options: ContractEnvelopeBoundaryOptions = {},
-): Promise<ContractEnvelopeBoundary> {
+  options: ContractProposalAnalysisOptions = {},
+): Promise<ContractProposalAnalysis> {
   const validated = await contracts.validateContract(rawContract);
   const groupedUses = getGroupedUses(validated.contract);
-  const required = await deriveUseBoundary(
+  const required = await deriveUseNeeds(
     contracts,
     validated.contract,
     "required",
     groupedUses.required,
     options,
   );
-  const optional = await deriveUseBoundary(
+  const optional = await deriveUseNeeds(
     contracts,
     validated.contract,
     "optional",
     optionalUsesWithoutRequiredAliases(groupedUses),
     options,
   );
-  const resources = deriveContractResources(validated.contract);
+  const eventConsumers = await deriveEventConsumerRequests(
+    contracts,
+    validated.contract,
+    groupedUses,
+    { surfaces: [...required.surfaces, ...optional.surfaces] },
+    options,
+  );
+  const resources = deriveContractResources(validated.contract, eventConsumers);
   const ownTransferResources = deriveOwnTransferResources(validated.contract);
 
-  required.resources = normalizeBoundary({
-    ...EMPTY_BOUNDARY,
+  required.resources = normalizeAuthorityNeeds({
+    ...EMPTY_AUTHORITY_NEEDS,
     resources: [
       ...required.resources,
       ...resources.filter((resource) => resource.required),
       ...ownTransferResources,
     ],
   }).resources;
-  optional.resources = normalizeBoundary({
-    ...EMPTY_BOUNDARY,
+  optional.resources = normalizeAuthorityNeeds({
+    ...EMPTY_AUTHORITY_NEEDS,
     resources: [
       ...optional.resources,
       ...resources.filter((resource) => !resource.required),
@@ -686,8 +874,8 @@ export async function analyzeContractEnvelopeBoundary(
       digest: validated.digest,
       kind: validated.contract.kind,
     },
-    required: normalizeBoundary(required),
-    optional: normalizeBoundary(optional),
+    required: normalizeAuthorityNeeds(required),
+    optional: normalizeAuthorityNeeds(optional),
     resources,
     contributedAvailability: deriveContributedAvailability(validated.contract),
   };

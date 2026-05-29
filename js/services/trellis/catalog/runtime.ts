@@ -1,7 +1,6 @@
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { isJsonValue } from "@qlever-llc/trellis/contracts";
 import type {
-  SqlDeploymentEnvelopeRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
   SqlImplementationOfferRepository,
@@ -31,6 +30,7 @@ import {
   validateActiveContractUses,
 } from "./uses.ts";
 import type { SqlContractStorageRepository } from "./storage.ts";
+import type { DeploymentAuthority } from "../auth/schemas.ts";
 
 type CatalogLogger = {
   warn: (fields: Record<string, unknown>, message: string) => void;
@@ -60,12 +60,13 @@ type DeviceDeploymentRecord = Awaited<
 type DeviceInstanceRecord = Awaited<
   ReturnType<SqlDeviceInstanceRepository["listPage"]>
 >[number];
-type DeploymentEnvelopeRecord = Awaited<
-  ReturnType<SqlDeploymentEnvelopeRepository["listPage"]>
->[number];
+type DeploymentAuthorityRecord = DeploymentAuthority;
 type ImplementationOfferRecord = Awaited<
   ReturnType<SqlImplementationOfferRepository["listActive"]>
 >[number];
+type DeploymentAuthorityStorage = {
+  listEnabled(): Promise<DeploymentAuthorityRecord[]>;
+};
 
 /** Describes an active catalog digest that was excluded from the effective runtime catalog. */
 export type ActiveCatalogIssue = {
@@ -103,7 +104,6 @@ type ActiveCatalogValidationOptions = {
   stagedServiceInstances?: Iterable<ServiceInstanceRecord>;
   stagedDeviceDeployments?: Iterable<DeviceDeploymentRecord>;
   stagedDeviceInstances?: Iterable<DeviceInstanceRecord>;
-  stagedDeploymentEnvelopes?: Iterable<DeploymentEnvelopeRecord>;
 };
 
 function describeContract(
@@ -313,10 +313,7 @@ export function createContractsModule(opts: {
     SqlImplementationOfferRepository,
     "listActive"
   >;
-  deploymentEnvelopeStorage: Pick<
-    SqlDeploymentEnvelopeRepository,
-    "listEnabled"
-  >;
+  deploymentAuthorityStorage: DeploymentAuthorityStorage;
   serviceInstanceStorage: SqlServiceInstanceRepository;
   serviceDeploymentStorage: SqlServiceDeploymentRepository;
   deviceDeploymentStorage: SqlDeviceDeploymentRepository;
@@ -692,7 +689,7 @@ export function createContractsModule(opts: {
       builtinContractIds: opts.builtinContracts.map(({ contract }) =>
         contract.id
       ),
-      deploymentEnvelopes: [],
+      deploymentAuthorities: [],
       implementationOffers: await opts.implementationOfferStorage
         ?.listActive() ?? [],
     });
@@ -785,7 +782,7 @@ export function createContractsModule(opts: {
       builtinContractIds: opts.builtinContracts.map(({ contract }) =>
         contract.id
       ),
-      deploymentEnvelopes: [],
+      deploymentAuthorities: [],
       implementationOffers,
     });
     for (const digest of validationOpts?.extraActiveDigests ?? []) {

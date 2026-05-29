@@ -3,13 +3,61 @@ import { approvalCapabilityKeys } from "@qlever-llc/trellis/auth";
 import type { ContractsModule } from "../../catalog/runtime.ts";
 import type { CapabilityGroupLoader } from "../capability_groups.ts";
 import { resolveCapabilities } from "../capability_groups.ts";
-import type { EnvelopeBoundary, UserSession } from "../schemas.ts";
+import type {
+  AuthorityNeedSet,
+  AuthorityNeedSetResource,
+  AuthorityNeedSetSurface,
+  UserSession,
+} from "../schemas.ts";
 import type { UserProjectionEntry } from "../schemas.ts";
 import { planUserContractApproval } from "../approval/plan.ts";
-import { analyzeContractEnvelopeBoundary } from "../boundary_analysis.ts";
-import { evaluateEnvelopeFit } from "../envelope_decision.ts";
+import { analyzeContractProposal } from "../contract_proposal_analysis.ts";
+import { evaluateProposalNeedsFit } from "../authority_needs_decision.ts";
 
-const EMPTY_BOUNDARY: EnvelopeBoundary = {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isBoundaryContract(
+  value: unknown,
+): value is AuthorityNeedSet["contracts"][number] {
+  return isRecord(value) && typeof value.contractId === "string" &&
+    typeof value.required === "boolean";
+}
+
+function isBoundarySurface(value: unknown): value is AuthorityNeedSetSurface {
+  return isRecord(value) && typeof value.contractId === "string" &&
+    typeof value.kind === "string" && typeof value.name === "string" &&
+    (value.action === undefined || typeof value.action === "string") &&
+    typeof value.required === "boolean";
+}
+
+function isBoundaryResource(value: unknown): value is AuthorityNeedSetResource {
+  return isRecord(value) && typeof value.kind === "string" &&
+    typeof value.alias === "string" && typeof value.required === "boolean";
+}
+
+function coerceAuthorityNeedSet(value: unknown): AuthorityNeedSet {
+  if (!isRecord(value)) return EMPTY_AUTHORITY_NEEDS;
+  const { contracts, surfaces, capabilities, resources } = value;
+  if (
+    !Array.isArray(contracts) || !Array.isArray(surfaces) ||
+    !Array.isArray(capabilities) || !Array.isArray(resources)
+  ) {
+    return EMPTY_AUTHORITY_NEEDS;
+  }
+  if (
+    !contracts.every(isBoundaryContract) ||
+    !surfaces.every(isBoundarySurface) ||
+    !capabilities.every((capability) => typeof capability === "string") ||
+    !resources.every(isBoundaryResource)
+  ) {
+    return EMPTY_AUTHORITY_NEEDS;
+  }
+  return { contracts, surfaces, capabilities, resources };
+}
+
+const EMPTY_AUTHORITY_NEEDS: AuthorityNeedSet = {
   contracts: [],
   surfaces: [],
   capabilities: [],
@@ -70,15 +118,20 @@ export async function resolveUserReconnectSession(args: {
     return { ok: false, reason: "contract_changed" };
   }
 
-  const requestedBoundary = (await analyzeContractEnvelopeBoundary(
+  const requestedNeeds = (await analyzeContractProposal(
     args.contracts,
     knownContract,
     { dependencyResolution: "known" },
   )).required;
-  const existingEnvelope = args.session.identityEnvelope ?? EMPTY_BOUNDARY;
-  const envelopeFit = evaluateEnvelopeFit(existingEnvelope, requestedBoundary);
+  const existingAuthority = coerceAuthorityNeedSet(
+    args.session.identityAuthorityNeeds,
+  );
+  const authorityFit = evaluateProposalNeedsFit(
+    existingAuthority,
+    requestedNeeds,
+  );
 
-  if (!envelopeFit.fits) {
+  if (!authorityFit.fits) {
     return { ok: false, reason: "approval_required" };
   }
   const resolvedCapabilities = await resolveCapabilities(
@@ -102,7 +155,7 @@ export async function resolveUserReconnectSession(args: {
       contractDisplayName: plan.contract.displayName,
       contractDescription: plan.contract.description,
       approvalSource: args.session.approvalSource ?? "stored_approval",
-      identityEnvelope: requestedBoundary,
+      identityAuthorityNeeds: requestedNeeds,
       delegatedCapabilities: approvalCapabilityKeys(plan.approval),
       delegatedPublishSubjects: plan.publishSubjects,
       delegatedSubscribeSubjects: plan.subscribeSubjects,

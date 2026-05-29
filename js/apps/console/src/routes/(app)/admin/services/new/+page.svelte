@@ -85,7 +85,7 @@
             <input type="radio" class="radio radio-sm mt-0.5" bind:group={contractCompatibilityMode} value="mutable-dev" />
             <span class="min-w-0">
               <span class="block text-sm font-medium">Mutable dev</span>
-              <span class="block text-xs leading-4 text-base-content/60">Development only. Permits incompatible same-contract replacement when the envelope fits.</span>
+              <span class="block text-xs leading-4 text-base-content/60">Development only. Permits incompatible same-contract replacement when deployment authority allows it.</span>
             </span>
           </label>
         </div>

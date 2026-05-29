@@ -49,7 +49,7 @@ trellis svc my-service apply --source /path/to/my-service
 trellis svc my-service provision
 ```
 
-The CLI creates the service deployment, submits the source contract boundary to the deployment envelope, then generates a service instance key and provisions an instance.
+The CLI creates the service deployment, submits the source contract boundary as a deployment authority proposal, then generates a service instance key and provisions an instance.
 
 The CLI will:
 
@@ -58,7 +58,7 @@ The CLI will:
 - infer deployment defaults such as display name, description, and namespaces
 - show a provisioning review before sending the request
 
-Envelope expansion verifies the submitted manifest boundary before making it available. Use Console as the primary review path: open **Admin → Services**, select the deployment, review the pending **Authority review required** delta, and approve or reject it there. Later contract changes should expand or shrink the deployment envelope rather than applying or removing individual digests.
+Authority review verifies the submitted manifest boundary before it can become runtime-available. Use Console as the primary review path: open **Admin → Services**, select the deployment, review the pending **Authority review required** delta, and accept or reject it there. Acceptance updates desired authority and schedules reconciliation; reconciliation materializes any resource and binding changes. Later contract changes should update deployment authority rather than applying or removing individual digests.
 
 ## 4. Store the seed immediately
 
@@ -77,7 +77,7 @@ Save the seed to your env file or secret store immediately. The CLI will not pri
 
 The printed `contractDigest` is runtime contract evidence. It is not the service
 deployment authority key; deployment authority comes from the service deployment
-envelope that you expand or shrink through Trellis Auth.
+authority that you update through Trellis Auth.
 
 ## 5. Start the service process
 
@@ -107,19 +107,19 @@ When you change the contract, regenerate artifacts and submit the new source bou
 trellis svc my-service apply --source /path/to/my-service
 ```
 
-Trellis validates the new boundary against known manifests, provisions any required resource changes before making it available, and keeps the service instance key the same. Restart the service process after applying the envelope. Production deployments use `strict` same-contract compatibility and reject incompatible replacement for an existing service instance; use a new `@vN` contract id for breaking production changes. Use `mutable-dev` only for unreleased local iteration. Shrink the envelope only when you want to remove boundary that is no longer needed.
+Trellis validates the new boundary against known manifests and creates a plan for any desired authority or resource changes. After you accept the plan, reconciliation provisions required resource changes before runtime availability, and the service instance key stays the same. Restart the service process after applying the authority update. Production deployments use `strict` same-contract compatibility. If a new digest is incompatible with the accepted same-contract digest, Trellis records a pending authority migration plan; review and explicitly accept it only when you intend that migration. Use a new `@vN` contract id for breaking production changes. Use `mutable-dev` only for unreleased local iteration; it records and auto-accepts the same migration plan instead of waiting for manual approval. Remove authority only when you want to remove boundary that is no longer needed.
 
-Review the resulting boundary change in Console before restarting runtimes that rely on it. The Services page shows pending service authority expansion requests for the selected deployment and provides the existing approve/reject controls. For local development or automation, the Trellis CLI `expansions` commands can list and decide the same pending requests.
+Review the resulting boundary change in Console before restarting runtimes that rely on it. The Services page shows pending service authority updates for the selected deployment and provides accept/reject controls. `mutable-dev` same-contract migrations may already appear as accepted history because Trellis auto-approved them for local iteration. For local development or automation, use `trellis svc <id> authority plan list`, `trellis svc <id> authority plan show <PLAN_ID>`, and `trellis svc <id> authority accept-update <PLAN_ID>` or `accept-migration <PLAN_ID> --acknowledgement <TEXT>` to inspect history or decide pending plans.
 
-## What the envelope actually grants
+## What deployment authority actually grants
 
-The deployment envelope is not only metadata storage. It is the control-plane boundary that determines what the service is allowed to do.
+Deployment authority is not only metadata storage. It is the control-plane boundary that determines what the service is allowed to do.
 
 Trellis derives service access from:
 
 - the service-owned RPC, event, and subject surfaces declared in the contract
 - explicit dependencies declared under `uses`
-- runtime-managed resource bindings created when the envelope expands
+- runtime-managed resource bindings created during authority reconciliation
 
 ## Useful flags
 
@@ -133,10 +133,10 @@ Trellis derives service access from:
 1. update schemas and the `defineServiceContract(...)` module
 2. run the repo-local prepare task (`deno task prepare` or `cargo xtask prepare`)
 3. run `trellis svc my-service apply --source /path/to/my-service`
-4. review and approve or reject the pending authority change in Console
-5. restart the service
+4. review and accept or reject any pending authority change in Console; `mutable-dev` migrations may already be accepted history
+5. restart the service after reconciliation has materialized required bindings
 6. confirm the expected RPCs, events, and bindings work
 
-If envelope expansion validation fails, Trellis rolls the durable deployment record back. Once the boundary is available on an enabled service deployment, runtime auth can grant presented evidence that fits the envelope. Service bootstrap only proves a running instance fits the deployment envelope, so failed or absent service starts do not control authority.
+If authority update validation fails, Trellis rolls the durable deployment record back. Once reconciliation has made the accepted boundary current on an enabled service deployment, runtime auth can grant presented evidence that fits deployment authority. Service bootstrap only proves a running instance fits current materialized authority, so failed or absent service starts do not control authority.
 
-If a locally restarted service presents a new digest for the same contract id, Trellis checks it against the service instance's current digest. In `strict` mode, incompatible same-contract changes fail with a compatibility violation. In `mutable-dev` mode, Trellis accepts the replacement so local development can iterate without creating a production compatibility promise.
+If a locally restarted service presents a new digest for the same contract id, Trellis checks it against the service instance's current digest. In `strict` mode, incompatible same-contract changes create a pending migration plan and the service waits or retries until the plan is accepted or rejected. In `mutable-dev` mode, Trellis records and auto-accepts that migration plan so local development can iterate without creating a production compatibility promise.

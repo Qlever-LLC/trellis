@@ -7,17 +7,15 @@ import {
   AuthBrowserFlowSchema,
   AuthRequestsValidateRequestSchema,
   BindResponseSchema,
-  DeploymentEnvelopeSchema,
-  DeploymentGrantOverrideSchema,
+  DeploymentAuthorityGrantOverrideSchema,
+  DeploymentAuthoritySchema,
   DeploymentPortalRouteSchema,
   DeploymentResourceBindingSchema,
   DeviceActivationRecordSchema,
   DeviceActivationReviewRecordSchema,
   DeviceDeploymentSchema,
   DeviceSchema,
-  EnvelopeBoundarySchema,
-  EnvelopeExpansionRequestSchema,
-  IdentityEnvelopeRecordSchema,
+  IdentityGrantRecordSchema,
   ImplementationOfferSchema,
   LocalCredentialSchema,
   OAuthStateSchema,
@@ -274,8 +272,8 @@ Deno.test("device state schemas validate", () => {
   }));
 });
 
-Deno.test("envelope authority storage schemas validate modeled rows", () => {
-  const boundary = {
+Deno.test("deployment authority storage schemas validate modeled rows", () => {
+  const authorityNeeds = {
     contracts: [{ contractId: "svc.graph@v1", required: true }],
     surfaces: [{
       contractId: "svc.graph@v1",
@@ -288,14 +286,39 @@ Deno.test("envelope authority storage schemas validate modeled rows", () => {
     resources: [{ kind: "kv", alias: "cache", required: false }],
   };
 
-  assert(Value.Check(EnvelopeBoundarySchema, boundary));
-  assert(Value.Check(DeploymentEnvelopeSchema, {
+  assert(Value.Check(DeploymentAuthoritySchema, {
     deploymentId: "svc.graph.default",
     kind: "service",
     disabled: false,
+    desiredState: {
+      needs: [
+        { kind: "contract", contractId: "svc.graph@v1", required: true },
+        {
+          kind: "surface",
+          surface: {
+            contractId: "svc.graph@v1",
+            kind: "rpc",
+            name: "Graph.Query",
+            action: "call",
+          },
+          required: true,
+        },
+        { kind: "capability", capability: "graph.query", required: true },
+        {
+          kind: "resource",
+          resource: { kind: "kv", alias: "cache", required: false },
+          required: false,
+        },
+      ],
+      capabilities: authorityNeeds.capabilities,
+      resources: authorityNeeds.resources,
+      surfaces: authorityNeeds.surfaces.map((
+        { required: _required, ...surface },
+      ) => surface),
+    },
+    version: new Date().toISOString(),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    boundary,
   }));
   assert(Value.Check(DeploymentPortalRouteSchema, {
     deploymentId: "svc.graph.default",
@@ -304,7 +327,7 @@ Deno.test("envelope authority storage schemas validate modeled rows", () => {
     disabled: false,
     updatedAt: new Date().toISOString(),
   }));
-  assert(Value.Check(DeploymentGrantOverrideSchema, {
+  assert(Value.Check(DeploymentAuthorityGrantOverrideSchema, {
     deploymentId: "svc.graph.default",
     identityKind: "web",
     grantKind: "capability",
@@ -314,7 +337,7 @@ Deno.test("envelope authority storage schemas validate modeled rows", () => {
     capability: "graph.query",
     capabilityGroupKey: null,
   }));
-  assert(Value.Check(DeploymentGrantOverrideSchema, {
+  assert(Value.Check(DeploymentAuthorityGrantOverrideSchema, {
     deploymentId: "svc.graph.default",
     identityKind: "session",
     grantKind: "capability-group",
@@ -325,7 +348,7 @@ Deno.test("envelope authority storage schemas validate modeled rows", () => {
     capabilityGroupKey: "graph-users",
   }));
   for (const removed of ["any", "native", "device-user"]) {
-    assertFalse(Value.Check(DeploymentGrantOverrideSchema, {
+    assertFalse(Value.Check(DeploymentAuthorityGrantOverrideSchema, {
       deploymentId: "svc.graph.default",
       identityKind: removed,
       grantKind: "capability",
@@ -336,7 +359,7 @@ Deno.test("envelope authority storage schemas validate modeled rows", () => {
       capabilityGroupKey: null,
     }));
   }
-  assert(Value.Check(DeploymentGrantOverrideSchema, {
+  assert(Value.Check(DeploymentAuthorityGrantOverrideSchema, {
     deploymentId: "svc.graph.default",
     identityKind: "web",
     contractId: "app.graph@v1",
@@ -371,36 +394,6 @@ Deno.test("envelope authority storage schemas validate modeled rows", () => {
     lastRefreshedAt: new Date().toISOString(),
     staleAt: null,
     expiresAt: null,
-  }));
-  assert(Value.Check(EnvelopeExpansionRequestSchema, {
-    requestId: "req_123",
-    deploymentId: "svc.graph.default",
-    requestedByKind: "service",
-    requestedBy: { instanceId: "svc_123" },
-    contractId: "svc.graph@v1",
-    contractDigest: "sha256-graph",
-    contract: { id: "svc.graph@v1" },
-    state: "pending",
-    createdAt: new Date().toISOString(),
-    decidedAt: null,
-    decidedBy: null,
-    decisionReason: null,
-    delta: boundary,
-  }));
-  assertFalse(Value.Check(EnvelopeExpansionRequestSchema, {
-    requestId: "req_123",
-    deploymentId: "svc.graph.default",
-    requestedByKind: "service",
-    requestedBy: { instanceId: "svc_123" },
-    contractId: "svc.graph@v1",
-    contractDigest: "sha256-graph",
-    contract: { id: "svc.graph@v1" },
-    state: "accepted",
-    createdAt: new Date().toISOString(),
-    decidedAt: null,
-    decidedBy: null,
-    decisionReason: null,
-    delta: boundary,
   }));
 });
 
@@ -515,10 +508,11 @@ Deno.test("AuthRequestsValidateRequestSchema validates ADR auth request", () => 
   );
 });
 
-Deno.test("IdentityEnvelopeRecordSchema validates stored app envelopes", () => {
+Deno.test("IdentityGrantRecordSchema validates stored app grants", () => {
   assert(
-    Value.Check(IdentityEnvelopeRecordSchema, {
-      identityEnvelopeId: "env-console",
+    Value.Check(IdentityGrantRecordSchema, {
+      identityGrantId: "env-console",
+      identityAuthorityId: "ida-github-123",
       userTrellisId: "abc",
       origin: "github",
       id: "12345",

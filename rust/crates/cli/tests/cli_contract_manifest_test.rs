@@ -31,8 +31,8 @@ fn agent_contract_manifest_validates_and_declares_expected_auth_and_core_surface
     for expected in [
         "Auth.Sessions.Me",
         "Auth.Sessions.List",
-        "Auth.Identities.List",
-        "Auth.IdentityEnvelopes.Revoke",
+        "Auth.IdentityGrants.List",
+        "Auth.IdentityGrants.Revoke",
         "Auth.Deployments.Create",
         "Auth.Users.List",
         "Auth.Users.Get",
@@ -41,24 +41,22 @@ fn agent_contract_manifest_validates_and_declares_expected_auth_and_core_surface
         "Auth.Capabilities.List",
         "Auth.CapabilityGroups.List",
         "Auth.Users.PasswordReset.Create",
-        "Auth.EnvelopeExpansions.Approve",
-        "Auth.EnvelopeExpansions.List",
-        "Auth.EnvelopeExpansions.Reject",
-        "Auth.Envelopes.Get",
-        "Auth.Envelopes.List",
-        "Auth.Envelopes.Expand",
-        "Auth.Envelopes.GrantOverrides.Put",
-        "Auth.Envelopes.GrantOverrides.Remove",
+        "Auth.DeploymentAuthority.AcceptMigration",
+        "Auth.DeploymentAuthority.AcceptUpdate",
+        "Auth.DeploymentAuthority.Get",
+        "Auth.DeploymentAuthority.GrantOverrides.List",
+        "Auth.DeploymentAuthority.GrantOverrides.Put",
+        "Auth.DeploymentAuthority.GrantOverrides.Remove",
+        "Auth.DeploymentAuthority.List",
+        "Auth.DeploymentAuthority.Plan",
+        "Auth.DeploymentAuthority.Reconcile",
+        "Auth.DeploymentAuthority.Reject",
     ] {
         assert!(
             calls.iter().any(|value| value == expected),
             "agent contract should declare {expected}"
         );
     }
-    assert!(!calls
-        .iter()
-        .any(|value| value == "Auth.Envelopes.Changes.Preview"));
-    assert!(!calls.iter().any(|value| value == "Auth.Envelopes.Shrink"));
     assert!(calls.iter().any(|value| value == "Auth.Deployments.List"));
     assert!(calls
         .iter()
@@ -120,6 +118,6 @@ fn agent_contract_digest_matches_js_projection() {
     assert_eq!(
         trellis::auth::contract_digest(trellis_cli::agent_contract::agent_contract_json())
             .expect("agent contract digest"),
-        "LEOgHsfRM_QzaVP5w9kVqXtmTpiA2QKdPJStzfh6_oU"
+        "w9BQTqdBuMPnq1uq_JO1BSw391uZE3ITyGUUx1BIy_w"
     );
 }

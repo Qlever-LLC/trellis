@@ -84,6 +84,126 @@ impl RpcDescriptor for AuthConnectionsListRpc {
     const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
     const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
 }
+/// Descriptor for `Auth.DeploymentAuthority.AcceptMigration`.
+pub struct AuthDeploymentAuthorityAcceptMigrationRpc;
+impl RpcDescriptor for AuthDeploymentAuthorityAcceptMigrationRpc {
+    type Input = super::types::AuthDeploymentAuthorityAcceptMigrationRequest;
+    type Output = super::types::AuthDeploymentAuthorityAcceptMigrationResponse;
+    const KEY: &'static str = "Auth.DeploymentAuthority.AcceptMigration";
+    const SUBJECT: &'static str = "rpc.v1.Auth.DeploymentAuthority.AcceptMigration";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
+    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
+}
+/// Descriptor for `Auth.DeploymentAuthority.AcceptUpdate`.
+pub struct AuthDeploymentAuthorityAcceptUpdateRpc;
+impl RpcDescriptor for AuthDeploymentAuthorityAcceptUpdateRpc {
+    type Input = super::types::AuthDeploymentAuthorityAcceptUpdateRequest;
+    type Output = super::types::AuthDeploymentAuthorityAcceptUpdateResponse;
+    const KEY: &'static str = "Auth.DeploymentAuthority.AcceptUpdate";
+    const SUBJECT: &'static str = "rpc.v1.Auth.DeploymentAuthority.AcceptUpdate";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
+    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
+}
+/// Descriptor for `Auth.DeploymentAuthority.Get`.
+pub struct AuthDeploymentAuthorityGetRpc;
+impl RpcDescriptor for AuthDeploymentAuthorityGetRpc {
+    type Input = super::types::AuthDeploymentAuthorityGetRequest;
+    type Output = super::types::AuthDeploymentAuthorityGetResponse;
+    const KEY: &'static str = "Auth.DeploymentAuthority.Get";
+    const SUBJECT: &'static str = "rpc.v1.Auth.DeploymentAuthority.Get";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
+    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
+}
+/// Descriptor for `Auth.DeploymentAuthority.GrantOverrides.List`.
+pub struct AuthDeploymentAuthorityGrantOverridesListRpc;
+impl RpcDescriptor for AuthDeploymentAuthorityGrantOverridesListRpc {
+    type Input = super::types::AuthDeploymentAuthorityGrantOverridesListRequest;
+    type Output = super::types::AuthDeploymentAuthorityGrantOverridesListResponse;
+    const KEY: &'static str = "Auth.DeploymentAuthority.GrantOverrides.List";
+    const SUBJECT: &'static str = "rpc.v1.Auth.DeploymentAuthority.GrantOverrides.List";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
+    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
+}
+/// Descriptor for `Auth.DeploymentAuthority.GrantOverrides.Put`.
+pub struct AuthDeploymentAuthorityGrantOverridesPutRpc;
+impl RpcDescriptor for AuthDeploymentAuthorityGrantOverridesPutRpc {
+    type Input = super::types::AuthDeploymentAuthorityGrantOverridesPutRequest;
+    type Output = super::types::AuthDeploymentAuthorityGrantOverridesPutResponse;
+    const KEY: &'static str = "Auth.DeploymentAuthority.GrantOverrides.Put";
+    const SUBJECT: &'static str = "rpc.v1.Auth.DeploymentAuthority.GrantOverrides.Put";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
+    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
+}
+/// Descriptor for `Auth.DeploymentAuthority.GrantOverrides.Remove`.
+pub struct AuthDeploymentAuthorityGrantOverridesRemoveRpc;
+impl RpcDescriptor for AuthDeploymentAuthorityGrantOverridesRemoveRpc {
+    type Input = super::types::AuthDeploymentAuthorityGrantOverridesRemoveRequest;
+    type Output = super::types::AuthDeploymentAuthorityGrantOverridesRemoveResponse;
+    const KEY: &'static str = "Auth.DeploymentAuthority.GrantOverrides.Remove";
+    const SUBJECT: &'static str = "rpc.v1.Auth.DeploymentAuthority.GrantOverrides.Remove";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
+    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
+}
+/// Descriptor for `Auth.DeploymentAuthority.List`.
+pub struct AuthDeploymentAuthorityListRpc;
+impl RpcDescriptor for AuthDeploymentAuthorityListRpc {
+    type Input = super::types::AuthDeploymentAuthorityListRequest;
+    type Output = super::types::AuthDeploymentAuthorityListResponse;
+    const KEY: &'static str = "Auth.DeploymentAuthority.List";
+    const SUBJECT: &'static str = "rpc.v1.Auth.DeploymentAuthority.List";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
+    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
+}
+/// Descriptor for `Auth.DeploymentAuthority.Plan`.
+pub struct AuthDeploymentAuthorityPlanRpc;
+impl RpcDescriptor for AuthDeploymentAuthorityPlanRpc {
+    type Input = super::types::AuthDeploymentAuthorityPlanRequest;
+    type Output = super::types::AuthDeploymentAuthorityPlanResponse;
+    const KEY: &'static str = "Auth.DeploymentAuthority.Plan";
+    const SUBJECT: &'static str = "rpc.v1.Auth.DeploymentAuthority.Plan";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
+    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
+}
+/// Descriptor for `Auth.DeploymentAuthority.Plans.Get`.
+pub struct AuthDeploymentAuthorityPlansGetRpc;
+impl RpcDescriptor for AuthDeploymentAuthorityPlansGetRpc {
+    type Input = super::types::AuthDeploymentAuthorityPlansGetRequest;
+    type Output = super::types::AuthDeploymentAuthorityPlansGetResponse;
+    const KEY: &'static str = "Auth.DeploymentAuthority.Plans.Get";
+    const SUBJECT: &'static str = "rpc.v1.Auth.DeploymentAuthority.Plans.Get";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
+    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
+}
+/// Descriptor for `Auth.DeploymentAuthority.Plans.List`.
+pub struct AuthDeploymentAuthorityPlansListRpc;
+impl RpcDescriptor for AuthDeploymentAuthorityPlansListRpc {
+    type Input = super::types::AuthDeploymentAuthorityPlansListRequest;
+    type Output = super::types::AuthDeploymentAuthorityPlansListResponse;
+    const KEY: &'static str = "Auth.DeploymentAuthority.Plans.List";
+    const SUBJECT: &'static str = "rpc.v1.Auth.DeploymentAuthority.Plans.List";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
+    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError"];
+}
+/// Descriptor for `Auth.DeploymentAuthority.Reconcile`.
+pub struct AuthDeploymentAuthorityReconcileRpc;
+impl RpcDescriptor for AuthDeploymentAuthorityReconcileRpc {
+    type Input = super::types::AuthDeploymentAuthorityReconcileRequest;
+    type Output = super::types::AuthDeploymentAuthorityReconcileResponse;
+    const KEY: &'static str = "Auth.DeploymentAuthority.Reconcile";
+    const SUBJECT: &'static str = "rpc.v1.Auth.DeploymentAuthority.Reconcile";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
+    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
+}
+/// Descriptor for `Auth.DeploymentAuthority.Reject`.
+pub struct AuthDeploymentAuthorityRejectRpc;
+impl RpcDescriptor for AuthDeploymentAuthorityRejectRpc {
+    type Input = super::types::AuthDeploymentAuthorityRejectRequest;
+    type Output = super::types::AuthDeploymentAuthorityRejectResponse;
+    const KEY: &'static str = "Auth.DeploymentAuthority.Reject";
+    const SUBJECT: &'static str = "rpc.v1.Auth.DeploymentAuthority.Reject";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
+    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
+}
 /// Descriptor for `Auth.Deployments.Create`.
 pub struct AuthDeploymentsCreateRpc;
 impl RpcDescriptor for AuthDeploymentsCreateRpc {
@@ -234,116 +354,6 @@ impl RpcDescriptor for AuthDevicesRemoveRpc {
     const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
     const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
 }
-/// Descriptor for `Auth.EnvelopeExpansions.Approve`.
-pub struct AuthEnvelopeExpansionsApproveRpc;
-impl RpcDescriptor for AuthEnvelopeExpansionsApproveRpc {
-    type Input = super::types::AuthEnvelopeExpansionsApproveRequest;
-    type Output = super::types::AuthEnvelopeExpansionsApproveResponse;
-    const KEY: &'static str = "Auth.EnvelopeExpansions.Approve";
-    const SUBJECT: &'static str = "rpc.v1.Auth.EnvelopeExpansions.Approve";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
-    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
-}
-/// Descriptor for `Auth.EnvelopeExpansions.List`.
-pub struct AuthEnvelopeExpansionsListRpc;
-impl RpcDescriptor for AuthEnvelopeExpansionsListRpc {
-    type Input = super::types::AuthEnvelopeExpansionsListRequest;
-    type Output = super::types::AuthEnvelopeExpansionsListResponse;
-    const KEY: &'static str = "Auth.EnvelopeExpansions.List";
-    const SUBJECT: &'static str = "rpc.v1.Auth.EnvelopeExpansions.List";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
-    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
-}
-/// Descriptor for `Auth.EnvelopeExpansions.Reject`.
-pub struct AuthEnvelopeExpansionsRejectRpc;
-impl RpcDescriptor for AuthEnvelopeExpansionsRejectRpc {
-    type Input = super::types::AuthEnvelopeExpansionsRejectRequest;
-    type Output = super::types::AuthEnvelopeExpansionsRejectResponse;
-    const KEY: &'static str = "Auth.EnvelopeExpansions.Reject";
-    const SUBJECT: &'static str = "rpc.v1.Auth.EnvelopeExpansions.Reject";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
-    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
-}
-/// Descriptor for `Auth.Envelopes.Changes.Preview`.
-pub struct AuthEnvelopesChangesPreviewRpc;
-impl RpcDescriptor for AuthEnvelopesChangesPreviewRpc {
-    type Input = super::types::AuthEnvelopesChangesPreviewRequest;
-    type Output = super::types::AuthEnvelopesChangesPreviewResponse;
-    const KEY: &'static str = "Auth.Envelopes.Changes.Preview";
-    const SUBJECT: &'static str = "rpc.v1.Auth.Envelopes.Changes.Preview";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
-    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
-}
-/// Descriptor for `Auth.Envelopes.Expand`.
-pub struct AuthEnvelopesExpandRpc;
-impl RpcDescriptor for AuthEnvelopesExpandRpc {
-    type Input = super::types::AuthEnvelopesExpandRequest;
-    type Output = super::types::AuthEnvelopesExpandResponse;
-    const KEY: &'static str = "Auth.Envelopes.Expand";
-    const SUBJECT: &'static str = "rpc.v1.Auth.Envelopes.Expand";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
-    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
-}
-/// Descriptor for `Auth.Envelopes.Get`.
-pub struct AuthEnvelopesGetRpc;
-impl RpcDescriptor for AuthEnvelopesGetRpc {
-    type Input = super::types::AuthEnvelopesGetRequest;
-    type Output = super::types::AuthEnvelopesGetResponse;
-    const KEY: &'static str = "Auth.Envelopes.Get";
-    const SUBJECT: &'static str = "rpc.v1.Auth.Envelopes.Get";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
-    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
-}
-/// Descriptor for `Auth.Envelopes.GrantOverrides.List`.
-pub struct AuthEnvelopesGrantOverridesListRpc;
-impl RpcDescriptor for AuthEnvelopesGrantOverridesListRpc {
-    type Input = super::types::AuthEnvelopesGrantOverridesListRequest;
-    type Output = super::types::AuthEnvelopesGrantOverridesListResponse;
-    const KEY: &'static str = "Auth.Envelopes.GrantOverrides.List";
-    const SUBJECT: &'static str = "rpc.v1.Auth.Envelopes.GrantOverrides.List";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
-    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
-}
-/// Descriptor for `Auth.Envelopes.GrantOverrides.Put`.
-pub struct AuthEnvelopesGrantOverridesPutRpc;
-impl RpcDescriptor for AuthEnvelopesGrantOverridesPutRpc {
-    type Input = super::types::AuthEnvelopesGrantOverridesPutRequest;
-    type Output = super::types::AuthEnvelopesGrantOverridesPutResponse;
-    const KEY: &'static str = "Auth.Envelopes.GrantOverrides.Put";
-    const SUBJECT: &'static str = "rpc.v1.Auth.Envelopes.GrantOverrides.Put";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
-    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
-}
-/// Descriptor for `Auth.Envelopes.GrantOverrides.Remove`.
-pub struct AuthEnvelopesGrantOverridesRemoveRpc;
-impl RpcDescriptor for AuthEnvelopesGrantOverridesRemoveRpc {
-    type Input = super::types::AuthEnvelopesGrantOverridesRemoveRequest;
-    type Output = super::types::AuthEnvelopesGrantOverridesRemoveResponse;
-    const KEY: &'static str = "Auth.Envelopes.GrantOverrides.Remove";
-    const SUBJECT: &'static str = "rpc.v1.Auth.Envelopes.GrantOverrides.Remove";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
-    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
-}
-/// Descriptor for `Auth.Envelopes.List`.
-pub struct AuthEnvelopesListRpc;
-impl RpcDescriptor for AuthEnvelopesListRpc {
-    type Input = super::types::AuthEnvelopesListRequest;
-    type Output = super::types::AuthEnvelopesListResponse;
-    const KEY: &'static str = "Auth.Envelopes.List";
-    const SUBJECT: &'static str = "rpc.v1.Auth.Envelopes.List";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
-    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
-}
-/// Descriptor for `Auth.Envelopes.Shrink`.
-pub struct AuthEnvelopesShrinkRpc;
-impl RpcDescriptor for AuthEnvelopesShrinkRpc {
-    type Input = super::types::AuthEnvelopesShrinkRequest;
-    type Output = super::types::AuthEnvelopesShrinkResponse;
-    const KEY: &'static str = "Auth.Envelopes.Shrink";
-    const SUBJECT: &'static str = "rpc.v1.Auth.Envelopes.Shrink";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &["admin"];
-    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
-}
 /// Descriptor for `Auth.Health`.
 pub struct AuthHealthRpc;
 impl RpcDescriptor for AuthHealthRpc {
@@ -353,16 +363,6 @@ impl RpcDescriptor for AuthHealthRpc {
     const SUBJECT: &'static str = "rpc.v1.Auth.Health";
     const CALLER_CAPABILITIES: &'static [&'static str] = &[];
     const ERRORS: &'static [&'static str] = &["UnexpectedError"];
-}
-/// Descriptor for `Auth.Identities.Grants.List`.
-pub struct AuthIdentitiesGrantsListRpc;
-impl RpcDescriptor for AuthIdentitiesGrantsListRpc {
-    type Input = super::types::AuthIdentitiesGrantsListRequest;
-    type Output = super::types::AuthIdentitiesGrantsListResponse;
-    const KEY: &'static str = "Auth.Identities.Grants.List";
-    const SUBJECT: &'static str = "rpc.v1.Auth.Identities.Grants.List";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &[];
-    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError"];
 }
 /// Descriptor for `Auth.Identities.List`.
 pub struct AuthIdentitiesListRpc;
@@ -374,13 +374,23 @@ impl RpcDescriptor for AuthIdentitiesListRpc {
     const CALLER_CAPABILITIES: &'static [&'static str] = &[];
     const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
 }
-/// Descriptor for `Auth.IdentityEnvelopes.Revoke`.
-pub struct AuthIdentityEnvelopesRevokeRpc;
-impl RpcDescriptor for AuthIdentityEnvelopesRevokeRpc {
-    type Input = super::types::AuthIdentityEnvelopesRevokeRequest;
-    type Output = super::types::AuthIdentityEnvelopesRevokeResponse;
-    const KEY: &'static str = "Auth.IdentityEnvelopes.Revoke";
-    const SUBJECT: &'static str = "rpc.v1.Auth.IdentityEnvelopes.Revoke";
+/// Descriptor for `Auth.IdentityGrants.List`.
+pub struct AuthIdentityGrantsListRpc;
+impl RpcDescriptor for AuthIdentityGrantsListRpc {
+    type Input = super::types::AuthIdentityGrantsListRequest;
+    type Output = super::types::AuthIdentityGrantsListResponse;
+    const KEY: &'static str = "Auth.IdentityGrants.List";
+    const SUBJECT: &'static str = "rpc.v1.Auth.IdentityGrants.List";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &[];
+    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError"];
+}
+/// Descriptor for `Auth.IdentityGrants.Revoke`.
+pub struct AuthIdentityGrantsRevokeRpc;
+impl RpcDescriptor for AuthIdentityGrantsRevokeRpc {
+    type Input = super::types::AuthIdentityGrantsRevokeRequest;
+    type Output = super::types::AuthIdentityGrantsRevokeResponse;
+    const KEY: &'static str = "Auth.IdentityGrants.Revoke";
+    const SUBJECT: &'static str = "rpc.v1.Auth.IdentityGrants.Revoke";
     const CALLER_CAPABILITIES: &'static [&'static str] = &[];
     const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
 }

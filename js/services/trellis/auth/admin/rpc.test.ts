@@ -43,9 +43,19 @@ import {
   createAuthServiceInstancesRemoveHandler,
   type ServiceAdminRpcDeps,
 } from "./service_rpc.ts";
+import {
+  createAuthDeploymentAuthorityAcceptMigrationHandler,
+  createAuthDeploymentAuthorityAcceptUpdateHandler,
+  createAuthDeploymentAuthorityPlansGetHandler,
+  createAuthDeploymentAuthorityPlansListHandler,
+  createAuthDeploymentAuthorityRejectHandler,
+} from "./authority_rpc.ts";
+import { classifyDeploymentAuthorityPlan } from "../deployment_authority_plan.ts";
 import type {
-  DeploymentEnvelope,
-  DeploymentResourceBinding,
+  AuthorityNeedSet,
+  DeploymentAuthority,
+  DeploymentAuthorityPlan,
+  DeploymentAuthorityUpdate,
 } from "../schemas.ts";
 
 const page = <T>(entries: T[], limit = 10) => ({
@@ -106,7 +116,7 @@ function serviceAdminDeps(): ServiceAdminRpcDeps {
       listFilteredPage: async () => throwingStoreAccess(),
       listByDeployment: async () => throwingStoreAccess(),
     },
-    deploymentEnvelopeStorage: {
+    deploymentAuthorityStorage: {
       get: async () => throwingStoreAccess(),
       put: async () => throwingStoreAccess(),
     },
@@ -229,10 +239,140 @@ const portalActivationActor = {
   },
 };
 
+class InMemoryDeploymentAuthorityStorage {
+  #authority: DeploymentAuthority | undefined;
+
+  constructor(authority?: DeploymentAuthority) {
+    this.#authority = authority;
+  }
+
+  async get(deploymentId: string): Promise<DeploymentAuthority | undefined> {
+    await Promise.resolve();
+    return this.#authority?.deploymentId === deploymentId
+      ? this.#authority
+      : undefined;
+  }
+
+  async put(authority: DeploymentAuthority): Promise<void> {
+    await Promise.resolve();
+    this.#authority = authority;
+  }
+
+  getValue(): DeploymentAuthority | undefined {
+    return this.#authority;
+  }
+}
+
+class InMemoryDeploymentAuthorityPlanStorage {
+  #plans = new Map<string, DeploymentAuthorityPlan>();
+
+  constructor(plans: DeploymentAuthorityPlan[] = []) {
+    for (const plan of plans) this.#plans.set(plan.planId, plan);
+  }
+
+  async get(planId: string): Promise<DeploymentAuthorityPlan | undefined> {
+    await Promise.resolve();
+    return this.#plans.get(planId);
+  }
+
+  async put(plan: DeploymentAuthorityPlan): Promise<void> {
+    await Promise.resolve();
+    this.#plans.set(plan.planId, plan);
+  }
+
+  async listFilteredPage(
+    filters: {
+      deploymentId?: string;
+      state?: DeploymentAuthorityPlan["state"];
+      classification?: DeploymentAuthorityPlan["classification"];
+      kind?: DeploymentAuthority["kind"];
+    },
+    query: { offset?: number; limit: number },
+  ) {
+    await Promise.resolve();
+    const entries = [...this.#plans.values()]
+      .filter((plan) =>
+        (filters.deploymentId === undefined ||
+          plan.deploymentId === filters.deploymentId) &&
+        (filters.state === undefined || plan.state === filters.state) &&
+        (filters.classification === undefined ||
+          plan.classification === filters.classification) &&
+        (filters.kind === undefined ||
+          plan.deploymentId.startsWith(filters.kind))
+      )
+      .sort((left, right) =>
+        left.deploymentId.localeCompare(right.deploymentId) ||
+        left.createdAt.localeCompare(right.createdAt) ||
+        left.planId.localeCompare(right.planId)
+      );
+    return pageFromQuery(entries, query);
+  }
+
+  getValue(planId: string): DeploymentAuthorityPlan | undefined {
+    return this.#plans.get(planId);
+  }
+}
+
+function deploymentAuthority(
+  overrides: Partial<DeploymentAuthority> = {},
+): DeploymentAuthority {
+  return {
+    deploymentId: "svc-a",
+    kind: "service",
+    disabled: false,
+    desiredState: { needs: [], capabilities: [], resources: [], surfaces: [] },
+    version: "v1",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function deploymentAuthorityPlan(
+  overrides: Partial<DeploymentAuthorityUpdate> = {},
+): DeploymentAuthorityPlan {
+  return {
+    classification: "update",
+    planId: "plan-a",
+    deploymentId: "svc-a",
+    proposal: {
+      deploymentId: "svc-a",
+      contractId: "svc.contract@v1",
+      contractDigest: "sha256-a",
+      requestedNeeds: [],
+      providedSurfaces: [],
+      summary: { desiredVersion: "v1" },
+    },
+    desiredChange: {
+      contracts: [{ contractId: "svc.contract@v1", required: true }],
+      surfaces: [],
+      capabilities: ["svc.use"],
+      resources: [],
+    },
+    materializationPreview: {},
+    warnings: [],
+    createdAt: "2026-01-01T00:00:01.000Z",
+    state: "pending",
+    ...overrides,
+  };
+}
+
+function authorityNeedSet(
+  overrides: Partial<AuthorityNeedSet> = {},
+): AuthorityNeedSet {
+  return {
+    contracts: [],
+    surfaces: [],
+    capabilities: [],
+    resources: [],
+    ...overrides,
+  };
+}
+
 function kickDeps(serviceDeps: ServiceAdminRpcDeps) {
   return {
     ...serviceDeps,
-    deploymentEnvelopeStorage: serviceDeps.deploymentEnvelopeStorage ?? {
+    deploymentAuthorityStorage: serviceDeps.deploymentAuthorityStorage ?? {
       get: async () => throwingStoreAccess(),
       put: async () => throwingStoreAccess(),
     },
@@ -306,23 +446,912 @@ Deno.test("auth contract exposes deployment and device admin RPCs", () => {
   assert(methods.includes("Auth.DeviceUserAuthorities.Revoke"));
   assert(methods.includes("Auth.DeviceUserAuthorities.Reviews.List"));
   assert(methods.includes("Auth.DeviceUserAuthorities.Reviews.Decide"));
-  assert(methods.includes("Auth.Envelopes.List"));
-  assert(methods.includes("Auth.Envelopes.Get"));
-  assert(methods.includes("Auth.Envelopes.GrantOverrides.List"));
-  assert(methods.includes("Auth.Envelopes.Expand"));
-  assert(methods.includes("Auth.EnvelopeExpansions.List"));
-  assert(methods.includes("Auth.Envelopes.Changes.Preview"));
-  assert(methods.includes("Auth.Envelopes.Shrink"));
+  assert(methods.includes("Auth.DeploymentAuthority.List"));
+  assert(methods.includes("Auth.DeploymentAuthority.Get"));
+  assert(methods.includes("Auth.DeploymentAuthority.Plans.List"));
+  assert(methods.includes("Auth.DeploymentAuthority.Plans.Get"));
+  assert(methods.includes("Auth.DeploymentAuthority.Plan"));
+  assert(methods.includes("Auth.DeploymentAuthority.AcceptUpdate"));
+  assert(methods.includes("Auth.DeploymentAuthority.AcceptMigration"));
+  assert(methods.includes("Auth.DeploymentAuthority.Reject"));
+  assert(methods.includes("Auth.DeploymentAuthority.Reconcile"));
+  assert(methods.includes("Auth.DeploymentAuthority.GrantOverrides.List"));
+  assert(methods.includes("Auth.DeploymentAuthority.GrantOverrides.Put"));
+  assert(methods.includes("Auth.DeploymentAuthority.GrantOverrides.Remove"));
   assert(methods.includes("Auth.ServiceInstances.Provision"));
   assert(methods.includes("Auth.ServiceInstances.List"));
   assert(methods.includes("Auth.ServiceInstances.Disable"));
   assert(methods.includes("Auth.ServiceInstances.Enable"));
   assert(methods.includes("Auth.ServiceInstances.Remove"));
-  assert(methods.includes("Auth.Identities.Grants.List"));
-  assert(methods.includes("Auth.IdentityEnvelopes.Revoke"));
+  assert(methods.includes("Auth.IdentityGrants.List"));
+  assert(methods.includes("Auth.IdentityGrants.Revoke"));
+  assert(!methods.includes("Auth.Identities.Grants.List"));
 
   const operations = Object.keys(TRELLIS_AUTH_OPERATIONS);
   assertEquals(operations, ["Auth.DeviceUserAuthorities.Resolve"]);
+});
+
+Deno.test("Auth.DeploymentAuthority.Plans.List filters pending and historical plans", async () => {
+  const migrationPlan: DeploymentAuthorityPlan = {
+    ...deploymentAuthorityPlan({
+      planId: "plan-migration",
+      deploymentId: "device-a",
+      state: "accepted",
+      createdAt: "2026-01-01T00:00:03.000Z",
+    }),
+    classification: "migration",
+    acknowledgementRequired: true,
+  };
+  const plans = new InMemoryDeploymentAuthorityPlanStorage([
+    deploymentAuthorityPlan({
+      planId: "plan-pending",
+      deploymentId: "service-a",
+      state: "pending",
+      createdAt: "2026-01-01T00:00:01.000Z",
+    }),
+    deploymentAuthorityPlan({
+      planId: "plan-rejected",
+      deploymentId: "service-a",
+      state: "rejected",
+      createdAt: "2026-01-01T00:00:02.000Z",
+      decisionAt: "2026-01-01T00:01:00.000Z",
+      decisionReason: "not now",
+    }),
+    migrationPlan,
+  ]);
+  const handler = createAuthDeploymentAuthorityPlansListHandler({
+    deploymentAuthorityPlanStorage: plans,
+    logger: { trace: () => {} },
+  });
+
+  const pending = await handler({
+    input: { state: "pending", limit: 10 },
+    context: adminContext,
+  });
+  assert(!pending.isErr());
+  const pendingValue = pending.take();
+  if (isErr(pendingValue)) throw pendingValue.error;
+  assertEquals(pendingValue.entries.map((plan) => plan.planId), [
+    "plan-pending",
+  ]);
+
+  const historical = await handler({
+    input: { deploymentId: "service-a", limit: 10 },
+    context: adminContext,
+  });
+  assert(!historical.isErr());
+  const historicalValue = historical.take();
+  if (isErr(historicalValue)) throw historicalValue.error;
+  assertEquals(historicalValue.entries.map((plan) => plan.planId), [
+    "plan-pending",
+    "plan-rejected",
+  ]);
+
+  const migrations = await handler({
+    input: { classification: "migration", kind: "device", limit: 10 },
+    context: adminContext,
+  });
+  assert(!migrations.isErr());
+  const migrationsValue = migrations.take();
+  if (isErr(migrationsValue)) throw migrationsValue.error;
+  assertEquals(migrationsValue.entries.map((plan) => plan.planId), [
+    "plan-migration",
+  ]);
+});
+
+Deno.test("Auth.DeploymentAuthority.Plans.Get returns one plan", async () => {
+  const plans = new InMemoryDeploymentAuthorityPlanStorage([
+    deploymentAuthorityPlan({ planId: "plan-a" }),
+  ]);
+  const handler = createAuthDeploymentAuthorityPlansGetHandler({
+    deploymentAuthorityPlanStorage: plans,
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { planId: "plan-a" },
+    context: adminContext,
+  });
+
+  assert(!result.isErr());
+  const value = result.take();
+  if (isErr(value)) throw value.error;
+  assertEquals(value.plan.planId, "plan-a");
+});
+
+Deno.test("Auth.DeploymentAuthority.Plans.Get validates missing plan", async () => {
+  const handler = createAuthDeploymentAuthorityPlansGetHandler({
+    deploymentAuthorityPlanStorage:
+      new InMemoryDeploymentAuthorityPlanStorage(),
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { planId: "missing-plan" },
+    context: adminContext,
+  });
+
+  assert(result.isErr());
+  assertEquals(result.error.name, "ValidationError");
+});
+
+Deno.test("Auth.DeploymentAuthority.AcceptUpdate accepts pending plan without materializing", async () => {
+  const authorities = new InMemoryDeploymentAuthorityStorage(
+    deploymentAuthority({
+      desiredState: {
+        needs: [{
+          kind: "contract",
+          contractId: "svc.contract@v1",
+          required: true,
+        }],
+        capabilities: [],
+        resources: [],
+        surfaces: [],
+      },
+    }),
+  );
+  const plans = new InMemoryDeploymentAuthorityPlanStorage([
+    deploymentAuthorityPlan(),
+  ]);
+  const reconciliations: Array<
+    { deploymentId: string; desiredVersion?: string }
+  > = [];
+  const handler = createAuthDeploymentAuthorityAcceptUpdateHandler({
+    deploymentAuthorityStorage: authorities,
+    deploymentAuthorityPlanStorage: plans,
+    authorityReconciler: {
+      reconcileDeployment: async (deploymentId, opts) => {
+        reconciliations.push({
+          deploymentId,
+          desiredVersion: opts?.desiredVersion,
+        });
+        return {
+          authority: authorities.getValue() ?? deploymentAuthority(),
+          materializedAuthority: {
+            deploymentId,
+            desiredVersion: opts?.desiredVersion ?? "v1",
+            status: "current",
+            resourceBindings: [],
+            grants: [],
+            reconciledAt: "2026-01-01T00:00:02.000Z",
+          },
+          reconciliation: {
+            deploymentId,
+            desiredVersion: opts?.desiredVersion ?? "v1",
+            state: "succeeded",
+            startedAt: "2026-01-01T00:00:02.000Z",
+            finishedAt: "2026-01-01T00:00:03.000Z",
+          },
+        };
+      },
+    },
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { planId: "plan-a", expectedDesiredVersion: "v1" },
+    context: adminContext,
+  });
+
+  assert(!result.isErr());
+  const value = result.take();
+  if (isErr(value)) throw value.error;
+  assertEquals(value.authority.desiredState.needs, [
+    { kind: "contract", contractId: "svc.contract@v1", required: true },
+    { kind: "capability", capability: "svc.use", required: true },
+  ]);
+  assert(value.authority.version !== "v1");
+  assertEquals(plans.getValue("plan-a")?.state, "accepted");
+  assertEquals(reconciliations, [{
+    deploymentId: "svc-a",
+    desiredVersion: value.authority.version,
+  }]);
+});
+
+Deno.test("Auth.DeploymentAuthority.AcceptUpdate persists normalized resource definitions", async () => {
+  const resource = {
+    kind: "kv" as const,
+    alias: "cache",
+    required: true,
+    definition: {
+      type: "kv",
+      history: 3,
+      ttlMs: 60000,
+      maxValueBytes: 4096,
+      schema: { name: "Entry", exported: true },
+    },
+  };
+  const authorities = new InMemoryDeploymentAuthorityStorage(
+    deploymentAuthority({
+      desiredState: {
+        needs: [{
+          kind: "contract",
+          contractId: "svc.contract@v1",
+          required: true,
+        }],
+        capabilities: [],
+        resources: [],
+        surfaces: [],
+      },
+    }),
+  );
+  const plans = new InMemoryDeploymentAuthorityPlanStorage([{
+    ...deploymentAuthorityPlan(),
+    proposal: {
+      deploymentId: "svc-a",
+      contractId: "svc.contract@v1",
+      contractDigest: "sha256-a",
+      requestedNeeds: [{ kind: "resource", resource, required: true }],
+      providedSurfaces: [],
+      summary: { desiredVersion: "v1" },
+    },
+    desiredChange: authorityNeedSet({ resources: [resource] }),
+  }]);
+  const handler = createAuthDeploymentAuthorityAcceptUpdateHandler({
+    deploymentAuthorityStorage: authorities,
+    deploymentAuthorityPlanStorage: plans,
+    authorityReconciler: {
+      reconcileDeployment: async (deploymentId, opts) => ({
+        authority: authorities.getValue() ?? deploymentAuthority(),
+        materializedAuthority: {
+          deploymentId,
+          desiredVersion: opts?.desiredVersion ?? "v1",
+          status: "current",
+          resourceBindings: [],
+          grants: [],
+          reconciledAt: "2026-01-01T00:00:02.000Z",
+        },
+        reconciliation: {
+          deploymentId,
+          desiredVersion: opts?.desiredVersion ?? "v1",
+          state: "succeeded",
+          startedAt: "2026-01-01T00:00:02.000Z",
+          finishedAt: "2026-01-01T00:00:03.000Z",
+        },
+      }),
+    },
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { planId: "plan-a" },
+    context: adminContext,
+  });
+
+  assert(!result.isErr());
+  const value = result.take();
+  if (isErr(value)) throw value.error;
+  assertEquals(value.authority.desiredState.resources, [resource]);
+  assertEquals(value.authority.desiredState.needs, [{
+    kind: "contract",
+    contractId: "svc.contract@v1",
+    required: true,
+  }, {
+    kind: "resource",
+    resource,
+    required: true,
+  }]);
+});
+
+Deno.test("Auth.DeploymentAuthority.Plan classifies additive missing needs as update", () => {
+  const result = classifyDeploymentAuthorityPlan(
+    authorityNeedSet({ capabilities: ["svc.read"] }),
+    authorityNeedSet({
+      capabilities: ["svc.read", "svc.write"],
+      resources: [{ kind: "kv", alias: "cache", required: true }],
+    }),
+  );
+
+  assertEquals(result.classification, "update");
+  assertEquals(
+    result.desiredChange,
+    authorityNeedSet({
+      capabilities: ["svc.write"],
+      resources: [{ kind: "kv", alias: "cache", required: true }],
+    }),
+  );
+});
+
+Deno.test("Auth.DeploymentAuthority.Plan classifies resource definition changes as migration", () => {
+  const result = classifyDeploymentAuthorityPlan(
+    authorityNeedSet({
+      resources: [{
+        kind: "kv",
+        alias: "cache",
+        required: true,
+        definition: { binding: { bucket: "cache-v1" } },
+      }],
+    }),
+    authorityNeedSet({
+      resources: [{
+        kind: "kv",
+        alias: "cache",
+        required: true,
+        definition: { binding: { bucket: "cache-v2" } },
+      }],
+    }),
+  );
+
+  assertEquals(result.classification, "migration");
+  assertEquals(result.desiredChange.resources, [{
+    kind: "kv",
+    alias: "cache",
+    required: true,
+    definition: { binding: { bucket: "cache-v2" } },
+  }]);
+});
+
+Deno.test("Auth.DeploymentAuthority.Plan classifies resource removals as migration", () => {
+  const result = classifyDeploymentAuthorityPlan(
+    authorityNeedSet({
+      resources: [{ kind: "kv", alias: "cache", required: true }],
+    }),
+    authorityNeedSet(),
+  );
+
+  assertEquals(result.classification, "migration");
+  assertEquals(result.desiredChange.resources, []);
+});
+
+Deno.test("Auth.DeploymentAuthority.AcceptUpdate rejects desired version mismatch", async () => {
+  const original = deploymentAuthority();
+  const authorities = new InMemoryDeploymentAuthorityStorage(original);
+  const plans = new InMemoryDeploymentAuthorityPlanStorage([
+    deploymentAuthorityPlan(),
+  ]);
+  let reconciliationCount = 0;
+  const handler = createAuthDeploymentAuthorityAcceptUpdateHandler({
+    deploymentAuthorityStorage: authorities,
+    deploymentAuthorityPlanStorage: plans,
+    authorityReconciler: {
+      reconcileDeployment: async () => {
+        reconciliationCount += 1;
+        throw new Error("should not reconcile");
+      },
+    },
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { planId: "plan-a", expectedDesiredVersion: "stale" },
+    context: adminContext,
+  });
+
+  assert(result.isErr());
+  assertEquals(authorities.getValue(), original);
+  assertEquals(plans.getValue("plan-a")?.state, "pending");
+  assertEquals(reconciliationCount, 0);
+});
+
+Deno.test("Auth.DeploymentAuthority.AcceptUpdate rejects expired pending plans", async () => {
+  const original = deploymentAuthority();
+  const authorities = new InMemoryDeploymentAuthorityStorage(original);
+  const plans = new InMemoryDeploymentAuthorityPlanStorage([
+    deploymentAuthorityPlan({ expiresAt: "2020-01-01T00:00:00.000Z" }),
+  ]);
+  const handler = createAuthDeploymentAuthorityAcceptUpdateHandler({
+    deploymentAuthorityStorage: authorities,
+    deploymentAuthorityPlanStorage: plans,
+    authorityReconciler: {
+      reconcileDeployment: async () => {
+        throw new Error("should not reconcile");
+      },
+    },
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { planId: "plan-a" },
+    context: adminContext,
+  });
+
+  assert(result.isErr());
+  assertEquals(authorities.getValue(), original);
+  assertEquals(plans.getValue("plan-a")?.state, "pending");
+});
+
+Deno.test("Auth.DeploymentAuthority.AcceptUpdate rejects stale stored plan version", async () => {
+  const original = deploymentAuthority({ version: "v2" });
+  const authorities = new InMemoryDeploymentAuthorityStorage(original);
+  const plans = new InMemoryDeploymentAuthorityPlanStorage([
+    deploymentAuthorityPlan(),
+  ]);
+  let reconciliationCount = 0;
+  const handler = createAuthDeploymentAuthorityAcceptUpdateHandler({
+    deploymentAuthorityStorage: authorities,
+    deploymentAuthorityPlanStorage: plans,
+    authorityReconciler: {
+      reconcileDeployment: async () => {
+        reconciliationCount += 1;
+        throw new Error("should not reconcile");
+      },
+    },
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { planId: "plan-a" },
+    context: adminContext,
+  });
+
+  assert(result.isErr());
+  assertEquals(authorities.getValue(), original);
+  assertEquals(plans.getValue("plan-a")?.state, "pending");
+  assertEquals(reconciliationCount, 0);
+});
+
+Deno.test("Auth.DeploymentAuthority.AcceptUpdate rejects migration plans", async () => {
+  const authorities = new InMemoryDeploymentAuthorityStorage(
+    deploymentAuthority({
+      desiredState: {
+        needs: [{
+          kind: "contract",
+          contractId: "svc.contract@v1",
+          required: true,
+        }],
+        capabilities: [],
+        resources: [],
+        surfaces: [],
+      },
+    }),
+  );
+  const plans = new InMemoryDeploymentAuthorityPlanStorage([{
+    ...deploymentAuthorityPlan(),
+    classification: "migration",
+    acknowledgementRequired: true,
+  }]);
+  const handler = createAuthDeploymentAuthorityAcceptUpdateHandler({
+    deploymentAuthorityStorage: authorities,
+    deploymentAuthorityPlanStorage: plans,
+    authorityReconciler: {
+      reconcileDeployment: async () => {
+        throw new Error("should not reconcile");
+      },
+    },
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { planId: "plan-a" },
+    context: adminContext,
+  });
+
+  assert(result.isErr());
+  assertEquals(plans.getValue("plan-a")?.state, "pending");
+});
+
+Deno.test("Auth.DeploymentAuthority.AcceptMigration stores acknowledgement as decision reason", async () => {
+  const authorities = new InMemoryDeploymentAuthorityStorage(
+    deploymentAuthority({
+      desiredState: {
+        needs: [{
+          kind: "contract",
+          contractId: "svc.contract@v1",
+          required: true,
+        }],
+        capabilities: [],
+        resources: [],
+        surfaces: [],
+      },
+    }),
+  );
+  const plans = new InMemoryDeploymentAuthorityPlanStorage([{
+    ...deploymentAuthorityPlan(),
+    classification: "migration",
+    acknowledgementRequired: true,
+  }]);
+  const handler = createAuthDeploymentAuthorityAcceptMigrationHandler({
+    deploymentAuthorityStorage: authorities,
+    deploymentAuthorityPlanStorage: plans,
+    authorityReconciler: {
+      reconcileDeployment: async (deploymentId, opts) => ({
+        authority: authorities.getValue() ?? deploymentAuthority(),
+        materializedAuthority: {
+          deploymentId,
+          desiredVersion: opts?.desiredVersion ?? "v1",
+          status: "current",
+          resourceBindings: [],
+          grants: [],
+          reconciledAt: "2026-01-01T00:00:02.000Z",
+        },
+        reconciliation: {
+          deploymentId,
+          desiredVersion: opts?.desiredVersion ?? "v1",
+          state: "succeeded",
+          startedAt: "2026-01-01T00:00:02.000Z",
+          finishedAt: "2026-01-01T00:00:03.000Z",
+        },
+      }),
+    },
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { planId: "plan-a", acknowledgement: "I understand." },
+    context: adminContext,
+  });
+
+  assert(!result.isErr());
+  assertEquals(plans.getValue("plan-a")?.state, "accepted");
+  assertEquals(plans.getValue("plan-a")?.decisionReason, "I understand.");
+});
+
+Deno.test("Auth.DeploymentAuthority.AcceptMigration replaces desired state from proposal", async () => {
+  const authorities = new InMemoryDeploymentAuthorityStorage(
+    deploymentAuthority({
+      desiredState: {
+        needs: [
+          {
+            kind: "contract",
+            contractId: "svc.contract@v1",
+            required: true,
+          },
+          {
+            kind: "resource",
+            resource: { kind: "kv", alias: "cache", required: true },
+            required: true,
+          },
+          {
+            kind: "resource",
+            resource: { kind: "kv", alias: "secondary", required: true },
+            required: true,
+          },
+        ],
+        capabilities: [],
+        resources: [
+          { kind: "kv", alias: "cache", required: true },
+          { kind: "kv", alias: "secondary", required: true },
+        ],
+        surfaces: [],
+      },
+    }),
+  );
+  const plans = new InMemoryDeploymentAuthorityPlanStorage([{
+    ...deploymentAuthorityPlan(),
+    classification: "migration",
+    acknowledgementRequired: true,
+    proposal: {
+      deploymentId: "svc-a",
+      contractId: "svc.contract@v1",
+      contractDigest: "sha256-a",
+      requestedNeeds: [{
+        kind: "contract",
+        contractId: "svc.contract@v1",
+        required: true,
+      }, {
+        kind: "resource",
+        resource: {
+          kind: "kv",
+          alias: "cache",
+          required: true,
+          definition: { type: "kv", history: 2, ttlMs: 30000 },
+        },
+        required: true,
+      }],
+      providedSurfaces: [],
+      summary: { desiredVersion: "v1" },
+    },
+    desiredChange: authorityNeedSet(),
+  }]);
+  const handler = createAuthDeploymentAuthorityAcceptMigrationHandler({
+    deploymentAuthorityStorage: authorities,
+    deploymentAuthorityPlanStorage: plans,
+    authorityReconciler: {
+      reconcileDeployment: async (deploymentId, opts) => ({
+        authority: authorities.getValue() ?? deploymentAuthority(),
+        materializedAuthority: {
+          deploymentId,
+          desiredVersion: opts?.desiredVersion ?? "v1",
+          status: "current",
+          resourceBindings: [],
+          grants: [],
+          reconciledAt: "2026-01-01T00:00:02.000Z",
+        },
+        reconciliation: {
+          deploymentId,
+          desiredVersion: opts?.desiredVersion ?? "v1",
+          state: "succeeded",
+          startedAt: "2026-01-01T00:00:02.000Z",
+          finishedAt: "2026-01-01T00:00:03.000Z",
+        },
+      }),
+    },
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { planId: "plan-a", acknowledgement: "I understand." },
+    context: adminContext,
+  });
+
+  assert(result.isOk());
+  assertEquals(authorities.getValue()?.desiredState.resources, [
+    {
+      kind: "kv",
+      alias: "cache",
+      required: true,
+      definition: { type: "kv", history: 2, ttlMs: 30000 },
+    },
+  ]);
+});
+
+Deno.test("Auth.DeploymentAuthority.AcceptMigration rejects out-of-scope replacement", async () => {
+  const authorities = new InMemoryDeploymentAuthorityStorage(
+    deploymentAuthority({
+      desiredState: {
+        needs: [
+          {
+            kind: "contract",
+            contractId: "svc.contract@v1",
+            required: true,
+          },
+          {
+            kind: "contract",
+            contractId: "other.contract@v1",
+            required: true,
+          },
+          {
+            kind: "resource",
+            resource: { kind: "kv", alias: "cache", required: true },
+            required: true,
+          },
+        ],
+        capabilities: [],
+        resources: [{ kind: "kv", alias: "cache", required: true }],
+        surfaces: [],
+      },
+    }),
+  );
+  const original = authorities.getValue();
+  const plans = new InMemoryDeploymentAuthorityPlanStorage([{
+    ...deploymentAuthorityPlan(),
+    classification: "migration",
+    acknowledgementRequired: true,
+    proposal: {
+      deploymentId: "svc-a",
+      contractId: "svc.contract@v1",
+      contractDigest: "sha256-a",
+      requestedNeeds: [{
+        kind: "contract",
+        contractId: "svc.contract@v1",
+        required: true,
+      }],
+      providedSurfaces: [],
+      summary: { desiredVersion: "v1" },
+    },
+    desiredChange: authorityNeedSet(),
+  }]);
+  const handler = createAuthDeploymentAuthorityAcceptMigrationHandler({
+    deploymentAuthorityStorage: authorities,
+    deploymentAuthorityPlanStorage: plans,
+    authorityReconciler: {
+      reconcileDeployment: async () => {
+        throw new Error("should not reconcile");
+      },
+    },
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { planId: "plan-a", acknowledgement: "I understand." },
+    context: adminContext,
+  });
+
+  assert(result.isErr());
+  assertEquals(authorities.getValue(), original);
+  assertEquals(plans.getValue("plan-a")?.state, "pending");
+});
+
+Deno.test("Auth.DeploymentAuthority.AcceptMigration rejects replacement with out-of-scope surfaces", async () => {
+  const authorities = new InMemoryDeploymentAuthorityStorage(
+    deploymentAuthority({
+      desiredState: {
+        needs: [{
+          kind: "surface",
+          surface: {
+            contractId: "other.contract@v1",
+            kind: "rpc",
+            name: "Other.Read",
+            action: "call",
+          },
+          required: true,
+        }],
+        capabilities: [],
+        resources: [],
+        surfaces: [{
+          contractId: "other.contract@v1",
+          kind: "rpc",
+          name: "Other.Read",
+          action: "call",
+        }],
+      },
+    }),
+  );
+  const original = authorities.getValue();
+  const plans = new InMemoryDeploymentAuthorityPlanStorage([{
+    ...deploymentAuthorityPlan(),
+    classification: "migration",
+    acknowledgementRequired: true,
+    proposal: {
+      deploymentId: "svc-a",
+      contractId: "svc.contract@v1",
+      contractDigest: "sha256-a",
+      requestedNeeds: [{
+        kind: "contract",
+        contractId: "svc.contract@v1",
+        required: true,
+      }],
+      providedSurfaces: [],
+      summary: { desiredVersion: "v1" },
+    },
+    desiredChange: authorityNeedSet(),
+  }]);
+  const handler = createAuthDeploymentAuthorityAcceptMigrationHandler({
+    deploymentAuthorityStorage: authorities,
+    deploymentAuthorityPlanStorage: plans,
+    authorityReconciler: {
+      reconcileDeployment: async () => {
+        throw new Error("should not reconcile");
+      },
+    },
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { planId: "plan-a", acknowledgement: "I understand." },
+    context: adminContext,
+  });
+
+  assert(result.isErr());
+  assertEquals(authorities.getValue(), original);
+  assertEquals(plans.getValue("plan-a")?.state, "pending");
+});
+
+Deno.test("Auth.DeploymentAuthority.AcceptMigration rejects missing acknowledgement", async () => {
+  const authorities = new InMemoryDeploymentAuthorityStorage(
+    deploymentAuthority({
+      desiredState: {
+        needs: [{
+          kind: "contract",
+          contractId: "svc.contract@v1",
+          required: true,
+        }],
+        capabilities: [],
+        resources: [],
+        surfaces: [],
+      },
+    }),
+  );
+  const plans = new InMemoryDeploymentAuthorityPlanStorage([{
+    ...deploymentAuthorityPlan(),
+    classification: "migration",
+    acknowledgementRequired: true,
+  }]);
+  const handler = createAuthDeploymentAuthorityAcceptMigrationHandler({
+    deploymentAuthorityStorage: authorities,
+    deploymentAuthorityPlanStorage: plans,
+    authorityReconciler: {
+      reconcileDeployment: async () => {
+        throw new Error("should not reconcile");
+      },
+    },
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { planId: "plan-a" },
+    context: adminContext,
+  });
+
+  assert(result.isErr());
+  assertEquals(plans.getValue("plan-a")?.state, "pending");
+});
+
+Deno.test("Auth.DeploymentAuthority.AcceptMigration warns when reconciliation trigger fails", async () => {
+  const authorities = new InMemoryDeploymentAuthorityStorage(
+    deploymentAuthority({
+      desiredState: {
+        needs: [{
+          kind: "contract",
+          contractId: "svc.contract@v1",
+          required: true,
+        }],
+        capabilities: [],
+        resources: [],
+        surfaces: [],
+      },
+    }),
+  );
+  const plans = new InMemoryDeploymentAuthorityPlanStorage([{
+    ...deploymentAuthorityPlan(),
+    classification: "migration",
+    acknowledgementRequired: true,
+  }]);
+  const warnings: Array<{ deploymentId?: unknown; err?: unknown }> = [];
+  const handler = createAuthDeploymentAuthorityAcceptMigrationHandler({
+    deploymentAuthorityStorage: authorities,
+    deploymentAuthorityPlanStorage: plans,
+    authorityReconciler: {
+      reconcileDeployment: async () => {
+        throw new Error("temporary reconciliation failure");
+      },
+    },
+    logger: {
+      trace: () => {},
+      warn: (entry) => warnings.push(entry),
+    },
+  });
+
+  const result = await handler({
+    input: { planId: "plan-a", acknowledgement: "I understand." },
+    context: adminContext,
+  });
+
+  assert(result.isOk());
+  assertEquals(plans.getValue("plan-a")?.state, "accepted");
+  assertEquals(warnings.length, 1);
+  assertEquals(warnings[0]?.deploymentId, "svc-a");
+  assert(warnings[0]?.err instanceof Error);
+});
+
+Deno.test("Auth.DeploymentAuthority.Reject marks pending plan without authority mutation or reconcile", async () => {
+  const plans = new InMemoryDeploymentAuthorityPlanStorage([
+    deploymentAuthorityPlan(),
+  ]);
+  const handler = createAuthDeploymentAuthorityRejectHandler({
+    deploymentAuthorityPlanStorage: plans,
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { planId: "plan-a", reason: "not now" },
+    context: adminContext,
+  });
+
+  assert(!result.isErr());
+  const value = result.take();
+  if (isErr(value)) throw value.error;
+  assertEquals(value, { success: true });
+  const plan = plans.getValue("plan-a");
+  assertEquals(plan?.state, "rejected");
+  assertEquals(plan?.decisionReason, "not now");
+});
+
+Deno.test("Auth.DeploymentAuthority.Reject rejects non-pending plans", async () => {
+  const plans = new InMemoryDeploymentAuthorityPlanStorage([{
+    ...deploymentAuthorityPlan(),
+    state: "accepted",
+  }]);
+  const handler = createAuthDeploymentAuthorityRejectHandler({
+    deploymentAuthorityPlanStorage: plans,
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { planId: "plan-a", reason: "not now" },
+    context: adminContext,
+  });
+
+  assert(result.isErr());
+  assertEquals(plans.getValue("plan-a")?.state, "accepted");
+});
+
+Deno.test("Auth.DeploymentAuthority.Reject rejects expired pending plans", async () => {
+  const plans = new InMemoryDeploymentAuthorityPlanStorage([
+    deploymentAuthorityPlan({ expiresAt: "2020-01-01T00:00:00.000Z" }),
+  ]);
+  const handler = createAuthDeploymentAuthorityRejectHandler({
+    deploymentAuthorityPlanStorage: plans,
+    logger: { trace: () => {} },
+  });
+
+  const result = await handler({
+    input: { planId: "plan-a", reason: "not now" },
+    context: adminContext,
+  });
+
+  assert(result.isErr());
+  assertEquals(plans.getValue("plan-a")?.state, "pending");
 });
 
 Deno.test({
@@ -505,22 +1534,17 @@ Deno.test("validateServiceDeploymentRequest normalizes namespaces without displa
   );
 });
 
-Deno.test("Auth.Deployments.Create service initializes an empty service envelope", async () => {
+Deno.test("Auth.Deployments.Create service initializes an empty service authority", async () => {
   const deployments = new InMemoryServiceDeploymentStorage();
-  const envelopes: Array<{
-    deploymentId: string;
-    kind: string;
-    disabled: boolean;
-    boundary: unknown;
-  }> = [];
+  const authorities: DeploymentAuthority[] = [];
   const result = await createAuthDeploymentsServiceCreateHandler({
     logger: { trace: () => {} },
     serviceDeploymentStorage: deployments,
     serviceInstanceStorage: serviceAdminDeps().serviceInstanceStorage,
-    deploymentEnvelopeStorage: {
+    deploymentAuthorityStorage: {
       get: async () => undefined,
       put: async (record) => {
-        envelopes.push(record);
+        authorities.push(record);
       },
     },
   })({
@@ -529,25 +1553,64 @@ Deno.test("Auth.Deployments.Create service initializes an empty service envelope
   });
 
   assert(!result.isErr());
-  assertEquals(envelopes.length, 1);
-  assertEquals(envelopes[0]?.deploymentId, "demo-js");
-  assertEquals(envelopes[0]?.kind, "service");
-  assertEquals(envelopes[0]?.disabled, false);
-  assertEquals(
-    envelopes[0]?.boundary,
-    {
-      contracts: [],
-      surfaces: [],
-      capabilities: [],
-      resources: [],
-    },
-  );
+  assertEquals(authorities.length, 1);
+  assertEquals(authorities[0]?.deploymentId, "demo-js");
+  assertEquals(authorities[0]?.kind, "service");
+  assertEquals(authorities[0]?.disabled, false);
+  assertEquals(authorities[0]?.desiredState, {
+    needs: [],
+    capabilities: [],
+    resources: [],
+    surfaces: [],
+  });
   assertEquals(deployments.getValue("demo-js"), {
     deploymentId: "demo-js",
     namespaces: [],
     contractCompatibilityMode: "strict",
     disabled: false,
   });
+});
+
+Deno.test("Auth.Deployments.Create service resets an existing disabled authority", async () => {
+  const deployments = new InMemoryServiceDeploymentStorage();
+  let authority = deploymentAuthority({
+    deploymentId: "demo-js",
+    kind: "service",
+    disabled: true,
+    desiredState: {
+      needs: [{ kind: "contract", contractId: "old@v1", required: true }],
+      capabilities: ["old.use"],
+      resources: [],
+      surfaces: [],
+    },
+  });
+
+  const result = await createAuthDeploymentsServiceCreateHandler({
+    logger: { trace: () => {} },
+    serviceDeploymentStorage: deployments,
+    serviceInstanceStorage: serviceAdminDeps().serviceInstanceStorage,
+    deploymentAuthorityStorage: {
+      get: async () => authority,
+      put: async (record) => {
+        authority = record;
+      },
+    },
+  })({
+    input: { deploymentId: "demo-js", namespaces: [] },
+    context: adminContext,
+  });
+
+  assert(!result.isErr());
+  assertEquals(authority.deploymentId, "demo-js");
+  assertEquals(authority.kind, "service");
+  assertEquals(authority.disabled, false);
+  assertEquals(authority.desiredState, {
+    needs: [],
+    capabilities: [],
+    resources: [],
+    surfaces: [],
+  });
+  assert(authority.version !== "v1");
 });
 
 Deno.test("Auth.Deployments.Create service returns mutable-dev compatibility mode", async () => {
@@ -585,14 +1648,11 @@ Deno.test("Auth.Deployments.Disable service validates staged deployment before p
     namespaces: ["billing"],
     disabled: false,
   };
-  const originalEnvelope: DeploymentEnvelope = {
+  const originalAuthority = deploymentAuthority({
     deploymentId: "billing.default",
     kind: "service",
     disabled: false,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-    boundary: { contracts: [], surfaces: [], capabilities: [], resources: [] },
-  };
+  });
   let stored = original;
   let putCount = 0;
   let refreshCount = 0;
@@ -625,8 +1685,8 @@ Deno.test("Auth.Deployments.Disable service validates staged deployment before p
         createdAt: "2026-01-01T00:00:00.000Z",
       }],
     },
-    deploymentEnvelopeStorage: {
-      get: async () => originalEnvelope,
+    deploymentAuthorityStorage: {
+      get: async () => originalAuthority,
       put: async () => throwingStoreAccess(),
     },
   };
@@ -636,15 +1696,9 @@ Deno.test("Auth.Deployments.Disable service validates staged deployment before p
     kick: async (serverId, clientId) => {
       kicked.push({ serverId, clientId });
     },
-    validateActiveCatalog: async (
-      { stagedServiceDeployments, stagedDeploymentEnvelopes },
-    ) => {
+    validateActiveCatalog: async ({ stagedServiceDeployments }) => {
       assertEquals([...stagedServiceDeployments ?? []], [{
         ...original,
-        disabled: true,
-      }]);
-      assertEquals([...stagedDeploymentEnvelopes ?? []], [{
-        ...originalEnvelope,
         disabled: true,
       }]);
       throw new Error("incompatible staged active catalog");
@@ -664,7 +1718,7 @@ Deno.test("Auth.Deployments.Disable service validates staged deployment before p
   assertEquals(stored, original);
 });
 
-Deno.test("Auth.Deployments.Disable service updates the deployment envelope disabled state", async () => {
+Deno.test("Auth.Deployments.Disable service updates the deployment authority disabled state", async () => {
   const original: ServiceDeployment = {
     deploymentId: "billing.default",
     namespaces: ["billing"],
@@ -672,14 +1726,11 @@ Deno.test("Auth.Deployments.Disable service updates the deployment envelope disa
   };
   const deployments = new InMemoryServiceDeploymentStorage();
   deployments.seed(original);
-  let envelope: DeploymentEnvelope = {
+  let authority = deploymentAuthority({
     deploymentId: "billing.default",
     kind: "service",
     disabled: false,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-    boundary: { contracts: [], surfaces: [], capabilities: [], resources: [] },
-  };
+  });
   const serviceDeps: ServiceAdminRpcDeps = {
     logger: { trace: () => {} },
     serviceDeploymentStorage: deployments,
@@ -687,10 +1738,10 @@ Deno.test("Auth.Deployments.Disable service updates the deployment envelope disa
       ...serviceAdminDeps().serviceInstanceStorage,
       listByDeployment: async () => [],
     },
-    deploymentEnvelopeStorage: {
-      get: async () => envelope,
+    deploymentAuthorityStorage: {
+      get: async () => authority,
       put: async (record) => {
-        envelope = record;
+        authority = record;
       },
     },
   };
@@ -711,7 +1762,54 @@ Deno.test("Auth.Deployments.Disable service updates the deployment envelope disa
 
   assert(!result.isErr());
   assertEquals(deployments.getValue("billing.default")?.disabled, true);
-  assertEquals(envelope.disabled, true);
+  assertEquals(authority.disabled, true);
+});
+
+Deno.test("Auth.Deployments.Enable service reconciles authority disabled state after refresh", async () => {
+  const deployments = new InMemoryServiceDeploymentStorage();
+  deployments.seed({
+    deploymentId: "billing.default",
+    namespaces: ["billing"],
+    disabled: true,
+  });
+  let authority = deploymentAuthority({
+    deploymentId: "billing.default",
+    kind: "service",
+    disabled: true,
+  });
+  let refreshed = false;
+  const reconciles: Array<{ deploymentId: string; desiredVersion?: string }> =
+    [];
+
+  const result = await createAuthDeploymentsServiceEnableHandler({
+    refreshActiveContracts: async () => {
+      refreshed = true;
+    },
+    validateActiveCatalog: async () => {},
+    serviceDeploymentStorage: deployments,
+    deploymentAuthorityStorage: {
+      get: async () => authority,
+      put: async (record) => {
+        authority = record;
+      },
+    },
+    authorityReconciler: {
+      reconcileDeployment: async (deploymentId, opts) => {
+        assert(refreshed);
+        reconciles.push({ deploymentId, desiredVersion: opts?.desiredVersion });
+      },
+    },
+  })({
+    input: { deploymentId: "billing.default" },
+    context: adminContext,
+  });
+
+  assert(!result.isErr());
+  assertEquals(authority.disabled, false);
+  assertEquals(reconciles, [{
+    deploymentId: "billing.default",
+    desiredVersion: authority.version,
+  }]);
 });
 
 Deno.test("Auth.Deployments.Remove service without cascade rejects deployments with instances", async () => {
@@ -779,7 +1877,6 @@ Deno.test("Auth.Deployments.Remove service rejects resource purge without cascad
   };
   let deletedDeployment = false;
   let refreshCount = 0;
-  let purgeCount = 0;
   const serviceDeps: ServiceAdminRpcDeps = {
     logger: { trace: () => {} },
     serviceDeploymentStorage: {
@@ -804,9 +1901,6 @@ Deno.test("Auth.Deployments.Remove service rejects resource purge without cascad
 
   const result = await createAuthDeploymentsServiceRemoveHandler({
     ...kickDeps(serviceDeps),
-    purgeResourceBindings: async () => {
-      purgeCount += 1;
-    },
     refreshActiveContracts: async () => {
       refreshCount += 1;
     },
@@ -819,7 +1913,6 @@ Deno.test("Auth.Deployments.Remove service rejects resource purge without cascad
   assert(result.isErr());
   assertEquals(deletedDeployment, false);
   assertEquals(refreshCount, 0);
-  assertEquals(purgeCount, 0);
 });
 
 Deno.test("Auth.Deployments.Remove service rejects contract purge without cascade before deleting", async () => {
@@ -1230,32 +2323,14 @@ Deno.test("Auth.Deployments.Remove service cascades instances, sessions, and run
   ]);
 });
 
-Deno.test("Auth.Deployments.Remove service purges applied contract resources before durable deletion", async () => {
+Deno.test("Auth.Deployments.Remove service rejects direct resource purge with cascade", async () => {
   const original: ServiceDeployment = {
     deploymentId: "billing.default",
     namespaces: ["billing"],
     disabled: false,
   };
-  const resourceBindings: DeploymentResourceBinding[] = [{
-    deploymentId: "billing.default",
-    kind: "kv",
-    alias: "cache",
-    binding: { bucket: "cache-a", history: 1, ttlMs: 0 },
-    limits: null,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-  }, {
-    deploymentId: "billing.default",
-    kind: "store",
-    alias: "uploads",
-    binding: { name: "uploads-b", ttlMs: 0 },
-    limits: null,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-  }];
   let storedDeployment: ServiceDeployment | undefined = original;
   const calls: string[] = [];
-  const purgedBindings: unknown[] = [];
   const serviceDeps: ServiceAdminRpcDeps = {
     logger: { trace: () => {} },
     serviceDeploymentStorage: {
@@ -1283,13 +2358,6 @@ Deno.test("Auth.Deployments.Remove service purges applied contract resources bef
 
   const result = await createAuthDeploymentsServiceRemoveHandler({
     ...kickDeps(serviceDeps),
-    purgeResourceBindings: async (bindings) => {
-      calls.push("purge");
-      purgedBindings.push(...bindings);
-    },
-    deploymentResourceBindingStorage: {
-      listByDeployment: async () => resourceBindings,
-    },
     refreshActiveContracts: async () => {
       calls.push("refresh");
     },
@@ -1303,15 +2371,9 @@ Deno.test("Auth.Deployments.Remove service purges applied contract resources bef
     context: adminContext,
   });
 
-  assert(!result.isErr());
-  assertEquals(calls, ["purge", "delete-deployment", "refresh"]);
-  assertEquals(purgedBindings, [
-    {
-      kv: { cache: { bucket: "cache-a", history: 1, ttlMs: 0 } },
-      store: { uploads: { name: "uploads-b", ttlMs: 0 } },
-    },
-  ]);
-  assertEquals(storedDeployment, undefined);
+  assert(result.isErr());
+  assertEquals(calls, []);
+  assertEquals(storedDeployment, original);
 });
 
 Deno.test("Auth.Deployments.Remove service does not delete or refresh when resource purge fails", async () => {
@@ -1348,20 +2410,6 @@ Deno.test("Auth.Deployments.Remove service does not delete or refresh when resou
 
   const result = await createAuthDeploymentsServiceRemoveHandler({
     ...kickDeps(serviceDeps),
-    purgeResourceBindings: async () => {
-      throw new Error("purge failed");
-    },
-    deploymentResourceBindingStorage: {
-      listByDeployment: async () => [{
-        deploymentId: "billing.default",
-        kind: "kv",
-        alias: "cache",
-        binding: { bucket: "cache-a", history: 1, ttlMs: 0 },
-        limits: null,
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      }],
-    },
     refreshActiveContracts: async () => {
       refreshCount += 1;
     },
@@ -1448,20 +2496,6 @@ Deno.test("Auth.Deployments.Remove service does not revoke runtime access when r
     },
     kick: async (serverId, clientId) => {
       kicked.push({ serverId, clientId });
-    },
-    purgeResourceBindings: async () => {
-      throw new Error("purge failed");
-    },
-    deploymentResourceBindingStorage: {
-      listByDeployment: async () => [{
-        deploymentId: "billing.default",
-        kind: "kv",
-        alias: "cache",
-        binding: { bucket: "cache-a", history: 1, ttlMs: 0 },
-        limits: null,
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      }],
     },
     refreshActiveContracts: async () => {
       throw new Error("should not refresh");
@@ -1647,20 +2681,6 @@ Deno.test("Auth.Deployments.Remove service deletes and refreshes after purge whe
       calls.push("kick");
       throw new Error("kick failed");
     },
-    purgeResourceBindings: async () => {
-      calls.push("purge");
-    },
-    deploymentResourceBindingStorage: {
-      listByDeployment: async () => [{
-        deploymentId: "billing.default",
-        kind: "kv",
-        alias: "cache",
-        binding: { bucket: "cache-a", history: 1, ttlMs: 0 },
-        limits: null,
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      }],
-    },
     refreshActiveContracts: async () => {
       calls.push("refresh");
     },
@@ -1674,17 +2694,11 @@ Deno.test("Auth.Deployments.Remove service deletes and refreshes after purge whe
     context: adminContext,
   });
 
-  assert(!result.isErr());
-  assertEquals(calls, [
-    "purge",
-    "kick",
-    "delete-instance",
-    "delete-deployment",
-    "refresh",
-  ]);
-  assertEquals(storedDeployment, undefined);
-  assertEquals(storedInstances, []);
-  assertEquals(deletedSessions, ["session-key-1"]);
+  assert(result.isErr());
+  assertEquals(calls, []);
+  assertEquals(storedDeployment, original);
+  assertEquals(storedInstances, instances);
+  assertEquals(deletedSessions, []);
 });
 
 Deno.test("Auth.Deployments.Remove service rolls back cascade deletes when an instance delete fails", async () => {
@@ -1899,13 +2913,9 @@ function deviceAdminDeps(args: {
   activeCatalogIssues?: ActiveCatalogIssue[];
   serviceInstances?: Array<Record<string, never>>;
   approvalDigests?: string[];
-  envelopePuts?: Array<{
-    deploymentId: string;
-    kind: string;
-    disabled: boolean;
-    boundary: unknown;
-  }>;
-  envelope?: DeploymentEnvelope;
+  authorityPuts?: DeploymentAuthority[];
+  authority?: DeploymentAuthority;
+  authorityReconciler?: AdminRpcDeps["authorityReconciler"];
 }) {
   let stored: DeviceDeployment | undefined = args.deployment;
   let instances = args.instances ?? [];
@@ -1914,7 +2924,13 @@ function deviceAdminDeps(args: {
   let activations = args.activations ??
     (args.activation ? [args.activation] : []);
   let activationReviews = args.activationReviews ?? [];
-  let envelope = args.envelope;
+  let authority = args.authority ?? (args.deployment
+    ? deploymentAuthority({
+      deploymentId: args.deployment.deploymentId,
+      kind: "device",
+      disabled: args.deployment.disabled,
+    })
+    : undefined);
   const connectionsKV = {
     get: () =>
       AsyncResult.ok({
@@ -1971,7 +2987,8 @@ function deviceAdminDeps(args: {
       get: async () => undefined,
       listPage: async () =>
         (args.approvalDigests ?? []).map((digest) => ({
-          identityEnvelopeId: `env-${digest}`,
+          identityGrantId: `env-${digest}`,
+          identityAuthorityId: `ida-${digest}`,
           userTrellisId: `user-${digest}`,
           origin: "test",
           id: `user-${digest}`,
@@ -2121,11 +3138,12 @@ function deviceAdminDeps(args: {
           : [];
       },
     },
-    deploymentEnvelopeStorage: {
-      get: async () => envelope,
+    deploymentAuthorityStorage: {
+      get: async (deploymentId) =>
+        authority?.deploymentId === deploymentId ? authority : undefined,
       put: async (record) => {
-        args.envelopePuts?.push(record);
-        envelope = record;
+        args.authorityPuts?.push(record);
+        authority = record;
       },
     },
     deviceInstanceStorage: {
@@ -2203,6 +3221,7 @@ function deviceAdminDeps(args: {
       completeOperation: (operationId, output) =>
         AsyncResult.ok(operationSnapshot(operationId, output)),
     },
+    authorityReconciler: args.authorityReconciler,
     publishSessionRevoked: async () => {},
     sessionStorage: {
       deleteByPublicIdentityKey: async () => {},
@@ -2348,29 +3367,21 @@ Deno.test("Auth.Deployments.Enable device validates staged deployment before per
   assertEquals(getStored(), original);
 });
 
-Deno.test("Auth.Deployments.Enable device updates the deployment envelope disabled state", async () => {
+Deno.test("Auth.Deployments.Enable device updates the deployment authority disabled state", async () => {
   const original: DeviceDeployment = {
     deploymentId: "reader.default",
     reviewMode: "none",
     disabled: true,
   };
-  const envelopePuts: DeploymentEnvelope[] = [];
+  const authorityPuts: DeploymentAuthority[] = [];
   const { deps, getStored } = deviceAdminDeps({
     deployment: original,
-    envelope: {
+    authority: deploymentAuthority({
       deploymentId: "reader.default",
       kind: "device",
       disabled: true,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-      boundary: {
-        contracts: [],
-        surfaces: [],
-        capabilities: [],
-        resources: [],
-      },
-    },
-    envelopePuts,
+    }),
+    authorityPuts,
   });
 
   const result = await createDeviceAdminHandlers(deps).enableDeviceDeployment({
@@ -2380,23 +3391,94 @@ Deno.test("Auth.Deployments.Enable device updates the deployment envelope disabl
 
   assert(!result.isErr());
   assertEquals(getStored()?.disabled, false);
-  assertEquals(envelopePuts.at(-1)?.disabled, false);
+  assertEquals(authorityPuts.at(-1)?.disabled, false);
 });
 
-Deno.test("Auth.Deployments.Create device initializes an empty device envelope", async () => {
-  const envelopePuts: Array<{
-    deploymentId: string;
-    kind: string;
-    disabled: boolean;
-    boundary: unknown;
-  }> = [];
+Deno.test("Auth.Deployments.Enable device reconciles authority disabled state after refresh", async () => {
+  const authorityPuts: DeploymentAuthority[] = [];
+  let refreshed = false;
+  const reconciles: Array<{ deploymentId: string; desiredVersion?: string }> =
+    [];
+  const { deps } = deviceAdminDeps({
+    deployment: {
+      deploymentId: "reader.default",
+      reviewMode: "none",
+      disabled: true,
+    },
+    authority: deploymentAuthority({
+      deploymentId: "reader.default",
+      kind: "device",
+      disabled: true,
+    }),
+    authorityPuts,
+    refreshActiveContracts: async () => {
+      refreshed = true;
+    },
+    authorityReconciler: {
+      reconcileDeployment: async (deploymentId, opts) => {
+        assert(refreshed);
+        reconciles.push({ deploymentId, desiredVersion: opts?.desiredVersion });
+      },
+    },
+  });
+
+  const result = await createDeviceAdminHandlers(deps).enableDeviceDeployment({
+    input: { deploymentId: "reader.default" },
+    context: adminContext,
+  });
+
+  assert(!result.isErr());
+  assertEquals(reconciles, [{
+    deploymentId: "reader.default",
+    desiredVersion: authorityPuts.at(-1)?.version,
+  }]);
+});
+
+Deno.test("Auth.Deployments.Enable device restores original authority when refresh fails", async () => {
+  const deployment: DeviceDeployment = {
+    deploymentId: "reader.default",
+    reviewMode: "none",
+    disabled: true,
+  };
+  const originalAuthority = deploymentAuthority({
+    deploymentId: "reader.default",
+    kind: "device",
+    disabled: true,
+  });
+  const authorityPuts: DeploymentAuthority[] = [];
+  const { deps, getStored } = deviceAdminDeps({
+    deployment,
+    authority: originalAuthority,
+    authorityPuts,
+    refreshActiveContracts: async () => {
+      throw new Error("refresh failed");
+    },
+    authorityReconciler: {
+      reconcileDeployment: async () => {
+        throw new Error("should not reconcile");
+      },
+    },
+  });
+
+  const result = await createDeviceAdminHandlers(deps).enableDeviceDeployment({
+    input: { deploymentId: "reader.default" },
+    context: adminContext,
+  });
+
+  assert(result.isErr());
+  assertEquals(getStored(), deployment);
+  assertEquals(authorityPuts.at(-1), originalAuthority);
+});
+
+Deno.test("Auth.Deployments.Create device initializes an empty device authority", async () => {
+  const authorityPuts: DeploymentAuthority[] = [];
   const { deps, getStored } = deviceAdminDeps({
     deployment: {
       deploymentId: "reader.old",
       reviewMode: "none",
       disabled: false,
     },
-    envelopePuts,
+    authorityPuts,
   });
 
   const result = await createDeviceAdminHandlers(deps).createDeviceDeployment({
@@ -2406,22 +3488,59 @@ Deno.test("Auth.Deployments.Create device initializes an empty device envelope",
 
   assert(!result.isErr());
   assertEquals(getStored()?.deploymentId, "reader.default");
-  assertEquals(envelopePuts.length, 1);
-  assertEquals(envelopePuts[0]?.deploymentId, "reader.default");
-  assertEquals(envelopePuts[0]?.kind, "device");
-  assertEquals(envelopePuts[0]?.disabled, false);
-  assertEquals(envelopePuts[0]?.boundary, {
-    contracts: [],
-    surfaces: [],
+  assertEquals(authorityPuts.length, 1);
+  assertEquals(authorityPuts[0]?.deploymentId, "reader.default");
+  assertEquals(authorityPuts[0]?.kind, "device");
+  assertEquals(authorityPuts[0]?.disabled, false);
+  assertEquals(authorityPuts[0]?.desiredState, {
+    needs: [],
     capabilities: [],
     resources: [],
+    surfaces: [],
   });
 });
 
-Deno.test("Auth.Deployments.Create device rolls back deployment when envelope initialization fails", async () => {
+Deno.test("Auth.Deployments.Create device resets an existing disabled authority", async () => {
+  const authorityPuts: DeploymentAuthority[] = [];
+  const { deps, getStored } = deviceAdminDeps({
+    authority: deploymentAuthority({
+      deploymentId: "reader.default",
+      kind: "device",
+      disabled: true,
+      desiredState: {
+        needs: [{ kind: "contract", contractId: "old@v1", required: true }],
+        capabilities: ["old.use"],
+        resources: [],
+        surfaces: [],
+      },
+    }),
+    authorityPuts,
+  });
+
+  const result = await createDeviceAdminHandlers(deps).createDeviceDeployment({
+    input: { deploymentId: "reader.default", reviewMode: "required" },
+    context: adminContext,
+  });
+
+  assert(!result.isErr());
+  assertEquals(getStored()?.deploymentId, "reader.default");
+  assertEquals(authorityPuts.length, 1);
+  assertEquals(authorityPuts[0]?.deploymentId, "reader.default");
+  assertEquals(authorityPuts[0]?.kind, "device");
+  assertEquals(authorityPuts[0]?.disabled, false);
+  assertEquals(authorityPuts[0]?.desiredState, {
+    needs: [],
+    capabilities: [],
+    resources: [],
+    surfaces: [],
+  });
+  assert(authorityPuts[0]?.version !== "v1");
+});
+
+Deno.test("Auth.Deployments.Create device rolls back deployment when authority initialization fails", async () => {
   const { deps, getStored } = deviceAdminDeps({});
-  deps.deploymentEnvelopeStorage.put = async () => {
-    throw new Error("envelope write failed");
+  deps.deploymentAuthorityStorage.put = async () => {
+    throw new Error("authority write failed");
   };
 
   const result = await createDeviceAdminHandlers(deps).createDeviceDeployment({

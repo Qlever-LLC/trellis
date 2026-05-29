@@ -117,7 +117,7 @@ Deno.test("grant helpers expose honest participant labels and compact keys", () 
   equal(formatShortKey(undefined), "—");
   deepEqual(
     describeUserGrant({
-      identityEnvelopeId: "agent-envelope",
+      identityGrantId: "agent-grant",
       contractEvidence: {
         contractDigest: "digest-agent",
         contractId: "trellis.agent@v1",

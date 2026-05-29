@@ -52,7 +52,7 @@ time = { version = "0.3", features = ["formatting"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-uuid = { version = "1", features = ["v4"] }
+ulid = "1.2"
 
 trellis-contracts = "0.9"
 trellis = "0.9"

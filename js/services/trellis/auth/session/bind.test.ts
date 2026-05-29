@@ -100,7 +100,7 @@ function sessionStorageFromKV(kv: InMemoryKV<Session>) {
 function userSessionFields() {
   return {
     participantKind: "app" as const,
-    identityEnvelopeId: "env-console",
+    identityGrantId: "env-console",
     contractDigest: "digest",
     contractId: "trellis.console@v1",
     contractDisplayName: "Trellis Console",
@@ -435,7 +435,7 @@ Deno.test("ensureBoundUserSession clears stale app identity when the rebound ses
     email: "new@example.com",
     name: "Alice",
     participantKind: "app",
-    identityEnvelopeId: "env-console",
+    identityGrantId: "env-console",
     contractDigest: "digest",
     contractId: "trellis.console@v1",
     contractDisplayName: "Trellis Console",

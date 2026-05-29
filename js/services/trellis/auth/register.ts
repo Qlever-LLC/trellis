@@ -1,7 +1,9 @@
 import type { Hono } from "@hono/hono";
 import type { SqlContractStorageRepository } from "../catalog/storage.ts";
+import { createNatsAuthorityPhysicalResourceManager } from "../catalog/resources.ts";
 import type { Config } from "../config.ts";
 import type { AuthRuntimeDeps } from "./runtime_deps.ts";
+import { createAuthorityReconciler } from "./reconciliation/authority_reconciler.ts";
 import { registerApprovalAndUserRpcs } from "./registration/approval_users.ts";
 import { registerDeviceAdminAndActivation } from "./registration/device_admin_activation.ts";
 import { registerAuthHttpRoutes } from "./registration/http_routes.ts";
@@ -12,21 +14,24 @@ import type {
   AuthContractsRuntime,
   AuthRuntime,
 } from "./registration/types.ts";
+import type { DeploymentResourceBinding } from "./schemas.ts";
 import type {
   SqlAccountFlowRepository,
+  SqlAuthorityReconciliationRepository,
   SqlCapabilityGroupRepository,
-  SqlDeploymentEnvelopeRepository,
-  SqlDeploymentGrantOverrideRepository,
+  SqlDeploymentAuthorityGrantOverrideRepository,
+  SqlDeploymentAuthorityPlanRepository,
+  SqlDeploymentAuthorityRepository,
   SqlDeploymentPortalRouteRepository,
-  SqlDeploymentResourceBindingRepository,
   SqlDeviceActivationRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
-  SqlEnvelopeExpansionRequestRepository,
-  SqlEnvelopeHistoryRepository,
-  SqlIdentityEnvelopeRepository,
+  SqlIdentityAuthorityRepository,
+  SqlIdentityGrantRepository,
   SqlLocalCredentialRepository,
   SqlLoginPortalRepository,
+  SqlMaterializedAuthorityRepository,
+  SqlMaterializedResourceBindingRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlSessionRepository,
@@ -35,6 +40,37 @@ import type {
   SqlUserProjectionRepository,
 } from "./storage.ts";
 
+function createMaterializedResourceBindingAdapter(
+  storage: SqlMaterializedResourceBindingRepository,
+) {
+  return {
+    async get(deploymentId: string, kind: string, alias: string) {
+      return (await storage.listBindingsByDeployment(deploymentId)).find((
+        binding,
+      ) => binding.kind === kind && binding.alias === alias);
+    },
+    async put(record: DeploymentResourceBinding) {
+      const current = await storage.get(record.deploymentId);
+      const resourceBindings = [
+        ...(current?.resourceBindings ?? []).filter((binding) =>
+          binding.kind !== record.kind || binding.alias !== record.alias
+        ),
+        record,
+      ];
+      await storage.put({
+        deploymentId: record.deploymentId,
+        desiredVersion: current?.desiredVersion ?? record.updatedAt,
+        status: current?.status ?? "pending",
+        resourceBindings,
+        grants: current?.grants ?? [],
+        reconciledAt: current?.reconciledAt ?? null,
+      });
+    },
+    listByDeployment: (deploymentId: string) =>
+      storage.listBindingsByDeployment(deploymentId),
+  };
+}
+
 type AuthRegistrationDeps =
   & {
     app: Hono;
@@ -42,13 +78,17 @@ type AuthRegistrationDeps =
     trellis: AuthRuntime;
     contracts: AuthContractsRuntime;
     contractStorage: SqlContractStorageRepository;
-    deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
-    envelopeHistoryStorage: SqlEnvelopeHistoryRepository;
-    deploymentResourceBindingStorage: SqlDeploymentResourceBindingRepository;
+    deploymentAuthorityStorage: SqlDeploymentAuthorityRepository;
+    deploymentAuthorityPlanStorage: SqlDeploymentAuthorityPlanRepository;
+    materializedAuthorityStorage: SqlMaterializedAuthorityRepository;
+    materializedResourceBindingStorage:
+      SqlMaterializedResourceBindingRepository;
+    authorityReconciliationStorage: SqlAuthorityReconciliationRepository;
     implementationOfferStorage: AuthRuntimeDeps["implementationOfferStorage"];
     deploymentPortalRouteStorage: SqlDeploymentPortalRouteRepository;
-    deploymentGrantOverrideStorage: SqlDeploymentGrantOverrideRepository;
-    envelopeExpansionRequestStorage: SqlEnvelopeExpansionRequestRepository;
+    deploymentAuthorityGrantOverrideStorage:
+      SqlDeploymentAuthorityGrantOverrideRepository;
+    identityAuthorityStorage: SqlIdentityAuthorityRepository;
     accountFlowStorage: SqlAccountFlowRepository;
     loginPortalStorage: SqlLoginPortalRepository;
     accountStorage: SqlUserAccountRepository;
@@ -56,7 +96,7 @@ type AuthRegistrationDeps =
     userIdentityStorage: SqlUserIdentityRepository;
     localCredentialStorage: SqlLocalCredentialRepository;
     userStorage: SqlUserProjectionRepository;
-    contractApprovalStorage: SqlIdentityEnvelopeRepository;
+    identityGrantStorage: SqlIdentityGrantRepository;
     deviceDeploymentStorage: SqlDeviceDeploymentRepository;
     deviceInstanceStorage: SqlDeviceInstanceRepository;
     deviceActivationStorage: SqlDeviceActivationRepository;
@@ -84,6 +124,24 @@ type AuthRegistrationDeps =
  * Registers auth RPCs, operations, and HTTP routes.
  */
 export async function registerAuth(deps: AuthRegistrationDeps): Promise<void> {
+  const authorityReconciler = createAuthorityReconciler({
+    deploymentAuthorityStorage: deps.deploymentAuthorityStorage,
+    materializedAuthorityStorage: deps.materializedAuthorityStorage,
+    authorityReconciliationStorage: deps.authorityReconciliationStorage,
+    physicalResources: {
+      manager: createNatsAuthorityPhysicalResourceManager(deps.natsTrellis),
+    },
+  });
+  const registrationDeps = {
+    ...deps,
+    authorityReconciler,
+    deploymentResourceBindingStorage: createMaterializedResourceBindingAdapter(
+      deps.materializedResourceBindingStorage,
+    ),
+    deploymentAuthorityGrantOverrideStorage:
+      deps.deploymentAuthorityGrantOverrideStorage,
+    contractApprovalStorage: deps.identityGrantStorage,
+  };
   const publishSessionRevoked = async (event: {
     origin: string;
     id: string;
@@ -95,10 +153,16 @@ export async function registerAuth(deps: AuthRegistrationDeps): Promise<void> {
         deps.logger.warn({ error }, "Failed to publish Auth.Sessions.Revoked"),
     );
   };
-  await registerServiceAdminRpcs(deps);
-  await registerPortalAdminRpcs(deps);
-  await registerSessionRpcs(deps);
-  await registerApprovalAndUserRpcs({ ...deps, publishSessionRevoked });
-  await registerDeviceAdminAndActivation({ ...deps, publishSessionRevoked });
-  registerAuthHttpRoutes(deps);
+  await registerServiceAdminRpcs(registrationDeps);
+  await registerPortalAdminRpcs(registrationDeps);
+  await registerSessionRpcs(registrationDeps);
+  await registerApprovalAndUserRpcs({
+    ...registrationDeps,
+    publishSessionRevoked,
+  });
+  await registerDeviceAdminAndActivation({
+    ...registrationDeps,
+    publishSessionRevoked,
+  });
+  registerAuthHttpRoutes(registrationDeps);
 }

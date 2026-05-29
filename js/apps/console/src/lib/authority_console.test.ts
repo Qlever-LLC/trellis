@@ -1,25 +1,25 @@
 import { deepEqual, equal } from "node:assert/strict";
 
 import type {
-  DeploymentEnvelope,
-  EnvelopeBoundary,
-} from "../../../../packages/trellis/auth/protocol.ts";
+  DeploymentAuthority,
+  DeploymentAuthorityPlan,
+} from "@qlever-llc/trellis/auth";
 import {
-  boundaryCounts,
+  authorityCounts,
+  authorityPlanRows,
+  AuthoritySelectionGuard,
+  chooseSelectedAuthorityPlan,
   chooseSelectedDeployment,
-  chooseSelectedExpansionRequest,
   deltaCapabilityRows,
   deltaContractRows,
   deltaResourceRows,
   deltaSurfaceRows,
+  deploymentAuthorityRows,
   deviceRuntimeDeployments,
-  envelopeRows,
-  EnvelopeSelectionGuard,
-  expansionRequestRows,
   formatBindingTarget,
   livenessRows,
   serviceRuntimeDeployments,
-} from "./envelope_console.ts";
+} from "./authority_console.ts";
 
 declare const Deno: {
   test(name: string, fn: () => void | Promise<void>): void;
@@ -42,53 +42,129 @@ type ImplementationOffer = {
   expiresAt: string | null;
 };
 
-const boundary: EnvelopeBoundary = {
-  contracts: [{ contractId: "acme.billing@v1", required: true }],
+const desiredState: DeploymentAuthority["desiredState"] = {
+  needs: [
+    { kind: "contract", contractId: "acme.billing@v1", required: true },
+    {
+      kind: "surface",
+      surface: {
+        contractId: "acme.billing@v1",
+        kind: "rpc",
+        name: "Invoice.Get",
+        action: "call",
+      },
+      required: true,
+    },
+    {
+      kind: "surface",
+      surface: {
+        contractId: "acme.billing@v1",
+        kind: "event",
+        name: "Invoice.Updated",
+        action: "subscribe",
+      },
+      required: false,
+    },
+    {
+      kind: "resource",
+      resource: { kind: "kv", alias: "cache", required: true },
+      required: true,
+    },
+    { kind: "capability", capability: "billing.read", required: true },
+    { kind: "capability", capability: "billing.events", required: false },
+  ],
+  capabilities: ["billing.read", "billing.events"],
+  resources: [{ kind: "kv", alias: "cache", required: true }],
   surfaces: [
     {
       contractId: "acme.billing@v1",
       kind: "rpc",
       name: "Invoice.Get",
       action: "call",
-      required: true,
     },
     {
       contractId: "acme.billing@v1",
       kind: "event",
       name: "Invoice.Updated",
       action: "subscribe",
-      required: false,
     },
   ],
-  capabilities: ["billing.read", "billing.events"],
-  resources: [{ kind: "kv", alias: "cache", required: true }],
 };
 
-const healthPublishBoundary: EnvelopeBoundary = {
-  contracts: [{ contractId: "trellis.health@v1", required: true }],
-  surfaces: [
-    {
+const healthPublishState: DeploymentAuthority["desiredState"] = {
+  needs: [{
+    kind: "surface",
+    surface: {
       contractId: "trellis.health@v1",
       kind: "event",
       name: "Health.Heartbeat",
       action: "publish",
-      required: true,
     },
-  ],
+    required: true,
+  }],
   capabilities: [],
   resources: [],
+  surfaces: [{
+    contractId: "trellis.health@v1",
+    kind: "event",
+    name: "Health.Heartbeat",
+    action: "publish",
+  }],
 };
 
-function envelope(
-  overrides: Partial<DeploymentEnvelope> = {},
-): DeploymentEnvelope {
+function authority(
+  overrides: Partial<DeploymentAuthority> = {},
+): DeploymentAuthority {
   return {
     deploymentId: "billing.default",
     kind: "service",
     disabled: false,
+    desiredState,
+    version: "v1",
     createdAt: "2026-05-07T00:00:00.000Z",
     updatedAt: "2026-05-07T00:00:00.000Z",
-    boundary,
+    ...overrides,
+  };
+}
+
+function authorityPlan(
+  overrides: Partial<
+    Extract<DeploymentAuthorityPlan, { classification: "update" }>
+  > = {},
+): DeploymentAuthorityPlan {
+  return {
+    planId: "plan-1",
+    deploymentId: "billing.default",
+    classification: "update",
+    proposal: {
+      deploymentId: "billing.default",
+      contractId: "acme.billing@v1",
+      contractDigest: "digest-1",
+      contract: {},
+      requestedNeeds: desiredState.needs,
+      providedSurfaces: [],
+    },
+    desiredChange: {
+      contracts: [{ contractId: "acme.billing@v1", required: true }],
+      surfaces: [{
+        contractId: "acme.billing@v1",
+        kind: "rpc",
+        name: "Invoice.Get",
+        action: "call",
+        required: true,
+      }, {
+        contractId: "acme.billing@v1",
+        kind: "event",
+        name: "Invoice.Updated",
+        action: "subscribe",
+        required: false,
+      }],
+      resources: [{ kind: "kv", alias: "cache", required: true }],
+      capabilities: ["billing.read", "billing.events"],
+    },
+    materializationPreview: {},
+    warnings: [],
+    createdAt: "2026-05-07T00:00:00.000Z",
     ...overrides,
   };
 }
@@ -115,11 +191,12 @@ function implementationOffer(
   };
 }
 
-Deno.test("envelopeRows summarizes deployment envelope authority", () => {
-  deepEqual(envelopeRows([envelope()]), [{
+Deno.test("deploymentAuthorityRows summarizes desired authority", () => {
+  deepEqual(deploymentAuthorityRows([authority()]), [{
     deploymentId: "billing.default",
     kind: "service",
     status: "Active",
+    desiredVersion: "v1",
     requiredContracts: 1,
     optionalContracts: 0,
     surfaces: 2,
@@ -129,40 +206,28 @@ Deno.test("envelopeRows summarizes deployment envelope authority", () => {
   }]);
 });
 
-Deno.test("boundaryCounts separates required and optional review deltas", () => {
-  deepEqual(boundaryCounts(boundary), {
+Deno.test("authorityCounts separates required and optional requested needs", () => {
+  deepEqual(authorityCounts(desiredState), {
     requiredContracts: 1,
     optionalContracts: 0,
     requiredSurfaces: 1,
     optionalSurfaces: 1,
     requiredResources: 1,
     optionalResources: 0,
+    requiredCapabilities: 1,
+    optionalCapabilities: 1,
     capabilities: 2,
   });
 });
 
-Deno.test("expansionRequestRows exposes request review counts", () => {
-  const rows = expansionRequestRows([{
-    requestId: "req-1",
-    deploymentId: "billing.default",
-    requestedByKind: "service",
-    requestedBy: { instanceId: "svc-1" },
-    contractId: "acme.billing@v1",
-    contractDigest: "digest-1",
-    contract: {},
-    state: "pending",
-    createdAt: "2026-05-07T00:00:00.000Z",
-    decidedAt: null,
-    decidedBy: null,
-    decisionReason: null,
-    delta: boundary,
-  }]);
+Deno.test("authorityPlanRows exposes update and migration counts", () => {
+  const rows = authorityPlanRows([authorityPlan()]);
 
   deepEqual(rows[0], {
-    requestId: "req-1",
+    planId: "plan-1",
     deploymentId: "billing.default",
     state: "pending",
-    requestedByKind: "service",
+    classification: "update",
     contractId: "acme.billing@v1",
     contractDigest: "digest-1",
     requiredContracts: 1,
@@ -175,17 +240,17 @@ Deno.test("expansionRequestRows exposes request review counts", () => {
     capabilities: 2,
     createdAt: "2026-05-07T00:00:00.000Z",
     searchableText:
-      "req-1 billing.default pending service acme.billing@v1 digest-1 acme.billing@v1 acme.billing@v1 rpc invoice.get call acme.billing@v1 event invoice.updated subscribe kv cache billing.read billing.events",
+      "plan-1 billing.default update acme.billing@v1 digest-1 acme.billing@v1 required acme.billing@v1 rpc invoice.get call acme.billing@v1 event invoice.updated subscribe kv cache billing.read billing.events",
   });
 });
 
-Deno.test("delta display helpers preserve exact boundary entries", () => {
-  deepEqual(deltaContractRows(boundary), [{
+Deno.test("delta display helpers preserve exact authority needs", () => {
+  deepEqual(deltaContractRows(desiredState), [{
     id: "acme.billing@v1",
     contractId: "acme.billing@v1",
     availability: "required",
   }]);
-  deepEqual(deltaSurfaceRows(boundary), [{
+  deepEqual(deltaSurfaceRows(desiredState), [{
     id: "acme.billing@v1:rpc:Invoice.Get:call",
     contractId: "acme.billing@v1",
     kind: "rpc",
@@ -200,48 +265,34 @@ Deno.test("delta display helpers preserve exact boundary entries", () => {
     action: "subscribe",
     availability: "optional",
   }]);
-  deepEqual(deltaResourceRows(boundary), [{
+  deepEqual(deltaResourceRows(desiredState), [{
     id: "kv:cache",
     kind: "kv",
     alias: "cache",
     availability: "required",
   }]);
-  deepEqual(deltaCapabilityRows(boundary), [{
+  deepEqual(deltaCapabilityRows(desiredState), [{
     id: "billing.read",
     capability: "billing.read",
+    availability: "required",
   }, {
     id: "billing.events",
     capability: "billing.events",
+    availability: "optional",
   }]);
 });
 
 Deno.test("livenessRows reports no live implementer without runtime data", () => {
   deepEqual(
-    livenessRows(boundary, [], "billing.default"),
-    [{
-      id: "acme.billing@v1:rpc:Invoice.Get:call",
-      contractId: "acme.billing@v1",
-      surface: "Invoice.Get",
-      kind: "rpc",
-      action: "call",
-      availability: "required",
-      runtime: "no_live_implementer",
-    }, {
-      id: "acme.billing@v1:event:Invoice.Updated:subscribe",
-      contractId: "acme.billing@v1",
-      surface: "Invoice.Updated",
-      kind: "event",
-      action: "subscribe",
-      availability: "optional",
-      runtime: "no_live_implementer",
-    }],
+    livenessRows(desiredState, [], "billing.default").map((row) => row.runtime),
+    ["no_live_implementer", "no_live_implementer"],
   );
 });
 
 Deno.test("livenessRows ignores unaccepted implementation offers", () => {
   deepEqual(
     livenessRows(
-      boundary,
+      desiredState,
       serviceRuntimeDeployments([implementationOffer({ status: "offered" })]),
       "billing.default",
     ).map((row) => row.runtime),
@@ -252,37 +303,21 @@ Deno.test("livenessRows ignores unaccepted implementation offers", () => {
 Deno.test("livenessRows reports live when an accepted implementation offer is active", () => {
   deepEqual(
     livenessRows(
-      boundary,
+      desiredState,
       serviceRuntimeDeployments([implementationOffer()]),
       "billing.default",
-    ),
-    [{
-      id: "acme.billing@v1:rpc:Invoice.Get:call",
-      contractId: "acme.billing@v1",
-      surface: "Invoice.Get",
-      kind: "rpc",
-      action: "call",
-      availability: "required",
-      runtime: "live",
-    }, {
-      id: "acme.billing@v1:event:Invoice.Updated:subscribe",
-      contractId: "acme.billing@v1",
-      surface: "Invoice.Updated",
-      kind: "event",
-      action: "subscribe",
-      availability: "optional",
-      runtime: "live",
-    }],
+    ).map((row) => row.runtime),
+    ["live", "live"],
   );
 });
 
 Deno.test("livenessRows treats selected deployment event publishers as live", () => {
   deepEqual(
     livenessRows(
-      healthPublishBoundary,
-      serviceRuntimeDeployments([implementationOffer({
-        deploymentId: "billing.default",
-      })]),
+      healthPublishState,
+      serviceRuntimeDeployments([
+        implementationOffer({ deploymentId: "billing.default" }),
+      ]),
       "billing.default",
     ).map((row) => row.runtime),
     ["live"],
@@ -292,11 +327,13 @@ Deno.test("livenessRows treats selected deployment event publishers as live", ()
 Deno.test("livenessRows can use live providers from other deployments", () => {
   deepEqual(
     livenessRows(
-      boundary,
-      serviceRuntimeDeployments([implementationOffer({
-        offerId: "offer-orders",
-        deploymentId: "orders.default",
-      })]),
+      desiredState,
+      serviceRuntimeDeployments([
+        implementationOffer({
+          offerId: "offer-orders",
+          deploymentId: "orders.default",
+        }),
+      ]),
       "billing.default",
     ).map((row) => row.runtime),
     ["live", "live"],
@@ -306,12 +343,14 @@ Deno.test("livenessRows can use live providers from other deployments", () => {
 Deno.test("livenessRows ignores other deployment providers for other contracts", () => {
   deepEqual(
     livenessRows(
-      boundary,
-      serviceRuntimeDeployments([implementationOffer({
-        offerId: "offer-other",
-        deploymentId: "orders.default",
-        contractId: "other@v1",
-      })]),
+      desiredState,
+      serviceRuntimeDeployments([
+        implementationOffer({
+          offerId: "offer-other",
+          deploymentId: "orders.default",
+          contractId: "other@v1",
+        }),
+      ]),
       "billing.default",
     ).map((row) => row.runtime),
     ["no_live_implementer", "no_live_implementer"],
@@ -320,10 +359,12 @@ Deno.test("livenessRows ignores other deployment providers for other contracts",
 
 Deno.test("deviceRuntimeDeployments returns live accepted device implementation offers", () => {
   deepEqual(
-    deviceRuntimeDeployments([implementationOffer({
-      deploymentKind: "device",
-      deploymentId: "device.default",
-    })]),
+    deviceRuntimeDeployments([
+      implementationOffer({
+        deploymentKind: "device",
+        deploymentId: "device.default",
+      }),
+    ]),
     [{
       deploymentId: "device.default",
       contractId: "acme.billing@v1",
@@ -362,13 +403,15 @@ Deno.test("runtime deployment helpers ignore stale and expired accepted offers",
 Deno.test("livenessRows does not mark mismatched activated device contracts live", () => {
   deepEqual(
     livenessRows(
-      boundary,
-      deviceRuntimeDeployments([implementationOffer({
-        deploymentKind: "device",
-        deploymentId: "billing.default",
-        contractId: "other@v1",
-        contractDigest: "digest-other",
-      })]),
+      desiredState,
+      deviceRuntimeDeployments([
+        implementationOffer({
+          deploymentKind: "device",
+          deploymentId: "billing.default",
+          contractId: "other@v1",
+          contractDigest: "digest-other",
+        }),
+      ]),
       "billing.default",
     ).map((row) => row.runtime),
     ["no_live_implementer", "no_live_implementer"],
@@ -378,21 +421,23 @@ Deno.test("livenessRows does not mark mismatched activated device contracts live
 Deno.test("livenessRows scopes runtime to matching surface contracts", () => {
   deepEqual(
     livenessRows(
-      boundary,
-      serviceRuntimeDeployments([implementationOffer({
-        deploymentId: "billing.default",
-        contractId: "other@v1",
-      })]),
+      desiredState,
+      serviceRuntimeDeployments([
+        implementationOffer({
+          deploymentId: "billing.default",
+          contractId: "other@v1",
+        }),
+      ]),
       "billing.default",
     ).map((row) => row.runtime),
     ["no_live_implementer", "no_live_implementer"],
   );
   deepEqual(
     livenessRows(
-      boundary,
-      serviceRuntimeDeployments([implementationOffer({
-        deploymentId: "billing.default",
-      })]),
+      desiredState,
+      serviceRuntimeDeployments([
+        implementationOffer({ deploymentId: "billing.default" }),
+      ]),
       "billing.default",
     ).map((row) => row.runtime),
     ["live", "live"],
@@ -400,8 +445,8 @@ Deno.test("livenessRows scopes runtime to matching surface contracts", () => {
 });
 
 Deno.test("chooseSelectedDeployment keeps current selection after list refresh", () => {
-  const first = envelope({ deploymentId: "billing.default" });
-  const second = envelope({ deploymentId: "orders.default" });
+  const first = authority({ deploymentId: "billing.default" });
+  const second = authority({ deploymentId: "orders.default" });
 
   equal(
     chooseSelectedDeployment([first, second], "orders.default"),
@@ -411,31 +456,17 @@ Deno.test("chooseSelectedDeployment keeps current selection after list refresh",
   equal(chooseSelectedDeployment([], "orders.default"), null);
 });
 
-Deno.test("chooseSelectedExpansionRequest keeps current request after refresh", () => {
-  const first = {
-    requestId: "req-1",
-    deploymentId: "billing.default",
-    requestedByKind: "service",
-    requestedBy: { instanceId: "svc-1" },
-    contractId: "acme.billing@v1",
-    contractDigest: "digest-1",
-    contract: {},
-    state: "pending",
-    createdAt: "2026-05-07T00:00:00.000Z",
-    decidedAt: null,
-    decidedBy: null,
-    decisionReason: null,
-    delta: boundary,
-  } as const;
-  const second = { ...first, requestId: "req-2" };
+Deno.test("chooseSelectedAuthorityPlan keeps current plan after refresh", () => {
+  const first = authorityPlan({ planId: "plan-1" });
+  const second = authorityPlan({ planId: "plan-2" });
 
-  equal(chooseSelectedExpansionRequest([first, second], "req-2"), "req-2");
-  equal(chooseSelectedExpansionRequest([first], "req-2"), "req-1");
-  equal(chooseSelectedExpansionRequest([], "req-2"), null);
+  equal(chooseSelectedAuthorityPlan([first, second], "plan-2"), "plan-2");
+  equal(chooseSelectedAuthorityPlan([first], "plan-2"), "plan-1");
+  equal(chooseSelectedAuthorityPlan([], "plan-2"), null);
 });
 
-Deno.test("EnvelopeSelectionGuard rejects stale selection responses", () => {
-  const guard = new EnvelopeSelectionGuard();
+Deno.test("AuthoritySelectionGuard rejects stale selection responses", () => {
+  const guard = new AuthoritySelectionGuard();
   const firstToken = guard.begin("billing.default");
   const secondToken = guard.begin("orders.default");
 

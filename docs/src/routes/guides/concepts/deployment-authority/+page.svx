@@ -1,0 +1,147 @@
+Deployment authority is Trellis's durable control-plane record for what a
+deployment may run and expose. It describes which contract boundaries, surfaces,
+resources, event consumers, and capabilities are available to participants in
+that deployment.
+
+## Authority model
+
+The core authorization question is whether the requested contract boundary fits
+the effective authority:
+
+```ts
+requestedRequiredBoundary <= effectiveAuthority;
+```
+
+If the required boundary fits, a participant may bind or connect once non-authority
+prerequisites also pass. If it does not fit, Trellis creates a pending authority
+update for the missing delta.
+
+Authority update or migration acceptance mutates desired deployment authority and
+approves the desired authority change, including resulting resource changes. It
+does not approve an arbitrary list of contract digests. Contract evidence records
+what was reviewed and presented, while deployment authority remains the durable
+authority set.
+
+Same-contract replacement compatibility is part of authority planning. A
+compatible replacement can proceed as an authority update or no-op when the
+requested boundary already fits. An incompatible replacement for the same
+contract id is an authority migration. Production service deployments default to
+`strict`, which records a pending migration plan for admin review. Development
+deployments can opt into `mutable-dev`, which auto-accepts the same migration
+plan for unreleased local iteration and records that auto-approval in authority
+history.
+
+## Deployment authority
+
+Deployment authority is owned by the deployment. It covers service, device, app,
+CLI, native, portal, and device-user deployments.
+
+Deployment authority answers what is available in the deployment at all. Service
+and device runtimes must present contract evidence that fits their enabled
+deployment authority during NATS auth. If a service binary presents stale or
+unavailable evidence, Trellis rejects the connection rather than issuing a
+partially scoped runtime credential.
+
+The materialized authority is the runtime-ready view that Trellis derives from
+accepted contract boundaries, dependency closure, reconciled resource bindings,
+grant overrides, current grants, and presented runtime proofs. It is the view
+used to mint scoped runtime credentials. Runtime access uses only materialized
+authority whose status is current for the deployment authority version.
+
+## Identity authority
+
+Identity authority is bound to a user-facing or session-keyed identity, such as:
+
+- browser app origin plus contract evidence
+- CLI or native app session public key plus contract evidence
+- device-user flow public key plus contract evidence
+
+Identity authority answers what a user-facing participant is allowed to do after
+authentication. Browser app consent, CLI reauthentication, native sessions,
+identity grants, deployment grant overrides, and capability overlays all resolve
+through this model.
+
+Identity grants do not create service or resource availability. They allow a
+known identity to use surfaces that deployment authority already makes available.
+
+## Boundary, proposal, and delta
+
+A boundary is the contract-derived set of surfaces, resources, dependencies,
+event consumer groups, and capabilities a participant asks to use.
+
+A contract proposal is a submitted boundary change that Trellis can accept before
+it becomes deployment authority. The delta is the missing part of that boundary.
+When a contract asks for a required dependency, resource, event consumer group,
+or capability that is not yet available, Trellis records the delta for acceptance
+as an authority update.
+
+When an authority update includes `eventConsumers`, acceptance mutates desired
+state. Reconciliation provisions the deployment-scoped durable consumer and
+stores the binding. Runtime auth then grants only the exact bound JetStream
+subjects needed by that service instance.
+
+Service-originated pending authority updates are durable and deduplicated by the
+requested boundary. If the same service keeps restarting with the same missing
+boundary, those starts coalesce into the same pending authority update.
+
+Required boundaries fail closed. Optional boundaries are used only when they are
+both available and authorized.
+
+## Reconciliation and migration
+
+Authority reconciliation is the control-plane process that compares desired
+deployment authority with current materialized state, provisions or updates
+resource bindings, and materializes only the physical resources and bindings that
+runtimes can use. It does not accept new authority; acceptance mutates desired
+state and schedules reconciliation, and reconciliation materializes that state.
+Manual reconciliation is for repair, retry, or manual convergence rather than the
+normal follow-up after every accepted plan.
+
+Implementation offers are still required because they model accepted runtime
+availability, freshness, and dependency evidence. They are not materialized
+runtime permissions and do not create resources.
+
+Authority migration is the operator-managed change from one accepted authority
+set to another. Add the new authority before rolling out runtimes that need it,
+and remove old authority only after old runtimes no longer present or require the
+old boundary.
+
+`mutable-dev` does not bypass migration accounting. It only changes who accepts
+the migration: Trellis records the plan and auto-approval instead of waiting for
+a manual admin acknowledgement.
+
+## Availability and liveness
+
+Availability and liveness are separate concepts.
+
+- **Availability** means a contract, surface, integration, or resource exists in
+  the relevant authority.
+- **Liveness** means a runtime session, service instance, device instance, or
+  connection is currently usable.
+
+A caller may be authorized for a surface that is temporarily unavailable because
+no enabled service instance is connected. Availability explains whether the
+deployment has the surface; liveness explains whether something is currently
+online to serve it.
+
+## Grant overrides
+
+Grant overrides are deployment-owned policy records that may pre-authorize
+authority and capability decisions.
+
+They cannot create availability that deployment authority lacks. They can remove
+consent prompts for trusted browser apps or session-keyed clients while keeping
+the decision deployment-owned and revocable.
+
+When an override changes in a way that removes access, Trellis revokes affected
+delegated sessions and requires reconnect or re-auth.
+
+## Contract evidence
+
+Contract evidence is the manifest digest, version, and derived analysis used to
+prove what boundary a participant presented.
+
+Evidence tracks reviewed digests and surfaces. It may retain contract JSON for
+review history, but it is not the authority primitive and should not become a
+manifest lookup fallback. Deployment authority decides access; evidence proves
+what the participant asked for.

@@ -3,6 +3,7 @@ import { TrellisDevice } from "@qlever-llc/trellis";
 import { checkDeviceActivation } from "@qlever-llc/trellis/device/deno";
 import { TransportError } from "@qlever-llc/trellis/errors";
 import chalk from "chalk";
+import { ulid } from "ulid";
 import contract from "../contract.ts";
 import { renderCompactQr } from "../../shared/compact_qr.ts";
 
@@ -125,10 +126,13 @@ async function runGuidedInspectionWizard(device: Device): Promise<void> {
 
   assignments.forEach((assignment, index) => {
     console.info(
-      `${index + 1}. ${assignment.inspectionId}: ${assignment.siteName} / ${assignment.assetName} (${assignment.priority})`,
+      `${
+        index + 1
+      }. ${assignment.inspectionId}: ${assignment.siteName} / ${assignment.assetName} (${assignment.priority})`,
     );
   });
-  const selectedIndex = Number(prompt("Inspection number", "1")?.trim() || "1") - 1;
+  const selectedIndex =
+    Number(prompt("Inspection number", "1")?.trim() || "1") - 1;
   const selected = assignments[selectedIndex] ?? assignments[0];
 
   await device.state.selectedSite.put({
@@ -152,7 +156,11 @@ async function runGuidedInspectionWizard(device: Device): Promise<void> {
   console.info("Step 4: generate the inspection report.");
   const reportComment = prompt("Report comment")?.trim() ||
     "Guided field inspection completed.";
-  await generateReportForInspection(device, selected.inspectionId, reportComment);
+  await generateReportForInspection(
+    device,
+    selected.inspectionId,
+    reportComment,
+  );
 
   console.info("Step 5: save local draft notes.");
   const notes = prompt("Draft notes")?.trim() ||
@@ -310,10 +318,13 @@ async function uploadEvidence(device: Device): Promise<void> {
   await uploadEvidenceFile(device, filePath);
 }
 
-async function uploadEvidenceFile(device: Device, filePath: string): Promise<void> {
+async function uploadEvidenceFile(
+  device: Device,
+  filePath: string,
+): Promise<void> {
   const bytes = await Deno.readFile(filePath);
   const originalFileName = filePath.split(/[\\/]/).at(-1) || "evidence.bin";
-  const evidenceId = crypto.randomUUID();
+  const evidenceId = ulid();
   const key = `evidence/${evidenceId}-${safeFileName(originalFileName)}`;
   let nextProgressPercent = 0;
 

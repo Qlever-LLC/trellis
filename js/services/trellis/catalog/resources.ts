@@ -5,7 +5,11 @@ import { Objm } from "@nats-io/obj";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { ulid } from "ulid";
 
-import type { EnvelopeBoundary } from "../auth/schemas.ts";
+import type {
+  DeploymentAuthorityResource,
+  DeploymentAuthoritySurface,
+  DeploymentResourceBinding,
+} from "../auth/schemas.ts";
 import {
   type ContractEntry,
   resolveContractUsesFromKnownEntries,
@@ -36,6 +40,10 @@ type ContractWithEventConsumers = TrellisContractV1 & {
 type ContractUseMap = NonNullable<
   NonNullable<TrellisContractV1["uses"]>["required"]
 >;
+
+type AuthorityNeedSet = {
+  surfaces: DeploymentAuthoritySurface[];
+};
 
 export type KvResourceRequest = {
   alias: string;
@@ -141,7 +149,7 @@ export type ContractResourceAnalysis = {
 export type ResourceProvisioningOptions = {
   jetstreamReplicas?: number;
   knownContractEntries?: ContractEntry[];
-  envelopeBoundary?: EnvelopeBoundary;
+  authorityNeeds?: AuthorityNeedSet;
   existingResourceNames?: ExistingResourceNames;
   resourceNameGenerator?: ResourceNameGenerator;
 };
@@ -250,6 +258,39 @@ export type ResourcePurgeManager = {
   deleteEventConsumer?(stream: string, consumerName: string): Promise<void>;
 };
 
+export type AuthorityPhysicalResourceManager = ResourcePurgeManager & {
+  ensureKvBucket(
+    bucket: string,
+    request: Pick<KvResourceRequest, "history" | "ttlMs" | "maxValueBytes">,
+    options?: ResourceProvisioningOptions,
+  ): Promise<"created" | "adopted">;
+  ensureObjectStore(
+    name: string,
+    request: StoreResourceRequest,
+    options?: ResourceProvisioningOptions,
+  ): Promise<"created" | "adopted">;
+  ensureJobsInfrastructure(
+    options?: ResourceProvisioningOptions,
+  ): Promise<void>;
+  ensureJobsQueueConsumer(
+    stream: string,
+    queue: JobsQueueBinding,
+  ): Promise<"created" | "adopted">;
+  ensureEventConsumer(
+    request: EventConsumerGroupRequest,
+    consumerName: string,
+  ): Promise<"created" | "adopted">;
+};
+
+export type AuthorityResourceMaterializationOptions = {
+  deploymentId: string;
+  resources: readonly DeploymentAuthorityResource[];
+  existingBindings: readonly DeploymentResourceBinding[];
+  manager: AuthorityPhysicalResourceManager;
+  provisioning?: ResourceProvisioningOptions;
+  now?: string;
+};
+
 export type PurgeableContractResourceBindings = {
   kv?: ContractResourceBindings["kv"];
   store?: ContractResourceBindings["store"];
@@ -278,6 +319,25 @@ export function createNatsResourcePurgeManager(
       if (!consumers.delete) return;
       await consumers.delete(stream, consumerName);
     },
+  };
+}
+
+/** Creates a NATS-backed manager for authority-owned physical resources. */
+export function createNatsAuthorityPhysicalResourceManager(
+  nats: NatsConnection,
+): AuthorityPhysicalResourceManager {
+  return {
+    ...createNatsResourcePurgeManager(nats),
+    ensureKvBucket: (bucket, request, options) =>
+      ensureKvResource(nats, bucket, request, options),
+    ensureObjectStore: (name, request, options) =>
+      ensureStoreResource(nats, name, request, options),
+    ensureJobsInfrastructure: (options) =>
+      ensureBuiltinJobsInfrastructure(nats, options),
+    ensureJobsQueueConsumer: (stream, queue) =>
+      ensureJobsQueueConsumer(nats, stream, queue),
+    ensureEventConsumer: (request, consumerName) =>
+      ensureEventConsumer(nats, request, consumerName),
   };
 }
 
@@ -1030,6 +1090,370 @@ export function existingResourceNamesFromBindings(
   return names;
 }
 
+function optionalPositiveInteger(
+  definition: Record<string, unknown>,
+  key: string,
+): number | undefined {
+  const value = definition[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new Error(
+      `resource definition '${key}' must be a non-negative integer`,
+    );
+  }
+  return value;
+}
+
+function optionalBoolean(
+  definition: Record<string, unknown>,
+  key: string,
+): boolean | undefined {
+  const value = definition[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean") {
+    throw new Error(`resource definition '${key}' must be a boolean`);
+  }
+  return value;
+}
+
+function requiredSchema(
+  definition: Record<string, unknown>,
+  key: string,
+): { schema: string } {
+  const value = definition[key];
+  if (
+    !isRecord(value) || typeof value.schema !== "string" ||
+    value.schema.length === 0
+  ) {
+    throw new Error(`resource definition '${key}' must be a schema reference`);
+  }
+  return { schema: value.schema };
+}
+
+function optionalSchema(
+  definition: Record<string, unknown>,
+  key: string,
+): { schema: string } | undefined {
+  if (definition[key] === undefined) return undefined;
+  return requiredSchema(definition, key);
+}
+
+function optionalNumberArray(
+  definition: Record<string, unknown>,
+  key: string,
+): number[] | undefined {
+  const value = definition[key];
+  if (value === undefined) return undefined;
+  if (
+    !Array.isArray(value) ||
+    !value.every((entry) => Number.isInteger(entry) && entry >= 0)
+  ) {
+    throw new Error(
+      `resource definition '${key}' must be an array of non-negative integers`,
+    );
+  }
+  return [...value];
+}
+
+function optionalStringArray(
+  definition: Record<string, unknown>,
+  key: string,
+): string[] | undefined {
+  const value = definition[key];
+  if (value === undefined) return undefined;
+  if (
+    !Array.isArray(value) ||
+    !value.every((entry) => typeof entry === "string" && entry.length > 0)
+  ) {
+    throw new Error(`resource definition '${key}' must be an array of strings`);
+  }
+  return [...value];
+}
+
+function resourceDefinition(
+  resource: DeploymentAuthorityResource,
+): Record<string, unknown> {
+  const definition = resource.definition ?? {};
+  if (!isRecord(definition)) {
+    throw new Error(
+      `Resource ${resource.kind}:${resource.alias} definition must be an object`,
+    );
+  }
+  return definition;
+}
+
+function toKvRequest(resource: DeploymentAuthorityResource): KvResourceRequest {
+  const definition = resourceDefinition(resource);
+  return {
+    alias: resource.alias,
+    purpose: typeof definition.purpose === "string" ? definition.purpose : "",
+    required: resource.required,
+    history: optionalPositiveInteger(definition, "history") ?? 1,
+    ttlMs: optionalPositiveInteger(definition, "ttlMs") ?? 0,
+    ...(optionalPositiveInteger(definition, "maxValueBytes") !== undefined
+      ? { maxValueBytes: optionalPositiveInteger(definition, "maxValueBytes") }
+      : {}),
+  };
+}
+
+function toStoreRequest(
+  resource: DeploymentAuthorityResource,
+): StoreResourceRequest {
+  const definition = resourceDefinition(resource);
+  return {
+    alias: resource.alias,
+    purpose: typeof definition.purpose === "string" ? definition.purpose : "",
+    required: resource.required,
+    ttlMs: optionalPositiveInteger(definition, "ttlMs") ?? 0,
+    ...(optionalPositiveInteger(definition, "maxObjectBytes") !== undefined
+      ? {
+        maxObjectBytes: optionalPositiveInteger(definition, "maxObjectBytes"),
+      }
+      : {}),
+    ...(optionalPositiveInteger(definition, "maxTotalBytes") !== undefined
+      ? { maxTotalBytes: optionalPositiveInteger(definition, "maxTotalBytes") }
+      : {}),
+  };
+}
+
+function toJobsQueueRequest(
+  resource: DeploymentAuthorityResource,
+): JobsQueueRequest {
+  const definition = resourceDefinition(resource);
+  const maxDeliver = optionalPositiveInteger(definition, "maxDeliver") ?? 5;
+  return {
+    queueType: typeof definition.queueType === "string" &&
+        definition.queueType.length > 0
+      ? definition.queueType
+      : resource.alias,
+    payload: requiredSchema(definition, "payload"),
+    ...(optionalSchema(definition, "result") !== undefined
+      ? { result: optionalSchema(definition, "result") }
+      : {}),
+    maxDeliver,
+    backoffMs: optionalNumberArray(definition, "backoffMs") ??
+      DEFAULT_REDELIVERY_BACKOFF_MS.slice(0, Math.max(maxDeliver - 1, 0)),
+    ackWaitMs: optionalPositiveInteger(definition, "ackWaitMs") ?? 300000,
+    ...(optionalPositiveInteger(definition, "defaultDeadlineMs") !== undefined
+      ? {
+        defaultDeadlineMs: optionalPositiveInteger(
+          definition,
+          "defaultDeadlineMs",
+        ),
+      }
+      : {}),
+    progress: optionalBoolean(definition, "progress") ?? true,
+    logs: optionalBoolean(definition, "logs") ?? true,
+    dlq: optionalBoolean(definition, "dlq") ?? true,
+    concurrency: optionalPositiveInteger(definition, "concurrency") ?? 1,
+  };
+}
+
+function toEventConsumerRequest(
+  resource: DeploymentAuthorityResource,
+): EventConsumerGroupRequest {
+  const definition = resourceDefinition(resource);
+  const stream = definition.stream;
+  const maxDeliver = optionalPositiveInteger(definition, "maxDeliver") ??
+    DEFAULT_REDELIVERY_BACKOFF_MS.length + 1;
+  if (typeof stream !== "string" || stream.length === 0) {
+    throw new Error(
+      `Resource event-consumer:${resource.alias} definition.stream is required`,
+    );
+  }
+  return {
+    alias: resource.alias,
+    stream,
+    filterSubjects: optionalStringArray(definition, "filterSubjects") ?? [],
+    replay: definition.replay === "all" ? "all" : "new",
+    ordering: "strict",
+    concurrency: optionalPositiveInteger(definition, "concurrency") ?? 1,
+    ackWaitMs: optionalPositiveInteger(definition, "ackWaitMs") ?? 300000,
+    maxDeliver,
+    backoffMs: optionalNumberArray(definition, "backoffMs") ??
+      DEFAULT_REDELIVERY_BACKOFF_MS.slice(0, Math.max(maxDeliver - 1, 0)),
+  };
+}
+
+function bindingKey(
+  binding: Pick<DeploymentResourceBinding, "kind" | "alias">,
+) {
+  return `${binding.kind}:${binding.alias}`;
+}
+
+async function deleteRemovedAuthorityBinding(
+  binding: DeploymentResourceBinding,
+  manager: AuthorityPhysicalResourceManager,
+): Promise<void> {
+  if (binding.kind === "kv") {
+    const bucket = stringBindingValue(binding.binding, "bucket");
+    if (bucket) await manager.deleteKvBucket(bucket);
+  } else if (binding.kind === "store") {
+    const name = stringBindingValue(binding.binding, "name");
+    if (name) await manager.deleteObjectStore(name);
+  } else if (binding.kind === "event-consumer" && manager.deleteEventConsumer) {
+    const stream = stringBindingValue(binding.binding, "stream");
+    const consumerName = stringBindingValue(binding.binding, "consumerName");
+    if (stream && consumerName) {
+      await manager.deleteEventConsumer(stream, consumerName);
+    }
+  } else if (binding.kind === "jobs" && manager.deleteEventConsumer) {
+    const stream = stringBindingValue(binding.binding, "workStream");
+    const consumerName = stringBindingValue(binding.binding, "consumerName");
+    if (stream && consumerName) {
+      await manager.deleteEventConsumer(stream, consumerName);
+    }
+  }
+}
+
+/** Materializes authority-owned physical resources from normalized definitions. */
+export async function materializeAuthorityResourceBindings(
+  options: AuthorityResourceMaterializationOptions,
+): Promise<DeploymentResourceBinding[]> {
+  const now = options.now ?? new Date().toISOString();
+  const names = existingResourceNamesFromBindings(options.existingBindings);
+  const newResourceName = options.provisioning?.resourceNameGenerator ??
+    generateInternalResourceName;
+  const existingByKey = new Map(
+    options.existingBindings.map((binding) => [bindingKey(binding), binding]),
+  );
+  const desiredKeys = new Set(options.resources.map(bindingKey));
+  const bindings: DeploymentResourceBinding[] = [];
+  const createdBindings: DeploymentResourceBinding[] = [];
+
+  try {
+    for (const resource of options.resources) {
+      const existing = existingByKey.get(bindingKey(resource));
+      if (resource.kind === "transfer") continue;
+      if (resource.kind === "kv") {
+        const request = toKvRequest(resource);
+        const bucket = names.kv?.[resource.alias] ?? newResourceName("kv");
+        const action = await options.manager.ensureKvBucket(
+          bucket,
+          request,
+          options.provisioning,
+        );
+        const binding = {
+          deploymentId: options.deploymentId,
+          kind: resource.kind,
+          alias: resource.alias,
+          binding: {
+            bucket,
+            history: request.history,
+            ttlMs: request.ttlMs,
+            ...(request.maxValueBytes !== undefined
+              ? { maxValueBytes: request.maxValueBytes }
+              : {}),
+          },
+          limits: null,
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+        } satisfies DeploymentResourceBinding;
+        bindings.push(binding);
+        if (action === "created") createdBindings.push(binding);
+      } else if (resource.kind === "store") {
+        const request = toStoreRequest(resource);
+        const name = names.store?.[resource.alias] ?? newResourceName("store");
+        const action = await options.manager.ensureObjectStore(
+          name,
+          request,
+          options.provisioning,
+        );
+        const binding = {
+          deploymentId: options.deploymentId,
+          kind: resource.kind,
+          alias: resource.alias,
+          binding: {
+            name,
+            ttlMs: request.ttlMs,
+            ...(request.maxObjectBytes !== undefined
+              ? { maxObjectBytes: request.maxObjectBytes }
+              : {}),
+            ...(request.maxTotalBytes !== undefined
+              ? { maxTotalBytes: request.maxTotalBytes }
+              : {}),
+          },
+          limits: null,
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+        } satisfies DeploymentResourceBinding;
+        bindings.push(binding);
+        if (action === "created") createdBindings.push(binding);
+      } else if (resource.kind === "jobs") {
+        const request = toJobsQueueRequest(resource);
+        await options.manager.ensureJobsInfrastructure(options.provisioning);
+        const namespace = names.jobs?.namespace ??
+          newResourceName("jobsNamespace").slice(0, 32);
+        const existingQueue = names.jobs?.queues?.[resource.alias];
+        const queueToken = newResourceName("jobsQueue").slice(0, 48);
+        const queue: JobsQueueBinding = {
+          ...request,
+          publishPrefix: existingQueue?.publishPrefix ??
+            `trellis.jobs.${namespace}.${queueToken}`,
+          workSubject: existingQueue?.workSubject ??
+            `trellis.work.${namespace}.${queueToken}`,
+          consumerName: existingQueue?.consumerName ??
+            `${namespace}_${queueToken}`.slice(0, 64),
+        };
+        const workStream = "JOBS_WORK";
+        const action = await options.manager.ensureJobsQueueConsumer(
+          workStream,
+          queue,
+        );
+        const binding = {
+          deploymentId: options.deploymentId,
+          kind: resource.kind,
+          alias: resource.alias,
+          binding: { namespace, workStream, ...queue },
+          limits: null,
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+        } satisfies DeploymentResourceBinding;
+        bindings.push(binding);
+        if (action === "created") createdBindings.push(binding);
+      } else if (resource.kind === "event-consumer") {
+        const request = toEventConsumerRequest(resource);
+        const consumerName = names.eventConsumers?.[resource.alias] ??
+          newResourceName("eventConsumer").slice(0, 64);
+        const action = await options.manager.ensureEventConsumer(
+          request,
+          consumerName,
+        );
+        const binding = {
+          deploymentId: options.deploymentId,
+          kind: resource.kind,
+          alias: resource.alias,
+          binding: { ...request, consumerName },
+          limits: null,
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+        } satisfies DeploymentResourceBinding;
+        bindings.push(binding);
+        if (action === "created") createdBindings.push(binding);
+      }
+    }
+
+    for (const existing of options.existingBindings) {
+      if (!desiredKeys.has(bindingKey(existing))) {
+        await deleteRemovedAuthorityBinding(existing, options.manager);
+      }
+    }
+  } catch (error) {
+    for (const binding of [...createdBindings].reverse()) {
+      try {
+        await deleteRemovedAuthorityBinding(binding, options.manager);
+      } catch {
+        // Keep the original materialization error; leaked resources can be reconciled manually.
+      }
+    }
+    throw error;
+  }
+
+  return bindings.sort((left, right) =>
+    bindingKey(left).localeCompare(bindingKey(right))
+  );
+}
+
 export function getKvResourceRequests(
   contract: TrellisContractV1,
 ): KvResourceRequest[] {
@@ -1082,13 +1506,13 @@ export function getJobsQueueRequests(
     .sort((left, right) => left.queueType.localeCompare(right.queueType));
 }
 
-function envelopeAllowsEventSubscribe(
-  envelope: EnvelopeBoundary | undefined,
+function authorityAllowsEventSubscribe(
+  authority: AuthorityNeedSet | undefined,
   contractId: string,
   name: string,
 ): boolean {
-  if (!envelope) return true;
-  return envelope.surfaces.some((surface) =>
+  if (!authority) return true;
+  return authority.surfaces.some((surface) =>
     surface.contractId === contractId &&
     surface.kind === "event" &&
     surface.name === name &&
@@ -1115,7 +1539,7 @@ export function getEventConsumerGroupRequests(
   contract: TrellisContractV1,
   options: Pick<
     ResourceProvisioningOptions,
-    "knownContractEntries" | "envelopeBoundary"
+    "knownContractEntries" | "authorityNeeds"
   > = {},
 ): EventConsumerGroupRequest[] {
   const groups = (contract as ContractWithEventConsumers).eventConsumers ?? {};
@@ -1135,15 +1559,15 @@ export function getEventConsumerGroupRequests(
       const filterSubjects = group.events.map((eventRef) => {
         const resolvedEvent = resolved.eventSubscribes.find((event) =>
           event.alias === eventRef.use && event.key === eventRef.event &&
-          envelopeAllowsEventSubscribe(
-            options.envelopeBoundary,
+          authorityAllowsEventSubscribe(
+            options.authorityNeeds,
             event.contractId,
             event.key,
           )
         );
         if (!resolvedEvent) {
           throw new Error(
-            `event consumer group '${alias}' references unapproved or unknown subscribed event '${eventRef.use}.${eventRef.event}'`,
+            `event consumer group '${alias}' references unaccepted or unknown subscribed event '${eventRef.use}.${eventRef.event}'`,
           );
         }
         return templateToWildcard(resolvedEvent.event.subject);

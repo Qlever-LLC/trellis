@@ -100,7 +100,7 @@ function userSession(userId: string): Session {
     },
     email: "ada@example.com",
     name: "Ada Lovelace",
-    identityEnvelopeId: "ienv_ada",
+    identityGrantId: "ienv_ada",
     contractId: "contract.test",
     contractDigest: "digest",
     contractDisplayName: "Test Contract",

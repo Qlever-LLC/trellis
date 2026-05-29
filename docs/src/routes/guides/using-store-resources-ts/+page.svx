@@ -51,7 +51,7 @@ Fields:
 - `maxTotalBytes` requests a finite total store size limit; omit it when the
   store should use the runtime's unlimited/default object-store size behavior
 
-Like `resources.kv`, the key under `store` (`uploads`) is only a logical alias. Trellis assigns the physical store identity when the deployment envelope expands and stores the deployment binding. Optional stores may be omitted from runtime bindings when provisioning fails or object-store support is unavailable. If a later compatible boundary omits `maxObjectBytes` or `maxTotalBytes`, Trellis reconciles the backing object store back to the unlimited/default size setting instead of preserving an older finite limit.
+Like `resources.kv`, the key under `store` (`uploads`) is only a logical alias. Trellis assigns the physical store identity during authority reconciliation and stores the deployment binding. Optional stores may be omitted from runtime bindings when provisioning fails or object-store support is unavailable. If a later compatible boundary omits `maxObjectBytes` or `maxTotalBytes`, Trellis reconciles the backing object store back to the unlimited/default size setting instead of preserving an older finite limit.
 
 ## 2. Connect the service and open the store
 

@@ -60,15 +60,16 @@ event, and job payload schemas wire-compatible. The demo schemas intentionally
 use normal open TypeBox objects, so adding optional fields is the safe additive
 path. Adding required fields, closing objects with closed-object
 additional-property rejection, or changing field types requires shrinking the
-old deployment envelope only after old runtimes are gone, or moving to a new
+old deployment authority only after old runtimes are gone, or moving to a new
 contract lineage.
 
 ## Create And Start The Service
 
-Create one service deployment, expand its envelope with
+Create one service deployment, review its deployment authority with
 `demos/js/service/contract.ts`, then provision one service instance and start
-the service with the provisioned instance seed. After the envelope includes the
-service contract boundary, the service instance can connect and serve traffic.
+the service with the provisioned instance seed. After deployment authority
+includes the service contract boundary, the service instance can connect and
+serve traffic.
 
 ```sh
 trellis deploy create svc/demo.field-ops
@@ -78,13 +79,14 @@ deno task -c demos/js/deno.json service http://localhost:3000 <instance-seed>
 
 Use Console **Admin → Services** as the primary review path for the service
 authority change before starting the runtime. For automation, the
-`Auth.Envelopes.Expand` admin RPC can submit the same boundary.
+`trellis svc <id> authority ...` CLI flow can submit and decide the same
+boundary.
 
 Use the `instanceSeed` field from the provision JSON as `<instance-seed>`.
 
 ## Create And Start The Device
 
-Create one device deployment, expand its envelope with
+Create one device deployment, review its deployment authority with
 `demos/js/device/contract.ts`, provision one device instance, then start the TUI
 with the provisioned root secret.
 
@@ -95,8 +97,8 @@ deno task -c demos/js/deno.json device http://localhost:3000 <root-secret>
 ```
 
 Use Console **Admin → Devices** to review pending device authority before
-starting the runtime. For automation, the `Auth.Envelopes.Expand` admin RPC can
-submit the same boundary.
+starting the runtime. For automation, use the matching Trellis CLI authority
+flow to submit and decide the same boundary.
 
 Use the `rootSecret` field from the provision JSON as `<root-secret>`.
 
@@ -121,9 +123,9 @@ deno task -c demos/app/deno.json dev
 
 If you change the app contract's requested RPC, operation, event, or state
 surface, the next browser sign-in may require approval when the requested
-boundary exceeds the existing identity envelope. If you only rename the demo app
-or adjust its description, existing approval remains valid because that metadata
-is not part of the runtime contract evidence.
+boundary exceeds the existing identity authority. If you only rename the demo
+app or adjust its description, existing approval remains valid because that
+metadata is not part of the runtime contract evidence.
 
 For ad hoc runs against a non-default Trellis URL, set the env var from the
 shell:

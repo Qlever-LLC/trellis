@@ -2,18 +2,7 @@ import { assert, assertEquals, assertFalse } from "@std/assert";
 import Value from "typebox/value";
 
 import * as AuthProtocol from "./mod.ts";
-
-import {
-  AuthIdentitiesGrantsListResponseSchema
-    as GeneratedAuthIdentitiesGrantsListResponseSchema,
-  AuthIdentitiesGrantsListSchema as GeneratedAuthIdentitiesGrantsListSchema,
-} from "../models/auth/rpc/ListUserGrants.ts";
-import {
-  AuthIdentityEnvelopesRevokeResponseSchema
-    as GeneratedAuthIdentityEnvelopesRevokeResponseSchema,
-  AuthIdentityEnvelopesRevokeSchema
-    as GeneratedAuthIdentityEnvelopesRevokeSchema,
-} from "../models/auth/rpc/RevokeUserGrant.ts";
+import * as GeneratedAuth from "../../../../generated/packages/jsr/auth/mod.ts";
 import {
   AuthDeploymentsCreateResponseSchema,
   AuthDeploymentsCreateSchema,
@@ -41,12 +30,6 @@ import {
   AuthDeviceUserAuthoritiesReviewsListSchema,
   AuthDeviceUserAuthoritiesRevokeResponseSchema,
   AuthDeviceUserAuthoritiesRevokeSchema,
-  AuthEnvelopeExpansionsListResponseSchema,
-  AuthEnvelopeExpansionsListSchema,
-  AuthIdentitiesGrantsListResponseSchema,
-  AuthIdentitiesGrantsListSchema,
-  AuthIdentityEnvelopesRevokeResponseSchema,
-  AuthIdentityEnvelopesRevokeSchema,
   AuthPortalsGetResponseSchema,
   AuthPortalsListResponseSchema,
   AuthPortalsLoginSettingsResponseSchema,
@@ -99,6 +82,116 @@ const adminApprovalCapabilities = {
     displayName: "Admin",
     description: "Requires admin.",
   },
+};
+const deploymentAuthoritySurface = {
+  contractId: "trellis.graph@v1",
+  kind: "rpc" as const,
+  name: "Graph.Query",
+  action: "call" as const,
+};
+const deploymentAuthorityResource = {
+  kind: "kv" as const,
+  alias: "cache",
+  required: true,
+  definition: { history: 1, ttlMs: 60_000 },
+};
+const deploymentAuthorityNeeds = [
+  {
+    kind: "contract" as const,
+    contractId: "trellis.graph@v1",
+    required: true,
+  },
+  {
+    kind: "surface" as const,
+    surface: deploymentAuthoritySurface,
+    required: true,
+  },
+  {
+    kind: "capability" as const,
+    capability: "graph.query",
+    required: true,
+  },
+  {
+    kind: "resource" as const,
+    resource: deploymentAuthorityResource,
+    required: false,
+  },
+];
+const deploymentAuthority = {
+  deploymentId: "graph.default",
+  kind: "service" as const,
+  disabled: false,
+  desiredState: {
+    needs: deploymentAuthorityNeeds,
+    capabilities: ["graph.query"],
+    resources: [deploymentAuthorityResource],
+    surfaces: [deploymentAuthoritySurface],
+  },
+  version: "dav_1",
+  createdAt: now,
+  updatedAt: now,
+};
+const deploymentAuthorityProposal = {
+  proposalId: "dap_1",
+  deploymentId: deploymentAuthority.deploymentId,
+  contractId: "trellis.graph@v1",
+  contractDigest: "digest_123",
+  contract: { id: "trellis.graph@v1" },
+  requestedNeeds: deploymentAuthorityNeeds,
+  providedSurfaces: [deploymentAuthoritySurface],
+  summary: { breaking: false },
+};
+const deploymentAuthorityUpdate = {
+  classification: "update" as const,
+  planId: "plan_1",
+  deploymentId: deploymentAuthority.deploymentId,
+  proposal: deploymentAuthorityProposal,
+  desiredChange: { addCapabilities: ["graph.query"] },
+  materializationPreview: { grants: 1 },
+  warnings: ["resource binding will be reconciled"],
+  createdAt: now,
+  expiresAt: now,
+};
+const deploymentAuthorityMigration = {
+  ...deploymentAuthorityUpdate,
+  classification: "migration" as const,
+  planId: "plan_2",
+  acknowledgementRequired: true,
+};
+const deploymentResourceBinding = {
+  deploymentId: deploymentAuthority.deploymentId,
+  kind: "kv" as const,
+  alias: "cache",
+  binding: { bucket: "graph-cache" },
+  limits: null,
+  createdAt: now,
+  updatedAt: now,
+};
+const deploymentAuthorityMaterialization = {
+  deploymentId: deploymentAuthority.deploymentId,
+  desiredVersion: deploymentAuthority.version,
+  status: "current" as const,
+  resourceBindings: [deploymentResourceBinding],
+  grants: [{ capability: "graph.query" }],
+  reconciledAt: now,
+};
+const deploymentAuthorityReconciliation = {
+  deploymentId: deploymentAuthority.deploymentId,
+  desiredVersion: deploymentAuthority.version,
+  state: "succeeded" as const,
+  startedAt: now,
+  finishedAt: now,
+  message: "reconciled",
+};
+const grantOverride = {
+  deploymentId: deploymentAuthority.deploymentId,
+  identityKind: "web" as const,
+  grantKind: "capability" as const,
+  contractId: "trellis.console@v1",
+  origin: "https://console.example.com",
+  sessionPublicKey: null,
+  capability: "graph.query",
+  capabilityGroupKey: null,
 };
 
 Deno.test("PortalFlowStateSchema tolerates additive portal app fields", () => {
@@ -273,8 +366,8 @@ Deno.test("auth schemas keep contractDigest consistently typed", () => {
   }));
 });
 
-Deno.test("deployment grant override schema accepts only web and session identities", () => {
-  assert(Value.Check(AuthProtocol.DeploymentGrantOverrideSchema, {
+Deno.test("deployment authority grant override schema accepts only web and session identities", () => {
+  assert(Value.Check(AuthProtocol.DeploymentAuthorityGrantOverrideSchema, {
     deploymentId: "svc.graph.default",
     identityKind: "web",
     grantKind: "capability",
@@ -284,7 +377,7 @@ Deno.test("deployment grant override schema accepts only web and session identit
     capability: "graph.query",
     capabilityGroupKey: null,
   }));
-  assert(Value.Check(AuthProtocol.DeploymentGrantOverrideSchema, {
+  assert(Value.Check(AuthProtocol.DeploymentAuthorityGrantOverrideSchema, {
     deploymentId: "svc.graph.default",
     identityKind: "session",
     grantKind: "capability-group",
@@ -295,18 +388,20 @@ Deno.test("deployment grant override schema accepts only web and session identit
     capabilityGroupKey: "graph-users",
   }));
   for (const removed of ["any", "native", "device-user"]) {
-    assertFalse(Value.Check(AuthProtocol.DeploymentGrantOverrideSchema, {
-      deploymentId: "svc.graph.default",
-      identityKind: removed,
-      grantKind: "capability",
-      contractId: "app.graph@v1",
-      origin: null,
-      sessionPublicKey: null,
-      capability: "graph.query",
-      capabilityGroupKey: null,
-    }));
+    assertFalse(
+      Value.Check(AuthProtocol.DeploymentAuthorityGrantOverrideSchema, {
+        deploymentId: "svc.graph.default",
+        identityKind: removed,
+        grantKind: "capability",
+        contractId: "app.graph@v1",
+        origin: null,
+        sessionPublicKey: null,
+        capability: "graph.query",
+        capabilityGroupKey: null,
+      }),
+    );
   }
-  assert(Value.Check(AuthProtocol.DeploymentGrantOverrideSchema, {
+  assert(Value.Check(AuthProtocol.DeploymentAuthorityGrantOverrideSchema, {
     deploymentId: "svc.graph.default",
     identityKind: "web",
     contractId: "app.graph@v1",
@@ -413,6 +508,338 @@ Deno.test("deployment schemas no longer expose legacy policy fields", () => {
   assertFalse(deviceDeploymentSchema.includes('"compatibilityPolicy"'));
   assertFalse(deviceDeploymentSchema.includes('"appliedContracts"'));
   assertFalse(deviceDeploymentSchema.includes('"allowedDigests"'));
+});
+
+Deno.test("deployment authority model schemas validate current authority protocol", () => {
+  assert(Value.Check(
+    AuthProtocol.DeploymentAuthoritySurfaceSchema,
+    deploymentAuthoritySurface,
+  ));
+  assert(Value.Check(
+    AuthProtocol.DeploymentAuthorityCapabilitySchema,
+    "graph.query",
+  ));
+  assertFalse(
+    Value.Check(AuthProtocol.DeploymentAuthorityCapabilitySchema, ""),
+  );
+  assert(Value.Check(
+    AuthProtocol.DeploymentAuthorityResourceSchema,
+    deploymentAuthorityResource,
+  ));
+  for (const need of deploymentAuthorityNeeds) {
+    assert(Value.Check(AuthProtocol.DeploymentAuthorityNeedSchema, need));
+  }
+  assert(
+    Value.Check(AuthProtocol.DeploymentAuthoritySchema, deploymentAuthority),
+  );
+  assert(Value.Check(
+    AuthProtocol.DeploymentAuthorityProposalSchema,
+    deploymentAuthorityProposal,
+  ));
+  assert(Value.Check(
+    AuthProtocol.DeploymentAuthorityUpdateSchema,
+    deploymentAuthorityUpdate,
+  ));
+  assertFalse(Value.Check(AuthProtocol.DeploymentAuthorityUpdateSchema, {
+    ...deploymentAuthorityUpdate,
+    classification: "migration",
+  }));
+  assert(Value.Check(
+    AuthProtocol.DeploymentAuthorityMigrationSchema,
+    deploymentAuthorityMigration,
+  ));
+  assertFalse(Value.Check(AuthProtocol.DeploymentAuthorityMigrationSchema, {
+    ...deploymentAuthorityMigration,
+    acknowledgementRequired: undefined,
+  }));
+  assert(Value.Check(
+    AuthProtocol.DeploymentAuthorityMaterializationSchema,
+    deploymentAuthorityMaterialization,
+  ));
+  assert(Value.Check(
+    AuthProtocol.DeploymentAuthorityReconciliationStatusSchema,
+    deploymentAuthorityReconciliation,
+  ));
+});
+
+Deno.test("deployment authority RPC schemas validate source and generated shapes", () => {
+  assert(Value.Check(AuthProtocol.AuthDeploymentAuthorityListSchema, {
+    kind: "service",
+    disabled: false,
+    limit: 10,
+  }));
+  assert(Value.Check(GeneratedAuth.AuthDeploymentAuthorityListRequestSchema, {
+    kind: "service",
+    disabled: false,
+    limit: 10,
+  }));
+  assert(Value.Check(AuthProtocol.AuthDeploymentAuthorityListResponseSchema, {
+    ...page([deploymentAuthority]),
+  }));
+  assert(Value.Check(GeneratedAuth.AuthDeploymentAuthorityListResponseSchema, {
+    ...page([deploymentAuthority]),
+  }));
+
+  assert(Value.Check(AuthProtocol.AuthDeploymentAuthorityGetSchema, {
+    deploymentId: deploymentAuthority.deploymentId,
+  }));
+  assert(Value.Check(GeneratedAuth.AuthDeploymentAuthorityGetRequestSchema, {
+    deploymentId: deploymentAuthority.deploymentId,
+  }));
+  assert(Value.Check(AuthProtocol.AuthDeploymentAuthorityGetResponseSchema, {
+    authority: deploymentAuthority,
+    materializedAuthority: deploymentAuthorityMaterialization,
+    portalRoute: {
+      deploymentId: deploymentAuthority.deploymentId,
+      portalId: "trellis.builtin.login",
+      entryUrl: null,
+      disabled: false,
+      updatedAt: now,
+    },
+    grantOverrides: [grantOverride],
+  }));
+  assert(Value.Check(GeneratedAuth.AuthDeploymentAuthorityGetResponseSchema, {
+    authority: deploymentAuthority,
+    materializedAuthority: deploymentAuthorityMaterialization,
+    portalRoute: {
+      deploymentId: deploymentAuthority.deploymentId,
+      portalId: "trellis.builtin.login",
+      entryUrl: null,
+      disabled: false,
+      updatedAt: now,
+    },
+    grantOverrides: [grantOverride],
+  }));
+
+  assert(Value.Check(AuthProtocol.AuthDeploymentAuthorityPlanSchema, {
+    deploymentId: deploymentAuthority.deploymentId,
+    contract: { id: "trellis.graph@v1" },
+    expectedDigest: "digest_123",
+  }));
+  assert(Value.Check(GeneratedAuth.AuthDeploymentAuthorityPlanRequestSchema, {
+    deploymentId: deploymentAuthority.deploymentId,
+    contract: { id: "trellis.graph@v1" },
+    expectedDigest: "digest_123",
+  }));
+  assert(Value.Check(AuthProtocol.AuthDeploymentAuthorityPlanResponseSchema, {
+    plan: deploymentAuthorityUpdate,
+  }));
+  assert(Value.Check(GeneratedAuth.AuthDeploymentAuthorityPlanResponseSchema, {
+    plan: deploymentAuthorityMigration,
+  }));
+
+  assert(Value.Check(AuthProtocol.AuthDeploymentAuthorityPlansListSchema, {
+    deploymentId: deploymentAuthority.deploymentId,
+    state: "pending",
+    classification: "update",
+    kind: "service",
+    limit: 10,
+  }));
+  assert(
+    Value.Check(GeneratedAuth.AuthDeploymentAuthorityPlansListRequestSchema, {
+      deploymentId: deploymentAuthority.deploymentId,
+      state: "pending",
+      classification: "update",
+      kind: "service",
+      limit: 10,
+    }),
+  );
+  assert(
+    Value.Check(AuthProtocol.AuthDeploymentAuthorityPlansListResponseSchema, {
+      ...page([deploymentAuthorityUpdate]),
+    }),
+  );
+  assert(
+    Value.Check(GeneratedAuth.AuthDeploymentAuthorityPlansListResponseSchema, {
+      ...page([deploymentAuthorityUpdate]),
+    }),
+  );
+
+  assert(Value.Check(AuthProtocol.AuthDeploymentAuthorityPlansGetSchema, {
+    planId: deploymentAuthorityUpdate.planId,
+  }));
+  assert(
+    Value.Check(GeneratedAuth.AuthDeploymentAuthorityPlansGetRequestSchema, {
+      planId: deploymentAuthorityUpdate.planId,
+    }),
+  );
+  assert(
+    Value.Check(AuthProtocol.AuthDeploymentAuthorityPlansGetResponseSchema, {
+      plan: deploymentAuthorityMigration,
+    }),
+  );
+  assert(
+    Value.Check(GeneratedAuth.AuthDeploymentAuthorityPlansGetResponseSchema, {
+      plan: deploymentAuthorityMigration,
+    }),
+  );
+
+  assert(Value.Check(AuthProtocol.AuthDeploymentAuthorityAcceptUpdateSchema, {
+    planId: deploymentAuthorityUpdate.planId,
+    expectedDesiredVersion: deploymentAuthority.version,
+  }));
+  assert(Value.Check(
+    GeneratedAuth.AuthDeploymentAuthorityAcceptUpdateRequestSchema,
+    {
+      planId: deploymentAuthorityUpdate.planId,
+      expectedDesiredVersion: deploymentAuthority.version,
+    },
+  ));
+  assert(
+    Value.Check(AuthProtocol.AuthDeploymentAuthorityAcceptMigrationSchema, {
+      planId: deploymentAuthorityMigration.planId,
+      acknowledgement: "I understand this migration changes authority.",
+    }),
+  );
+  assert(Value.Check(
+    GeneratedAuth.AuthDeploymentAuthorityAcceptMigrationRequestSchema,
+    {
+      planId: deploymentAuthorityMigration.planId,
+      acknowledgement: "I understand this migration changes authority.",
+    },
+  ));
+  assert(Value.Check(AuthProtocol.AuthDeploymentAuthorityAcceptResponseSchema, {
+    authority: deploymentAuthority,
+  }));
+  assert(
+    Value.Check(GeneratedAuth.AuthDeploymentAuthorityAcceptResponseSchema, {
+      authority: deploymentAuthority,
+    }),
+  );
+
+  assert(Value.Check(AuthProtocol.AuthDeploymentAuthorityRejectSchema, {
+    planId: deploymentAuthorityUpdate.planId,
+    reason: "not ready",
+  }));
+  assert(Value.Check(GeneratedAuth.AuthDeploymentAuthorityRejectRequestSchema, {
+    planId: deploymentAuthorityUpdate.planId,
+    reason: "not ready",
+  }));
+  assert(Value.Check(AuthProtocol.AuthDeploymentAuthorityRejectResponseSchema, {
+    success: true,
+  }));
+  assert(
+    Value.Check(GeneratedAuth.AuthDeploymentAuthorityRejectResponseSchema, {
+      success: true,
+    }),
+  );
+
+  assert(Value.Check(AuthProtocol.AuthDeploymentAuthorityReconcileSchema, {
+    deploymentId: deploymentAuthority.deploymentId,
+    desiredVersion: deploymentAuthority.version,
+  }));
+  assert(
+    Value.Check(GeneratedAuth.AuthDeploymentAuthorityReconcileRequestSchema, {
+      deploymentId: deploymentAuthority.deploymentId,
+      desiredVersion: deploymentAuthority.version,
+    }),
+  );
+  assert(
+    Value.Check(AuthProtocol.AuthDeploymentAuthorityReconcileResponseSchema, {
+      authority: deploymentAuthority,
+      materializedAuthority: deploymentAuthorityMaterialization,
+      reconciliation: deploymentAuthorityReconciliation,
+    }),
+  );
+  assert(Value.Check(
+    GeneratedAuth.AuthDeploymentAuthorityReconcileResponseSchema,
+    {
+      authority: deploymentAuthority,
+      materializedAuthority: deploymentAuthorityMaterialization,
+      reconciliation: deploymentAuthorityReconciliation,
+    },
+  ));
+});
+
+Deno.test("deployment authority grant override RPC schemas validate", () => {
+  assert(Value.Check(
+    AuthProtocol.AuthDeploymentAuthorityGrantOverridesPutSchema,
+    {
+      deploymentId: deploymentAuthority.deploymentId,
+      overrides: [grantOverride],
+    },
+  ));
+  assert(Value.Check(
+    GeneratedAuth.AuthDeploymentAuthorityGrantOverridesPutRequestSchema,
+    {
+      deploymentId: deploymentAuthority.deploymentId,
+      overrides: [grantOverride],
+    },
+  ));
+  assert(Value.Check(
+    AuthProtocol.AuthDeploymentAuthorityGrantOverridesListSchema,
+    { limit: 10 },
+  ));
+  assert(Value.Check(
+    GeneratedAuth.AuthDeploymentAuthorityGrantOverridesListRequestSchema,
+    { limit: 10 },
+  ));
+  assert(Value.Check(
+    AuthProtocol.AuthDeploymentAuthorityGrantOverridesListResponseSchema,
+    page([grantOverride]),
+  ));
+  assert(Value.Check(
+    GeneratedAuth.AuthDeploymentAuthorityGrantOverridesListResponseSchema,
+    page([grantOverride]),
+  ));
+  assert(Value.Check(
+    AuthProtocol.AuthDeploymentAuthorityGrantOverridesRemoveSchema,
+    {
+      deploymentId: deploymentAuthority.deploymentId,
+      overrides: [grantOverride],
+    },
+  ));
+  assert(Value.Check(
+    GeneratedAuth.AuthDeploymentAuthorityGrantOverridesRemoveRequestSchema,
+    {
+      deploymentId: deploymentAuthority.deploymentId,
+      overrides: [grantOverride],
+    },
+  ));
+  assert(Value.Check(
+    AuthProtocol.AuthDeploymentAuthorityGrantOverridesResponseSchema,
+    { grantOverrides: [grantOverride] },
+  ));
+  assert(Value.Check(
+    GeneratedAuth.AuthDeploymentAuthorityGrantOverridesResponseSchema,
+    { grantOverrides: [grantOverride] },
+  ));
+});
+
+Deno.test("generated auth contract exposes deployment authority RPC keys only", () => {
+  assertEquals(GeneratedAuth.CONTRACT_ID, "trellis.auth@v1");
+  const rpcKeys = Object.keys(GeneratedAuth.OWNED_API.rpc);
+  for (
+    const key of [
+      "Auth.DeploymentAuthority.List",
+      "Auth.DeploymentAuthority.Get",
+      "Auth.DeploymentAuthority.Plans.List",
+      "Auth.DeploymentAuthority.Plans.Get",
+      "Auth.DeploymentAuthority.Plan",
+      "Auth.DeploymentAuthority.AcceptUpdate",
+      "Auth.DeploymentAuthority.AcceptMigration",
+      "Auth.DeploymentAuthority.Reject",
+      "Auth.DeploymentAuthority.Reconcile",
+      "Auth.DeploymentAuthority.GrantOverrides.Put",
+      "Auth.DeploymentAuthority.GrantOverrides.List",
+      "Auth.DeploymentAuthority.GrantOverrides.Remove",
+      "Auth.IdentityGrants.List",
+      "Auth.IdentityGrants.Revoke",
+    ]
+  ) {
+    assert(rpcKeys.includes(key), key);
+  }
+  for (
+    const key of [
+      `Auth.${"Envelopes"}.List`,
+      `Auth.${"Envelopes"}.Get`,
+      `Auth.${"Envelope"}${"Expansions"}.List`,
+      `Auth.${"Identity"}${"Envelopes"}.Revoke`,
+      `Auth.${"Identities"}.${"Grants"}.List`,
+    ]
+  ) {
+    assertFalse(rpcKeys.includes(key), key);
+  }
 });
 
 Deno.test("PortalFlowStateSchema accepts returnLocation for restartable portal states", () => {
@@ -542,15 +969,6 @@ Deno.test("deployment and device admin schemas validate", () => {
   assert(
     Value.Check(AuthDeploymentsListResponseSchema, page([])),
   );
-  assert(Value.Check(AuthEnvelopeExpansionsListSchema, { limit: 10 }));
-  assert(Value.Check(AuthEnvelopeExpansionsListSchema, {
-    deploymentId: "billing.default",
-    limit: 10,
-    state: "pending",
-  }));
-  assert(Value.Check(AuthEnvelopeExpansionsListResponseSchema, {
-    ...page([]),
-  }));
   assert(
     Value.Check(AuthDeploymentsDisableSchema, {
       kind: "device",
@@ -718,134 +1136,100 @@ Deno.test("AuthRequestsValidateSchema requires current proof metadata and non-em
   }));
 });
 
-Deno.test("user grant schemas validate self-service grant rows", () => {
-  assert(Value.Check(AuthIdentitiesGrantsListSchema, { limit: 10 }));
-  assert(Value.Check(GeneratedAuthIdentitiesGrantsListSchema, { limit: 10 }));
-  assertFalse(Value.Check(AuthIdentitiesGrantsListSchema, {}));
-  assertFalse(Value.Check(GeneratedAuthIdentitiesGrantsListSchema, {}));
-  assert(Value.Check(AuthIdentitiesGrantsListResponseSchema, {
-    ...page([
-      {
-        identityEnvelopeId: "env_123",
-        identityAnchor: {
-          kind: "cli",
-          contractId: "trellis.agent@v1",
-          sessionPublicKey: "session-agent",
-        },
-        contractEvidence: {
-          contractDigest: "digest_123",
-          contractId: "trellis.agent@v1",
-        },
-        displayName: "Trellis Agent",
-        description: "Local delegated tooling",
-        participantKind: "agent",
-        capabilities: ["jobs.read"],
-        grantedAt: now,
-        updatedAt: now,
-      },
-    ]),
+Deno.test("identity grant RPC schemas validate self-service grant rows", () => {
+  const identityGrant = {
+    identityGrantId: "grant_123",
+    identityAnchor: {
+      kind: "cli" as const,
+      contractId: "trellis.agent@v1",
+      sessionPublicKey: "session-agent",
+    },
+    contractEvidence: {
+      contractDigest: "digest_123",
+      contractId: "trellis.agent@v1",
+    },
+    displayName: "Trellis Agent",
+    description: "Local delegated tooling",
+    participantKind: "agent" as const,
+    capabilities: ["jobs.read"],
+    grantedAt: now,
+    updatedAt: now,
+  };
+
+  assert(Value.Check(AuthProtocol.AuthIdentityGrantsListSchema, {
+    user: "usr_123",
+    limit: 10,
   }));
-  assert(Value.Check(GeneratedAuthIdentitiesGrantsListResponseSchema, {
-    ...page([
-      {
-        identityEnvelopeId: "env_123",
-        identityAnchor: {
-          kind: "cli",
-          contractId: "trellis.agent@v1",
-          sessionPublicKey: "session-agent",
-        },
-        contractEvidence: {
-          contractDigest: "digest_123",
-          contractId: "trellis.agent@v1",
-        },
-        displayName: "Trellis Agent",
-        description: "Local delegated tooling",
-        participantKind: "agent",
-        capabilities: ["jobs.read"],
-        grantedAt: now,
-        updatedAt: now,
-      },
-    ]),
+  assert(Value.Check(GeneratedAuth.AuthIdentityGrantsListRequestSchema, {
+    user: "usr_123",
+    limit: 10,
   }));
-  assert(Value.Check(AuthIdentityEnvelopesRevokeSchema, {
-    identityEnvelopeId: "env_123",
+  assertFalse(Value.Check(AuthProtocol.AuthIdentityGrantsListSchema, {}));
+  assertFalse(Value.Check(
+    GeneratedAuth.AuthIdentityGrantsListRequestSchema,
+    {},
+  ));
+  assert(Value.Check(AuthProtocol.AuthIdentityGrantsListResponseSchema, {
+    ...page([identityGrant]),
   }));
-  assert(Value.Check(GeneratedAuthIdentityEnvelopesRevokeSchema, {
-    identityEnvelopeId: "env_123",
+  assert(Value.Check(GeneratedAuth.AuthIdentityGrantsListResponseSchema, {
+    ...page([identityGrant]),
   }));
-  assertFalse(Value.Check(AuthIdentityEnvelopesRevokeSchema, {
+  assert(Value.Check(AuthProtocol.AuthIdentityGrantsRevokeSchema, {
+    identityGrantId: "grant_123",
+    user: "usr_123",
+  }));
+  assert(Value.Check(GeneratedAuth.AuthIdentityGrantsRevokeRequestSchema, {
+    identityGrantId: "grant_123",
+    user: "usr_123",
+  }));
+  assertFalse(Value.Check(AuthProtocol.AuthIdentityGrantsRevokeSchema, {
     contractDigest: "digest_123",
   }));
-  assert(Value.Check(AuthIdentityEnvelopesRevokeResponseSchema, {
+  assertFalse(Value.Check(GeneratedAuth.AuthIdentityGrantsRevokeRequestSchema, {
+    contractDigest: "digest_123",
+  }));
+  assertFalse(Value.Check(AuthProtocol.AuthIdentityGrantsRevokeSchema, {
+    [`identity${"Envelope"}Id`]: "grant_123",
+  }));
+  assertFalse(Value.Check(GeneratedAuth.AuthIdentityGrantsRevokeRequestSchema, {
+    [`identity${"Envelope"}Id`]: "grant_123",
+  }));
+  assert(Value.Check(AuthProtocol.AuthIdentityGrantsRevokeResponseSchema, {
     success: true,
   }));
-  assert(Value.Check(GeneratedAuthIdentityEnvelopesRevokeResponseSchema, {
+  assert(Value.Check(GeneratedAuth.AuthIdentityGrantsRevokeResponseSchema, {
     success: true,
   }));
 
-  assertFalse(Value.Check(GeneratedAuthIdentitiesGrantsListResponseSchema, {
+  assertFalse(Value.Check(GeneratedAuth.AuthIdentityGrantsListResponseSchema, {
+    ...page([{ ...identityGrant, identityGrantId: undefined }]),
+  }));
+  assertFalse(
+    JSON.stringify(GeneratedAuth.AuthIdentityGrantsListResponseSchema).includes(
+      `identity${"Envelope"}Id`,
+    ),
+  );
+  assertFalse(Value.Check(GeneratedAuth.AuthIdentityGrantsListResponseSchema, {
     ...page([{
-      identityEnvelopeId: "env_123",
-      identityAnchor: {
-        kind: "cli",
-        contractId: "trellis.agent@v1",
-        sessionPublicKey: "session-agent",
-      },
+      ...identityGrant,
       contractEvidence: {
         contractDigest: "digest with spaces",
         contractId: "trellis.agent@v1",
       },
-      displayName: "Trellis Agent",
-      description: "Local delegated tooling",
-      participantKind: "agent",
-      capabilities: ["jobs.read"],
-      grantedAt: now,
-      updatedAt: now,
     }]),
   }));
-  assertFalse(Value.Check(GeneratedAuthIdentitiesGrantsListResponseSchema, {
+  assertFalse(Value.Check(GeneratedAuth.AuthIdentityGrantsListResponseSchema, {
     ...page([{
-      identityEnvelopeId: "env_123",
-      identityAnchor: {
-        kind: "cli",
-        contractId: "trellis.agent@v1",
-        sessionPublicKey: "session-agent",
-      },
+      ...identityGrant,
       contractEvidence: {
         contractDigest: "digest_123",
         contractId: "",
       },
-      displayName: "Trellis Agent",
-      description: "Local delegated tooling",
-      participantKind: "agent",
-      capabilities: ["jobs.read"],
-      grantedAt: now,
-      updatedAt: now,
     }]),
   }));
-  assertFalse(Value.Check(GeneratedAuthIdentitiesGrantsListResponseSchema, {
-    ...page([{
-      contractDigest: "digest_123",
-      contractId: "trellis.agent@v1",
-      displayName: "Trellis Agent",
-      description: "Local delegated tooling",
-      participantKind: "agent",
-      capabilities: ["jobs.read"],
-      grantedAt: "not-a-date",
-      updatedAt: now,
-    }]),
-  }));
-  assertFalse(Value.Check(GeneratedAuthIdentityEnvelopesRevokeSchema, {
-    contractDigest: "digest with spaces",
-  }));
-});
-
-Deno.test("identity envelope revoke schema rejects contractDigest authority", () => {
-  assertFalse(Value.Check(AuthIdentityEnvelopesRevokeSchema, {
-    contractDigest: "digest_123",
-  }));
-  assertFalse(Value.Check(GeneratedAuthIdentityEnvelopesRevokeSchema, {
-    contractDigest: "digest_123",
+  assertFalse(Value.Check(GeneratedAuth.AuthIdentityGrantsListResponseSchema, {
+    ...page([{ ...identityGrant, grantedAt: "not-a-date" }]),
   }));
 });
 

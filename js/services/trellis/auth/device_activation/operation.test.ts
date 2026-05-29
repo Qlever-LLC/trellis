@@ -133,7 +133,13 @@ function makeDeps(args: {
         disabled: false,
       }),
     },
-    deploymentEnvelopeStorage: {
+    deploymentAuthorityStorage: {
+      get: async () => undefined,
+    },
+    deploymentAuthorityPlanStorage: {
+      listFiltered: async () => [],
+    },
+    materializedAuthorityStorage: {
       get: async () => undefined,
     },
     deviceInstanceStorage: {

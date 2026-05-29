@@ -7,8 +7,8 @@ import {
 } from "@qlever-llc/result";
 import Type, { type Static } from "typebox";
 import type {
+  AuthorityNeedSet,
   Connection,
-  EnvelopeBoundary,
   Session,
   UserSession,
 } from "../schemas.ts";
@@ -54,7 +54,7 @@ function runtimeAuthorityChanged(
 ): boolean {
   return existing.contractDigest !== next.contractDigest ||
     existing.contractId !== next.contractId ||
-    existing.identityEnvelopeId !== next.identityEnvelopeId ||
+    existing.identityGrantId !== next.identityGrantId ||
     existing.participantKind !== next.participantKind ||
     !sameStringSet(
       existing.delegatedCapabilities,
@@ -169,14 +169,14 @@ export async function ensureBoundUserSession(args: {
   name: string;
   image?: string;
   participantKind: UserSession["participantKind"];
-  identityEnvelopeId: string;
+  identityGrantId: string;
   contractDigest: string;
   contractId: string;
   contractDisplayName: string;
   contractDescription: string;
   app?: UserSession["app"];
   approvalSource?: UserSession["approvalSource"];
-  identityEnvelope?: EnvelopeBoundary;
+  identityAuthorityNeeds?: AuthorityNeedSet;
   delegatedCapabilities: string[];
   delegatedPublishSubjects: string[];
   delegatedSubscribeSubjects: string[];
@@ -232,15 +232,15 @@ export async function ensureBoundUserSession(args: {
     name: args.name,
     ...(args.image ? { image: args.image } : {}),
     participantKind: args.participantKind,
-    identityEnvelopeId: args.identityEnvelopeId,
+    identityGrantId: args.identityGrantId,
     contractDigest: args.contractDigest,
     contractId: args.contractId,
     contractDisplayName: args.contractDisplayName,
     contractDescription: args.contractDescription,
     ...(args.app ? { app: args.app } : {}),
     ...(args.approvalSource ? { approvalSource: args.approvalSource } : {}),
-    ...(args.identityEnvelope
-      ? { identityEnvelope: args.identityEnvelope }
+    ...(args.identityAuthorityNeeds
+      ? { identityAuthorityNeeds: args.identityAuthorityNeeds }
       : {}),
     delegatedCapabilities: args.delegatedCapabilities,
     delegatedPublishSubjects: args.delegatedPublishSubjects,
@@ -274,15 +274,15 @@ export async function ensureBoundUserSession(args: {
     name: args.name,
     ...(args.image ? { image: args.image } : {}),
     participantKind: args.participantKind,
-    identityEnvelopeId: args.identityEnvelopeId,
+    identityGrantId: args.identityGrantId,
     contractDigest: args.contractDigest,
     contractId: args.contractId,
     contractDisplayName: args.contractDisplayName,
     contractDescription: args.contractDescription,
     ...(args.app ? { app: args.app } : {}),
     ...(args.approvalSource ? { approvalSource: args.approvalSource } : {}),
-    ...(args.identityEnvelope
-      ? { identityEnvelope: args.identityEnvelope }
+    ...(args.identityAuthorityNeeds
+      ? { identityAuthorityNeeds: args.identityAuthorityNeeds }
       : {}),
     delegatedCapabilities: args.delegatedCapabilities,
     delegatedPublishSubjects: args.delegatedPublishSubjects,

@@ -79,8 +79,8 @@ async fn run_svc_resource(format: OutputFormat, command: SvcResourceCommand) -> 
         }
         SvcResourceAction::Instances(args) => service_instances(format, &command.id, &args).await,
         SvcResourceAction::Provision(args) => provision_service(format, &command.id, &args).await,
-        SvcResourceAction::Expansions(expansions) => {
-            service_expansions(format, &command.id, expansions).await
+        SvcResourceAction::Authority(authority) => {
+            deployment_authority(format, &command.id, authority).await
         }
     }
 }
@@ -98,6 +98,7 @@ async fn run_dev_resource(format: OutputFormat, command: DevResourceCommand) -> 
         }
         DevResourceAction::Instances(args) => device_instances(format, &id, &args).await,
         DevResourceAction::Provision(args) => provision_device(format, &id, &args).await,
+        DevResourceAction::Authority(command) => deployment_authority(format, &id, command).await,
         DevResourceAction::Activations(command) => dev_activations(format, &id, command).await,
         DevResourceAction::Reviews(command) => dev_reviews(format, &id, command).await,
     }
@@ -226,7 +227,7 @@ async fn apply_contract(
     let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let response = connected
         .request_json_value(
-            "rpc.v1.Auth.Envelopes.Expand",
+            "rpc.v1.Auth.DeploymentAuthority.Plan",
             &json!({
                 "deploymentId": deployment_id,
                 "contract": resolved.loaded.value,
@@ -238,9 +239,17 @@ async fn apply_contract(
     if output::is_json(format) {
         output::print_json(&response)?;
     } else {
-        output::print_success("deployment envelope expanded");
+        output::print_success("deployment authority plan created");
         output::print_info(&format!("deploymentId={deployment_id}"));
         output::print_info(&format!("contractDigest={}", resolved.loaded.digest));
+        if let Some(plan) = response.get("plan") {
+            if let Some(plan_id) = plan.get("planId").and_then(Value::as_str) {
+                output::print_info(&format!("planId={plan_id}"));
+            }
+            if let Some(classification) = plan.get("classification").and_then(Value::as_str) {
+                output::print_info(&format!("classification={classification}"));
+            }
+        }
     }
     Ok(())
 }
@@ -478,68 +487,202 @@ async fn review_decide(
     Ok(())
 }
 
-async fn service_expansions(
+async fn deployment_authority(
     format: OutputFormat,
     deployment_id: &str,
-    command: SvcExpansionsCommand,
+    command: DeploymentAuthorityCommand,
 ) -> miette::Result<()> {
     let (_state, connected) = connect_authenticated_cli_client(format).await?;
     match command {
-        SvcExpansionsCommand::List(args) => {
+        DeploymentAuthorityCommand::Show => {
             let response = connected
                 .request_json_value(
-                    "rpc.v1.Auth.EnvelopeExpansions.List",
-                    &json!({
-                        "deploymentId": deployment_id,
-                        "state": args.state.as_wire_value(),
-                        "limit": 500,
-                        "offset": 0,
-                    }),
+                    "rpc.v1.Auth.DeploymentAuthority.Get",
+                    &json!({ "deploymentId": deployment_id }),
                 )
                 .await
                 .into_diagnostic()?;
-            print_expansion_requests_result(format, response)
+            print_deployment_authority_result(format, &response)
         }
-        SvcExpansionsCommand::Approve(args) => {
-            expansion_decide(format, &connected, &args, "approve").await
+        DeploymentAuthorityCommand::Plan(command) => {
+            deployment_authority_plan(format, &connected, deployment_id, command).await
         }
-        SvcExpansionsCommand::Reject(args) => {
-            expansion_decide(format, &connected, &args, "reject").await
+        DeploymentAuthorityCommand::AcceptUpdate(args) => {
+            let mut body = json!({ "planId": args.plan_id });
+            if let Some(version) = args.expected_desired_version.as_deref() {
+                body["expectedDesiredVersion"] = json!(version);
+            }
+            let response = connected
+                .request_json_value("rpc.v1.Auth.DeploymentAuthority.AcceptUpdate", &body)
+                .await
+                .into_diagnostic()?;
+            print_authority_decision_result(
+                format,
+                &response,
+                "accepted desired authority update",
+                true,
+            )
+        }
+        DeploymentAuthorityCommand::AcceptMigration(args) => {
+            let mut body = json!({
+                "planId": args.plan_id,
+                "acknowledgement": args.acknowledgement,
+            });
+            if let Some(version) = args.expected_desired_version.as_deref() {
+                body["expectedDesiredVersion"] = json!(version);
+            }
+            let response = connected
+                .request_json_value("rpc.v1.Auth.DeploymentAuthority.AcceptMigration", &body)
+                .await
+                .into_diagnostic()?;
+            print_authority_decision_result(
+                format,
+                &response,
+                "accepted desired authority migration",
+                true,
+            )
+        }
+        DeploymentAuthorityCommand::Reject(args) => {
+            let mut body = json!({ "planId": args.plan_id });
+            if let Some(reason) = args.reason.as_deref() {
+                body["reason"] = json!(reason);
+            }
+            let response = connected
+                .request_json_value("rpc.v1.Auth.DeploymentAuthority.Reject", &body)
+                .await
+                .into_diagnostic()?;
+            print_authority_decision_result(format, &response, "rejected authority plan", false)
+        }
+        DeploymentAuthorityCommand::Reconcile(args) => {
+            let mut body = json!({ "deploymentId": deployment_id });
+            if let Some(version) = args.desired_version.as_deref() {
+                body["desiredVersion"] = json!(version);
+            }
+            let response = connected
+                .request_json_value("rpc.v1.Auth.DeploymentAuthority.Reconcile", &body)
+                .await
+                .into_diagnostic()?;
+            print_authority_decision_result(
+                format,
+                &response,
+                "requested authority reconciliation",
+                false,
+            )
         }
     }
 }
 
-async fn expansion_decide(
+async fn deployment_authority_plan(
     format: OutputFormat,
     connected: &TrellisClient,
-    args: &SvcExpansionDecisionArgs,
-    decision: &str,
+    deployment_id: &str,
+    command: AuthorityPlanCommand,
 ) -> miette::Result<()> {
-    let subject = match decision {
-        "approve" => "rpc.v1.Auth.EnvelopeExpansions.Approve",
-        "reject" => "rpc.v1.Auth.EnvelopeExpansions.Reject",
-        _ => return Err(miette::miette!("unknown expansion decision: {decision}")),
-    };
-    let mut body = json!({ "requestId": args.request_id });
-    if let Some(reason) = args.reason.as_deref() {
-        body["reason"] = json!(reason);
+    match command {
+        AuthorityPlanCommand::List(args) => {
+            let mut body = json!({
+                "deploymentId": deployment_id,
+                "limit": 500,
+                "offset": 0,
+            });
+            if let Some(state) = args.state {
+                body["state"] = json!(state.as_wire_value());
+            }
+            if let Some(classification) = args.classification {
+                body["classification"] = json!(classification.as_wire_value());
+            }
+            let response = connected
+                .request_json_value("rpc.v1.Auth.DeploymentAuthority.Plans.List", &body)
+                .await
+                .into_diagnostic()?;
+            print_deployment_authority_plans_result(format, &response)
+        }
+        AuthorityPlanCommand::Show(args) => {
+            let response = connected
+                .request_json_value(
+                    "rpc.v1.Auth.DeploymentAuthority.Plans.Get",
+                    &json!({ "planId": args.plan_id }),
+                )
+                .await
+                .into_diagnostic()?;
+            print_deployment_authority_result(format, &response)
+        }
     }
-    let response = connected
-        .request_json_value(subject, &body)
-        .await
-        .into_diagnostic()?;
+}
+
+fn print_deployment_authority_result(format: OutputFormat, response: &Value) -> miette::Result<()> {
     if output::is_json(format) {
         output::print_json(&response)?;
     } else {
-        let message = match decision {
-            "approve" => "approved envelope expansion request",
-            "reject" => "rejected envelope expansion request",
-            _ => "updated envelope expansion request",
-        };
-        output::print_success(message);
-        output::print_info(&format!("requestId={}", args.request_id));
+        output::print_json(response)?;
     }
     Ok(())
+}
+
+fn print_deployment_authority_plans_result(
+    format: OutputFormat,
+    response: &Value,
+) -> miette::Result<()> {
+    if output::is_json(format) {
+        output::print_json(response)?;
+    } else {
+        let entries = response.get("entries").unwrap_or(&Value::Null);
+        print_value_table(
+            entries,
+            &[
+                "planId",
+                "deploymentId",
+                "classification",
+                "state",
+                "createdAt",
+                "expiresAt",
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn print_authority_decision_result(
+    format: OutputFormat,
+    response: &Value,
+    message: &str,
+    reconciliation_queued: bool,
+) -> miette::Result<()> {
+    if output::is_json(format) {
+        output::print_json(response)?;
+    } else {
+        output::print_success(message);
+        if let Some(authority) = response.get("authority") {
+            if let Some(deployment_id) = authority.get("deploymentId").and_then(Value::as_str) {
+                output::print_info(&format!("deploymentId={deployment_id}"));
+            }
+            if let Some(version) = authority_desired_version(response) {
+                output::print_info(&format!("desiredVersion={version}"));
+            }
+        }
+        if reconciliation_queued {
+            output::print_info("reconciliation=triggered");
+        }
+    }
+    Ok(())
+}
+
+fn authority_desired_version(response: &Value) -> Option<&str> {
+    response
+        .get("desiredVersion")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            response
+                .get("authority")
+                .and_then(|authority| authority.get("desiredVersion"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            response
+                .get("authority")
+                .and_then(|authority| authority.get("version"))
+                .and_then(Value::as_str)
+        })
 }
 
 async fn deployment_grants_list(
@@ -549,7 +692,7 @@ async fn deployment_grants_list(
 ) -> miette::Result<()> {
     let response = connected
         .request_json_value(
-            "rpc.v1.Auth.Envelopes.Get",
+            "rpc.v1.Auth.DeploymentAuthority.Get",
             &json!({ "deploymentId": deployment_id }),
         )
         .await
@@ -563,32 +706,16 @@ async fn deployment_grants_list_all(
 ) -> miette::Result<()> {
     let list_response = connected
         .request_json_value(
-            "rpc.v1.Auth.Envelopes.List",
+            "rpc.v1.Auth.DeploymentAuthority.GrantOverrides.List",
             &json!({ "limit": 500, "offset": 0 }),
         )
         .await
         .into_diagnostic()?;
-    let mut grant_overrides = Vec::new();
-    if let Some(envelopes) = list_response.get("envelopes").and_then(Value::as_array) {
-        for envelope in envelopes {
-            let Some(deployment_id) = envelope.get("deploymentId").and_then(Value::as_str) else {
-                continue;
-            };
-            let detail_response = connected
-                .request_json_value(
-                    "rpc.v1.Auth.Envelopes.Get",
-                    &json!({ "deploymentId": deployment_id }),
-                )
-                .await
-                .into_diagnostic()?;
-            if let Some(overrides) = detail_response
-                .get("grantOverrides")
-                .and_then(Value::as_array)
-            {
-                grant_overrides.extend(overrides.iter().cloned());
-            }
-        }
-    }
+    let grant_overrides = list_response
+        .get("entries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     print_grants_result(format, &Value::Array(grant_overrides))
 }
 
@@ -604,11 +731,11 @@ async fn deployment_grants_mutate(
         .as_deref()
         .ok_or_else(|| miette::miette!("--contract is required for grant overrides"))?;
     let identity_value = match args.identity_kind {
-        DeploymentGrantOverrideIdentityKind::Web => args
+        DeploymentAuthorityGrantOverrideIdentityKind::Web => args
             .origin
             .as_deref()
             .ok_or_else(|| miette::miette!("--origin is required for web grant overrides"))?,
-        DeploymentGrantOverrideIdentityKind::Session => {
+        DeploymentAuthorityGrantOverrideIdentityKind::Session => {
             args.session_public_key.as_deref().ok_or_else(|| {
                 miette::miette!("--session-public-key is required for session grant overrides")
             })?
@@ -625,7 +752,7 @@ async fn deployment_grants_mutate(
         .capabilities
         .iter()
         .map(|capability| match args.identity_kind {
-            DeploymentGrantOverrideIdentityKind::Web => json!({
+            DeploymentAuthorityGrantOverrideIdentityKind::Web => json!({
                 "deploymentId": deployment_id,
                 "identityKind": identity_kind,
                 "grantKind": "capability",
@@ -635,7 +762,7 @@ async fn deployment_grants_mutate(
                 "capability": capability,
                 "capabilityGroupKey": null,
             }),
-            DeploymentGrantOverrideIdentityKind::Session => json!({
+            DeploymentAuthorityGrantOverrideIdentityKind::Session => json!({
                 "deploymentId": deployment_id,
                 "identityKind": identity_kind,
                 "grantKind": "capability",
@@ -649,7 +776,7 @@ async fn deployment_grants_mutate(
         .collect::<Vec<_>>();
     grant_overrides.extend(args.capability_groups.iter().map(
         |group_key| match args.identity_kind {
-            DeploymentGrantOverrideIdentityKind::Web => json!({
+            DeploymentAuthorityGrantOverrideIdentityKind::Web => json!({
                 "deploymentId": deployment_id,
                 "identityKind": identity_kind,
                 "grantKind": "capability-group",
@@ -659,7 +786,7 @@ async fn deployment_grants_mutate(
                 "capability": null,
                 "capabilityGroupKey": group_key,
             }),
-            DeploymentGrantOverrideIdentityKind::Session => json!({
+            DeploymentAuthorityGrantOverrideIdentityKind::Session => json!({
                 "deploymentId": deployment_id,
                 "identityKind": identity_kind,
                 "grantKind": "capability-group",
@@ -674,7 +801,7 @@ async fn deployment_grants_mutate(
     let request_overrides = if add {
         let response = connected
             .request_json_value(
-                "rpc.v1.Auth.Envelopes.Get",
+                "rpc.v1.Auth.DeploymentAuthority.Get",
                 &json!({ "deploymentId": deployment_id }),
             )
             .await
@@ -697,9 +824,9 @@ async fn deployment_grants_mutate(
         grant_overrides
     };
     let subject = if add {
-        "rpc.v1.Auth.Envelopes.GrantOverrides.Put"
+        "rpc.v1.Auth.DeploymentAuthority.GrantOverrides.Put"
     } else {
-        "rpc.v1.Auth.Envelopes.GrantOverrides.Remove"
+        "rpc.v1.Auth.DeploymentAuthority.GrantOverrides.Remove"
     };
     let response = connected
         .request_json_value(
@@ -966,25 +1093,6 @@ fn print_device_reviews_result<T: serde::Serialize>(
     )
 }
 
-fn print_expansion_requests_result(format: OutputFormat, response: Value) -> miette::Result<()> {
-    if output::is_json(format) {
-        output::print_json(&response)?;
-        return Ok(());
-    }
-
-    print_value_table(
-        response.get("requests").unwrap_or(&Value::Null),
-        &[
-            "requestId",
-            "deploymentId",
-            "contractId",
-            "contractDigest",
-            "state",
-            "createdAt",
-        ],
-    )
-}
-
 fn print_deployment_grants_result(
     format: OutputFormat,
     deployment_id: &str,
@@ -1090,6 +1198,38 @@ fn print_deployment_result<T: serde::Serialize>(
         output::print_success(message);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn authority_desired_version_prefers_explicit_response_value() {
+        let response = json!({
+            "desiredVersion": "desired-new",
+            "authority": {
+                "version": "authority-version",
+                "desiredVersion": "authority-desired"
+            }
+        });
+
+        assert_eq!(authority_desired_version(&response), Some("desired-new"));
+    }
+
+    #[test]
+    fn authority_desired_version_falls_back_to_authority_version() {
+        let response = json!({
+            "authority": {
+                "version": "authority-version"
+            }
+        });
+
+        assert_eq!(
+            authority_desired_version(&response),
+            Some("authority-version")
+        );
+    }
 }
 
 fn ref_label(kind: DeploymentKind, id: &str) -> String {

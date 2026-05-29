@@ -55,12 +55,12 @@ These headings are intentionally named for fast human and AI lookup.
 
 ## Core Platform Docs
 
-| Document                                 | Read When                                                            | Why                                                                                           |
-| ---------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `core/trellis-patterns.md`               | You need Trellis-wide architecture rules                             | Service categories, platform boundaries, communication patterns                               |
-| `auth/trellis-auth.md`                   | You are changing auth architecture                                   | Identity model, identity-envelope model, deployment-envelope model, auth subsystem boundaries |
-| `auth/device-activation.md`              | You are changing device preregistration or device activation         | Known-device activation flow, connect info, profiles, online activation                       |
-| `contracts/trellis-contracts-catalog.md` | You are changing manifests, codegen inputs, or permission derivation | Canonical contract format, `uses`, subject ownership, activation rules                        |
+| Document                                 | Read When                                                            | Why                                                                                 |
+| ---------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `core/trellis-patterns.md`               | You need Trellis-wide architecture rules                             | Service categories, platform boundaries, communication patterns                     |
+| `auth/trellis-auth.md`                   | You are changing auth architecture                                   | Identity model, identity authority, deployment authority, auth subsystem boundaries |
+| `auth/device-activation.md`              | You are changing device preregistration or device activation         | Known-device activation flow, connect info, profiles, online activation             |
+| `contracts/trellis-contracts-catalog.md` | You are changing manifests, codegen inputs, or permission derivation | Canonical contract format, `uses`, subject ownership, activation rules              |
 
 ## Subsystem Design Docs
 
@@ -97,7 +97,7 @@ ergonomics.
 | ---------------------------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `auth/auth-protocol.md`                              | Auth protocol surface       | Implementing auth callout, proofs, reply validation, or auth state model                                 |
 | `auth/auth-api.md`                                   | Auth public wire API        | Implementing `/auth/*`, `operations.v1.Auth.*`, `rpc.v1.Auth.*`, or auth events                          |
-| `auth/trellis-auth.md`                               | Auth system/runtime design  | Implementing auth helper semantics, sessions, identity envelopes, deployment envelopes, or runtime auth  |
+| `auth/trellis-auth.md`                               | Auth system/runtime design  | Implementing auth helper semantics, sessions, identity authority, deployment authority, or runtime auth  |
 | `auth/device-activation.md`                          | Device activation design    | Implementing known-device activation, connect info, or activation review flows                           |
 | `operations/trellis-operations.md`                   | Operations design           | Implementing caller-visible async workflows in TypeScript or Rust                                        |
 | `jobs/trellis-jobs.md`                               | Jobs design                 | Implementing service-private background execution or jobs admin surfaces                                 |

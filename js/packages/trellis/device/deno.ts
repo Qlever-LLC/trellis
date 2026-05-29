@@ -2,6 +2,7 @@ import { dirname, join } from "@std/path";
 import type { StaticDecode } from "typebox";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
+import { ulid } from "ulid";
 
 import { deriveDeviceIdentity } from "../auth.ts";
 import type {
@@ -229,7 +230,7 @@ function isAlreadyExistsError(error: unknown): boolean {
 }
 
 function tempStatePath(statePath: string): string {
-  return `${statePath}.tmp-${crypto.randomUUID()}`;
+  return `${statePath}.tmp-${ulid()}`;
 }
 
 function backupStatePath(statePath: string): string {

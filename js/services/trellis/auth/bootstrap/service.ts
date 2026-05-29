@@ -3,33 +3,31 @@ import { AsyncResult } from "@qlever-llc/result";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
+import { ulid } from "ulid";
 
 import type { ContractsModule } from "../../catalog/runtime.ts";
-import {
-  getEventConsumerGroupRequests,
-  getJobsQueueRequests,
-  getKvResourceRequests,
-  getStoreResourceRequests,
-} from "../../catalog/resources.ts";
 import {
   type ContractEntry,
   ContractUseDependencyError,
   validateActiveContractCompatibility,
 } from "../../catalog/uses.ts";
 import {
-  analyzeContractEnvelopeBoundary,
-  type ContractEnvelopeBoundary,
-} from "../boundary_analysis.ts";
+  analyzeContractProposal,
+  type ContractProposalAnalysis,
+} from "../contract_proposal_analysis.ts";
 import {
-  computeEnvelopeDelta,
-  evaluateEnvelopeFit,
-} from "../envelope_decision.ts";
+  computeAuthorityNeedsDelta,
+  evaluateProposalNeedsFit,
+} from "../authority_needs_decision.ts";
+import { classifyDeploymentAuthorityPlan } from "../deployment_authority_plan.ts";
 import { SessionKeySchema, SignatureSchema } from "../schemas.ts";
 import type {
-  DeploymentEnvelope,
+  AuthorityNeedSet,
+  DeploymentAuthority,
+  DeploymentAuthorityMaterialization,
+  DeploymentAuthorityNeed,
+  DeploymentAuthorityPlan,
   DeploymentResourceBinding,
-  EnvelopeBoundary,
-  EnvelopeExpansionRequest,
   ImplementationOffer,
   SentinelCreds,
 } from "../schemas.ts";
@@ -63,32 +61,29 @@ type ServiceBootstrapDeployment = {
   disabled: boolean;
 };
 
-type DeploymentEnvelopeStorage = {
-  get(deploymentId: string): Promise<DeploymentEnvelope | undefined>;
-  putExpansion?(record: {
-    envelope: DeploymentEnvelope;
-    delta: EnvelopeBoundary;
-    resourceBindings: DeploymentResourceBinding[];
-  }): Promise<void>;
+type DeploymentAuthorityStorage = {
+  get(deploymentId: string): Promise<DeploymentAuthority | undefined>;
+  listEnabled(): Promise<DeploymentAuthority[]>;
+  put(record: DeploymentAuthority): Promise<void>;
+  acceptAuthorityPlan?(
+    authority: DeploymentAuthority,
+    plan: DeploymentAuthorityPlan,
+    expectedCurrentAuthorityVersion: string,
+  ): Promise<boolean>;
 };
 
-type DeploymentResourceBindingStorage = {
+type DeploymentAuthorityPlanStorage = {
+  put(record: DeploymentAuthorityPlan): Promise<void>;
+  listFiltered(
+    filters: { deploymentId?: string; state?: string },
+    query: { limit: number; offset?: number },
+  ): Promise<DeploymentAuthorityPlan[]>;
+};
+
+type MaterializedAuthorityStorage = {
   get(
     deploymentId: string,
-    kind: string,
-    alias: string,
-  ): Promise<DeploymentResourceBinding | undefined>;
-  put(record: DeploymentResourceBinding): Promise<void>;
-  listByDeployment(deploymentId: string): Promise<DeploymentResourceBinding[]>;
-};
-
-type EnvelopeExpansionRequestStorage = {
-  putPending(
-    record: EnvelopeExpansionRequest,
-  ): Promise<EnvelopeExpansionRequest>;
-  latestApprovedByContractId?(
-    contractId: string,
-  ): Promise<EnvelopeExpansionRequest | undefined>;
+  ): Promise<DeploymentAuthorityMaterialization | undefined>;
 };
 
 type ImplementationOfferStorage = {
@@ -97,6 +92,23 @@ type ImplementationOfferStorage = {
   latestAcceptedByLineage(
     lineageKey: string,
   ): Promise<ImplementationOffer | undefined>;
+};
+
+type ContractCompatibilityFailure = {
+  message: string;
+  latestAcceptedContractDigest: string;
+};
+
+type DeploymentAuthorityMigrationPlan = Extract<
+  DeploymentAuthorityPlan,
+  { classification: "migration" }
+>;
+
+type AuthorityReconciler = {
+  reconcileDeployment(
+    deploymentId: string,
+    opts?: { desiredVersion?: string },
+  ): Promise<unknown>;
 };
 
 export const ServiceBootstrapRequestSchema = Type.Object({
@@ -128,10 +140,10 @@ export type ServiceBootstrapDeps = {
   loadServiceDeployment(deploymentId: string): Promise<
     ServiceBootstrapDeployment | null
   >;
-  deploymentEnvelopeStorage: DeploymentEnvelopeStorage;
-  deploymentResourceBindingStorage: DeploymentResourceBindingStorage;
+  deploymentAuthorityStorage: DeploymentAuthorityStorage;
+  deploymentAuthorityPlanStorage: DeploymentAuthorityPlanStorage;
+  materializedAuthorityStorage: MaterializedAuthorityStorage;
   implementationOfferStorage: ImplementationOfferStorage;
-  envelopeExpansionRequestStorage: EnvelopeExpansionRequestStorage;
   storePresentedContract?(input: {
     contract: TrellisContractV1;
     digest: string;
@@ -145,7 +157,9 @@ export type ServiceBootstrapDeps = {
   }): Promise<boolean>;
   nowSeconds?(): number;
   now?(): Date;
-  createExpansionRequestId?(): string;
+  createAuthorityPlanId?(): string;
+  createAuthorityVersion?(): string;
+  authorityReconciler?: AuthorityReconciler;
 };
 
 function buildContractView(contract: TrellisContractV1, digest: string) {
@@ -237,7 +251,7 @@ function toError(error: unknown): Error {
 }
 
 function getRequiredServiceCapabilities(
-  analysis: ContractEnvelopeBoundary,
+  analysis: ContractProposalAnalysis,
   contract: TrellisContractV1,
 ): string[] {
   const capabilities = new Set<string>([
@@ -262,12 +276,16 @@ function sameJsonRecord(left: unknown, right: unknown): boolean {
   return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
 }
 
-function emptyBoundary(): EnvelopeBoundary {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function emptyAuthorityNeeds(): AuthorityNeedSet {
   return { contracts: [], surfaces: [], capabilities: [], resources: [] };
 }
 
-function mergeBoundaries(...boundaries: EnvelopeBoundary[]): EnvelopeBoundary {
-  return computeEnvelopeDelta(emptyBoundary(), {
+function mergeBoundaries(...boundaries: AuthorityNeedSet[]): AuthorityNeedSet {
+  return computeAuthorityNeedsDelta(emptyAuthorityNeeds(), {
     contracts: boundaries.flatMap((boundary) => boundary.contracts),
     surfaces: boundaries.flatMap((boundary) => boundary.surfaces),
     capabilities: boundaries.flatMap((boundary) => boundary.capabilities),
@@ -275,7 +293,7 @@ function mergeBoundaries(...boundaries: EnvelopeBoundary[]): EnvelopeBoundary {
   });
 }
 
-function isEmptyBoundary(boundary: EnvelopeBoundary): boolean {
+function isEmptyBoundary(boundary: AuthorityNeedSet): boolean {
   return boundary.contracts.length === 0 && boundary.surfaces.length === 0 &&
     boundary.capabilities.length === 0 && boundary.resources.length === 0;
 }
@@ -312,10 +330,7 @@ async function assertPresentedContractCompatible(input: {
   implementationOfferStorage: ImplementationOfferStorage;
   presentedDigest: string;
   presentedContract: TrellisContractV1;
-}): Promise<string | null> {
-  if (input.deployment.contractCompatibilityMode === "mutable-dev") {
-    return null;
-  }
+}): Promise<ContractCompatibilityFailure | null> {
   const latestAccepted = await input.implementationOfferStorage
     .latestAcceptedByLineage(
       serviceOfferLineageKey(
@@ -332,7 +347,10 @@ async function assertPresentedContractCompatible(input: {
     includeInactive: true,
   });
   if (!currentContract) {
-    return `previous service contract digest '${currentDigest}' is unknown`;
+    return {
+      message: `previous service contract digest '${currentDigest}' is unknown`,
+      latestAcceptedContractDigest: currentDigest,
+    };
   }
   try {
     validateActiveContractCompatibility([
@@ -341,7 +359,10 @@ async function assertPresentedContractCompatible(input: {
     ]);
     return null;
   } catch (error) {
-    return error instanceof Error ? error.message : String(error);
+    return {
+      message: error instanceof Error ? error.message : String(error),
+      latestAcceptedContractDigest: currentDigest,
+    };
   }
 }
 
@@ -382,210 +403,374 @@ function resourceBindingsForResponse(
   return resources;
 }
 
-function missingResourceBindingKeys(
-  requested: EnvelopeBoundary,
-  bindings: DeploymentResourceBinding[],
-): string[] {
-  const produced = new Set(
-    bindings.map((binding) => resourceKey(binding.kind, binding.alias)),
-  );
-  const missing: string[] = [];
-  for (const resource of requested.resources) {
-    if (resource.kind === "transfer") continue;
-    const key = resourceKey(resource.kind, resource.alias);
-    if (!produced.has(key)) missing.push(key);
-  }
-  return missing.sort((left, right) => left.localeCompare(right));
-}
-
-async function knownDependencyEntriesForProvisioning(
-  deps: Pick<
-    ServiceBootstrapDeps["contracts"],
-    "getActiveEntries" | "validateContract"
-  >,
-  expansionRequests: Pick<
-    EnvelopeExpansionRequestStorage,
-    "latestApprovedByContractId"
-  >,
-  contract: TrellisContractV1,
-): Promise<ContractEntry[]> {
-  const entriesByDigest = new Map<string, ContractEntry>();
-  const activeEntriesByContractId = new Map<string, ContractEntry[]>();
-  for (const entry of await deps.getActiveEntries()) {
-    const entries = activeEntriesByContractId.get(entry.contract.id) ?? [];
-    entries.push(entry);
-    activeEntriesByContractId.set(entry.contract.id, entries);
-  }
-  const contractIds = new Set<string>();
-  for (const group of [contract.uses?.required, contract.uses?.optional]) {
-    for (const use of Object.values(group ?? {})) {
-      contractIds.add(use.contract);
-    }
-  }
-  for (const contractId of contractIds) {
-    const activeEntries = activeEntriesByContractId.get(contractId);
-    const approvedFallback = activeEntries === undefined
-      ? await approvedFallbackEntry(deps, expansionRequests, contractId)
-      : undefined;
-    const dependencyEntries = activeEntries ??
-      (approvedFallback ? [approvedFallback] : []);
-    for (const entry of dependencyEntries) {
-      entriesByDigest.set(entry.digest, entry);
-    }
-  }
-  return [...entriesByDigest.values()].sort((left, right) =>
-    left.digest.localeCompare(right.digest)
+function authorityProvidesContract(
+  authority: DeploymentAuthority,
+  contractId: string,
+): boolean {
+  if (authority.disabled) return false;
+  return authority.desiredState.needs.some((need) =>
+    need.kind === "contract" && need.required && need.contractId === contractId
+  ) || authority.desiredState.surfaces.some((surface) =>
+    surface.contractId === contractId
   );
 }
 
-async function approvedFallbackEntry(
-  contracts: Pick<ServiceBootstrapDeps["contracts"], "validateContract">,
-  storage: Pick<EnvelopeExpansionRequestStorage, "latestApprovedByContractId">,
+function newestAcceptedPlanFirst(
+  left: DeploymentAuthorityPlan,
+  right: DeploymentAuthorityPlan,
+): number {
+  return (right.decisionAt ?? "").localeCompare(left.decisionAt ?? "") ||
+    right.createdAt.localeCompare(left.createdAt) ||
+    right.planId.localeCompare(left.planId);
+}
+
+async function acceptedAuthorityContractEntry(
+  deps: ServiceBootstrapDeps,
   contractId: string,
 ): Promise<ContractEntry | undefined> {
-  const request = await storage.latestApprovedByContractId?.(contractId);
-  if (!request) return undefined;
-  const validated = await contracts.validateContract(request.contract);
-  if (
-    validated.contract.id !== contractId ||
-    validated.digest !== request.contractDigest
-  ) {
-    return undefined;
-  }
-  return { digest: validated.digest, contract: validated.contract };
-}
+  const authorities = (await deps.deploymentAuthorityStorage.listEnabled())
+    .filter((authority) => authorityProvidesContract(authority, contractId));
 
-function numberField(
-  record: Record<string, unknown>,
-  key: string,
-): number | undefined {
-  const value = record[key];
-  return typeof value === "number" ? value : undefined;
-}
+  for (const authority of authorities) {
+    const plans = (await deps.deploymentAuthorityPlanStorage.listFiltered(
+      { deploymentId: authority.deploymentId, state: "accepted" },
+      { limit: 500 },
+    ))
+      .filter((plan) => plan.proposal.contractId === contractId)
+      .sort(newestAcceptedPlanFirst);
 
-function booleanField(
-  record: Record<string, unknown>,
-  key: string,
-): boolean | undefined {
-  const value = record[key];
-  return typeof value === "boolean" ? value : undefined;
-}
-
-function stringField(
-  record: Record<string, unknown>,
-  key: string,
-): string | undefined {
-  const value = record[key];
-  return typeof value === "string" ? value : undefined;
-}
-
-function storedResourceBindingMismatchKeys(input: {
-  contract: TrellisContractV1;
-  requested: EnvelopeBoundary;
-  bindings: DeploymentResourceBinding[];
-  knownContractEntries: ContractEntry[];
-}): string[] {
-  const requestedKeys = new Set(
-    input.requested.resources
-      .filter((resource) => resource.kind !== "transfer")
-      .map((resource) => resourceKey(resource.kind, resource.alias)),
-  );
-  const mismatches: string[] = [];
-  const bindingByKey = new Map(
-    input.bindings.map((binding) => [
-      resourceKey(binding.kind, binding.alias),
-      binding,
-    ]),
-  );
-
-  for (const request of getKvResourceRequests(input.contract)) {
-    const key = resourceKey("kv", request.alias);
-    if (!requestedKeys.has(key)) continue;
-    const binding = bindingByKey.get(key)?.binding;
-    if (!binding) continue;
-    if (
-      numberField(binding, "history") !== request.history ||
-      numberField(binding, "ttlMs") !== request.ttlMs ||
-      numberField(binding, "maxValueBytes") !== request.maxValueBytes
-    ) {
-      mismatches.push(key);
+    for (const plan of plans) {
+      const rawContract = plan.proposal.contract;
+      if (rawContract === undefined) continue;
+      const validated = await deps.contracts.validateContract(rawContract);
+      if (
+        validated.contract.id === contractId &&
+        validated.digest === plan.proposal.contractDigest
+      ) {
+        return { digest: validated.digest, contract: validated.contract };
+      }
     }
   }
 
-  for (const request of getStoreResourceRequests(input.contract)) {
-    const key = resourceKey("store", request.alias);
-    if (!requestedKeys.has(key)) continue;
-    const binding = bindingByKey.get(key)?.binding;
-    if (!binding) continue;
-    if (
-      numberField(binding, "ttlMs") !== request.ttlMs ||
-      numberField(binding, "maxTotalBytes") !== request.maxTotalBytes ||
-      numberField(binding, "maxObjectBytes") !== request.maxObjectBytes
-    ) {
-      mismatches.push(key);
-    }
-  }
-
-  for (const request of getJobsQueueRequests(input.contract)) {
-    const key = resourceKey("jobs", request.queueType);
-    if (!requestedKeys.has(key)) continue;
-    const binding = bindingByKey.get(key)?.binding;
-    if (!binding) continue;
-    if (
-      stringField(binding, "queueType") !== request.queueType ||
-      !sameJsonRecord(binding.payload, request.payload) ||
-      !sameJsonRecord(binding.result, request.result) ||
-      numberField(binding, "maxDeliver") !== request.maxDeliver ||
-      !sameJsonRecord(binding.backoffMs, request.backoffMs) ||
-      numberField(binding, "ackWaitMs") !== request.ackWaitMs ||
-      numberField(binding, "defaultDeadlineMs") !==
-        request.defaultDeadlineMs ||
-      booleanField(binding, "progress") !== request.progress ||
-      booleanField(binding, "logs") !== request.logs ||
-      booleanField(binding, "dlq") !== request.dlq ||
-      numberField(binding, "concurrency") !== request.concurrency
-    ) {
-      mismatches.push(key);
-    }
-  }
-
-  for (
-    const request of getEventConsumerGroupRequests(input.contract, {
-      knownContractEntries: input.knownContractEntries,
-      envelopeBoundary: input.requested,
-    })
-  ) {
-    const key = resourceKey("event-consumer", request.alias);
-    if (!requestedKeys.has(key)) continue;
-    const binding = bindingByKey.get(key)?.binding;
-    if (!binding) continue;
-    if (
-      stringField(binding, "stream") !== request.stream ||
-      !sameJsonRecord(binding.filterSubjects, request.filterSubjects) ||
-      stringField(binding, "replay") !== request.replay ||
-      stringField(binding, "ordering") !== request.ordering ||
-      numberField(binding, "concurrency") !== request.concurrency ||
-      numberField(binding, "ackWaitMs") !== request.ackWaitMs ||
-      numberField(binding, "maxDeliver") !== request.maxDeliver ||
-      !sameJsonRecord(binding.backoffMs, request.backoffMs)
-    ) {
-      mismatches.push(key);
-    }
-  }
-
-  return mismatches.sort((left, right) => left.localeCompare(right));
+  return undefined;
 }
 
 function boundaryContractDeps(deps: ServiceBootstrapDeps) {
   return {
     ...deps.contracts,
-    getApprovedFallbackEntryByContractId: (contractId: string) =>
-      approvedFallbackEntry(
-        deps.contracts,
-        deps.envelopeExpansionRequestStorage,
-        contractId,
-      ),
+    getAcceptedFallbackEntryByContractId: (contractId: string) =>
+      acceptedAuthorityContractEntry(deps, contractId),
   };
+}
+
+function desiredStateToAuthorityNeeds(
+  desiredState: DeploymentAuthority["desiredState"],
+): AuthorityNeedSet {
+  return mergeBoundaries({
+    contracts: desiredState.needs.flatMap((need) =>
+      need.kind === "contract"
+        ? [{ contractId: need.contractId, required: need.required }]
+        : []
+    ),
+    surfaces: desiredState.needs.flatMap((need) =>
+      need.kind === "surface"
+        ? [{ ...need.surface, required: need.required }]
+        : []
+    ),
+    capabilities: desiredState.capabilities,
+    resources: desiredState.resources,
+  });
+}
+
+function authorityNeedsToProposalNeeds(
+  needs: AuthorityNeedSet,
+): DeploymentAuthorityNeed[] {
+  return [
+    ...needs.contracts.map((contract) => ({
+      kind: "contract" as const,
+      contractId: contract.contractId,
+      required: contract.required,
+    })),
+    ...needs.surfaces.map((surface) => {
+      const { required, ...authoritySurface } = surface;
+      return {
+        kind: "surface" as const,
+        surface: authoritySurface,
+        required,
+      };
+    }),
+    ...needs.capabilities.map((capability) => ({
+      kind: "capability" as const,
+      capability,
+      required: true,
+    })),
+    ...needs.resources.map((resource) => ({
+      kind: "resource" as const,
+      resource,
+      required: resource.required,
+    })),
+  ];
+}
+
+function desiredStateFromProposalNeeds(
+  needsInput: DeploymentAuthorityPlan["proposal"]["requestedNeeds"],
+): DeploymentAuthority["desiredState"] {
+  const capabilities = new Set<string>();
+  const resources = new Map<
+    string,
+    DeploymentAuthority["desiredState"]["resources"][number]
+  >();
+  const surfaces = new Map<
+    string,
+    DeploymentAuthority["desiredState"]["surfaces"][number]
+  >();
+
+  for (const need of needsInput) {
+    if (need.kind === "capability") {
+      capabilities.add(need.capability);
+    }
+    if (need.kind === "resource") {
+      resources.set(
+        resourceKey(need.resource.kind, need.resource.alias),
+        need.resource,
+      );
+    }
+    if (need.kind === "surface") {
+      surfaces.set(
+        [
+          need.surface.contractId,
+          need.surface.kind,
+          need.surface.name,
+          need.surface.action,
+        ].join("\u001f"),
+        need.surface,
+      );
+    }
+  }
+
+  return {
+    needs: [...needsInput],
+    capabilities: [...capabilities].sort(),
+    resources: [...resources.values()].sort((left, right) =>
+      resourceKey(left.kind, left.alias).localeCompare(
+        resourceKey(right.kind, right.alias),
+      )
+    ),
+    surfaces: [...surfaces.values()].sort((left, right) =>
+      left.contractId.localeCompare(right.contractId) ||
+      left.kind.localeCompare(right.kind) ||
+      left.name.localeCompare(right.name) ||
+      (left.action ?? "").localeCompare(right.action ?? "")
+    ),
+  };
+}
+
+async function acceptMutableDevCompatibilityMigration(input: {
+  deps: ServiceBootstrapDeps;
+  authority: DeploymentAuthority;
+  plan: DeploymentAuthorityMigrationPlan;
+  service: ServiceBootstrapInstance;
+  now: string;
+}): Promise<DeploymentAuthority> {
+  const newVersion = input.deps.createAuthorityVersion?.() ?? ulid();
+  const updatedAuthority: DeploymentAuthority = {
+    ...input.authority,
+    desiredState: desiredStateFromProposalNeeds(
+      input.plan.proposal.requestedNeeds,
+    ),
+    version: newVersion,
+    updatedAt: input.now,
+  };
+  const acceptedPlan: DeploymentAuthorityMigrationPlan = {
+    ...input.plan,
+    acknowledgementRequired: false,
+    state: "accepted",
+    decisionAt: input.now,
+    decisionBy: {
+      kind: "system",
+      mode: "mutable-dev",
+      serviceInstanceId: input.service.instanceId,
+    },
+    decisionReason:
+      "mutable-dev auto-accepted incompatible same-contract replacement",
+  };
+
+  if (input.deps.deploymentAuthorityStorage.acceptAuthorityPlan) {
+    await input.deps.deploymentAuthorityPlanStorage.put(input.plan);
+    const accepted = await input.deps.deploymentAuthorityStorage
+      .acceptAuthorityPlan(
+        updatedAuthority,
+        acceptedPlan,
+        input.authority.version,
+      );
+    if (!accepted) return input.authority;
+  } else {
+    await input.deps.deploymentAuthorityStorage.put(updatedAuthority);
+    await input.deps.deploymentAuthorityPlanStorage.put(acceptedPlan);
+  }
+
+  try {
+    await input.deps.authorityReconciler?.reconcileDeployment(
+      updatedAuthority.deploymentId,
+      { desiredVersion: newVersion },
+    );
+  } catch {
+    // Bootstrap reports reconciliation state below; failed scheduling must not
+    // turn auto-approval history into implicit runtime authority.
+  }
+  return updatedAuthority;
+}
+
+async function pendingAuthorityPlanForContract(input: {
+  storage: DeploymentAuthorityPlanStorage;
+  deploymentId: string;
+  contractId: string;
+  contractDigest: string;
+  desiredVersion: string;
+  classification: DeploymentAuthorityPlan["classification"];
+  desiredChange: AuthorityNeedSet;
+  requestedNeeds: DeploymentAuthorityNeed[];
+}): Promise<DeploymentAuthorityPlan | undefined> {
+  const plans = await input.storage.listFiltered(
+    { deploymentId: input.deploymentId, state: "pending" },
+    { limit: 500 },
+  );
+  return plans.find((plan) =>
+    plan.proposal.contractId === input.contractId &&
+    plan.proposal.contractDigest === input.contractDigest &&
+    plan.classification === input.classification &&
+    sameJsonRecord(plan.desiredChange, input.desiredChange) &&
+    sameJsonRecord(plan.proposal.requestedNeeds, input.requestedNeeds) &&
+    plan.proposal.summary !== undefined &&
+    isRecord(plan.proposal.summary) &&
+    plan.proposal.summary.desiredVersion === input.desiredVersion
+  );
+}
+
+function compatibilityMigrationSummary(input: {
+  requestedById: string;
+  desiredVersion: string;
+  previousContractDigest: string;
+}) {
+  return {
+    requestedByKind: "service",
+    requestedById: input.requestedById,
+    desiredVersion: input.desiredVersion,
+    compatibilityMigration: true,
+    previousContractDigest: input.previousContractDigest,
+  };
+}
+
+function isCompatibilityMigrationPlan(input: {
+  plan: DeploymentAuthorityPlan;
+  deploymentId: string;
+  contractId: string;
+  previousContractDigest: string;
+  presentedContractDigest: string;
+  state?: string;
+  desiredVersion?: string;
+}): boolean {
+  if (input.plan.deploymentId !== input.deploymentId) return false;
+  if (input.plan.classification !== "migration") return false;
+  if (
+    input.state !== undefined && (input.plan.state ?? "pending") !== input.state
+  ) {
+    return false;
+  }
+  if (input.plan.proposal.contractId !== input.contractId) return false;
+  if (input.plan.proposal.contractDigest !== input.presentedContractDigest) {
+    return false;
+  }
+  const summary = input.plan.proposal.summary;
+  if (summary === undefined || !isRecord(summary)) return false;
+  return summary.compatibilityMigration === true &&
+    summary.previousContractDigest === input.previousContractDigest &&
+    (input.desiredVersion === undefined ||
+      summary.desiredVersion === input.desiredVersion);
+}
+
+async function pendingCompatibilityMigrationPlan(input: {
+  storage: DeploymentAuthorityPlanStorage;
+  deploymentId: string;
+  contractId: string;
+  previousContractDigest: string;
+  presentedContractDigest: string;
+  desiredVersion: string;
+}): Promise<DeploymentAuthorityMigrationPlan | undefined> {
+  const plans = await input.storage.listFiltered(
+    { deploymentId: input.deploymentId, state: "pending" },
+    { limit: 500 },
+  );
+  for (const plan of plans) {
+    if (plan.classification !== "migration") continue;
+    if (
+      isCompatibilityMigrationPlan({
+        plan,
+        deploymentId: input.deploymentId,
+        contractId: input.contractId,
+        previousContractDigest: input.previousContractDigest,
+        presentedContractDigest: input.presentedContractDigest,
+        desiredVersion: input.desiredVersion,
+        state: "pending",
+      })
+    ) return plan;
+  }
+  return undefined;
+}
+
+async function acceptedCompatibilityMigrationExists(input: {
+  contracts: Pick<ServiceBootstrapDeps["contracts"], "validateContract">;
+  storage: DeploymentAuthorityPlanStorage;
+  deploymentId: string;
+  contractId: string;
+  previousContractDigest: string;
+  presentedContractDigest: string;
+  requestedNeeds: DeploymentAuthorityNeed[];
+}): Promise<boolean> {
+  const plans = await input.storage.listFiltered(
+    { deploymentId: input.deploymentId, state: "accepted" },
+    { limit: 500 },
+  );
+  for (const plan of plans) {
+    if (
+      !isCompatibilityMigrationPlan({
+        plan,
+        deploymentId: input.deploymentId,
+        contractId: input.contractId,
+        previousContractDigest: input.previousContractDigest,
+        presentedContractDigest: input.presentedContractDigest,
+        state: "accepted",
+      }) || !sameJsonRecord(plan.proposal.requestedNeeds, input.requestedNeeds)
+    ) {
+      continue;
+    }
+    const rawContract = plan.proposal.contract;
+    if (rawContract === undefined) continue;
+    try {
+      const validated = await input.contracts.validateContract(rawContract);
+      if (
+        validated.contract.id === input.contractId &&
+        validated.digest === input.presentedContractDigest
+      ) return true;
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+
+function requestedResourceBindings(
+  requested: AuthorityNeedSet,
+  bindings: DeploymentResourceBinding[],
+): DeploymentResourceBinding[] {
+  const requestedKeys = new Set(
+    requested.resources
+      .filter((resource) => resource.kind !== "transfer")
+      .map((resource) => resourceKey(resource.kind, resource.alias)),
+  );
+  return bindings.filter((binding) =>
+    requestedKeys.has(resourceKey(binding.kind, binding.alias))
+  );
 }
 
 async function acceptedServiceOfferRecord(input: {
@@ -688,10 +873,10 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       );
     }
 
-    const deploymentEnvelope = await deps.deploymentEnvelopeStorage.get(
+    let deploymentAuthority = await deps.deploymentAuthorityStorage.get(
       service.deploymentId,
     );
-    if (!deploymentEnvelope || deploymentEnvelope.disabled) {
+    if (!deploymentAuthority || deploymentAuthority.disabled) {
       return c.json(
         bootstrapFailure(
           "service_deployment_disabled",
@@ -713,7 +898,7 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       return c.json(
         bootstrapFailure(
           "manifest_required",
-          `Service deployment '${deployment.deploymentId}' needs the full manifest for contract '${request.contractId}' digest '${request.contractDigest}' to evaluate the deployment envelope.`,
+          `Service deployment '${deployment.deploymentId}' needs the full manifest for contract '${request.contractId}' digest '${request.contractDigest}' to evaluate deployment authority.`,
           {
             instanceId: service.instanceId,
             deploymentId: deployment.deploymentId,
@@ -749,10 +934,10 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
     }
 
     let analysis: Awaited<
-      ReturnType<typeof analyzeContractEnvelopeBoundary>
+      ReturnType<typeof analyzeContractProposal>
     >;
     try {
-      analysis = await analyzeContractEnvelopeBoundary(
+      analysis = await analyzeContractProposal(
         boundaryContractDeps(deps),
         validated.contract,
         { dependencyResolution: "knownOrPending" },
@@ -776,7 +961,7 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       return c.json(
         bootstrapFailure(
           "contract_catalog_issue",
-          `Service contract '${request.contractId}' digest '${request.contractDigest}' is waiting for catalog repair: ${catalogError.message}`,
+          `Service contract '${request.contractId}' digest '${request.contractDigest}' is waiting for catalog authority resolution: ${catalogError.message}`,
           {
             instanceId: service.instanceId,
             deploymentId: deployment.deploymentId,
@@ -831,58 +1016,26 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       });
     }
 
-    const requestedBoundary = mergeBoundaries(
+    const requestedNeeds = mergeBoundaries(
       analysis.required,
       analysis.optional,
       analysis.contributedAvailability,
     );
-    const fit = evaluateEnvelopeFit(
-      deploymentEnvelope.boundary,
-      requestedBoundary,
+    const desiredNeeds = desiredStateToAuthorityNeeds(
+      deploymentAuthority.desiredState,
+    );
+    const fit = evaluateProposalNeedsFit(
+      desiredNeeds,
+      requestedNeeds,
     );
     const now = (deps.now?.() ?? new Date()).toISOString();
-
-    if (!fit.fits) {
-      const delta = computeEnvelopeDelta(
-        deploymentEnvelope.boundary,
-        requestedBoundary,
-      );
-      const requestId = deps.createExpansionRequestId?.() ??
-        crypto.randomUUID();
-      const expansionRequest = await deps.envelopeExpansionRequestStorage
-        .putPending({
-          requestId,
-          deploymentId: service.deploymentId,
-          requestedByKind: "service",
-          requestedBy: { instanceId: service.instanceId },
-          contractId: request.contractId,
-          contractDigest: request.contractDigest,
-          contract: { ...contract },
-          state: "pending",
-          createdAt: now,
-          decidedAt: null,
-          decidedBy: null,
-          decisionReason: null,
-          delta,
-        });
-      return c.json(
-        bootstrapFailure(
-          "envelope_expansion_required",
-          `Service deployment '${service.deploymentId}' envelope does not cover contract '${request.contractId}' digest '${request.contractDigest}'. An expansion request was created.`,
-          {
-            instanceId: service.instanceId,
-            deploymentId: service.deploymentId,
-            contractId: request.contractId,
-            contractDigest: request.contractDigest,
-            requestId: expansionRequest.requestId,
-            delta,
-            missingAvailability: fit.missingAvailability,
-            missingCapabilities: fit.missingCapabilities,
-          },
-        ),
-        202,
-      );
-    }
+    const planClassification = classifyDeploymentAuthorityPlan(
+      desiredNeeds,
+      requestedNeeds,
+    );
+    const requestedProposalNeeds = authorityNeedsToProposalNeeds(
+      requestedNeeds,
+    );
 
     const compatibilityError = await assertPresentedContractCompatible({
       contracts: deps.contracts,
@@ -892,39 +1045,207 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       presentedContract: contract,
     });
     if (compatibilityError) {
+      const acceptedCompatibilityMigration =
+        await acceptedCompatibilityMigrationExists({
+          contracts: deps.contracts,
+          storage: deps.deploymentAuthorityPlanStorage,
+          deploymentId: service.deploymentId,
+          contractId: request.contractId,
+          previousContractDigest:
+            compatibilityError.latestAcceptedContractDigest,
+          presentedContractDigest: request.contractDigest,
+          requestedNeeds: requestedProposalNeeds,
+        });
+      if (!acceptedCompatibilityMigration) {
+        const existingPlan = await pendingCompatibilityMigrationPlan({
+          storage: deps.deploymentAuthorityPlanStorage,
+          deploymentId: service.deploymentId,
+          contractId: request.contractId,
+          previousContractDigest:
+            compatibilityError.latestAcceptedContractDigest,
+          presentedContractDigest: request.contractDigest,
+          desiredVersion: deploymentAuthority.version,
+        });
+        const plan: DeploymentAuthorityMigrationPlan = existingPlan ?? {
+          planId: deps.createAuthorityPlanId?.() ?? ulid(),
+          deploymentId: service.deploymentId,
+          classification: "migration",
+          proposal: {
+            deploymentId: service.deploymentId,
+            contractId: request.contractId,
+            contractDigest: request.contractDigest,
+            contract: { ...contract },
+            requestedNeeds: requestedProposalNeeds,
+            providedSurfaces: requestedNeeds.surfaces.map(
+              ({ required: _required, ...surface }) => surface,
+            ),
+            summary: compatibilityMigrationSummary({
+              requestedById: service.instanceId,
+              desiredVersion: deploymentAuthority.version,
+              previousContractDigest:
+                compatibilityError.latestAcceptedContractDigest,
+            }),
+          },
+          desiredChange: planClassification.desiredChange,
+          materializationPreview: {},
+          warnings: [compatibilityError.message],
+          createdAt: now,
+          state: "pending",
+          acknowledgementRequired: true,
+        };
+        if (deployment.contractCompatibilityMode === "mutable-dev") {
+          const acceptedAuthority =
+            await acceptMutableDevCompatibilityMigration(
+              {
+                deps,
+                authority: deploymentAuthority,
+                plan,
+                service,
+                now,
+              },
+            );
+          if (acceptedAuthority.version === deploymentAuthority.version) {
+            return c.json(
+              bootstrapFailure(
+                "authority_migration_required",
+                `Service contract '${request.contractId}' digest '${request.contractDigest}' has a deployment authority migration pending auto-accept retry. ${compatibilityError.message}`,
+                {
+                  instanceId: service.instanceId,
+                  deploymentId: service.deploymentId,
+                  contractId: request.contractId,
+                  contractDigest: request.contractDigest,
+                  latestAcceptedContractDigest:
+                    compatibilityError.latestAcceptedContractDigest,
+                  compatibilityMode: deployment.contractCompatibilityMode,
+                  planId: plan.planId,
+                  desiredVersion: deploymentAuthority.version,
+                  classification: plan.classification,
+                  desiredChange: plan.desiredChange,
+                },
+              ),
+              202,
+            );
+          }
+          deploymentAuthority = acceptedAuthority;
+        } else {
+          if (existingPlan === undefined) {
+            await deps.deploymentAuthorityPlanStorage.put(plan);
+          }
+          return c.json(
+            bootstrapFailure(
+              "authority_migration_required",
+              `Service contract '${request.contractId}' digest '${request.contractDigest}' is incompatible with the current deployment surface. A deployment authority migration plan is pending. ${compatibilityError.message}`,
+              {
+                instanceId: service.instanceId,
+                deploymentId: service.deploymentId,
+                contractId: request.contractId,
+                contractDigest: request.contractDigest,
+                latestAcceptedContractDigest:
+                  compatibilityError.latestAcceptedContractDigest,
+                compatibilityMode: deployment.contractCompatibilityMode ??
+                  "strict",
+                planId: plan.planId,
+                desiredVersion: deploymentAuthority.version,
+                classification: plan.classification,
+                desiredChange: plan.desiredChange,
+              },
+            ),
+            202,
+          );
+        }
+      }
+    }
+
+    if (
+      planClassification.classification === "migration" || !fit.fits ||
+      !isEmptyBoundary(planClassification.desiredChange)
+    ) {
+      const existingPlan = await pendingAuthorityPlanForContract({
+        storage: deps.deploymentAuthorityPlanStorage,
+        deploymentId: service.deploymentId,
+        contractId: request.contractId,
+        contractDigest: request.contractDigest,
+        desiredVersion: deploymentAuthority.version,
+        classification: planClassification.classification,
+        desiredChange: planClassification.desiredChange,
+        requestedNeeds: requestedProposalNeeds,
+      });
+      const proposal = {
+        deploymentId: service.deploymentId,
+        contractId: request.contractId,
+        contractDigest: request.contractDigest,
+        contract: { ...contract },
+        requestedNeeds: requestedProposalNeeds,
+        providedSurfaces: requestedNeeds.surfaces.map(
+          ({ required: _required, ...surface }) => surface,
+        ),
+        summary: {
+          requestedByKind: "service",
+          requestedById: service.instanceId,
+          desiredVersion: deploymentAuthority.version,
+        },
+      };
+      const plan: DeploymentAuthorityPlan = existingPlan ??
+        (planClassification.classification === "migration"
+          ? {
+            planId: deps.createAuthorityPlanId?.() ?? ulid(),
+            deploymentId: service.deploymentId,
+            classification: "migration",
+            proposal,
+            desiredChange: planClassification.desiredChange,
+            materializationPreview: {},
+            warnings: [],
+            createdAt: now,
+            state: "pending",
+            acknowledgementRequired: true,
+          }
+          : {
+            planId: deps.createAuthorityPlanId?.() ?? ulid(),
+            deploymentId: service.deploymentId,
+            classification: "update",
+            proposal,
+            desiredChange: planClassification.desiredChange,
+            materializationPreview: {},
+            warnings: [],
+            createdAt: now,
+            state: "pending",
+          });
+      if (existingPlan === undefined) {
+        await deps.deploymentAuthorityPlanStorage.put(plan);
+      }
       return c.json(
         bootstrapFailure(
-          "contract_compatibility_violation",
-          `Service contract '${request.contractId}' digest '${request.contractDigest}' is incompatible with the current deployment surface. Use a new contract version or enable mutable-dev compatibility for this deployment. ${compatibilityError}`,
+          plan.classification === "migration"
+            ? "authority_migration_required"
+            : "authority_update_required",
+          `Service deployment '${service.deploymentId}' authority does not cover contract '${request.contractId}' digest '${request.contractDigest}'. A deployment authority ${plan.classification} plan is pending.`,
           {
             instanceId: service.instanceId,
             deploymentId: service.deploymentId,
             contractId: request.contractId,
             contractDigest: request.contractDigest,
-            latestAcceptedContractDigest: (await deps.implementationOfferStorage
-              .latestAcceptedByLineage(
-                serviceOfferLineageKey(
-                  service.deploymentId,
-                  request.contractId,
-                ),
-              ))?.contractDigest,
-            compatibilityMode: deployment.contractCompatibilityMode ?? "strict",
+            planId: plan.planId,
+            desiredVersion: deploymentAuthority.version,
+            classification: plan.classification,
+            desiredChange: plan.desiredChange,
+            missingAvailability: fit.missingAvailability,
+            missingCapabilities: fit.missingCapabilities,
           },
         ),
-        409,
+        202,
       );
     }
 
     const capabilities = getRequiredServiceCapabilities(analysis, contract);
 
     let activeAnalysis: Awaited<
-      ReturnType<typeof analyzeContractEnvelopeBoundary>
+      ReturnType<typeof analyzeContractProposal>
     >;
     try {
-      activeAnalysis = await analyzeContractEnvelopeBoundary(
+      activeAnalysis = await analyzeContractProposal(
         boundaryContractDeps(deps),
         contract,
-        { dependencyResolution: "activeOrApproved" },
+        { dependencyResolution: "activeOrAccepted" },
       );
     } catch (error) {
       const catalogError = toError(error);
@@ -945,7 +1266,7 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       return c.json(
         bootstrapFailure(
           "contract_catalog_issue",
-          `Service contract '${request.contractId}' digest '${request.contractDigest}' is waiting for catalog repair: ${catalogError.message}`,
+          `Service contract '${request.contractId}' digest '${request.contractDigest}' is waiting for catalog authority resolution: ${catalogError.message}`,
           {
             instanceId: service.instanceId,
             deploymentId: deployment.deploymentId,
@@ -974,69 +1295,65 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       );
     }
 
-    const existingBindings = await deps.deploymentResourceBindingStorage
-      .listByDeployment(service.deploymentId);
-    const requestedResourceKeys = new Set(
-      requestedBoundary.resources
-        .filter((resource) => resource.kind !== "transfer")
-        .map((resource) => resourceKey(resource.kind, resource.alias)),
+    const materializedAuthority = await deps.materializedAuthorityStorage.get(
+      service.deploymentId,
     );
-    const resourceBindingRecords = existingBindings.filter((binding) =>
-      requestedResourceKeys.has(resourceKey(binding.kind, binding.alias))
-    );
-
-    const missingResourceBindings = missingResourceBindingKeys(
-      requestedBoundary,
-      resourceBindingRecords,
-    );
-    if (missingResourceBindings.length > 0) {
+    if (
+      materializedAuthority === undefined ||
+      materializedAuthority.desiredVersion !== deploymentAuthority.version ||
+      materializedAuthority.status === "pending"
+    ) {
       return c.json(
         bootstrapFailure(
-          "resource_binding_missing",
-          "Stored resource bindings are missing for requested resources.",
-          { missingResourceBindings },
+          "authority_reconciliation_pending",
+          `Service deployment '${service.deploymentId}' authority reconciliation is pending.`,
+          {
+            instanceId: service.instanceId,
+            deploymentId: service.deploymentId,
+            contractId: request.contractId,
+            contractDigest: request.contractDigest,
+            desiredVersion: deploymentAuthority.version,
+            materializedDesiredVersion: materializedAuthority?.desiredVersion,
+            materializedStatus: materializedAuthority?.status,
+          },
         ),
-        409,
+        202,
       );
     }
-
-    const mismatchedResourceBindings = storedResourceBindingMismatchKeys({
-      contract,
-      requested: requestedBoundary,
-      bindings: resourceBindingRecords,
-      knownContractEntries: await knownDependencyEntriesForProvisioning(
-        deps.contracts,
-        deps.envelopeExpansionRequestStorage,
-        contract,
-      ),
-    });
-    if (mismatchedResourceBindings.length > 0) {
+    if (materializedAuthority.status === "failed") {
       return c.json(
         bootstrapFailure(
-          "resource_binding_mismatch",
-          "Stored resource bindings are stale for requested resources.",
-          { mismatchedResourceBindings },
+          "authority_reconciliation_failed",
+          `Service deployment '${service.deploymentId}' authority reconciliation failed.`,
+          {
+            instanceId: service.instanceId,
+            deploymentId: service.deploymentId,
+            contractId: request.contractId,
+            contractDigest: request.contractDigest,
+            desiredVersion: deploymentAuthority.version,
+            materializedDesiredVersion: materializedAuthority.desiredVersion,
+            materializedStatus: materializedAuthority.status,
+            ...(materializedAuthority.error
+              ? { reconciliationError: materializedAuthority.error }
+              : {}),
+          },
         ),
-        409,
+        202,
       );
     }
 
     const resourceBindings = resourceBindingsForResponse(
-      resourceBindingRecords,
+      requestedResourceBindings(
+        requestedNeeds,
+        materializedAuthority.resourceBindings,
+      ),
     );
 
-    let nextService = service;
-    if (
-      !service.resourceBindings ||
-      !sameJsonRecord(service.resourceBindings, resourceBindings) ||
-      !sameJsonRecord(service.capabilities, capabilities)
-    ) {
-      nextService = {
+    if (!sameJsonRecord(service.capabilities, capabilities)) {
+      await deps.saveServiceInstance({
         ...service,
         capabilities,
-        resourceBindings: resourceBindings ?? {},
-      };
-      await deps.saveServiceInstance(nextService);
+      });
     }
 
     await deps.implementationOfferStorage.put(
@@ -1070,7 +1387,7 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       binding: {
         contractId: request.contractId,
         digest: request.contractDigest,
-        resources: nextService.resourceBindings,
+        resources: resourceBindings,
       },
     });
   };

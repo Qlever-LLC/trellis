@@ -9,17 +9,12 @@ import { createKick } from "../callout/kick.ts";
 import type {
   SqlAccountFlowRepository,
   SqlCapabilityGroupRepository,
-  SqlDeploymentEnvelopeRepository,
-  SqlDeploymentGrantOverrideRepository,
   SqlDeploymentPortalRouteRepository,
-  SqlDeploymentResourceBindingRepository,
   SqlDeviceActivationRepository,
   SqlDeviceActivationReviewRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
   SqlDeviceProvisioningSecretRepository,
-  SqlEnvelopeExpansionRequestRepository,
-  SqlIdentityEnvelopeRepository,
   SqlImplementationOfferRepository,
   SqlLocalCredentialRepository,
   SqlLoginPortalRepository,
@@ -29,6 +24,15 @@ import type {
   SqlUserIdentityRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
+import type {
+  DeploymentAuthority,
+  DeploymentAuthorityGrantOverride,
+  DeploymentAuthorityMaterialization,
+  DeploymentAuthorityPlan,
+  DeploymentResourceBinding,
+  IdentityGrantRecord,
+} from "../schemas.ts";
+import type { BoundedListQuery, ListPage } from "../storage.ts";
 
 export function registerAuthHttpRoutes(
   deps:
@@ -52,18 +56,56 @@ export function registerAuthHttpRoutes(
       userIdentityStorage: SqlUserIdentityRepository;
       localCredentialStorage: SqlLocalCredentialRepository;
       userStorage: SqlUserProjectionRepository;
-      contractApprovalStorage: SqlIdentityEnvelopeRepository;
+      contractApprovalStorage: {
+        get(
+          identityGrantId: string,
+        ): Promise<IdentityGrantRecord | undefined>;
+        put(record: IdentityGrantRecord): Promise<void>;
+        listByUser(userTrellisId: string): Promise<IdentityGrantRecord[]>;
+        listPage(query: BoundedListQuery): Promise<IdentityGrantRecord[]>;
+      };
       deploymentPortalRouteStorage: SqlDeploymentPortalRouteRepository;
       deviceDeploymentStorage: SqlDeviceDeploymentRepository;
       deviceInstanceStorage: SqlDeviceInstanceRepository;
       deviceActivationStorage: SqlDeviceActivationRepository;
       deviceActivationReviewStorage: SqlDeviceActivationReviewRepository;
       deviceProvisioningSecretStorage: SqlDeviceProvisioningSecretRepository;
-      deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
-      deploymentGrantOverrideStorage: SqlDeploymentGrantOverrideRepository;
-      deploymentResourceBindingStorage: SqlDeploymentResourceBindingRepository;
+      deploymentAuthorityStorage: {
+        get(deploymentId: string): Promise<DeploymentAuthority | undefined>;
+        listEnabled(): Promise<DeploymentAuthority[]>;
+      };
+      deploymentAuthorityPlanStorage: {
+        put(record: DeploymentAuthorityPlan): Promise<void>;
+        listFiltered(
+          filters: { deploymentId?: string; state?: string },
+          query: BoundedListQuery,
+        ): Promise<DeploymentAuthorityPlan[]>;
+      };
+      materializedAuthorityStorage: {
+        get(
+          deploymentId: string,
+        ): Promise<DeploymentAuthorityMaterialization | undefined>;
+      };
+      deploymentAuthorityGrantOverrideStorage: {
+        listByDeployment(
+          deploymentId: string,
+        ): Promise<DeploymentAuthorityGrantOverride[]>;
+        listCountedPage?(
+          query: BoundedListQuery,
+        ): Promise<ListPage<DeploymentAuthorityGrantOverride>>;
+      };
+      deploymentResourceBindingStorage: {
+        get(
+          deploymentId: string,
+          kind: string,
+          alias: string,
+        ): Promise<DeploymentResourceBinding | undefined>;
+        put(record: DeploymentResourceBinding): Promise<void>;
+        listByDeployment(
+          deploymentId: string,
+        ): Promise<DeploymentResourceBinding[]>;
+      };
       implementationOfferStorage: SqlImplementationOfferRepository;
-      envelopeExpansionRequestStorage: SqlEnvelopeExpansionRequestRepository;
       accountFlowStorage: SqlAccountFlowRepository;
       loginPortalStorage: SqlLoginPortalRepository;
       capabilityGroupStorage: SqlCapabilityGroupRepository;
@@ -102,11 +144,13 @@ export function registerAuthHttpRoutes(
     deviceActivationStorage: deps.deviceActivationStorage,
     deviceActivationReviewStorage: deps.deviceActivationReviewStorage,
     deviceProvisioningSecretStorage: deps.deviceProvisioningSecretStorage,
-    deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
-    deploymentGrantOverrideStorage: deps.deploymentGrantOverrideStorage,
+    deploymentAuthorityStorage: deps.deploymentAuthorityStorage,
+    deploymentAuthorityPlanStorage: deps.deploymentAuthorityPlanStorage,
+    materializedAuthorityStorage: deps.materializedAuthorityStorage,
+    deploymentAuthorityGrantOverrideStorage:
+      deps.deploymentAuthorityGrantOverrideStorage,
     deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
     implementationOfferStorage: deps.implementationOfferStorage,
-    envelopeExpansionRequestStorage: deps.envelopeExpansionRequestStorage,
     serviceDeploymentStorage: deps.serviceDeploymentStorage,
     serviceInstanceStorage: deps.serviceInstanceStorage,
     config: deps.config,

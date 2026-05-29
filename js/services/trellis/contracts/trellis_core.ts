@@ -96,7 +96,7 @@ export const trellisCore = defineServiceContract(
         docs: {
           summary: "Inspect surface availability.",
           markdown:
-            "Reports capability and deployment-envelope status for a contract-owned surface.",
+            "Reports capability and deployment authority status for a contract-owned surface.",
         },
       },
     },

@@ -1,8 +1,8 @@
 <script lang="ts">
   import { isErr, type BaseError, type Result } from "@qlever-llc/result";
   import { ok } from "@qlever-llc/result";
-  import type { AuthEnvelopeExpansionsListResponse } from "@qlever-llc/trellis/auth";
   import type { HealthHeartbeat } from "@qlever-llc/trellis/health";
+  import type { DeploymentAuthorityPlan } from "@qlever-llc/trellis/auth";
   import type {
     AuthDeploymentsListOutput,
     AuthServiceInstancesListOutput,
@@ -17,7 +17,7 @@
   import Notice from "$lib/components/Notice.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
   import Panel from "$lib/components/Panel.svelte";
-  import { expansionRequestRows, type ExpansionRequestRow } from "$lib/envelope_console";
+  import { deploymentAuthorityRows, type AuthorityRow } from "$lib/authority_console";
   import {
     pruneExpiredHealthInstances,
     summarizeHealthServices,
@@ -31,15 +31,20 @@
   type Deployment = Extract<AuthDeploymentsListOutput["entries"][number], { kind: "service" }>;
   type ServiceInstance = AuthServiceInstancesListOutput["entries"][number];
   type CatalogContract = TrellisCatalogOutput["catalog"]["contracts"][number];
-  type ExpansionRequest = AuthEnvelopeExpansionsListResponse["entries"][number];
+  type DeploymentAuthority = Parameters<typeof deploymentAuthorityRows>[0][number];
   type ContractRef = { contractId: string; digest: string };
   type RpcTakeable<T> = { take(): Promise<T | Result<never, BaseError>> };
   type CoreRequest = {
     (method: "Trellis.Catalog", input: Record<string, never>): RpcTakeable<TrellisCatalogOutput>;
   };
+  type AuthorityRequest = {
+    (method: "Auth.DeploymentAuthority.List", input: { kind: "service"; limit: number; offset: number }): RpcTakeable<{ entries?: DeploymentAuthority[] }>;
+    (method: "Auth.DeploymentAuthority.Plans.List", input: { kind: "service"; state: "pending"; limit: number; offset: number }): RpcTakeable<{ entries?: DeploymentAuthorityPlan[] }>;
+  };
 
   const trellis = getTrellis();
   const coreRequest = trellis.request.bind(trellis) as CoreRequest;
+  const authorityRequest = trellis.request.bind(trellis) as AuthorityRequest;
   const STALE_REFRESH_MS = 5_000;
 
   let loading = $state(true);
@@ -48,7 +53,8 @@
   let catalogError = $state<string | null>(null);
   let deployments = $state.raw<Deployment[]>([]);
   let instances = $state.raw<ServiceInstance[]>([]);
-  let expansionRequests = $state.raw<ExpansionRequest[]>([]);
+  let deploymentAuthorities = $state.raw<DeploymentAuthority[]>([]);
+  let pendingAuthorityPlans = $state.raw<DeploymentAuthorityPlan[]>([]);
   let catalogContracts = $state.raw<CatalogContract[]>([]);
   let healthInstances = $state.raw<Record<string, HealthInstanceView>>({});
   let now = $state(Date.now());
@@ -56,10 +62,10 @@
 
   const healthServices = $derived(summarizeHealthServices(healthInstances, now));
   const serviceDeploymentIds = $derived(new Set(deployments.map((deployment) => deployment.deploymentId)));
-  const pendingExpansionRequestRows = $derived.by(() =>
-    expansionRequestRows(expansionRequests)
-      .filter((request) => request.state === "pending" && serviceDeploymentIds.has(request.deploymentId))
-      .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))
+  const serviceAuthorityRows = $derived.by(() =>
+    deploymentAuthorityRows(deploymentAuthorities)
+      .filter((authority) => authority.kind === "service" && serviceDeploymentIds.has(authority.deploymentId))
+      .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt))
   );
   const filteredDeployments = $derived.by(() => {
     const term = search.trim().toLowerCase();
@@ -67,6 +73,13 @@
     return deployments.filter((deployment) => deployment.deploymentId.toLowerCase().includes(term));
   });
   const disabledCount = $derived(deployments.filter((deployment) => deployment.disabled).length);
+  const pendingPlanCounts = $derived.by(() => {
+    const counts: Record<string, number> = {};
+    for (const plan of pendingAuthorityPlans) {
+      counts[plan.deploymentId] = (counts[plan.deploymentId] ?? 0) + 1;
+    }
+    return counts;
+  });
 
   function contractRefsForHealthService(service: HealthServiceView | null): ContractRef[] {
     const refs: ContractRef[] = [];
@@ -133,14 +146,13 @@
     return `${count} ${noun}${count === 1 ? "" : "s"}`;
   }
 
-  function expansionRequestSummary(request: ExpansionRequestRow): string {
-    const contracts = request.requiredContracts + request.optionalContracts;
-    const surfaces = request.requiredSurfaces + request.optionalSurfaces;
+  function authoritySummary(authority: AuthorityRow): string {
+    const contracts = authority.requiredContracts + authority.optionalContracts;
     return [
       plural(contracts, "contract"),
-      plural(surfaces, "surface"),
-      plural(request.resources, "resource"),
-      plural(request.capabilities, "capability"),
+      plural(authority.surfaces, "surface"),
+      plural(authority.resources, "resource"),
+      plural(authority.capabilities, "capability"),
     ].join(" · ");
   }
 
@@ -149,18 +161,21 @@
     error = null;
     catalogError = null;
     try {
-      const [deploymentsRes, instancesRes, expansionRequestsRes, catalogRes] = await Promise.all([
+      const [deploymentsRes, instancesRes, authoritiesRes, plansRes, catalogRes] = await Promise.all([
         trellis.request("Auth.Deployments.List", { kind: "service", limit: 500, offset: 0 }).take(),
         trellis.request("Auth.ServiceInstances.List", { limit: 500, offset: 0 }).take(),
-        trellis.request("Auth.EnvelopeExpansions.List", { state: "pending", limit: 500, offset: 0 }).take(),
+        authorityRequest("Auth.DeploymentAuthority.List", { kind: "service", limit: 500, offset: 0 }).take(),
+        authorityRequest("Auth.DeploymentAuthority.Plans.List", { kind: "service", state: "pending", limit: 500, offset: 0 }).take(),
         coreRequest("Trellis.Catalog", {}).take(),
       ]);
       if (isErr(deploymentsRes)) { error = errorMessage(deploymentsRes); return; }
       if (isErr(instancesRes)) { error = errorMessage(instancesRes); return; }
-      if (isErr(expansionRequestsRes)) { error = errorMessage(expansionRequestsRes); return; }
+      if (isErr(authoritiesRes)) { error = errorMessage(authoritiesRes); return; }
+      if (isErr(plansRes)) { error = errorMessage(plansRes); return; }
       deployments = (deploymentsRes.entries ?? []).filter((deployment): deployment is Deployment => deployment.kind === "service");
       instances = instancesRes.entries ?? [];
-      expansionRequests = expansionRequestsRes.entries ?? [];
+      deploymentAuthorities = authoritiesRes.entries ?? [];
+      pendingAuthorityPlans = plansRes.entries ?? [];
       if (isErr(catalogRes)) {
         catalogError = errorMessage(catalogRes);
         catalogContracts = [];
@@ -230,22 +245,20 @@
   {#if loading}
     <Panel><LoadingState label="Loading services" /></Panel>
   {:else}
-    {#if pendingExpansionRequestRows.length > 0}
-      <Panel title="Pending authority requests" eyebrow={`${pendingExpansionRequestRows.length} awaiting review`}>
+    {#if serviceAuthorityRows.length > 0}
+      <Panel title="Deployment authority" eyebrow={`${serviceAuthorityRows.length} service desired-state record${serviceAuthorityRows.length === 1 ? "" : "s"}`}>
         <DataTable>
-          <thead><tr><th>Deployment</th><th>Contract</th><th>Delta</th><th>Requester</th><th>Created</th><th></th></tr></thead>
+          <thead><tr><th>Deployment</th><th>Desired version</th><th>Desired authority</th><th>Pending review</th><th>Status</th><th>Updated</th><th></th></tr></thead>
           <tbody>
-            {#each pendingExpansionRequestRows as request (request.requestId)}
+            {#each serviceAuthorityRows as authority (authority.deploymentId)}
               <tr class="hover:bg-base-200/60">
-                <td class="trellis-identifier font-medium">{request.deploymentId}</td>
-                <td>
-                  <div class="trellis-identifier font-medium">{request.contractId}</div>
-                  <div class="trellis-identifier text-xs text-base-content/50">{request.contractDigest}</div>
-                </td>
-                <td>{expansionRequestSummary(request)}</td>
-                <td><span class="badge badge-outline badge-xs">{request.requestedByKind}</span></td>
-                <td class="text-base-content/60">{formatDate(request.createdAt)}</td>
-                <td><a class="btn btn-warning btn-outline btn-xs" href={resolve("/(app)/admin/services/[deploymentId]", { deploymentId: request.deploymentId })}>Review</a></td>
+                <td class="trellis-identifier font-medium">{authority.deploymentId}</td>
+                <td class="trellis-identifier text-xs text-base-content/60">{authority.desiredVersion}</td>
+                <td>{authoritySummary(authority)}</td>
+                <td>{#if (pendingPlanCounts[authority.deploymentId] ?? 0) > 0}<span class="badge badge-warning badge-xs">{pendingPlanCounts[authority.deploymentId]} pending</span>{:else}<span class="text-xs text-base-content/40">none</span>{/if}</td>
+                <td><span class="badge badge-outline badge-xs">{authority.status}</span></td>
+                <td class="text-base-content/60">{formatDate(authority.updatedAt)}</td>
+                <td><a class="btn btn-warning btn-outline btn-xs" href={resolve("/(app)/admin/services/[deploymentId]", { deploymentId: authority.deploymentId })}>Inspect</a></td>
               </tr>
             {/each}
           </tbody>

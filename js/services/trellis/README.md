@@ -72,12 +72,12 @@ js/services/trellis/
   support, and rate limiting.
 - `bootstrap/`, `registration/`, `admin/`, `grants/`, and `device_activation/`
   keep service/device startup, RPC registration, service admin, portal admin,
-  envelope admin, grants, and activation flows out of the browser-login and
-  callout modules. Admin RPCs are split by surface: device/user/session
-  administration remains in `auth/admin/rpc.ts`, service deployment handlers
-  live in `auth/admin/service_rpc.ts`, portal handlers live in
-  `auth/admin/portals_rpc.ts`, and deployment-envelope handlers live in
-  `auth/admin/envelopes_rpc.ts`.
+  deployment authority admin, grants, and activation flows out of the
+  browser-login and callout modules. Admin RPCs are split by surface:
+  device/user/session administration remains in `auth/admin/rpc.ts`, service
+  deployment handlers live in `auth/admin/service_rpc.ts`, portal handlers live
+  in `auth/admin/portals_rpc.ts`, and deployment authority handlers live in
+  `auth/admin/authority_rpc.ts`.
 - top-level helpers such as `oauth.ts`, `redirect.ts`, `transports.ts`, and
   `keys.ts` support the different auth layers without forcing HTTP and callout
   code into the same directory.

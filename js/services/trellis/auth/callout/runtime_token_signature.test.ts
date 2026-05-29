@@ -11,7 +11,11 @@ import {
   getServicePublishSubjectsForContracts,
   getServiceSubscribeSubjectsForContracts,
 } from "../../catalog/permissions.ts";
-import type { DeploymentEnvelope, ImplementationOffer } from "../schemas.ts";
+import type {
+  AuthorityNeedSet,
+  DeploymentAuthority,
+  ImplementationOffer,
+} from "../schemas.ts";
 import { __testing__ } from "./callout.ts";
 
 const TEST_SEED = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
@@ -215,30 +219,78 @@ function getServicePublishSubjects(
   );
 }
 
-const FITTING_SERVICE_ENVELOPE: DeploymentEnvelope = {
+const FITTING_SERVICE_NEEDS: AuthorityNeedSet = {
+  contracts: [{ contractId: "trellis.worker@v1", required: true }],
+  surfaces: [{
+    contractId: "trellis.worker@v1",
+    kind: "rpc",
+    name: "Worker.Run",
+    action: "call",
+    required: true,
+  }],
+  capabilities: [],
+  resources: [],
+};
+
+const FITTING_SERVICE_AUTHORITY: DeploymentAuthority = {
   deploymentId: "worker.default",
   kind: "service",
   disabled: false,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
-  boundary: {
-    contracts: [{ contractId: "trellis.worker@v1", required: true }],
-    surfaces: [{
-      contractId: "trellis.worker@v1",
-      kind: "rpc",
-      name: "Worker.Run",
-      action: "call",
-      required: true,
-    }],
-    capabilities: [],
-    resources: [],
+  version: "2026-01-01T00:00:00.000Z",
+  desiredState: {
+    needs: [
+      ...FITTING_SERVICE_NEEDS.contracts.map((need) => ({
+        kind: "contract" as const,
+        contractId: need.contractId,
+        required: need.required,
+      })),
+      ...FITTING_SERVICE_NEEDS.surfaces.map(({ required, ...surface }) => ({
+        kind: "surface" as const,
+        surface,
+        required,
+      })),
+    ],
+    capabilities: FITTING_SERVICE_NEEDS.capabilities,
+    resources: FITTING_SERVICE_NEEDS.resources,
+    surfaces: FITTING_SERVICE_NEEDS.surfaces.map((
+      { required: _required, ...surface },
+    ) => surface),
   },
 };
 
-const EMPTY_SERVICE_ENVELOPE: DeploymentEnvelope = {
-  ...FITTING_SERVICE_ENVELOPE,
-  boundary: { contracts: [], surfaces: [], capabilities: [], resources: [] },
+const EMPTY_SERVICE_AUTHORITY: DeploymentAuthority = {
+  ...FITTING_SERVICE_AUTHORITY,
+  desiredState: { needs: [], capabilities: [], resources: [], surfaces: [] },
 };
+
+function serviceAuthorityWithNeeds(
+  needs: AuthorityNeedSet,
+): DeploymentAuthority {
+  return {
+    ...FITTING_SERVICE_AUTHORITY,
+    desiredState: {
+      needs: [
+        ...needs.contracts.map((need) => ({
+          kind: "contract" as const,
+          contractId: need.contractId,
+          required: need.required,
+        })),
+        ...needs.surfaces.map(({ required, ...surface }) => ({
+          kind: "surface" as const,
+          surface,
+          required,
+        })),
+      ],
+      capabilities: needs.capabilities,
+      resources: needs.resources,
+      surfaces: needs.surfaces.map(({ required: _required, ...surface }) =>
+        surface
+      ),
+    },
+  };
+}
 
 async function verifiesNatsConnectToken(args: {
   sessionKey: string;
@@ -302,7 +354,7 @@ async function serviceDigestCheck(args: {
   presentedContractDigest?: string;
   presentedContract?: TrellisContractV1;
   runtimeContractDigest?: string;
-  envelope?: DeploymentEnvelope | null;
+  authority?: DeploymentAuthority | null;
   contractStorageMiss?: boolean;
   moduleContractKnown?: boolean;
   knownContracts?: Array<{ digest: string; contract: TrellisContractV1 }>;
@@ -412,12 +464,12 @@ async function serviceDigestCheck(args: {
       },
     },
     contracts,
-    deploymentEnvelopeStorage: {
+    deploymentAuthorityStorage: {
       get: () =>
         Promise.resolve(
-          args.envelope === undefined
-            ? FITTING_SERVICE_ENVELOPE
-            : args.envelope ?? undefined,
+          args.authority === undefined
+            ? FITTING_SERVICE_AUTHORITY
+            : args.authority ?? undefined,
         ),
     },
     now: new Date("2026-01-01T00:00:10.000Z"),
@@ -470,7 +522,7 @@ Deno.test("auth callout rejects device token digest tampering via signature", as
   );
 });
 
-Deno.test("auth callout accepts service reconnect when current digest fits the deployment envelope", async () => {
+Deno.test("auth callout accepts service reconnect when current digest fits deployment authority", async () => {
   const result = await serviceDigestCheck({});
 
   assertEquals(result.ok, true);
@@ -532,7 +584,7 @@ Deno.test("auth callout accepts service reconnect using known contract module fa
   assertEquals(result.ok, true);
 });
 
-Deno.test("auth callout accepts service reconnect when known dependency metadata fits envelope", async () => {
+Deno.test("auth callout accepts service reconnect when known dependency metadata fits authority", async () => {
   const contracts = createTestContracts();
   const dependency = await contracts.validateContract(DEPENDENCY_CONTRACT);
   const service = await contracts.validateContract(
@@ -546,27 +598,24 @@ Deno.test("auth callout accepts service reconnect when known dependency metadata
       digest: dependency.digest,
       contract: dependency.contract,
     }],
-    envelope: {
-      ...FITTING_SERVICE_ENVELOPE,
-      boundary: {
-        contracts: [
-          { contractId: SERVICE_CONTRACT.id, required: true },
-          { contractId: DEPENDENCY_CONTRACT.id, required: true },
-        ],
-        surfaces: [
-          ...FITTING_SERVICE_ENVELOPE.boundary.surfaces,
-          {
-            contractId: DEPENDENCY_CONTRACT.id,
-            kind: "rpc",
-            name: "Dependency.Read",
-            action: "call",
-            required: true,
-          },
-        ],
-        capabilities: ["dependency.read"],
-        resources: [],
-      },
-    },
+    authority: serviceAuthorityWithNeeds({
+      contracts: [
+        { contractId: SERVICE_CONTRACT.id, required: true },
+        { contractId: DEPENDENCY_CONTRACT.id, required: true },
+      ],
+      surfaces: [
+        ...FITTING_SERVICE_NEEDS.surfaces,
+        {
+          contractId: DEPENDENCY_CONTRACT.id,
+          kind: "rpc",
+          name: "Dependency.Read",
+          action: "call",
+          required: true,
+        },
+      ],
+      capabilities: ["dependency.read"],
+      resources: [],
+    }),
   });
 
   assertEquals(result.ok, true);
@@ -595,35 +644,32 @@ Deno.test("auth callout accepts service reconnect when multiple known dependenci
         contract: secondDependency.contract,
       },
     ],
-    envelope: {
-      ...FITTING_SERVICE_ENVELOPE,
-      boundary: {
-        contracts: [
-          { contractId: SERVICE_CONTRACT.id, required: true },
-          { contractId: DEPENDENCY_CONTRACT.id, required: true },
-          { contractId: SECOND_DEPENDENCY_CONTRACT.id, required: true },
-        ],
-        surfaces: [
-          ...FITTING_SERVICE_ENVELOPE.boundary.surfaces,
-          {
-            contractId: DEPENDENCY_CONTRACT.id,
-            kind: "rpc",
-            name: "Dependency.Read",
-            action: "call",
-            required: true,
-          },
-          {
-            contractId: SECOND_DEPENDENCY_CONTRACT.id,
-            kind: "rpc",
-            name: "SecondDependency.Read",
-            action: "call",
-            required: true,
-          },
-        ],
-        capabilities: ["dependency.read", "second-dependency.read"],
-        resources: [],
-      },
-    },
+    authority: serviceAuthorityWithNeeds({
+      contracts: [
+        { contractId: SERVICE_CONTRACT.id, required: true },
+        { contractId: DEPENDENCY_CONTRACT.id, required: true },
+        { contractId: SECOND_DEPENDENCY_CONTRACT.id, required: true },
+      ],
+      surfaces: [
+        ...FITTING_SERVICE_NEEDS.surfaces,
+        {
+          contractId: DEPENDENCY_CONTRACT.id,
+          kind: "rpc",
+          name: "Dependency.Read",
+          action: "call",
+          required: true,
+        },
+        {
+          contractId: SECOND_DEPENDENCY_CONTRACT.id,
+          kind: "rpc",
+          name: "SecondDependency.Read",
+          action: "call",
+          required: true,
+        },
+      ],
+      capabilities: ["dependency.read", "second-dependency.read"],
+      resources: [],
+    }),
   });
 
   assertEquals(result.ok, true);
@@ -650,27 +696,24 @@ Deno.test("auth callout ignores stale incompatible dependency manifests when act
       digest: dependency.digest,
       contract: dependency.contract,
     }],
-    envelope: {
-      ...FITTING_SERVICE_ENVELOPE,
-      boundary: {
-        contracts: [
-          { contractId: SERVICE_CONTRACT.id, required: true },
-          { contractId: DEPENDENCY_CONTRACT.id, required: true },
-        ],
-        surfaces: [
-          ...FITTING_SERVICE_ENVELOPE.boundary.surfaces,
-          {
-            contractId: DEPENDENCY_CONTRACT.id,
-            kind: "rpc",
-            name: "Dependency.Read",
-            action: "call",
-            required: true,
-          },
-        ],
-        capabilities: ["dependency.read"],
-        resources: [],
-      },
-    },
+    authority: serviceAuthorityWithNeeds({
+      contracts: [
+        { contractId: SERVICE_CONTRACT.id, required: true },
+        { contractId: DEPENDENCY_CONTRACT.id, required: true },
+      ],
+      surfaces: [
+        ...FITTING_SERVICE_NEEDS.surfaces,
+        {
+          contractId: DEPENDENCY_CONTRACT.id,
+          kind: "rpc",
+          name: "Dependency.Read",
+          action: "call",
+          required: true,
+        },
+      ],
+      capabilities: ["dependency.read"],
+      resources: [],
+    }),
   });
 
   assertEquals(result.ok, true);
@@ -700,24 +743,25 @@ Deno.test("service runtime permission dependencies ignore stale incompatible kno
   ]);
   assertEquals(entries.ok, true);
   if (!entries.ok) return;
+  const dependencyNeeds: AuthorityNeedSet = {
+    contracts: [{ contractId: DEPENDENCY_CONTRACT.id, required: true }],
+    surfaces: [{
+      contractId: DEPENDENCY_CONTRACT.id,
+      kind: "rpc",
+      name: "Dependency.Read",
+      action: "call",
+      required: true,
+    }],
+    capabilities: ["dependency.read"],
+    resources: [],
+  };
 
   const subjects = getServicePublishSubjectsForContracts(
     ["service", "dependency.read", "dependency.legacy"],
     {
       sessionKey: "service-key",
       contractDigest: service.digest,
-      envelopeBoundary: {
-        contracts: [{ contractId: DEPENDENCY_CONTRACT.id, required: true }],
-        surfaces: [{
-          contractId: DEPENDENCY_CONTRACT.id,
-          kind: "rpc",
-          name: "Dependency.Read",
-          action: "call",
-          required: true,
-        }],
-        capabilities: ["dependency.read"],
-        resources: [],
-      },
+      authorityNeeds: dependencyNeeds,
     },
     entries.value,
   );
@@ -726,7 +770,7 @@ Deno.test("service runtime permission dependencies ignore stale incompatible kno
   assertEquals(subjects.includes("rpc.v1.Dependency.LegacyRead"), false);
 });
 
-Deno.test("service runtime permissions include envelope-granted optional uses", async () => {
+Deno.test("service runtime permissions include authority-granted optional uses", async () => {
   const contracts = createTestContracts();
   const dependency = await contracts.validateContract(DEPENDENCY_CONTRACT);
   const service = await contracts.validateContract(
@@ -740,7 +784,7 @@ Deno.test("service runtime permissions include envelope-granted optional uses", 
     digest: dependency.digest,
     contract: dependency.contract,
   });
-  const envelopeBoundary: DeploymentEnvelope["boundary"] = {
+  const authorityNeeds: AuthorityNeedSet = {
     contracts: [
       { contractId: SERVICE_CONTRACT.id, required: true },
       { contractId: DEPENDENCY_CONTRACT.id, required: false },
@@ -760,7 +804,7 @@ Deno.test("service runtime permissions include envelope-granted optional uses", 
     activeContractEntries: [],
     contracts,
     contractDigest: service.digest,
-    envelopeBoundary,
+    authorityNeeds,
   });
   assertEquals(entries.ok, true);
   if (!entries.ok) return;
@@ -770,7 +814,7 @@ Deno.test("service runtime permissions include envelope-granted optional uses", 
     {
       sessionKey: "service-key",
       contractDigest: service.digest,
-      envelopeBoundary,
+      authorityNeeds,
     },
     entries.value,
   );
@@ -794,7 +838,7 @@ Deno.test("service runtime permissions include known inactive required event use
     digest: dependency.digest,
     contract: dependency.contract,
   });
-  const envelopeBoundary: DeploymentEnvelope["boundary"] = {
+  const authorityNeeds: AuthorityNeedSet = {
     contracts: [
       { contractId: SERVICE_CONTRACT.id, required: true },
       { contractId: DEPENDENCY_CONTRACT.id, required: true },
@@ -814,7 +858,7 @@ Deno.test("service runtime permissions include known inactive required event use
     activeContractEntries: [],
     contracts,
     contractDigest: service.digest,
-    envelopeBoundary,
+    authorityNeeds,
   });
   assertEquals(entries.ok, true);
   if (!entries.ok) return;
@@ -822,7 +866,7 @@ Deno.test("service runtime permissions include known inactive required event use
   const serviceDescriptor = {
     sessionKey: "service-key",
     contractDigest: service.digest,
-    envelopeBoundary,
+    authorityNeeds,
   };
   const publishSubjects = getServicePublishSubjectsForContracts(
     ["service", "dependency.events"],
@@ -869,7 +913,7 @@ Deno.test("service runtime permissions ignore optional uses without granted surf
     activeContractEntries: [],
     contracts,
     contractDigest: service.digest,
-    envelopeBoundary: {
+    authorityNeeds: {
       contracts: [
         { contractId: SERVICE_CONTRACT.id, required: true },
         { contractId: DEPENDENCY_CONTRACT.id, required: false },
@@ -888,9 +932,9 @@ Deno.test("service runtime permissions ignore optional uses without granted surf
   );
 });
 
-Deno.test("callout permission helpers use envelope capabilities and deployment bindings", () => {
+Deno.test("callout permission helpers use authority capabilities and deployment bindings", () => {
   assertEquals(
-    __testing__.serviceCapabilitiesForPermissions([], {
+    __testing__.serviceCapabilitiesForPermissions({
       contracts: [],
       surfaces: [],
       capabilities: ["dependency.events"],
@@ -949,7 +993,7 @@ Deno.test("service runtime permissions do not promote ungranted optional event u
     digest: dependency.digest,
     contract: dependency.contract,
   });
-  const envelopeBoundary: DeploymentEnvelope["boundary"] = {
+  const authorityNeeds: AuthorityNeedSet = {
     contracts: [
       { contractId: SERVICE_CONTRACT.id, required: true },
       { contractId: DEPENDENCY_CONTRACT.id, required: false },
@@ -969,7 +1013,7 @@ Deno.test("service runtime permissions do not promote ungranted optional event u
     activeContractEntries: [],
     contracts,
     contractDigest: service.digest,
-    envelopeBoundary,
+    authorityNeeds,
   });
   assertEquals(entries.ok, true);
   if (!entries.ok) return;
@@ -979,7 +1023,7 @@ Deno.test("service runtime permissions do not promote ungranted optional event u
     {
       sessionKey: "service-key",
       contractDigest: service.digest,
-      envelopeBoundary,
+      authorityNeeds,
     },
     entries.value,
   );
@@ -1009,20 +1053,20 @@ Deno.test("auth callout rejects service reconnect when global storage misses eve
   assertEquals(result, { ok: false, denial: "contract_changed" });
 });
 
-Deno.test("auth callout rejects service reconnect when deployment envelope is missing, disabled, or does not fit", async () => {
+Deno.test("auth callout rejects service reconnect when deployment authority is missing, disabled, or does not fit", async () => {
   assertEquals(
-    await serviceDigestCheck({ envelope: null }),
-    { ok: false, denial: "service_envelope_miss" },
+    await serviceDigestCheck({ authority: null }),
+    { ok: false, denial: "service_authority_miss" },
   );
   assertEquals(
     await serviceDigestCheck({
-      envelope: { ...FITTING_SERVICE_ENVELOPE, disabled: true },
+      authority: { ...FITTING_SERVICE_AUTHORITY, disabled: true },
     }),
-    { ok: false, denial: "service_envelope_miss" },
+    { ok: false, denial: "service_authority_miss" },
   );
   assertEquals(
-    await serviceDigestCheck({ envelope: EMPTY_SERVICE_ENVELOPE }),
-    { ok: false, denial: "service_envelope_miss" },
+    await serviceDigestCheck({ authority: EMPTY_SERVICE_AUTHORITY }),
+    { ok: false, denial: "service_authority_miss" },
   );
 });
 
@@ -1090,7 +1134,7 @@ Deno.test("auth callout refreshes existing service session contract metadata", (
   assertEquals(session.lastAuth, now);
 });
 
-Deno.test("service runtime permissions gate optional uses by deployment envelope", () => {
+Deno.test("service runtime permissions gate optional uses by deployment authority", () => {
   const originalContracts = getContracts();
   const workerContract: TrellisContractV1 = {
     ...SERVICE_CONTRACT,
@@ -1154,23 +1198,24 @@ Deno.test("service runtime permissions gate optional uses by deployment envelope
       },
     ]);
 
+    const authorityNeeds: AuthorityNeedSet = {
+      contracts: [{ contractId: "trellis.auth@v1", required: true }],
+      surfaces: [{
+        contractId: "trellis.auth@v1",
+        kind: "rpc",
+        name: "Auth.Sessions.Me",
+        action: "call",
+        required: true,
+      }],
+      capabilities: ["auth.me"],
+      resources: [],
+    };
     const publishSubjects = getServicePublishSubjects(
       ["service", "auth.me", "billing.refund"],
       {
         sessionKey: "service-key",
         contractDigest: "worker-digest",
-        envelopeBoundary: {
-          contracts: [{ contractId: "trellis.auth@v1", required: true }],
-          surfaces: [{
-            contractId: "trellis.auth@v1",
-            kind: "rpc",
-            name: "Auth.Sessions.Me",
-            action: "call",
-            required: true,
-          }],
-          capabilities: ["auth.me"],
-          resources: [],
-        },
+        authorityNeeds,
       },
     );
 

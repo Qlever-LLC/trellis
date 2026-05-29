@@ -151,8 +151,8 @@ trellis users show <user-id>
 trellis users create [--name <name>] [--email <email>] [--username <username>] [--inactive] [--capability <key>...] [--group <key>...]
 trellis users edit <user-id> [--active|--inactive] [--name <name>] [--email <email>] [--add-capability <key>...] [--remove-capability <key>...] [--set-capability <key>...] [--clear-capabilities] [--add-group <key>...] [--remove-group <key>...] [--set-group <key>...] [--clear-groups]
 
-trellis approvals list [--user <user-id>] [--digest <contractDigest>]
-trellis approvals revoke <identity-envelope-id> [--user <user-id>]
+trellis identity grants list [--user <user-id>] [--digest <contractDigest>]
+trellis identity grants revoke <identity-grant-id> [--user <user-id>]
 
 trellis svc list [--disabled]
 trellis svc <id> show
@@ -163,6 +163,13 @@ trellis svc <id> enable
 trellis svc <id> remove [-f] [--cascade] [--purge] [--purge-unused-contracts]
 trellis svc <id> instances [--disabled]
 trellis svc <id> provision [--instance-seed <seed>]
+trellis svc <id> authority show
+trellis svc <id> authority plan list [--state <pending|accepted|rejected|expired>] [--classification <update|migration>]
+trellis svc <id> authority plan show <PLAN_ID>
+trellis svc <id> authority accept-update <PLAN_ID> [--expected-desired-version <version>]
+trellis svc <id> authority accept-migration <PLAN_ID> --acknowledgement <text> [--expected-desired-version <version>]
+trellis svc <id> authority reject <PLAN_ID> [--reason <text>]
+trellis svc <id> authority reconcile [--desired-version <version>]
 
 trellis dev list [--disabled]
 trellis dev <id> show
@@ -173,6 +180,13 @@ trellis dev <id> enable
 trellis dev <id> remove [-f] [--cascade] [--purge] [--purge-unused-contracts]
 trellis dev <id> instances [--state <registered|activated|revoked|disabled>] [--show-metadata]
 trellis dev <id> provision [--name <name>] [--serial-number <serial>] [--model-number <model>] [--metadata <key=value>...]
+trellis dev <id> authority show
+trellis dev <id> authority plan list [--state <pending|accepted|rejected|expired>] [--classification <update|migration>]
+trellis dev <id> authority plan show <PLAN_ID>
+trellis dev <id> authority accept-update <PLAN_ID> [--expected-desired-version <version>]
+trellis dev <id> authority accept-migration <PLAN_ID> --acknowledgement <text> [--expected-desired-version <version>]
+trellis dev <id> authority reject <PLAN_ID> [--reason <text>]
+trellis dev <id> authority reconcile [--desired-version <version>]
 trellis dev <id> activations list [--instance <id>] [--state <activated|revoked>]
 trellis dev <id> activations revoke <instance-id>
 trellis dev <id> reviews list [--instance <id>] [--state <pending|approved|rejected>]
@@ -202,11 +216,11 @@ Operational command behavior:
   and `iat`; the contract digest is the presented contract identity, not a hash
   of human-facing display metadata; when the local CLI contract digest changes,
   the CLI starts the normal auth request flow with the full contract, may
-  complete immediately when the existing identity envelope already covers the
-  new boundary, otherwise prints the detached portal login URL, may render a QR
-  code, does not auto-open a browser or start a localhost callback listener, and
-  completes by polling the auth-owned flow before reconnecting NATS and issuing
-  admin RPCs
+  complete immediately when existing identity authority already covers the new
+  requested needs, otherwise prints the detached portal login URL, may render a
+  QR code, does not auto-open a browser or start a localhost callback listener,
+  and completes by polling the auth-owned flow before reconnecting NATS and
+  issuing admin RPCs
 - generic NATS authorization failures during authenticated command reconnects do
   not by themselves prove the stored local session was revoked; the CLI
   preserves local session material unless auth returns an explicit
@@ -222,16 +236,15 @@ Operational command behavior:
 - `trellis users edit` supports explicit add/remove/set/clear semantics for
   direct capabilities and capability groups so operators can make incremental or
   replacement changes without ambiguous merge behavior
-- `trellis approvals list` shows stored delegated approval decisions for app and
-  CLI contracts from the `trellis` service; each row includes an
-  `identityEnvelopeId` and presented contract digest, with optional filtering by
+- `trellis identity grants list` shows stored delegated identity grants for app
+  and CLI contracts from the `trellis` service; each row includes an
+  `identityGrantId` and presented contract digest, with optional filtering by
   exact contract digest and by user for admin callers; the command pages through
-  the bounded `Auth.Identities.List` RPC rather than requesting an unbounded
-  list
-- `trellis approvals revoke` revokes the addressed identity envelope through
-  `Auth.IdentityEnvelopes.Revoke` and revokes matching active delegated sessions
-  in the `trellis` service; contract digest remains list/filter evidence, not
-  the revocation key
+  the bounded identity-grant list RPC rather than requesting an unbounded list
+- `trellis identity grants revoke` revokes the addressed identity grant through
+  the identity-authority RPC surface and revokes matching active delegated
+  sessions in the `trellis` service; contract digest remains list/filter
+  evidence, not the revocation key
 - `trellis portals *` is the admin-oriented login portal surface. It reflects
   the same `Auth.Portals.*` RPCs used by Console for listing visible portals,
   creating, updating, or removing non-built-in portal records, updating the
@@ -244,19 +257,32 @@ Operational command behavior:
   deployments. Both use resource-first command shape: the deployment ID appears
   before the action for single-resource operations, for example
   `trellis svc payments apply --manifest contract.json`.
-- `trellis svc <id> apply` and `trellis dev <id> apply` resolve contract input
-  from source, manifest, or OCI image and expand the deployment envelope through
-  `Auth.Envelopes.Expand`; envelope shrink remains outside the current CLI
-  surface and is handled by Console or generated RPC clients
+- `trellis svc <id> apply` and `trellis dev <id> apply` resolve a contract
+  proposal from source, manifest, or OCI image, call
+  `Auth.DeploymentAuthority.Plan`, and require an explicit operator accept path
+  for pending authority updates or migrations. `mutable-dev` same-contract
+  replacement migrations may already be auto-accepted by bootstrap, but the plan
+  remains visible in history. Accepting a plan mutates desired authority and
+  schedules reconciliation; reconciliation is the only path that materializes
+  resource and binding changes.
+- `trellis <svc|dev> <id> authority plan list` discovers pending and historical
+  authority plans, optionally filtered by `--state` or `--classification`, and
+  `trellis <svc|dev> <id> authority plan show <PLAN_ID>` shows one plan for
+  review before accepting or rejecting it.
 - `trellis grants list [--deployment <id>]`,
   `trellis grants add --deployment <id> ...`, and
   `trellis grants remove --deployment <id> ...` inspect and mutate deployment
-  grant overrides through `Auth.Envelopes.List`, `Auth.Envelopes.Get`,
-  `Auth.Envelopes.GrantOverrides.Put`, and
-  `Auth.Envelopes.GrantOverrides.Remove`. Grant overrides are modeled as
-  deployment-owned policy rows rather than service or device subcommands. They
-  use `contractId + origin` for web grants and `contractId + sessionPublicKey`
-  for session-keyed grants.
+  grant overrides through `Auth.DeploymentAuthority.List`,
+  `Auth.DeploymentAuthority.Get`, `Auth.DeploymentAuthority.GrantOverrides.Put`,
+  `Auth.DeploymentAuthority.GrantOverrides.List`, and
+  `Auth.DeploymentAuthority.GrantOverrides.Remove`. Grant overrides are modeled
+  as deployment-owned policy rows rather than service or device subcommands.
+  They use `contractId + origin` for web grants and
+  `contractId + sessionPublicKey` for session-keyed grants.
+- admin-triggered reconciliation uses `Auth.DeploymentAuthority.Reconcile` for
+  repair, retry, or manual convergence. It is not the normal happy-path
+  follow-up to every accept because accept already schedules reconciliation
+  after commit.
 - `trellis dev <id> provision` is the ergonomic provisioning path for device
   development and deployment: it generates a root secret locally, derives the
   device keys, registers the instance with auth using activation-only secret
@@ -273,8 +299,9 @@ Operational command behavior:
   may pass deployment/state filters
 - `trellis dev <id> reviews *` manages pending device review decisions and is
   intended for `trellis.auth::device.review` automation services or admins
-- service deployments own deployment envelopes, namespace allowance, and
-  reversible deployment state
+- service deployments own deployment authority, namespace allowance, and
+  reversible deployment state; runtimes receive only reconciled materialized
+  authority
 - service instances are concrete service principals under one deployment,
   including provisioning, inspection, and reversible lifecycle changes
 - deployment create flows are intentionally metadata-light; human-facing
@@ -318,10 +345,10 @@ Operational command behavior:
   `--servers` or `--creds` outside explicit infrastructure bootstrap flows
 
 Normal authenticated CLI behavior is contract-governed in the same architectural
-sense as browser apps: the CLI presents a generated contract, approval is stored
-in an identity envelope anchored to the CLI session public key, and Trellis auth
-does not create normal client sessions without a presented contract that fits
-that envelope.
+sense as browser apps: the CLI presents a generated contract, an identity grant
+is stored in identity authority anchored to the CLI session public key, and
+Trellis auth does not create normal client sessions without a presented contract
+that fits that identity authority.
 
 ### Explicitness rule
 
@@ -360,8 +387,8 @@ The developer-facing CLI boundary is the contract source.
 - app and service repos SHOULD wrap contract preparation into their normal
   `dev`, `build`, and CI tasks rather than making end users run separate
   manifest commands during routine browser-app development
-- operators may expand deployment envelopes from generated manifests or OCI
-  images that embed `/trellis/contract.json`
+- operators may plan authority updates or authority migrations from generated
+  manifests or OCI images that embed `/trellis/contract.json`
 - OCI images may override that default path with the `io.trellis.contract.path`
   label
 

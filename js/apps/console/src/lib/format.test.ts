@@ -20,7 +20,7 @@ Deno.test("errorMessage prefers explicit server messages", () => {
 Deno.test("errorMessage renders auth reasons as actionable copy", () => {
   equal(
     errorMessage({ reason: "insufficient_permissions" }),
-    "This Console session is missing permission for that action. Sign out and connect the Console again to approve the updated access.",
+    "This Console session is missing permission for that action. Sign out and connect the Console again to accept the updated access.",
   );
   equal(
     errorMessage({ error: { remoteError: { reason: "session_not_found" } } }),

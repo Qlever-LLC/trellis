@@ -1,4 +1,4 @@
-import type { IdentityEnvelopeRecord } from "../schemas.ts";
+import type { IdentityGrantRecord } from "../schemas.ts";
 
 export type EffectiveApproval =
   | { kind: "stored_approval"; answer: "approved" | "denied" }
@@ -14,7 +14,7 @@ export function getAppOrigin(redirectTo: string): string | undefined {
 }
 
 export function effectiveApproval(args: {
-  storedApproval: IdentityEnvelopeRecord | null;
+  storedApproval: IdentityGrantRecord | null;
   deploymentGrantApproved?: boolean;
   matchedPolicies: [];
 }): EffectiveApproval {
@@ -43,7 +43,7 @@ export function userDelegationAllowed(args: {
   active: boolean;
   explicitCapabilities: string[];
   delegatedCapabilities: string[];
-  storedApproval: IdentityEnvelopeRecord | null;
+  storedApproval: IdentityGrantRecord | null;
   matchedPolicies: [];
 }): boolean {
   if (!args.active) return false;

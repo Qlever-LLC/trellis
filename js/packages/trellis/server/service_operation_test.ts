@@ -1,6 +1,12 @@
 import type { NatsConnection } from "@nats-io/nats-core";
-import { isErr, ok } from "@qlever-llc/trellis";
-import { assertEquals, assertExists } from "@std/assert";
+import {
+  isErr,
+  ok,
+  OperationAlreadyTerminalError,
+  OperationMismatchError,
+  OperationNotFoundError,
+} from "@qlever-llc/trellis";
+import { assertEquals, assertExists, assertInstanceOf } from "@std/assert";
 import { Type } from "typebox";
 import { createClient } from "../client.ts";
 import { defineServiceContract } from "../contract.ts";
@@ -675,10 +681,22 @@ Deno.test({
       const missing = await service.handle.operation.billing.refund
         .control("missing-operation-id").take();
       assertEquals(isErr(missing), true);
+      if (!isErr(missing)) throw new Error("expected missing id to fail");
+      assertInstanceOf(missing.error, OperationNotFoundError);
+      assertEquals(missing.error.operationId, "missing-operation-id");
 
       const wrongOperation = await service.handle.operation.billing.status
         .control(accepted.id).take();
       assertEquals(isErr(wrongOperation), true);
+      if (!isErr(wrongOperation)) {
+        throw new Error("expected wrong operation to fail");
+      }
+      assertInstanceOf(wrongOperation.error, OperationMismatchError);
+      assertEquals(wrongOperation.error.operationId, accepted.id);
+      assertEquals(wrongOperation.error.expectedService, "billing-service");
+      assertEquals(wrongOperation.error.expectedOperation, "Billing.Status");
+      assertEquals(wrongOperation.error.actualService, "billing-service");
+      assertEquals(wrongOperation.error.actualOperation, "Billing.Refund");
 
       const statusAccepted = await service.handle.operation.billing.status
         .accept({
@@ -705,6 +723,15 @@ Deno.test({
       const wrongRemoteOperation = await client.operation.billing.status
         .resume(accepted.ref).get().take();
       assertEquals(isErr(wrongRemoteOperation), true);
+      if (!isErr(wrongRemoteOperation)) {
+        throw new Error("expected remote wrong operation to fail");
+      }
+      assertInstanceOf(wrongRemoteOperation.error, OperationMismatchError);
+      assertEquals(wrongRemoteOperation.error.operationId, accepted.id);
+      assertEquals(
+        wrongRemoteOperation.error.expectedOperation,
+        "Billing.Status",
+      );
 
       const invalidProgress = await controlled.progress({ stage: "wrong" })
         .take();
@@ -716,8 +743,31 @@ Deno.test({
       const terminalProgress = await controlled.progress({ message: "late" })
         .take();
       assertEquals(isErr(terminalProgress), true);
+      if (!isErr(terminalProgress)) {
+        throw new Error("expected terminal progress to fail");
+      }
+      assertInstanceOf(terminalProgress.error, OperationAlreadyTerminalError);
+      assertEquals(terminalProgress.error.operationId, accepted.id);
+      assertEquals(terminalProgress.error.state, "completed");
+      assertEquals(terminalProgress.error.service, "billing-service");
+      assertEquals(terminalProgress.error.operation, "Billing.Refund");
+      const controlledTerminalCancel = await controlled.cancel().take();
+      assertEquals(isErr(controlledTerminalCancel), true);
+      if (!isErr(controlledTerminalCancel)) {
+        throw new Error("expected terminal cancel to fail");
+      }
+      assertInstanceOf(
+        controlledTerminalCancel.error,
+        OperationAlreadyTerminalError,
+      );
       const terminalCancel = await resumed.cancel().take();
       assertEquals(isErr(terminalCancel), true);
+      if (!isErr(terminalCancel)) {
+        throw new Error("expected remote terminal cancel to fail");
+      }
+      assertInstanceOf(terminalCancel.error, OperationAlreadyTerminalError);
+      assertEquals(terminalCancel.error.operationId, accepted.id);
+      assertEquals(terminalCancel.error.state, "completed");
       const completed = await resumed.get().orThrow();
       assertEquals(completed.state, "completed");
       assertEquals(completed.output, { refundId: "rf_done" });
@@ -738,6 +788,15 @@ Deno.test({
       const wrongService = await otherService.handle.operation.billing.refund
         .control(accepted.id).take();
       assertEquals(isErr(wrongService), true);
+      if (!isErr(wrongService)) {
+        throw new Error("expected wrong service to fail");
+      }
+      assertInstanceOf(wrongService.error, OperationMismatchError);
+      assertEquals(wrongService.error.operationId, accepted.id);
+      assertEquals(wrongService.error.expectedService, "other-billing-service");
+      assertEquals(wrongService.error.expectedOperation, "Billing.Refund");
+      assertEquals(wrongService.error.actualService, "billing-service");
+      assertEquals(wrongService.error.actualOperation, "Billing.Refund");
 
       await otherService.stop();
       await clientNc.drain();

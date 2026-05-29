@@ -221,7 +221,7 @@ activation portal URL changes remain deployment-owned device routing metadata.
 
 If the portal app contract changes, treat it like any other browser app contract
 change: the portal presents the new contract during login, and Trellis resolves
-it through the user's identity envelope and any deployment grant overrides. It
+it through the user's identity authority and any deployment grant overrides. It
 does not receive service deployment authority.
 
 ## Disabling a custom portal
@@ -229,4 +229,4 @@ does not receive service deployment authority.
 Remove the auth-owned login route or point it back to the built-in portal.
 Remove the custom portal record only after no routes target it. Existing user
 approvals and device activations remain governed by identity and deployment
-envelopes; disabling a portal route only changes future browser flow routing.
+authority records; disabling a portal route only changes future browser flow routing.

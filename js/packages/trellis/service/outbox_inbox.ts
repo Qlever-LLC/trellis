@@ -25,6 +25,20 @@ export type OutboxDispatchResult = {
   failed: number;
 };
 
+/** Options for {@link OutboxDispatcher}. */
+export type OutboxDispatcherOptions = {
+  /** Maximum number of messages claimed by each `dispatchOutbox` batch. */
+  limit?: number;
+  /** Delay before failed messages become eligible; values below 1ms become 1ms. */
+  retryDelayMs?: number;
+  /** Delay used to debounce `notify()` calls before starting a drain. */
+  debounceMs?: number;
+  /** Optional low-frequency wakeup for missed signals or process restarts. */
+  idleRetryMs?: number;
+  /** Receives repository or publish errors raised by background dispatch. */
+  onError?: (error: unknown) => void;
+};
+
 export type OutboxRepository = {
   enqueue(event: PreparedTrellisEvent): Promise<OutboxMessage>;
   claimDue(limit: number, now: Date): Promise<OutboxMessage[]>;
@@ -512,6 +526,153 @@ export class NatsKvInboxRepository implements InboxRepository {
       throw value.error;
     }
     return true;
+  }
+}
+
+/**
+ * Coalesces outbox wakeups and drains due messages through `dispatchOutbox`.
+ *
+ * The dispatcher is process-local coordination only. Callers should invoke
+ * `notify()` after committing outbox rows so dispatch does not observe rolled
+ * back work.
+ */
+export class OutboxDispatcher {
+  readonly #repository: OutboxRepository;
+  readonly #runtime: Pick<Trellis, "publishPrepared">;
+  readonly #options: OutboxDispatcherOptions;
+  #wakeTimer: ReturnType<typeof setTimeout> | undefined;
+  #retryTimer: ReturnType<typeof setTimeout> | undefined;
+  #idleTimer: ReturnType<typeof setTimeout> | undefined;
+  #running = false;
+  #pending = false;
+  #retryDue = false;
+  #stopped = false;
+
+  /** Creates a dispatcher over an existing outbox repository and runtime. */
+  constructor(
+    repository: OutboxRepository,
+    runtime: Pick<Trellis, "publishPrepared">,
+    options: OutboxDispatcherOptions = {},
+  ) {
+    this.#repository = repository;
+    this.#runtime = runtime;
+    this.#options = options;
+    this.#scheduleIdleRetry();
+  }
+
+  /** Signals that outbox work may be available and schedules a drain soon. */
+  notify(): void {
+    if (this.#stopped) return;
+    this.#pending = true;
+    if (this.#running) return;
+    this.#scheduleWakeup(this.#options.debounceMs ?? 0);
+  }
+
+  /** Cancels pending wakeups and prevents future dispatch work. */
+  stop(): void {
+    this.#stopped = true;
+    this.#pending = false;
+    this.#retryDue = false;
+    this.#clearTimer("wake");
+    this.#clearTimer("retry");
+    this.#clearTimer("idle");
+  }
+
+  #scheduleWakeup(delayMs: number): void {
+    if (this.#stopped) return;
+    this.#clearTimer("wake");
+    this.#wakeTimer = setTimeout(() => {
+      this.#wakeTimer = undefined;
+      void this.#run();
+    }, delayMs);
+  }
+
+  #scheduleRetryWakeup(): void {
+    if (this.#stopped) return;
+    if (this.#retryTimer !== undefined) return;
+    this.#retryTimer = setTimeout(() => {
+      this.#retryTimer = undefined;
+      if (this.#stopped) return;
+      this.#retryDue = true;
+      this.#pending = true;
+      if (!this.#running) this.#scheduleWakeup(0);
+    }, this.#retryDelayMs());
+  }
+
+  #scheduleIdleRetry(): void {
+    if (this.#stopped || this.#options.idleRetryMs === undefined) return;
+    this.#clearTimer("idle");
+    this.#idleTimer = setTimeout(() => {
+      this.#idleTimer = undefined;
+      this.notify();
+    }, this.#options.idleRetryMs);
+  }
+
+  async #run(): Promise<void> {
+    if (this.#stopped || this.#running) return;
+    this.#running = true;
+    this.#clearTimer("idle");
+    let drainNow = new Date();
+    try {
+      do {
+        if (this.#retryDue) {
+          drainNow = new Date();
+          this.#retryDue = false;
+        }
+        this.#pending = false;
+        while (!this.#stopped) {
+          const result = await this.#dispatchBatch(drainNow);
+          if (result.failed > 0) {
+            this.#scheduleRetryWakeup();
+          }
+          if (result.dispatched === 0 && result.failed === 0) break;
+        }
+      } while (this.#pending && !this.#stopped);
+    } finally {
+      this.#running = false;
+      if (this.#pending && !this.#stopped) {
+        this.#scheduleWakeup(0);
+      } else {
+        this.#scheduleIdleRetry();
+      }
+    }
+  }
+
+  async #dispatchBatch(now: Date): Promise<OutboxDispatchResult> {
+    try {
+      return await dispatchOutbox(this.#repository, this.#runtime, {
+        limit: this.#options.limit,
+        now,
+        retryDelayMs: this.#retryDelayMs(),
+      });
+    } catch (error) {
+      this.#scheduleRetryWakeup();
+      try {
+        this.#options.onError?.(error);
+      } catch {
+        // Error callbacks must not break dispatcher recovery.
+      }
+      return { dispatched: 0, failed: 0 };
+    }
+  }
+
+  #retryDelayMs(): number {
+    return Math.max(1, this.#options.retryDelayMs ?? 1000);
+  }
+
+  #clearTimer(timer: "wake" | "retry" | "idle"): void {
+    if (timer === "wake" && this.#wakeTimer !== undefined) {
+      clearTimeout(this.#wakeTimer);
+      this.#wakeTimer = undefined;
+    }
+    if (timer === "retry" && this.#retryTimer !== undefined) {
+      clearTimeout(this.#retryTimer);
+      this.#retryTimer = undefined;
+    }
+    if (timer === "idle" && this.#idleTimer !== undefined) {
+      clearTimeout(this.#idleTimer);
+      this.#idleTimer = undefined;
+    }
   }
 }
 

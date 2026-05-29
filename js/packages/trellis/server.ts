@@ -3,7 +3,7 @@ import { Pointer } from "typebox/value";
 import type { TrellisAPI } from "./contracts.ts";
 import {
   AsyncResult,
-  type BaseError,
+  BaseError,
   err,
   isErr,
   ok,
@@ -14,6 +14,9 @@ import { ulid } from "ulid";
 import { type JsonValue, parseSchema } from "./codec.ts";
 import {
   AuthError,
+  OperationAlreadyTerminalError,
+  OperationMismatchError,
+  OperationNotFoundError,
   TransferError,
   type TrellisErrorInstance,
   UnexpectedError,
@@ -220,11 +223,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
         AsyncResult.from((async () => {
           const runtime = await this.#resolveOperation(operationId);
           if (!runtime) {
-            return err(
-              new UnexpectedError({
-                cause: new Error(`Unknown operation '${operationId}'`),
-              }),
-            );
+            return err(this.#operationNotFoundError(operationId));
           }
           return ok(runtime.snapshot);
         })()),
@@ -290,11 +289,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
     return AsyncResult.from((async () => {
       const runtime = await this.#resolveOperation(operationId);
       if (!runtime) {
-        return err(
-          new UnexpectedError({
-            cause: new Error(`Unknown operation '${operationId}'`),
-          }),
-        );
+        return err(this.#operationNotFoundError(operationId));
       }
 
       const queued = runtime.signals.find((signal) =>
@@ -302,11 +297,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
       );
       if (queued) return ok(queued);
       if (runtime.terminal) {
-        return err(
-          new UnexpectedError({
-            cause: new Error("operation already terminal"),
-          }),
-        );
+        return err(this.#operationAlreadyTerminalError(runtime));
       }
 
       return await new Promise<Result<RuntimeOperationSignal, BaseError>>(
@@ -367,19 +358,11 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
     return AsyncResult.from((async () => {
       const runtime = await this.#resolveOperation(operationId);
       if (!runtime) {
-        return err(
-          new UnexpectedError({
-            cause: new Error(`Unknown operation '${operationId}'`),
-          }),
-        );
+        return err(this.#operationNotFoundError(operationId));
       }
 
       if (runtime.terminal) {
-        return err(
-          new UnexpectedError({
-            cause: new Error("operation already terminal"),
-          }),
-        );
+        return err(this.#operationAlreadyTerminalError(runtime));
       }
 
       runtime.sequence += 1;
@@ -489,29 +472,13 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
     return AsyncResult.from((async () => {
       const runtime = await this.#resolveOperation(operationId);
       if (!runtime) {
-        return err(
-          new UnexpectedError({
-            cause: new Error(`Unknown operation '${operationId}'`),
-          }),
-        );
+        return err(this.#operationNotFoundError(operationId));
       }
       if (runtime.service !== this.name) {
-        return err(
-          new UnexpectedError({
-            cause: new Error(
-              `Operation '${operationId}' belongs to service '${runtime.service}', not '${this.name}'`,
-            ),
-          }),
-        );
+        return err(this.#operationMismatchError(runtime, operation));
       }
       if (runtime.operation !== operation) {
-        return err(
-          new UnexpectedError({
-            cause: new Error(
-              `Operation '${operationId}' is '${runtime.operation}', not '${operation}'`,
-            ),
-          }),
-        );
+        return err(this.#operationMismatchError(runtime, operation));
       }
       return ok(this.#makeControlledOperation(runtime, ctx));
     })());
@@ -643,9 +610,31 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
     return ctx;
   }
 
-  #terminalSignalError(): UnexpectedError {
-    return new UnexpectedError({
-      cause: new Error("operation already terminal"),
+  #operationNotFoundError(operationId: string): OperationNotFoundError {
+    return new OperationNotFoundError({ operationId });
+  }
+
+  #operationAlreadyTerminalError(
+    runtime: RuntimeOperationRecord,
+  ): OperationAlreadyTerminalError {
+    return new OperationAlreadyTerminalError({
+      operationId: runtime.id,
+      state: runtime.snapshot.state,
+      operation: runtime.operation,
+      service: runtime.service,
+    });
+  }
+
+  #operationMismatchError(
+    runtime: RuntimeOperationRecord,
+    expectedOperation: string,
+  ): OperationMismatchError {
+    return new OperationMismatchError({
+      operationId: runtime.id,
+      expectedService: this.name,
+      expectedOperation,
+      actualService: runtime.service,
+      actualOperation: runtime.operation,
     });
   }
 
@@ -660,7 +649,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
   }
 
   #rejectSignalWaiters(runtime: RuntimeOperationRecord): void {
-    const result = err(this.#terminalSignalError());
+    const result = err(this.#operationAlreadyTerminalError(runtime));
     for (const waiter of runtime.signalWaiters) {
       waiter(result);
     }
@@ -679,10 +668,10 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
       signalSequence: number;
       acceptedAt: string;
       snapshot: RuntimeOperationSnapshot;
-    }, ValidationError | UnexpectedError>
+    }, BaseError>
   > {
     if (runtime.terminal) {
-      return err(this.#terminalSignalError());
+      return err(this.#operationAlreadyTerminalError(runtime));
     }
 
     const descriptor = ctx.signals?.[control.signal];
@@ -924,9 +913,12 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
     };
 
     const respondControlError = (msg: Msg, error: Error | BaseError) => {
+      const trellisError = error instanceof BaseError
+        ? error
+        : new UnexpectedError({ cause: error });
       msg.respond(JSON.stringify({
         kind: "error",
-        error: { type: error.name, message: error.message },
+        error: trellisError.toSerializable(),
       }));
     };
 
@@ -972,9 +964,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
         if (!runtime) {
           respondControlError(
             msg,
-            new UnexpectedError({
-              cause: new Error(`Unknown operation '${control.operationId}'`),
-            }),
+            this.#operationNotFoundError(control.operationId),
           );
           continue;
         }
@@ -982,11 +972,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
         if (runtime.service !== this.name || runtime.operation !== operation) {
           respondControlError(
             msg,
-            new UnexpectedError({
-              cause: new Error(
-                `Operation '${control.operationId}' belongs to service '${runtime.service}' operation '${runtime.operation}', not service '${this.name}' operation '${operation}'`,
-              ),
-            }),
+            this.#operationMismatchError(runtime, operation),
           );
           continue;
         }
@@ -1051,7 +1037,10 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
             continue;
           }
           if (runtime.terminal) {
-            respondControlError(msg, this.#terminalSignalError());
+            respondControlError(
+              msg,
+              this.#operationAlreadyTerminalError(runtime),
+            );
             continue;
           }
           runtime.snapshot = {
@@ -1225,9 +1214,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
           const ensureActive = () => {
             if (runtime.terminal) {
               return err(
-                new UnexpectedError({
-                  cause: new Error("operation already terminal"),
-                }),
+                this.#operationAlreadyTerminalError(runtime),
               );
             }
             return null;

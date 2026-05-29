@@ -10,7 +10,7 @@ pub struct JobsRegistry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-/// Jobs resource bindings attached to a service deployment envelope.
+/// Jobs resource bindings attached to materialized deployment authority.
 pub struct JobsBindings {
     pub namespace: String,
     pub queues: BTreeMap<String, Value>,
@@ -19,7 +19,7 @@ pub struct JobsBindings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-/// Resource bindings granted through a service deployment envelope.
+/// Resource bindings granted through materialized deployment authority.
 pub struct ResourceBindings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jobs: Option<JobsBindings>,
@@ -109,18 +109,19 @@ pub enum AuthStartResponse {
     },
 }
 
-/// Filter parameters for `Auth.Identities.List`.
-pub type ListApprovalsRequest = crate::sdk::auth::types::AuthIdentitiesListRequest;
+/// Filter parameters for `Auth.IdentityGrants.List`.
+pub type ListIdentityGrantsRequest = crate::sdk::auth::types::AuthIdentityGrantsListRequest;
 
-/// Approval scope returned by `Auth.Identities.List`.
-pub type ApprovalScopeRecord =
-    crate::sdk::auth::types::AuthIdentitiesListResponseEntriesItemContractEvidence;
+/// Contract evidence returned by `Auth.IdentityGrants.List`.
+pub type IdentityGrantContractEvidenceRecord =
+    crate::sdk::auth::types::AuthIdentityGrantsListResponseEntriesItemContractEvidence;
 
-/// Stored approval decision returned by `Auth.Identities.List`.
-pub type ApprovalEntryRecord = crate::sdk::auth::types::AuthIdentitiesListResponseEntriesItem;
+/// Stored identity grant returned by `Auth.IdentityGrants.List`.
+pub type IdentityGrantEntryRecord =
+    crate::sdk::auth::types::AuthIdentityGrantsListResponseEntriesItem;
 
-/// Request payload for `Auth.IdentityEnvelopes.Revoke`.
-pub type RevokeApprovalRequest = crate::sdk::auth::types::AuthIdentityEnvelopesRevokeRequest;
+/// Request payload for `Auth.IdentityGrants.Revoke`.
+pub type RevokeIdentityGrantRequest = crate::sdk::auth::types::AuthIdentityGrantsRevokeRequest;
 
 /// Request payload for `Auth.Requests.Validate`.
 pub type AuthRequestsValidateRequest = crate::sdk::auth::types::AuthRequestsValidateRequest;

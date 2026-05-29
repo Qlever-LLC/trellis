@@ -1,4 +1,5 @@
 import { type Authenticator } from "@nats-io/nats-core";
+import { ulid } from "ulid";
 
 import {
   importEd25519PrivateKeyFromSeedBase64url,
@@ -143,7 +144,7 @@ export async function createAuth(
         "nats-connect",
         buildNatsConnectSignaturePayload(iat, contractDigest),
       ),
-    createProof: (subject, payloadHash, requestId = crypto.randomUUID(), iat) =>
+    createProof: (subject, payloadHash, requestId = ulid(), iat) =>
       createProof(privateKey, {
         sessionKey,
         subject,

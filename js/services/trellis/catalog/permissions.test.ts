@@ -371,6 +371,7 @@ Deno.test("user permissions can include known caller app outside active catalog"
 Deno.test("user permissions include event capabilities without raw subjects", () => {
   withContracts(TEST_CONTRACTS, () => {
     const caller = { contractDigest: "portal-digest" };
+    const missingCapabilitySubjects = getUserPublishSubjects([], caller);
     const publishSubjects = getUserPublishSubjects([
       "partners:write",
     ], caller);
@@ -381,6 +382,10 @@ Deno.test("user permissions include event capabilities without raw subjects", ()
       "partners:read",
     ], caller);
 
+    assertEquals(
+      missingCapabilitySubjects.includes("events.v1.Partner.Changed.*.*"),
+      false,
+    );
     assertEquals(
       publishSubjects.includes("events.v1.Partner.Changed.*.*"),
       true,
@@ -839,6 +844,83 @@ Deno.test("service permissions include owned RPCs and declared dependencies", ()
     );
     assertEquals(
       subscribeSubjects.includes("transfer.v1.download.graph-key.*"),
+      true,
+    );
+  });
+});
+
+Deno.test("service can publish owned events without event publish capability", () => {
+  withContracts(TEST_CONTRACTS, () => {
+    const publishSubjects = getServicePublishSubjects(["service"], {
+      sessionKey: "graph-key",
+      contractDigest: "graph-digest",
+      authorityNeeds: {
+        surfaces: [{
+          contractId: "graph@v1",
+          kind: "event",
+          name: "Partner.Changed",
+          action: "publish",
+        }],
+      },
+    });
+
+    assertEquals(
+      publishSubjects.includes("events.v1.Partner.Changed.*.*"),
+      true,
+    );
+  });
+});
+
+Deno.test("service dependency event publishes still require event publish capability", () => {
+  const workerContract = {
+    digest: "worker-digest",
+    contract: {
+      format: "trellis.contract.v1",
+      id: "worker@v1",
+      displayName: "Worker",
+      description: "Publishes dependency events.",
+      kind: "service",
+      uses: {
+        required: {
+          graph: {
+            contract: "graph@v1",
+            events: { publish: ["Partner.Changed"] },
+          },
+        },
+      },
+    },
+  } satisfies { digest: string; contract: TrellisContractV1 };
+
+  withContracts([...TEST_CONTRACTS, workerContract], () => {
+    const authorityNeeds = {
+      surfaces: [{
+        contractId: "graph@v1",
+        kind: "event" as const,
+        name: "Partner.Changed",
+        action: "publish" as const,
+      }],
+    };
+    const service = {
+      sessionKey: "worker-key",
+      contractDigest: "worker-digest",
+      authorityNeeds,
+    };
+
+    const missingCapabilitySubjects = getServicePublishSubjects(
+      ["service"],
+      service,
+    );
+    const publishSubjects = getServicePublishSubjects(
+      ["service", "partners:write"],
+      service,
+    );
+
+    assertEquals(
+      missingCapabilitySubjects.includes("events.v1.Partner.Changed.*.*"),
+      false,
+    );
+    assertEquals(
+      publishSubjects.includes("events.v1.Partner.Changed.*.*"),
       true,
     );
   });

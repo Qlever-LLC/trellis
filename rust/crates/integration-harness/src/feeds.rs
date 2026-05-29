@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::fs::File;
 use std::path::PathBuf;
 use std::process::{Child, Stdio};
@@ -10,19 +9,19 @@ use bytes::Bytes;
 use futures_util::{stream, StreamExt};
 use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use trellis::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
 use trellis::client::{ServiceConnectOptions, TrellisClient};
 use trellis::contracts::{
     digest_contract_json, feed, use_contract, ContractKind, ContractManifestBuilder,
 };
 use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
-use trellis::sdk::auth::types::AuthEnvelopesExpandRequest;
 use trellis::service::{ConnectedServiceRuntime, ServerError};
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
 use crate::deno_fixture::{deno_fixture_log_paths, deno_fixture_path};
+use crate::deployment_authority::plan_accept_reconcile_deployment_authority;
 use crate::workspace::repo_root;
 
 const HARNESS_DEPLOYMENT_ID: &str = "harness.feeds";
@@ -153,16 +152,14 @@ pub(crate) async fn run_feeds_fixture(
 
     let service_contract_json = harness_service_contract_json()?;
     let contract_digest = digest_contract_json(&service_contract_json).into_diagnostic()?;
-    SdkAuthClient::new(&admin_client)
-        .rpc()
-        .auth()
-        .envelopes_expand(&AuthEnvelopesExpandRequest {
-            contract: contract_json_object(&service_contract_json)?,
-            deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
-            expected_digest: contract_digest.clone(),
-        })
-        .await
-        .into_diagnostic()?;
+    plan_accept_reconcile_deployment_authority(
+        &SdkAuthClient::new(&admin_client),
+        HARNESS_DEPLOYMENT_ID,
+        &service_contract_json,
+        &contract_digest,
+        "integration harness feeds service setup",
+    )
+    .await?;
 
     let (rust_service_seed, rust_service_key) = generate_session_keypair();
     auth_client
@@ -677,9 +674,4 @@ async fn connect_service_with_retry(
     }
 
     Err(last_error.expect("service connect retry should record at least one error"))
-}
-
-fn contract_json_object(contract_json: &str) -> Result<BTreeMap<String, Value>> {
-    serde_json::from_str(contract_json)
-        .map_err(|error| miette!("failed to parse harness feeds contract JSON: {error}"))
 }

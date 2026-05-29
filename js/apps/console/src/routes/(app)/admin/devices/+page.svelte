@@ -1,6 +1,5 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
-  import type { AuthEnvelopeExpansionsListResponse } from "@qlever-llc/trellis/auth";
   import type {
     AuthDeploymentsListOutput,
     AuthDevicesListOutput,
@@ -28,11 +27,16 @@
   };
   type Activation = AuthDeviceUserAuthoritiesListOutput["entries"][number];
   type Review = AuthDeviceUserAuthoritiesReviewsListOutput["entries"][number];
-  type ExpansionRequest = AuthEnvelopeExpansionsListResponse["entries"][number];
+  type DeploymentAuthority = { deploymentId: string; version: string; disabled: boolean };
+  type RpcTakeable<T> = { take(): Promise<T> };
+  type AuthorityRequest = {
+    (method: "Auth.DeploymentAuthority.List", input: { kind: "device"; limit: number; offset: number }): RpcTakeable<{ entries?: DeploymentAuthority[] }>;
+  };
   type Tab = "instances" | "activations" | "reviews";
   type StatusVariant = "healthy" | "degraded" | "unhealthy" | "offline";
 
   const trellis = getTrellis();
+  const authorityRequest = trellis.request.bind(trellis) as AuthorityRequest;
   const understoodMetadataKeys = ["name", "serialNumber", "modelNumber"] as const;
   const understoodMetadataKeySet = new Set<string>(understoodMetadataKeys);
   const tabs: Tab[] = ["instances", "activations", "reviews"];
@@ -43,7 +47,7 @@
   let instances = $state.raw<DeviceInstance[]>([]);
   let activations = $state.raw<Activation[]>([]);
   let reviews = $state.raw<Review[]>([]);
-  let expansionRequests = $state.raw<ExpansionRequest[]>([]);
+  let deploymentAuthorities = $state.raw<DeploymentAuthority[]>([]);
 
   let selectedDeploymentId = $state("");
   let activeTab = $state<Tab>("instances");
@@ -52,22 +56,12 @@
   let selectedReviewId = $state<string | null>(null);
 
   const selectedDeployment = $derived(deployments.find((deployment) => deployment.deploymentId === selectedDeploymentId) ?? null);
-  const deviceDeploymentIds = $derived.by(() => new Set(deployments.map((deployment) => deployment.deploymentId)));
   const instancesById = $derived.by(() => new Map(instances.map((instance) => [instance.instanceId, instance])));
   const selectedInstances = $derived(instances.filter((instance) => instance.deploymentId === selectedDeploymentId));
   const selectedActivations = $derived(activations.filter((activation) => activation.deploymentId === selectedDeploymentId));
   const selectedReviews = $derived(reviews.filter((review) => review.deploymentId === selectedDeploymentId));
   const selectedPendingReviews = $derived(selectedReviews.filter((review) => review.state === "pending"));
-  const selectedExpansionRequests = $derived.by(() =>
-    expansionRequests
-      .filter((request) => request.deploymentId === selectedDeploymentId && request.state === "pending")
-      .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))
-  );
-  const pendingExpansionRequests = $derived.by(() =>
-    expansionRequests
-      .filter((request) => request.state === "pending" && deviceDeploymentIds.has(request.deploymentId))
-      .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))
-  );
+  const selectedDeploymentAuthority = $derived(deploymentAuthorities.find((authority) => authority.deploymentId === selectedDeploymentId) ?? null);
   const filteredDeployments = $derived.by(() => {
     const term = search.trim().toLowerCase();
     if (!term) return deployments;
@@ -132,10 +126,6 @@
     return reviews.filter((review) => review.deploymentId === deploymentId && review.state === "pending").length;
   }
 
-  function pendingRequestsForDeployment(deploymentId: string): number {
-    return pendingExpansionRequests.filter((request) => request.deploymentId === deploymentId).length;
-  }
-
   function metadataValue(instanceId: string, key: (typeof understoodMetadataKeys)[number]): string | null {
     return instancesById.get(instanceId)?.metadata?.[key] ?? null;
   }
@@ -172,25 +162,25 @@
     loading = true;
     error = null;
     try {
-      const [deploymentsResponse, instancesResponse, activationsResponse, reviewsResponse, expansionRequestsResponse] = await Promise.all([
+      const [deploymentsResponse, instancesResponse, activationsResponse, reviewsResponse, authoritiesResponse] = await Promise.all([
         trellis.request("Auth.Deployments.List", { kind: "device", limit: 500, offset: 0 }).take(),
         trellis.request("Auth.Devices.List", { limit: 500, offset: 0 }).take(),
         trellis.request("Auth.DeviceUserAuthorities.List", { limit: 500, offset: 0 }).take(),
         trellis.request("Auth.DeviceUserAuthorities.Reviews.List", { limit: 500, offset: 0 }).take(),
-        trellis.request("Auth.EnvelopeExpansions.List", { state: "pending", limit: 500, offset: 0 }).take(),
+        authorityRequest("Auth.DeploymentAuthority.List", { kind: "device", limit: 500, offset: 0 }).take(),
       ]);
 
       if (isErr(deploymentsResponse)) { error = errorMessage(deploymentsResponse); return; }
       if (isErr(instancesResponse)) { error = errorMessage(instancesResponse); return; }
       if (isErr(activationsResponse)) { error = errorMessage(activationsResponse); return; }
       if (isErr(reviewsResponse)) { error = errorMessage(reviewsResponse); return; }
-      if (isErr(expansionRequestsResponse)) { error = errorMessage(expansionRequestsResponse); return; }
+      if (isErr(authoritiesResponse)) { error = errorMessage(authoritiesResponse); return; }
 
       deployments = (deploymentsResponse.entries ?? []).filter((deployment): deployment is DeviceDeployment => deployment.kind === "device");
       instances = instancesResponse.entries ?? [];
       activations = activationsResponse.entries ?? [];
       reviews = reviewsResponse.entries ?? [];
-      expansionRequests = expansionRequestsResponse.entries ?? [];
+      deploymentAuthorities = authoritiesResponse.entries ?? [];
       syncSelectedDeployment(deployments);
       if (selectedReviewId && !reviews.some((review) => review.reviewId === selectedReviewId)) selectedReviewId = null;
     } catch (cause) {
@@ -241,7 +231,7 @@
               {@const deploymentDeviceInstances = deploymentInstances(deployment.deploymentId)}
               {@const activeDevices = deploymentDeviceInstances.filter((instance) => instance.state === "activated")}
               {@const pendingReviewCount = pendingReviewsForDeployment(deployment.deploymentId)}
-              {@const pendingRequestCount = pendingRequestsForDeployment(deployment.deploymentId)}
+              {@const trackedAuthority = deploymentAuthorities.find((authority) => authority.deploymentId === deployment.deploymentId)}
               <SelectableRecordButton
                 selected={selectedDeploymentId === deployment.deploymentId}
                 onclick={() => selectDeployment(deployment.deploymentId)}
@@ -256,7 +246,7 @@
                     <div class="mt-1 flex flex-wrap gap-1">
                       <span class="badge badge-outline badge-xs">review {deployment.reviewMode ?? "none"}</span>
                       {#if pendingReviewCount > 0}<span class="badge badge-warning badge-xs">{pendingReviewCount} review</span>{/if}
-                      {#if pendingRequestCount > 0}<span class="badge badge-warning badge-xs">{pendingRequestCount} authority</span>{/if}
+                      {#if trackedAuthority}<span class="badge badge-outline badge-xs">authority {trackedAuthority.disabled ? "disabled" : "tracked"}</span>{/if}
                     </div>
                   </div>
                   <span class={["badge badge-sm", badgeClassForDeployment()]}>{deployment.disabled ? "Disabled" : "Enabled"}</span>
@@ -299,7 +289,7 @@
             <div class="mt-3 flex flex-wrap items-center gap-2 text-sm">
               <span class="badge badge-outline badge-sm">{activeInstanceCount}/{selectedInstances.length} activated instances</span>
               <span class="badge badge-outline badge-sm">{selectedPendingReviews.length} pending review{selectedPendingReviews.length === 1 ? "" : "s"}</span>
-              <span class="badge badge-outline badge-sm">{selectedExpansionRequests.length} pending authority request{selectedExpansionRequests.length === 1 ? "" : "s"}</span>
+              <span class="badge badge-outline badge-sm">authority {selectedDeploymentAuthority?.version ?? "not loaded"}</span>
               <span class="badge badge-outline badge-sm">{selectedActivations.length} activation{selectedActivations.length === 1 ? "" : "s"}</span>
               <span class="badge badge-outline badge-sm">{revokedActivationCount} revoked</span>
             </div>
@@ -316,17 +306,15 @@
               </div>
             {/if}
 
-            {#if selectedExpansionRequests.length > 0}
+            {#if selectedDeploymentAuthority}
               <div class="mt-3 rounded-box border border-warning/30 bg-warning/10 px-3 py-2 text-sm">
                 <div class="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <div class="font-medium">Authority expansion pending</div>
-                    <div class="mt-1 text-xs text-base-content/70">Requested authority changes are awaiting review outside this page.</div>
+                    <div class="font-medium">Deployment authority tracked</div>
+                    <div class="mt-1 text-xs text-base-content/70">Desired device authority is reconciled into materialized runtime grants.</div>
                   </div>
                   <div class="flex flex-wrap gap-1">
-                    {#each selectedExpansionRequests.slice(0, 3) as request (request.requestId)}
-                      <span class="badge badge-outline badge-sm trellis-identifier">{request.contractId}</span>
-                    {/each}
+                    <span class="badge badge-outline badge-sm trellis-identifier">{selectedDeploymentAuthority.version}</span>
                   </div>
                 </div>
               </div>

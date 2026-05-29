@@ -12,6 +12,6 @@
   </PageToolbar>
 
   <Panel title="No standalone default" eyebrow="Operator guidance">
-    <p class="text-sm text-base-content/70">The standalone default device portal API has been removed. Inspect deployments and envelopes for effective device onboarding routes.</p>
+    <p class="text-sm text-base-content/70">The standalone default device portal API has been removed. Inspect deployments and deployment authority for effective device onboarding routes.</p>
   </Panel>
 </section>

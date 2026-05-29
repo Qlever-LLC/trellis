@@ -9,8 +9,9 @@ verification commands.
 
 ## Current model
 
-- Trellis runtime authority comes from identity and deployment envelopes. Do not
-  describe service development with older catalog-update language.
+- Trellis runtime authority comes from deployment authority and identity
+  authority. Do not describe service development with older catalog-update or
+  legacy authority terminology.
 - Caller-visible communication is contract-driven and runs through generated
   RPC, event, feed, and operation surfaces. Resources, state, files, and jobs are
   contract-declared runtime surfaces; jobs are service-private background work.

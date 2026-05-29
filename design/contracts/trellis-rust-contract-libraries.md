@@ -289,9 +289,9 @@ Rules:
 - service connection helpers retain the resource binding returned by
   authenticated service bootstrap and use it to construct typed KV, store, jobs,
   and transfer runtime handles
-- bootstrapped service principals should not perform a second discovery pass via
-  `Trellis.Catalog` or `Trellis.Bindings.Get` unless their contract explicitly
-  declares and receives that Trellis-owned surface
+- bootstrapped service principals should use bootstrap-returned materialized
+  bindings rather than performing a second discovery pass through Trellis-owned
+  catalog or binding lookup surfaces
 - transfer execution should hang off transfer-capable operation refs rather than
   a standalone grant-transfer helper
 - exact helper names, option types, and ordinary connection examples belong in

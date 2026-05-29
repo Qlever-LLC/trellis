@@ -16,7 +16,8 @@ import { resolvesActiveAdmin } from "../capability_groups.ts";
 import {
   accountFlows,
   capabilityGroups,
-  identityEnvelopes,
+  identityAuthorities,
+  identityGrants,
   localCredentials,
   sessions,
   userIdentities,
@@ -28,8 +29,10 @@ import {
   AccountFlowSchema,
   type CapabilityGroup,
   CapabilityGroupSchema,
-  type IdentityEnvelopeRecord,
-  IdentityEnvelopeRecordSchema,
+  type IdentityAuthorityRecord,
+  IdentityAuthorityRecordSchema,
+  type IdentityGrantRecord,
+  IdentityGrantRecordSchema,
   type LocalCredential,
   LocalCredentialSchema,
   type Session,
@@ -60,8 +63,10 @@ type AccountFlowRow = typeof accountFlows.$inferSelect;
 type AccountFlowInsert = typeof accountFlows.$inferInsert;
 type CapabilityGroupRow = typeof capabilityGroups.$inferSelect;
 type CapabilityGroupInsert = typeof capabilityGroups.$inferInsert;
-type IdentityEnvelopeRow = typeof identityEnvelopes.$inferSelect;
-type IdentityEnvelopeInsert = typeof identityEnvelopes.$inferInsert;
+type IdentityAuthorityRow = typeof identityAuthorities.$inferSelect;
+type IdentityAuthorityInsert = typeof identityAuthorities.$inferInsert;
+type IdentityGrantRow = typeof identityGrants.$inferSelect;
+type IdentityGrantInsert = typeof identityGrants.$inferInsert;
 type SessionRow = typeof sessions.$inferSelect;
 type SessionInsert = typeof sessions.$inferInsert;
 
@@ -286,41 +291,43 @@ function encodeAccountFlow(record: AccountFlow): AccountFlowInsert {
   };
 }
 
-function decodeIdentityEnvelopeRow(
-  row: IdentityEnvelopeRow,
-): IdentityEnvelopeRecord {
-  return Value.Decode(IdentityEnvelopeRecordSchema, {
-    identityEnvelopeId: row.identityEnvelopeId,
+function decodeIdentityGrantRow(
+  row: IdentityGrantRow,
+): IdentityGrantRecord {
+  return Value.Decode(IdentityGrantRecordSchema, {
+    identityGrantId: row.identityGrantId,
+    identityAuthorityId: row.identityAuthorityId,
     userTrellisId: row.userTrellisId,
     origin: row.origin,
     id: row.externalId,
     identityAnchor: parseJsonField(
-      "identity envelope anchor",
+      "identity grant anchor",
       row.identityAnchor,
     ),
     answer: row.answer,
     answeredAt: row.answeredAt,
     updatedAt: row.updatedAt,
     approvalEvidence: parseJsonField(
-      "identity envelope approval evidence",
+      "identity grant approval evidence",
       row.approvalEvidence,
     ),
     publishSubjects: parseJsonField(
-      "identity envelope publish subjects",
+      "identity grant publish subjects",
       row.publishSubjects,
     ),
     subscribeSubjects: parseJsonField(
-      "identity envelope subscribe subjects",
+      "identity grant subscribe subjects",
       row.subscribeSubjects,
     ),
   });
 }
 
-function encodeIdentityEnvelopeRecord(
-  record: IdentityEnvelopeRecord,
-): IdentityEnvelopeInsert {
+function encodeIdentityGrantRecord(
+  record: IdentityGrantRecord,
+): IdentityGrantInsert {
   return {
-    identityEnvelopeId: record.identityEnvelopeId,
+    identityGrantId: record.identityGrantId,
+    identityAuthorityId: record.identityAuthorityId,
     userTrellisId: record.userTrellisId,
     origin: record.origin,
     externalId: record.id,
@@ -335,6 +342,32 @@ function encodeIdentityEnvelopeRecord(
     approvalEvidence: JSON.stringify(record.approvalEvidence),
     publishSubjects: JSON.stringify(record.publishSubjects),
     subscribeSubjects: JSON.stringify(record.subscribeSubjects),
+  };
+}
+
+function decodeIdentityAuthorityRow(
+  row: IdentityAuthorityRow,
+): IdentityAuthorityRecord {
+  return Value.Decode(IdentityAuthorityRecordSchema, {
+    identityAuthorityId: row.identityAuthorityId,
+    userTrellisId: row.userTrellisId,
+    origin: row.origin,
+    id: row.externalId,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  });
+}
+
+function encodeIdentityAuthorityRecord(
+  record: IdentityAuthorityRecord,
+): IdentityAuthorityInsert {
+  return {
+    identityAuthorityId: record.identityAuthorityId,
+    userTrellisId: record.userTrellisId,
+    origin: record.origin,
+    externalId: record.id,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
   };
 }
 
@@ -377,7 +410,7 @@ function encodeSessionRecord(
         ...common,
         origin: session.identity.provider,
         externalId: session.identity.subject,
-        identityEnvelopeId: session.identityEnvelopeId,
+        identityGrantId: session.identityGrantId,
         contractDigest: session.contractDigest,
         contractId: session.contractId,
         participantKind: session.participantKind,
@@ -392,7 +425,7 @@ function encodeSessionRecord(
         ...common,
         origin: session.origin,
         externalId: session.id,
-        identityEnvelopeId: null,
+        identityGrantId: null,
         contractDigest: session.contractDigest,
         contractId: session.contractId,
         participantKind: null,
@@ -407,7 +440,7 @@ function encodeSessionRecord(
         ...common,
         origin: null,
         externalId: null,
-        identityEnvelopeId: null,
+        identityGrantId: null,
         contractDigest: session.contractDigest,
         contractId: session.contractId,
         participantKind: null,
@@ -1187,38 +1220,85 @@ export class SqlCapabilityGroupRepository {
   }
 }
 
-/** Stores durable user identity envelopes and grants in SQL. */
-export class SqlIdentityEnvelopeRepository {
+/** Stores durable identity authority records in SQL. */
+export class SqlIdentityAuthorityRepository {
   readonly #db: TrellisStorageDb;
 
-  /** Creates an identity envelope repository backed by a Trellis storage DB. */
+  /** Creates an identity authority repository backed by a Trellis storage DB. */
   constructor(db: TrellisStorageDb) {
     this.#db = db;
   }
 
-  /** Returns one identity envelope by stable id. */
+  /** Returns one identity authority by stable id. */
   async get(
-    identityEnvelopeId: string,
-  ): Promise<IdentityEnvelopeRecord | undefined> {
-    const rows = await this.#db.select().from(identityEnvelopes).where(
-      eq(identityEnvelopes.identityEnvelopeId, identityEnvelopeId),
+    identityAuthorityId: string,
+  ): Promise<IdentityAuthorityRecord | undefined> {
+    const rows = await this.#db.select().from(identityAuthorities).where(
+      eq(identityAuthorities.identityAuthorityId, identityAuthorityId),
     ).limit(1);
 
     const row = rows[0];
-    return row === undefined ? undefined : decodeIdentityEnvelopeRow(row);
+    return row === undefined ? undefined : decodeIdentityAuthorityRow(row);
   }
 
-  /** Inserts or replaces an envelope keyed by stable identity envelope id. */
-  async put(record: IdentityEnvelopeRecord): Promise<void> {
-    const row = encodeIdentityEnvelopeRecord(record);
-    await this.#db.insert(identityEnvelopes).values(row).onConflictDoUpdate({
+  /** Inserts or replaces an authority keyed by stable identity authority id. */
+  async put(record: IdentityAuthorityRecord): Promise<void> {
+    const row = encodeIdentityAuthorityRecord(record);
+    await this.#db.insert(identityAuthorities).values(row).onConflictDoUpdate({
       target: [
-        identityEnvelopes.userTrellisId,
-        identityEnvelopes.identityAnchorKind,
-        identityEnvelopes.identityAnchor,
+        identityAuthorities.userTrellisId,
+        identityAuthorities.origin,
+        identityAuthorities.externalId,
       ],
       set: {
-        identityEnvelopeId: row.identityEnvelopeId,
+        identityAuthorityId: row.identityAuthorityId,
+        updatedAt: row.updatedAt,
+      },
+    });
+  }
+
+  /** Returns identity authorities for one user ordered by authority id. */
+  async listByUser(userTrellisId: string): Promise<IdentityAuthorityRecord[]> {
+    const rows = await this.#db.select().from(identityAuthorities).where(
+      eq(identityAuthorities.userTrellisId, userTrellisId),
+    ).orderBy(identityAuthorities.identityAuthorityId);
+    return rows.map(decodeIdentityAuthorityRow);
+  }
+}
+
+/** Stores durable identity grants in SQL. */
+export class SqlIdentityGrantRepository {
+  readonly #db: TrellisStorageDb;
+
+  /** Creates an identity grant repository backed by a Trellis storage DB. */
+  constructor(db: TrellisStorageDb) {
+    this.#db = db;
+  }
+
+  /** Returns one identity grant by stable id. */
+  async get(
+    identityGrantId: string,
+  ): Promise<IdentityGrantRecord | undefined> {
+    const rows = await this.#db.select().from(identityGrants).where(
+      eq(identityGrants.identityGrantId, identityGrantId),
+    ).limit(1);
+
+    const row = rows[0];
+    return row === undefined ? undefined : decodeIdentityGrantRow(row);
+  }
+
+  /** Inserts or replaces a grant keyed by stable identity grant id. */
+  async put(record: IdentityGrantRecord): Promise<void> {
+    const row = encodeIdentityGrantRecord(record);
+    await this.#db.insert(identityGrants).values(row).onConflictDoUpdate({
+      target: [
+        identityGrants.userTrellisId,
+        identityGrants.identityAnchorKind,
+        identityGrants.identityAnchor,
+      ],
+      set: {
+        identityGrantId: row.identityGrantId,
+        identityAuthorityId: row.identityAuthorityId,
         origin: row.origin,
         externalId: row.externalId,
         evidenceContractDigest: row.evidenceContractDigest,
@@ -1234,194 +1314,182 @@ export class SqlIdentityEnvelopeRepository {
     });
   }
 
-  /** Deletes one identity envelope by stable id. */
-  async delete(identityEnvelopeId: string): Promise<void> {
-    await this.#db.delete(identityEnvelopes).where(
-      eq(identityEnvelopes.identityEnvelopeId, identityEnvelopeId),
+  /** Deletes one identity grant by stable id. */
+  async delete(identityGrantId: string): Promise<void> {
+    await this.#db.delete(identityGrants).where(
+      eq(identityGrants.identityGrantId, identityGrantId),
     );
   }
 
-  /** Returns identity envelopes for one user ordered by envelope id. */
-  async listByUser(userTrellisId: string): Promise<IdentityEnvelopeRecord[]> {
-    const rows = await this.#db.select().from(identityEnvelopes).where(
-      eq(identityEnvelopes.userTrellisId, userTrellisId),
-    ).orderBy(identityEnvelopes.identityEnvelopeId);
-    return rows.map((row: IdentityEnvelopeRow) =>
-      decodeIdentityEnvelopeRow(row)
-    );
+  /** Returns identity grants for one user ordered by grant id. */
+  async listByUser(userTrellisId: string): Promise<IdentityGrantRecord[]> {
+    const rows = await this.#db.select().from(identityGrants).where(
+      eq(identityGrants.userTrellisId, userTrellisId),
+    ).orderBy(identityGrants.identityGrantId);
+    return rows.map((row: IdentityGrantRow) => decodeIdentityGrantRow(row));
   }
 
-  /** Returns a bounded page of identity envelopes for one user ordered by envelope id. */
+  /** Returns a bounded page of identity grants for one user ordered by grant id. */
   async listPageByUser(
     userTrellisId: string,
     query: BoundedListQuery,
-  ): Promise<IdentityEnvelopeRecord[]> {
+  ): Promise<IdentityGrantRecord[]> {
     const { offset, limit } = boundedListQuery(query);
-    const rows = await this.#db.select().from(identityEnvelopes).where(
-      eq(identityEnvelopes.userTrellisId, userTrellisId),
-    ).orderBy(identityEnvelopes.identityEnvelopeId).limit(limit).offset(offset);
-    return rows.map((row: IdentityEnvelopeRow) =>
-      decodeIdentityEnvelopeRow(row)
-    );
+    const rows = await this.#db.select().from(identityGrants).where(
+      eq(identityGrants.userTrellisId, userTrellisId),
+    ).orderBy(identityGrants.identityGrantId).limit(limit).offset(offset);
+    return rows.map((row: IdentityGrantRow) => decodeIdentityGrantRow(row));
   }
 
-  /** Returns a counted page of identity envelopes for one user ordered by envelope id. */
+  /** Returns a counted page of identity grants for one user ordered by grant id. */
   async listCountedPageByUser(
     userTrellisId: string,
     query: BoundedListQuery,
-  ): Promise<ListPage<IdentityEnvelopeRecord>> {
-    const where = eq(identityEnvelopes.userTrellisId, userTrellisId);
+  ): Promise<ListPage<IdentityGrantRecord>> {
+    const where = eq(identityGrants.userTrellisId, userTrellisId);
     const { offset, limit } = boundedListQuery(query);
     const [countRow] = await this.#db.select({ count: count() }).from(
-      identityEnvelopes,
+      identityGrants,
     ).where(where);
-    const rows = await this.#db.select().from(identityEnvelopes).where(where)
-      .orderBy(identityEnvelopes.identityEnvelopeId).limit(limit).offset(
+    const rows = await this.#db.select().from(identityGrants).where(where)
+      .orderBy(identityGrants.identityGrantId).limit(limit).offset(
         offset,
       );
     return listPage(
-      rows.map((row: IdentityEnvelopeRow) => decodeIdentityEnvelopeRow(row)),
+      rows.map((row: IdentityGrantRow) => decodeIdentityGrantRow(row)),
       countRow?.count ?? 0,
       query,
     );
   }
 
-  /** Returns a bounded page of approved identity envelopes for one user ordered by envelope id. */
+  /** Returns a bounded page of approved identity grants for one user ordered by grant id. */
   async listApprovedPageByUser(
     userTrellisId: string,
     query: BoundedListQuery,
-  ): Promise<IdentityEnvelopeRecord[]> {
+  ): Promise<IdentityGrantRecord[]> {
     const { offset, limit } = boundedListQuery(query);
-    const rows = await this.#db.select().from(identityEnvelopes).where(
+    const rows = await this.#db.select().from(identityGrants).where(
       and(
-        eq(identityEnvelopes.userTrellisId, userTrellisId),
-        eq(identityEnvelopes.answer, "approved"),
+        eq(identityGrants.userTrellisId, userTrellisId),
+        eq(identityGrants.answer, "approved"),
       ),
-    ).orderBy(identityEnvelopes.identityEnvelopeId).limit(limit).offset(offset);
-    return rows.map((row: IdentityEnvelopeRow) =>
-      decodeIdentityEnvelopeRow(row)
-    );
+    ).orderBy(identityGrants.identityGrantId).limit(limit).offset(offset);
+    return rows.map((row: IdentityGrantRow) => decodeIdentityGrantRow(row));
   }
 
-  /** Returns a counted page of approved identity envelopes for one user. */
+  /** Returns a counted page of approved identity grants for one user. */
   async listApprovedCountedPageByUser(
     userTrellisId: string,
     query: BoundedListQuery,
-  ): Promise<ListPage<IdentityEnvelopeRecord>> {
+  ): Promise<ListPage<IdentityGrantRecord>> {
     const where = and(
-      eq(identityEnvelopes.userTrellisId, userTrellisId),
-      eq(identityEnvelopes.answer, "approved"),
+      eq(identityGrants.userTrellisId, userTrellisId),
+      eq(identityGrants.answer, "approved"),
     );
     const { offset, limit } = boundedListQuery(query);
     const [countRow] = await this.#db.select({ count: count() }).from(
-      identityEnvelopes,
+      identityGrants,
     ).where(where);
-    const rows = await this.#db.select().from(identityEnvelopes).where(where)
-      .orderBy(identityEnvelopes.identityEnvelopeId).limit(limit).offset(
+    const rows = await this.#db.select().from(identityGrants).where(where)
+      .orderBy(identityGrants.identityGrantId).limit(limit).offset(
         offset,
       );
     return listPage(
-      rows.map((row: IdentityEnvelopeRow) => decodeIdentityEnvelopeRow(row)),
+      rows.map((row: IdentityGrantRow) => decodeIdentityGrantRow(row)),
       countRow?.count ?? 0,
       query,
     );
   }
 
-  /** Returns a bounded page of identity envelopes ordered by user Trellis id and envelope id. */
-  async listPage(query: BoundedListQuery): Promise<IdentityEnvelopeRecord[]> {
+  /** Returns a bounded page of identity grants ordered by user Trellis id and grant id. */
+  async listPage(query: BoundedListQuery): Promise<IdentityGrantRecord[]> {
     const { offset, limit } = boundedListQuery(query);
-    const rows = await this.#db.select().from(identityEnvelopes).orderBy(
-      identityEnvelopes.userTrellisId,
-      identityEnvelopes.identityEnvelopeId,
+    const rows = await this.#db.select().from(identityGrants).orderBy(
+      identityGrants.userTrellisId,
+      identityGrants.identityGrantId,
     ).limit(limit).offset(offset);
-    return rows.map((row: IdentityEnvelopeRow) =>
-      decodeIdentityEnvelopeRow(row)
-    );
+    return rows.map((row: IdentityGrantRow) => decodeIdentityGrantRow(row));
   }
 
-  /** Returns a counted page of identity envelopes ordered by user and envelope id. */
+  /** Returns a counted page of identity grants ordered by user and grant id. */
   async listCountedPage(
     query: BoundedListQuery,
-  ): Promise<ListPage<IdentityEnvelopeRecord>> {
+  ): Promise<ListPage<IdentityGrantRecord>> {
     const { offset, limit } = boundedListQuery(query);
     const [countRow] = await this.#db.select({ count: count() }).from(
-      identityEnvelopes,
+      identityGrants,
     );
-    const rows = await this.#db.select().from(identityEnvelopes).orderBy(
-      identityEnvelopes.userTrellisId,
-      identityEnvelopes.identityEnvelopeId,
+    const rows = await this.#db.select().from(identityGrants).orderBy(
+      identityGrants.userTrellisId,
+      identityGrants.identityGrantId,
     ).limit(limit).offset(offset);
     return listPage(
-      rows.map((row: IdentityEnvelopeRow) => decodeIdentityEnvelopeRow(row)),
+      rows.map((row: IdentityGrantRow) => decodeIdentityGrantRow(row)),
       countRow?.count ?? 0,
       query,
     );
   }
 
-  /** Returns a counted page of identity envelopes matching simple indexed filters. */
+  /** Returns a counted page of identity grants matching simple indexed filters. */
   async listFilteredPage(
     filters: { userTrellisId?: string; answer?: "approved" | "denied" },
     query: BoundedListQuery,
-  ): Promise<ListPage<IdentityEnvelopeRecord>> {
+  ): Promise<ListPage<IdentityGrantRecord>> {
     const conditions: SQL[] = [];
     if (filters.userTrellisId !== undefined) {
       conditions.push(
-        eq(identityEnvelopes.userTrellisId, filters.userTrellisId),
+        eq(identityGrants.userTrellisId, filters.userTrellisId),
       );
     }
     if (filters.answer !== undefined) {
-      conditions.push(eq(identityEnvelopes.answer, filters.answer));
+      conditions.push(eq(identityGrants.answer, filters.answer));
     }
     const where = conditions.length > 0 ? and(...conditions) : undefined;
     const { offset, limit } = boundedListQuery(query);
     const [countRow] = await this.#db.select({ count: count() }).from(
-      identityEnvelopes,
+      identityGrants,
     ).where(where);
-    const rows = await this.#db.select().from(identityEnvelopes).where(where)
+    const rows = await this.#db.select().from(identityGrants).where(where)
       .orderBy(
-        identityEnvelopes.userTrellisId,
-        identityEnvelopes.identityEnvelopeId,
+        identityGrants.userTrellisId,
+        identityGrants.identityGrantId,
       )
       .limit(limit).offset(offset);
     return listPage(
-      rows.map((row: IdentityEnvelopeRow) => decodeIdentityEnvelopeRow(row)),
+      rows.map((row: IdentityGrantRow) => decodeIdentityGrantRow(row)),
       countRow?.count ?? 0,
       query,
     );
   }
 
-  /** Returns approved identity envelopes ordered by user Trellis id and envelope id. */
-  async listApproved(): Promise<IdentityEnvelopeRecord[]> {
-    const rows = await this.#db.select().from(identityEnvelopes).where(
-      eq(identityEnvelopes.answer, "approved"),
+  /** Returns approved identity grants ordered by user Trellis id and grant id. */
+  async listApproved(): Promise<IdentityGrantRecord[]> {
+    const rows = await this.#db.select().from(identityGrants).where(
+      eq(identityGrants.answer, "approved"),
     ).orderBy(
-      identityEnvelopes.userTrellisId,
-      identityEnvelopes.identityEnvelopeId,
+      identityGrants.userTrellisId,
+      identityGrants.identityGrantId,
     );
-    return rows.map((row: IdentityEnvelopeRow) =>
-      decodeIdentityEnvelopeRow(row)
-    );
+    return rows.map((row: IdentityGrantRow) => decodeIdentityGrantRow(row));
   }
 
-  /** Returns identity envelopes approved by one of the requested contract digests. */
+  /** Returns identity grants approved by one of the requested contract digests. */
   async listByApprovalEvidenceContractDigests(
     contractDigests: Iterable<string>,
-  ): Promise<IdentityEnvelopeRecord[]> {
+  ): Promise<IdentityGrantRecord[]> {
     const requested = [...new Set(contractDigests)];
     if (requested.length === 0) return [];
-    const rows = await this.#db.select().from(identityEnvelopes).where(
+    const rows = await this.#db.select().from(identityGrants).where(
       and(
-        eq(identityEnvelopes.answer, "approved"),
-        inArray(identityEnvelopes.evidenceContractDigest, requested),
+        eq(identityGrants.answer, "approved"),
+        inArray(identityGrants.evidenceContractDigest, requested),
       ),
     ).orderBy(
-      identityEnvelopes.evidenceContractDigest,
-      identityEnvelopes.userTrellisId,
-      identityEnvelopes.identityEnvelopeId,
+      identityGrants.evidenceContractDigest,
+      identityGrants.userTrellisId,
+      identityGrants.identityGrantId,
     );
-    return rows.map((row: IdentityEnvelopeRow) =>
-      decodeIdentityEnvelopeRow(row)
-    );
+    return rows.map((row: IdentityGrantRow) => decodeIdentityGrantRow(row));
   }
 }
 
@@ -1469,7 +1537,7 @@ export class SqlSessionRepository {
         type: row.type,
         origin: row.origin,
         externalId: row.externalId,
-        identityEnvelopeId: row.identityEnvelopeId,
+        identityGrantId: row.identityGrantId,
         contractDigest: row.contractDigest,
         contractId: row.contractId,
         participantKind: row.participantKind,
@@ -1549,8 +1617,8 @@ export class SqlSessionRepository {
     );
   }
 
-  /** Returns sessions affected by previewing one deployment envelope change. */
-  async listEntriesForDeploymentEnvelopePreview(
+  /** Returns sessions affected by previewing one deployment authority change. */
+  async listEntriesForDeploymentAuthorityPreview(
     deploymentId: string,
   ): Promise<SessionStorageEntry[]> {
     await this.#deleteExpiredSessions();

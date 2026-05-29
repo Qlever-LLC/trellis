@@ -29,8 +29,10 @@ generated facades such as `client.rpc.<group>.<leaf>(...)`,
 Durable event delivery is built around prepared events. Use
 `client.event.<group>.<leaf>.prepare(event)` to create a `PreparedTrellisEvent`,
 then persist it with `SqlOutboxRepository` or `NatsKvOutboxRepository` and flush
-it with `dispatchOutbox`. `SqlInboxRepository` and `NatsKvInboxRepository`
-provide idempotent inbox tracking for consumers.
+it with `dispatchOutbox` or a process-local `OutboxDispatcher`. When using a
+transactional outbox, call `OutboxDispatcher.notify()` only after commit.
+`SqlInboxRepository` and `NatsKvInboxRepository` provide idempotent inbox
+tracking for consumers.
 
 Durable event consumption is built around contract-declared `eventConsumers`.
 The connected service receives Trellis-provisioned bindings during bootstrap;

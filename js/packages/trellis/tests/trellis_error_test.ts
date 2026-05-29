@@ -2,6 +2,9 @@ import { assert, assertEquals } from "@std/assert";
 import {
   AuthError,
   getBuiltinRpcError,
+  OperationAlreadyTerminalError,
+  OperationMismatchError,
+  OperationNotFoundError,
   RemoteError,
   TransportError,
   ValidationError,
@@ -95,6 +98,81 @@ Deno.test("Verify errors serialize and validate", async (t) => {
     );
     assertEquals(reconstructed.getContext(), { subject: "rpc.v1.Example.Run" });
     assertEquals(reconstructed.toSerializable().traceId, "trace-123");
+  });
+
+  await t.step("OperationNotFoundError", () => {
+    const error = new OperationNotFoundError({ operationId: "op-missing" });
+    const result = RemoteError.parseJSON(error.toJSON());
+    const value = result.take();
+    assert(!Result.isErr(value), "Expected successful parse");
+
+    assertEquals(value.type, "OperationNotFoundError");
+    assertEquals(Reflect.get(value, "operationId"), "op-missing");
+
+    const runtimeError = getBuiltinRpcError("OperationNotFoundError");
+    assert(runtimeError, "Expected builtin operation not found descriptor");
+    const reconstructed = runtimeError.fromSerializable(value);
+    assert(reconstructed instanceof OperationNotFoundError);
+    assertEquals(reconstructed.operationId, "op-missing");
+  });
+
+  await t.step("OperationAlreadyTerminalError", () => {
+    const error = new OperationAlreadyTerminalError({
+      operationId: "op-terminal",
+      state: "completed",
+      operation: "refund",
+      service: "billing",
+      traceId: "trace-terminal",
+    });
+    const result = RemoteError.parseJSON(error.toJSON());
+    const value = result.take();
+    assert(!Result.isErr(value), "Expected successful parse");
+
+    assertEquals(value.type, "OperationAlreadyTerminalError");
+    assertEquals(Reflect.get(value, "operationId"), "op-terminal");
+    assertEquals(Reflect.get(value, "state"), "completed");
+    assertEquals(Reflect.get(value, "operation"), "refund");
+    assertEquals(Reflect.get(value, "service"), "billing");
+    assertEquals(value.traceId, "trace-terminal");
+
+    const runtimeError = getBuiltinRpcError("OperationAlreadyTerminalError");
+    assert(runtimeError, "Expected builtin operation terminal descriptor");
+    const reconstructed = runtimeError.fromSerializable(value);
+    assert(reconstructed instanceof OperationAlreadyTerminalError);
+    assertEquals(reconstructed.operationId, "op-terminal");
+    assertEquals(reconstructed.state, "completed");
+    assertEquals(reconstructed.operation, "refund");
+    assertEquals(reconstructed.service, "billing");
+  });
+
+  await t.step("OperationMismatchError", () => {
+    const error = new OperationMismatchError({
+      operationId: "op-mismatch",
+      expectedService: "billing",
+      expectedOperation: "refund",
+      actualService: "orders",
+      actualOperation: "capture",
+    });
+    const result = RemoteError.parseJSON(error.toJSON());
+    const value = result.take();
+    assert(!Result.isErr(value), "Expected successful parse");
+
+    assertEquals(value.type, "OperationMismatchError");
+    assertEquals(Reflect.get(value, "operationId"), "op-mismatch");
+    assertEquals(Reflect.get(value, "expectedService"), "billing");
+    assertEquals(Reflect.get(value, "expectedOperation"), "refund");
+    assertEquals(Reflect.get(value, "actualService"), "orders");
+    assertEquals(Reflect.get(value, "actualOperation"), "capture");
+
+    const runtimeError = getBuiltinRpcError("OperationMismatchError");
+    assert(runtimeError, "Expected builtin operation mismatch descriptor");
+    const reconstructed = runtimeError.fromSerializable(value);
+    assert(reconstructed instanceof OperationMismatchError);
+    assertEquals(reconstructed.operationId, "op-mismatch");
+    assertEquals(reconstructed.expectedService, "billing");
+    assertEquals(reconstructed.expectedOperation, "refund");
+    assertEquals(reconstructed.actualService, "orders");
+    assertEquals(reconstructed.actualOperation, "capture");
   });
 
   await t.step("ValidationError", () => {

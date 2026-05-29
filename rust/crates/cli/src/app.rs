@@ -81,7 +81,7 @@ pub async fn run() -> miette::Result<()> {
         TopLevelCommand::Login(args) => auth::login(format, &args).await?,
         TopLevelCommand::Logout => auth::logout(format).await?,
         TopLevelCommand::Whoami => auth::whoami(format).await?,
-        TopLevelCommand::Approvals(command) => auth::approvals(format, command).await?,
+        TopLevelCommand::Identity(command) => auth::identity(format, command).await?,
         TopLevelCommand::Users(command) => auth::users(format, command).await?,
         TopLevelCommand::Portals(command) => auth::portals(format, command).await?,
         TopLevelCommand::Grants(command) => deploy::run_grants(format, command).await?,

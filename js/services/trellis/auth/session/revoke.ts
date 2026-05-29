@@ -2,10 +2,9 @@ import { type AsyncResult, type BaseError, Result } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 
 import { revokeGrantSessions } from "../approval/user_grants.ts";
-import type { IdentityEnvelopeRecord, Session } from "../schemas.ts";
+import type { IdentityGrantRecord, Session } from "../schemas.ts";
 import type {
   SqlDeviceActivationRepository,
-  SqlIdentityEnvelopeRepository,
   SqlServiceInstanceRepository,
   SqlSessionRepository,
 } from "../storage.ts";
@@ -26,7 +25,12 @@ type ConnectionsStore = {
 };
 
 type ContractApprovalStorage = Pick<
-  SqlIdentityEnvelopeRepository,
+  {
+    get(
+      identityGrantId: string,
+    ): Promise<IdentityGrantRecord | undefined>;
+    delete(identityGrantId: string): Promise<void>;
+  },
   "get" | "delete"
 >;
 
@@ -54,13 +58,13 @@ function requireUserCaller(caller: SessionCaller): {
   };
 }
 
-function isApprovedAgentGrant(envelope: IdentityEnvelopeRecord): boolean {
-  const approvalEvidence = envelope.approvalEvidence as
-    & IdentityEnvelopeRecord["approvalEvidence"]
+function isApprovedAgentGrant(grant: IdentityGrantRecord): boolean {
+  const approvalEvidence = grant.approvalEvidence as
+    & IdentityGrantRecord["approvalEvidence"]
     & {
       participantKind: "app" | "agent";
     };
-  return envelope.answer === "approved" && (
+  return grant.answer === "approved" && (
     approvalEvidence.participantKind === "app" ||
     approvalEvidence.participantKind === "agent"
   );
@@ -103,14 +107,14 @@ export function createAuthSessionsRevokeHandler(deps: {
 
     const kickedBy = user.userId;
     if (sessionToDelete.type === "user") {
-      if (sessionToDelete.identityEnvelopeId) {
-        const envelope = await deps.contractApprovalStorage.get(
-          sessionToDelete.identityEnvelopeId,
+      if (sessionToDelete.identityGrantId) {
+        const grant = await deps.contractApprovalStorage.get(
+          sessionToDelete.identityGrantId,
         );
-        if (envelope) {
-          if (isApprovedAgentGrant(envelope)) {
+        if (grant) {
+          if (isApprovedAgentGrant(grant)) {
             await deps.contractApprovalStorage.delete(
-              sessionToDelete.identityEnvelopeId,
+              sessionToDelete.identityGrantId,
             );
           }
         }
@@ -118,7 +122,7 @@ export function createAuthSessionsRevokeHandler(deps: {
 
       await revokeGrantSessions({
         userTrellisId: sessionToDelete.userId,
-        identityEnvelopeId: sessionToDelete.identityEnvelopeId ?? "",
+        identityGrantId: sessionToDelete.identityGrantId ?? "",
         participantKind: sessionToDelete.participantKind,
         sessionStorage: deps.sessionStorage,
         connectionsKV: deps.connectionsKV,

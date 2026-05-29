@@ -1,16 +1,24 @@
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
-import { AsyncResult, UnexpectedError } from "@qlever-llc/result";
+import { AsyncResult, isErr, UnexpectedError } from "@qlever-llc/result";
 import { assert, assertEquals, assertInstanceOf } from "@std/assert";
 import { ValidationError } from "@qlever-llc/trellis";
-import type { DeploymentEnvelope } from "../auth/schemas.ts";
+import type {
+  DeploymentAuthority,
+  DeploymentAuthorityMaterialization,
+} from "../auth/schemas.ts";
 import type { TrellisContractGetResponse } from "../../../packages/trellis/models/trellis/rpc/TrellisContractGet.ts";
 
 import {
+  createTrellisBindingsGetHandler,
   createTrellisCatalogHandler,
   createTrellisContractGetHandler,
   createTrellisSurfaceStatusHandler,
 } from "./rpc.ts";
-import { type ContractEntry, getActiveCapabilityDefinitions } from "./store.ts";
+import {
+  type ContractEntry,
+  getActiveCapabilityDefinitions,
+  validateContractManifest,
+} from "./store.ts";
 import { connectionKey } from "../auth/session/connections.ts";
 
 const exportedSchemaContract: TrellisContractV1 = {
@@ -96,6 +104,7 @@ type TestServiceInstance = {
   instanceKey: string;
   disabled: boolean;
   capabilities: string[];
+  resourceBindings?: Record<string, unknown>;
   createdAt: string;
 };
 
@@ -160,6 +169,14 @@ class InMemoryServiceInstanceStorage {
 
   async list(): Promise<TestServiceInstance[]> {
     return [...this.#instances];
+  }
+
+  async getByInstanceKey(
+    instanceKey: string,
+  ): Promise<TestServiceInstance | undefined> {
+    return this.#instances.find((instance) =>
+      instance.instanceKey === instanceKey
+    );
   }
 
   async listByDeployments(
@@ -255,46 +272,65 @@ class InMemoryImplementationOfferStorage {
   }
 }
 
-class InMemoryDeploymentEnvelopeStorage {
-  #envelopes = new Map<string, DeploymentEnvelope>();
+class InMemoryDeploymentAuthorityStorage {
+  #authorities = new Map<string, DeploymentAuthority>();
 
-  seed(envelope: DeploymentEnvelope): void {
-    this.#envelopes.set(envelope.deploymentId, envelope);
+  seed(authority: DeploymentAuthority): void {
+    this.#authorities.set(authority.deploymentId, authority);
   }
 
-  async list(): Promise<DeploymentEnvelope[]> {
-    return [...this.#envelopes.values()];
+  async list(): Promise<DeploymentAuthority[]> {
+    return [...this.#authorities.values()];
+  }
+
+  async get(deploymentId: string): Promise<DeploymentAuthority | undefined> {
+    return this.#authorities.get(deploymentId);
   }
 
   async listEnabledByContractId(
     contractId: string,
-  ): Promise<DeploymentEnvelope[]> {
-    return [...this.#envelopes.values()].filter((envelope) =>
-      !envelope.disabled &&
-      (envelope.boundary.contracts.some((entry) =>
-        entry.contractId === contractId
+  ): Promise<DeploymentAuthority[]> {
+    return [...this.#authorities.values()].filter((authority) =>
+      !authority.disabled &&
+      (authority.desiredState.needs.some((need) =>
+        (need.kind === "contract" && need.contractId === contractId) ||
+        (need.kind === "surface" && need.surface.contractId === contractId)
       ) ||
-        envelope.boundary.surfaces.some((entry) =>
-          entry.contractId === contractId
+        authority.desiredState.surfaces.some((surface) =>
+          surface.contractId === contractId
         ))
     );
   }
 
   async listEnabledBySurface(args: {
     contractId: string;
-    kind: string;
+    kind: "rpc" | "operation" | "event" | "feed";
     name: string;
-    action: string;
-  }): Promise<DeploymentEnvelope[]> {
-    return [...this.#envelopes.values()].filter((envelope) =>
-      !envelope.disabled &&
-      envelope.boundary.surfaces.some((surface) =>
+    action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
+  }): Promise<DeploymentAuthority[]> {
+    return [...this.#authorities.values()].filter((authority) =>
+      !authority.disabled &&
+      authority.desiredState.surfaces.some((surface) =>
         surface.contractId === args.contractId &&
         surface.kind === args.kind &&
         surface.name === args.name &&
         surface.action === args.action
       )
     );
+  }
+}
+
+class InMemoryMaterializedAuthorityStorage {
+  #authorities = new Map<string, DeploymentAuthorityMaterialization>();
+
+  seed(authority: DeploymentAuthorityMaterialization): void {
+    this.#authorities.set(authority.deploymentId, authority);
+  }
+
+  async get(
+    deploymentId: string,
+  ): Promise<DeploymentAuthorityMaterialization | undefined> {
+    return this.#authorities.get(deploymentId);
   }
 }
 
@@ -315,6 +351,16 @@ class InMemoryContracts {
     digest: string,
   ): Promise<TrellisContractV1 | undefined> {
     return this.#entries.find((entry) => entry.digest === digest)?.contract;
+  }
+
+  async getContract(
+    digest: string,
+  ): Promise<TrellisContractV1 | undefined> {
+    return this.getKnownContract(digest);
+  }
+
+  validateContract(raw: unknown) {
+    return validateContractManifest(raw);
   }
 
   async getActiveEntries(): Promise<ContractEntry[]> {
@@ -395,7 +441,7 @@ function makeStatusHandler(
   const serviceDeploymentStorage = new InMemoryServiceDeploymentStorage();
   const deviceInstanceStorage = new InMemoryDeviceInstanceStorage();
   const deviceDeploymentStorage = new InMemoryDeviceDeploymentStorage();
-  const deploymentEnvelopeStorage = new InMemoryDeploymentEnvelopeStorage();
+  const deploymentAuthorityStorage = new InMemoryDeploymentAuthorityStorage();
   const implementationOfferStorage = new InMemoryImplementationOfferStorage();
   const connectionsKV = new InMemoryConnectionsKV();
 
@@ -405,7 +451,7 @@ function makeStatusHandler(
     serviceDeploymentStorage,
     deviceInstanceStorage,
     deviceDeploymentStorage,
-    deploymentEnvelopeStorage,
+    deploymentAuthorityStorage,
     implementationOfferStorage,
     connectionsKV,
   });
@@ -416,7 +462,7 @@ function makeStatusHandler(
     serviceDeploymentStorage,
     deviceInstanceStorage,
     deviceDeploymentStorage,
-    deploymentEnvelopeStorage,
+    deploymentAuthorityStorage,
     implementationOfferStorage,
     connectionsKV,
   };
@@ -435,50 +481,47 @@ function seedEnabledDeployment(
   });
 }
 
-function seedSurfaceEnvelope(
-  deploymentEnvelopeStorage: InMemoryDeploymentEnvelopeStorage,
+function seedSurfaceAuthority(
+  deploymentAuthorityStorage: InMemoryDeploymentAuthorityStorage,
   implementationOfferStorage: InMemoryImplementationOfferStorage,
   deploymentId = "deployment-a",
   disabled = false,
   digest = "digest-surface",
-  kind: DeploymentEnvelope["kind"] = "service",
+  kind: DeploymentAuthority["kind"] = "service",
 ): void {
-  deploymentEnvelopeStorage.seed({
+  deploymentAuthorityStorage.seed({
     deploymentId,
     kind,
     disabled,
-    createdAt: new Date(0).toISOString(),
-    updatedAt: new Date(0).toISOString(),
-    boundary: {
-      contracts: [{ contractId: "surface@v1", required: true }],
+    desiredState: {
+      needs: [{ kind: "contract", contractId: "surface@v1", required: true }],
+      capabilities: [],
+      resources: [],
       surfaces: [{
         contractId: "surface@v1",
         kind: "rpc",
         name: "Surface.Read",
         action: "call",
-        required: true,
       }, {
         contractId: "surface@v1",
         kind: "event",
         name: "Surface.Changed",
         action: "publish",
-        required: true,
       }, {
         contractId: "surface@v1",
         kind: "event",
         name: "Surface.Changed",
         action: "subscribe",
-        required: true,
       }, {
         contractId: "surface@v1",
         kind: "feed",
         name: "Surface.Feed",
         action: "subscribe",
-        required: true,
       }],
-      capabilities: [],
-      resources: [],
     },
+    version: "1",
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString(),
   });
   implementationOfferStorage.seed({
     offerId: `offer-${deploymentId}-${digest}`,
@@ -565,6 +608,190 @@ const surfaceContractWithoutRead: TrellisContractV1 = {
     Empty: { type: "object" },
   },
 };
+
+const resourceContract: TrellisContractV1 = {
+  format: "trellis.contract.v1",
+  id: "resources@v1",
+  displayName: "Resources",
+  description: "Uses materialized resources.",
+  kind: "service",
+  schemas: {
+    CacheEntry: { type: "object" },
+  },
+  resources: {
+    kv: {
+      cache: {
+        purpose: "Store cache entries.",
+        schema: { schema: "CacheEntry" },
+      },
+    },
+  },
+};
+
+Deno.test("Trellis.Bindings.Get returns materialized authority bindings", async () => {
+  const contracts = new InMemoryContracts();
+  contracts.add("digest-resources", resourceContract);
+  const serviceInstances = new InMemoryServiceInstanceStorage();
+  serviceInstances.seed({
+    instanceId: "svc-1",
+    deploymentId: "deployment-1",
+    instanceKey: "svc-key",
+    disabled: false,
+    capabilities: ["service"],
+    resourceBindings: { kv: { stale: { bucket: "stale" } } },
+    createdAt: "2026-01-01T00:00:00.000Z",
+  });
+  const offers = new InMemoryImplementationOfferStorage();
+  offers.seed({
+    offerId: "offer-1",
+    deploymentKind: "service",
+    deploymentId: "deployment-1",
+    instanceId: "svc-1",
+    contractId: "resources@v1",
+    contractDigest: "digest-resources",
+    lineageKey: "resources@v1",
+    status: "accepted",
+    liveness: "healthy",
+    firstOfferedAt: "2026-01-01T00:00:00.000Z",
+    acceptedAt: "2026-01-01T00:00:00.000Z",
+    lastRefreshedAt: "2026-01-01T00:00:00.000Z",
+    staleAt: null,
+    expiresAt: null,
+  });
+  const authorities = new InMemoryDeploymentAuthorityStorage();
+  authorities.seed({
+    deploymentId: "deployment-1",
+    kind: "service",
+    disabled: false,
+    desiredState: {
+      needs: [],
+      capabilities: [],
+      resources: [{ kind: "kv", alias: "cache", required: true }],
+      surfaces: [],
+    },
+    version: "v1",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  });
+  const materialized = new InMemoryMaterializedAuthorityStorage();
+  materialized.seed({
+    deploymentId: "deployment-1",
+    desiredVersion: "v1",
+    status: "current",
+    resourceBindings: [{
+      deploymentId: "deployment-1",
+      kind: "kv",
+      alias: "cache",
+      binding: { bucket: "cache-current" },
+      limits: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    }, {
+      deploymentId: "deployment-1",
+      kind: "kv",
+      alias: "other",
+      binding: { bucket: "other-current" },
+      limits: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    }],
+    grants: [],
+    reconciledAt: "2026-01-01T00:00:00.000Z",
+  });
+
+  const result = await createTrellisBindingsGetHandler({
+    contracts,
+    serviceInstanceStorage: serviceInstances as never,
+    deploymentAuthorityStorage: authorities,
+    materializedAuthorityStorage: materialized,
+    implementationOfferStorage: offers as never,
+  })(
+    { contractId: "resources@v1" },
+    { caller: { type: "service" } as never, sessionKey: "svc-key" },
+  );
+
+  assert(!result.isErr());
+  const value = result.take();
+  if (isErr(value)) throw value.error;
+  assertEquals(value.binding?.resources, {
+    kv: { cache: { bucket: "cache-current" } },
+  });
+});
+
+Deno.test("Trellis.Bindings.Get hides bindings while authority is stale", async () => {
+  const contracts = new InMemoryContracts();
+  contracts.add("digest-resources", resourceContract);
+  const serviceInstances = new InMemoryServiceInstanceStorage();
+  serviceInstances.seed({
+    instanceId: "svc-1",
+    deploymentId: "deployment-1",
+    instanceKey: "svc-key",
+    disabled: false,
+    capabilities: ["service"],
+    resourceBindings: { kv: { stale: { bucket: "stale" } } },
+    createdAt: "2026-01-01T00:00:00.000Z",
+  });
+  const offers = new InMemoryImplementationOfferStorage();
+  offers.seed({
+    offerId: "offer-1",
+    deploymentKind: "service",
+    deploymentId: "deployment-1",
+    instanceId: "svc-1",
+    contractId: "resources@v1",
+    contractDigest: "digest-resources",
+    lineageKey: "resources@v1",
+    status: "accepted",
+    liveness: "healthy",
+    firstOfferedAt: "2026-01-01T00:00:00.000Z",
+    acceptedAt: "2026-01-01T00:00:00.000Z",
+    lastRefreshedAt: "2026-01-01T00:00:00.000Z",
+    staleAt: null,
+    expiresAt: null,
+  });
+  const authorities = new InMemoryDeploymentAuthorityStorage();
+  authorities.seed({
+    deploymentId: "deployment-1",
+    kind: "service",
+    disabled: false,
+    desiredState: { needs: [], capabilities: [], resources: [], surfaces: [] },
+    version: "v2",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  });
+  const materialized = new InMemoryMaterializedAuthorityStorage();
+  materialized.seed({
+    deploymentId: "deployment-1",
+    desiredVersion: "v1",
+    status: "current",
+    resourceBindings: [{
+      deploymentId: "deployment-1",
+      kind: "kv",
+      alias: "cache",
+      binding: { bucket: "cache-current" },
+      limits: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    }],
+    grants: [],
+    reconciledAt: "2026-01-01T00:00:00.000Z",
+  });
+
+  const result = await createTrellisBindingsGetHandler({
+    contracts,
+    serviceInstanceStorage: serviceInstances as never,
+    deploymentAuthorityStorage: authorities,
+    materializedAuthorityStorage: materialized,
+    implementationOfferStorage: offers as never,
+  })(
+    { contractId: "resources@v1" },
+    { caller: { type: "service" } as never, sessionKey: "svc-key" },
+  );
+
+  assert(!result.isErr());
+  const value = result.take();
+  if (isErr(value)) throw value.error;
+  assertEquals(value.binding, undefined);
+});
 
 Deno.test("Trellis.Contract.Get includes canonical exports", async () => {
   const store = new InMemoryContracts();
@@ -698,22 +925,23 @@ Deno.test("Trellis.Surface.Status reports unknown surface", async () => {
   });
 });
 
-Deno.test("Trellis.Surface.Status reports optional missing surface as envelope unavailable", async () => {
+Deno.test("Trellis.Surface.Status reports optional missing surface as authority unavailable", async () => {
   const store = new InMemoryContracts();
   store.add("digest-surface", surfaceContract);
-  const { handler, deploymentEnvelopeStorage } = makeStatusHandler(store);
-  deploymentEnvelopeStorage.seed({
+  const { handler, deploymentAuthorityStorage } = makeStatusHandler(store);
+  deploymentAuthorityStorage.seed({
     deploymentId: "deployment-a",
     kind: "service",
     disabled: false,
-    createdAt: new Date(0).toISOString(),
-    updatedAt: new Date(0).toISOString(),
-    boundary: {
-      contracts: [{ contractId: "surface@v1", required: true }],
-      surfaces: [],
+    desiredState: {
+      needs: [{ kind: "contract", contractId: "surface@v1", required: true }],
       capabilities: [],
       resources: [],
+      surfaces: [],
     },
+    version: "1",
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString(),
   });
 
   const result = await handler({
@@ -726,21 +954,21 @@ Deno.test("Trellis.Surface.Status reports optional missing surface as envelope u
   });
 
   assertEquals(takeUnknown(result), {
-    status: { state: "unavailable", reason: "envelope_unavailable" },
+    status: { state: "unavailable", reason: "authority_unavailable" },
   });
 });
 
-Deno.test("Trellis.Surface.Status reports unauthorized by envelope", async () => {
+Deno.test("Trellis.Surface.Status reports unauthorized by authority", async () => {
   const store = new InMemoryContracts();
   store.add("digest-surface", surfaceContract);
   const {
     handler,
-    deploymentEnvelopeStorage,
+    deploymentAuthorityStorage,
     implementationOfferStorage,
     connectionsKV,
   } = makeStatusHandler(store);
-  seedSurfaceEnvelope(
-    deploymentEnvelopeStorage,
+  seedSurfaceAuthority(
+    deploymentAuthorityStorage,
     implementationOfferStorage,
   );
 
@@ -763,12 +991,12 @@ Deno.test("Trellis.Surface.Status reports available without live implementer", a
     handler,
     serviceDeploymentStorage,
     serviceInstanceStorage,
-    deploymentEnvelopeStorage,
+    deploymentAuthorityStorage,
     implementationOfferStorage,
   } = makeStatusHandler(store);
   seedEnabledDeployment(serviceDeploymentStorage);
-  seedSurfaceEnvelope(
-    deploymentEnvelopeStorage,
+  seedSurfaceAuthority(
+    deploymentAuthorityStorage,
     implementationOfferStorage,
   );
   serviceInstanceStorage.seed({
@@ -805,13 +1033,13 @@ Deno.test("Trellis.Surface.Status reports available live implementing service", 
     handler,
     serviceDeploymentStorage,
     serviceInstanceStorage,
-    deploymentEnvelopeStorage,
+    deploymentAuthorityStorage,
     implementationOfferStorage,
     connectionsKV,
   } = makeStatusHandler(store);
   seedEnabledDeployment(serviceDeploymentStorage);
-  seedSurfaceEnvelope(
-    deploymentEnvelopeStorage,
+  seedSurfaceAuthority(
+    deploymentAuthorityStorage,
     implementationOfferStorage,
   );
   serviceInstanceStorage.seed({
@@ -846,13 +1074,13 @@ Deno.test("Trellis.Surface.Status ignores live service for another contract", as
     handler,
     serviceDeploymentStorage,
     serviceInstanceStorage,
-    deploymentEnvelopeStorage,
+    deploymentAuthorityStorage,
     implementationOfferStorage,
     connectionsKV,
   } = makeStatusHandler(store);
   seedEnabledDeployment(serviceDeploymentStorage);
-  seedSurfaceEnvelope(
-    deploymentEnvelopeStorage,
+  seedSurfaceAuthority(
+    deploymentAuthorityStorage,
     implementationOfferStorage,
   );
   serviceInstanceStorage.seed({
@@ -893,13 +1121,13 @@ Deno.test("Trellis.Surface.Status ignores live same-lineage digest without the s
     handler,
     serviceDeploymentStorage,
     serviceInstanceStorage,
-    deploymentEnvelopeStorage,
+    deploymentAuthorityStorage,
     implementationOfferStorage,
     connectionsKV,
   } = makeStatusHandler(store);
   seedEnabledDeployment(serviceDeploymentStorage);
-  seedSurfaceEnvelope(
-    deploymentEnvelopeStorage,
+  seedSurfaceAuthority(
+    deploymentAuthorityStorage,
     implementationOfferStorage,
   );
   serviceInstanceStorage.seed({
@@ -939,12 +1167,12 @@ Deno.test("Trellis.Surface.Status reports disabled service instance", async () =
     handler,
     serviceDeploymentStorage,
     serviceInstanceStorage,
-    deploymentEnvelopeStorage,
+    deploymentAuthorityStorage,
     implementationOfferStorage,
   } = makeStatusHandler(store);
   seedEnabledDeployment(serviceDeploymentStorage);
-  seedSurfaceEnvelope(
-    deploymentEnvelopeStorage,
+  seedSurfaceAuthority(
+    deploymentAuthorityStorage,
     implementationOfferStorage,
   );
   serviceInstanceStorage.seed({
@@ -993,11 +1221,11 @@ Deno.test("Trellis.Surface.Status validates action by surface kind", async () =>
   store.add("digest-surface", surfaceContract);
   const {
     handler,
-    deploymentEnvelopeStorage,
+    deploymentAuthorityStorage,
     implementationOfferStorage,
   } = makeStatusHandler(store);
-  seedSurfaceEnvelope(
-    deploymentEnvelopeStorage,
+  seedSurfaceAuthority(
+    deploymentAuthorityStorage,
     implementationOfferStorage,
   );
 

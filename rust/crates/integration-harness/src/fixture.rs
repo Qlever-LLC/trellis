@@ -97,7 +97,7 @@ pub(crate) fn integration_fixtures() -> Vec<Fixture> {
             "rust",
             "service-approval",
             &[
-                "service-envelope-approval-flow",
+                "service-authority-acceptance-flow",
                 "cross-runtime-rpc",
                 "observability-trace-matrix",
             ],
@@ -110,16 +110,16 @@ pub(crate) fn integration_fixtures() -> Vec<Fixture> {
             "typescript",
             "service-approval",
             &[
-                "service-envelope-approval-flow",
+                "service-authority-acceptance-flow",
                 "cross-runtime-rpc",
                 "observability-trace-matrix",
             ],
         ),
         fixture(
             "app-identity-approval",
-            "App identity-envelope approval fixture",
+            "App identity grant approval fixture",
             &[
-                "app-identity-envelope-approval",
+                "app-identity-grant-approval",
                 "auth-protocol-matrix",
                 "observability-trace-matrix",
             ],
@@ -280,14 +280,14 @@ pub(crate) fn integration_fixtures() -> Vec<Fixture> {
             ],
         ),
         fixture(
-            "catalog-repair",
-            "Active catalog repair fixture",
-            &["active-catalog-repair", "built-in-rpc-matrix"],
+            "catalog-authority",
+            "Active catalog authority fixture",
+            &["active-catalog-authority", "built-in-rpc-matrix"],
         ),
         fixture(
-            "catalog-repair-restart",
-            "Active catalog repair restart persistence check",
-            &["active-catalog-repair"],
+            "catalog-authority-restart",
+            "Active catalog authority restart persistence check",
+            &["active-catalog-authority"],
         ),
         fixture(
             "password-change",
@@ -484,32 +484,32 @@ pub(crate) fn select_run_fixtures(run_args: &RunArgs) -> Result<Vec<Fixture>> {
         }
     }
 
-    let has_catalog_repair = selected
+    let has_catalog_authority = selected
         .iter()
-        .any(|fixture| fixture.id == "catalog-repair");
-    let has_catalog_repair_restart = selected
+        .any(|fixture| fixture.id == "catalog-authority");
+    let has_catalog_authority_restart = selected
         .iter()
-        .any(|fixture| fixture.id == "catalog-repair-restart");
-    if has_catalog_repair_restart && !has_catalog_repair {
-        let catalog_repair = integration_fixtures()
+        .any(|fixture| fixture.id == "catalog-authority-restart");
+    if has_catalog_authority_restart && !has_catalog_authority {
+        let catalog_authority = integration_fixtures()
             .into_iter()
-            .find(|fixture| fixture.id == "catalog-repair")
-            .ok_or_else(|| miette!("catalog-repair dependency is not registered"))?;
+            .find(|fixture| fixture.id == "catalog-authority")
+            .ok_or_else(|| miette!("catalog-authority dependency is not registered"))?;
         let restart_index = selected
             .iter()
-            .position(|fixture| fixture.id == "catalog-repair-restart")
-            .ok_or_else(|| miette!("catalog-repair-restart fixture was not selected"))?;
-        selected.insert(restart_index, catalog_repair);
-    } else if has_catalog_repair && !has_catalog_repair_restart {
-        let catalog_repair_restart = integration_fixtures()
+            .position(|fixture| fixture.id == "catalog-authority-restart")
+            .ok_or_else(|| miette!("catalog-authority-restart fixture was not selected"))?;
+        selected.insert(restart_index, catalog_authority);
+    } else if has_catalog_authority && !has_catalog_authority_restart {
+        let catalog_authority_restart = integration_fixtures()
             .into_iter()
-            .find(|fixture| fixture.id == "catalog-repair-restart")
-            .ok_or_else(|| miette!("catalog-repair-restart dependency is not registered"))?;
-        let catalog_repair_index = selected
+            .find(|fixture| fixture.id == "catalog-authority-restart")
+            .ok_or_else(|| miette!("catalog-authority-restart dependency is not registered"))?;
+        let catalog_authority_index = selected
             .iter()
-            .position(|fixture| fixture.id == "catalog-repair")
-            .ok_or_else(|| miette!("catalog-repair fixture was not selected"))?;
-        selected.insert(catalog_repair_index + 1, catalog_repair_restart);
+            .position(|fixture| fixture.id == "catalog-authority")
+            .ok_or_else(|| miette!("catalog-authority fixture was not selected"))?;
+        selected.insert(catalog_authority_index + 1, catalog_authority_restart);
     }
 
     Ok(selected)
@@ -594,8 +594,8 @@ mod tests {
                 "resources:rust",
                 "resources:typescript",
                 "jobs",
-                "catalog-repair",
-                "catalog-repair-restart",
+                "catalog-authority",
+                "catalog-authority-restart",
                 "password-change",
             ]
         );
@@ -753,9 +753,9 @@ mod tests {
     }
 
     #[test]
-    fn adds_catalog_repair_dependency_for_restart_fixture() {
+    fn adds_catalog_authority_dependency_for_restart_fixture() {
         let run_args = RunArgs {
-            fixtures: vec!["catalog-repair-restart".to_string()],
+            fixtures: vec!["catalog-authority-restart".to_string()],
             ..RunArgs::default()
         };
 
@@ -764,14 +764,14 @@ mod tests {
 
         assert_eq!(
             selected_ids,
-            vec!["catalog-repair", "catalog-repair-restart"]
+            vec!["catalog-authority", "catalog-authority-restart"]
         );
     }
 
     #[test]
-    fn adds_catalog_repair_restart_when_catalog_repair_is_selected() {
+    fn adds_catalog_authority_restart_when_catalog_authority_is_selected() {
         let run_args = RunArgs {
-            fixtures: vec!["catalog-repair".to_string()],
+            fixtures: vec!["catalog-authority".to_string()],
             ..RunArgs::default()
         };
 
@@ -780,7 +780,7 @@ mod tests {
 
         assert_eq!(
             selected_ids,
-            vec!["catalog-repair", "catalog-repair-restart"]
+            vec!["catalog-authority", "catalog-authority-restart"]
         );
     }
 

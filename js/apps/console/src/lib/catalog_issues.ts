@@ -34,8 +34,8 @@ export function isContractDependencyBlock(issue: CatalogIssueLike): boolean {
   return issue.kind === "invalid-active-contract-uses";
 }
 
-/** Returns true when a catalog issue can be repaired by the forced update flow. */
-export function isForcedUpdateRepair(issue: CatalogIssueLike): boolean {
+/** Returns true when a catalog issue requires an authority migration review. */
+export function isAuthorityMigrationIssue(issue: CatalogIssueLike): boolean {
   return issue.kind === "incompatible-active-contract";
 }
 

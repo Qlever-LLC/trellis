@@ -26,7 +26,7 @@ Contracts declare capability requirements on RPCs, operations, events, and
 feeds. The owning contract may also declare human-facing metadata for each owned
 capability so approval UIs can explain the requested authority without inventing
 a separate scope catalog. Deployments grant capabilities through roles, groups,
-envelope grant overrides, or external identity mappings.
+grant overrides, or external identity mappings.
 
 Rules:
 
@@ -38,12 +38,12 @@ Rules:
 - contracts SHOULD declare top-level metadata for every capability they own
 - deployments assign capability bundles to users and services
 - deployments MAY also assign auth-owned dynamic capability overlays through
-  envelope grant overrides keyed by `contractId + origin` for web grants or
+  grant overrides keyed by `contractId + origin` for web grants or
   `contractId + sessionPublicKey` for session-keyed grants
-- services receive deployment policy through deployment-envelope creation,
-  expansion, and shrink decisions
+- services receive deployment policy through deployment authority
+  materialization and current materialized authority
 - authorization changes take effect immediately because auth derives subjects
-  from envelope-compatible presented contracts and current grants
+  from presented contracts, materialized authority, and current grants
 - auth-owned self-service RPCs may intentionally require zero granted
   capabilities when ordinary authenticated user context is sufficient, such as
   `Auth.Sessions.Me` and `Auth.Sessions.Logout`
@@ -51,9 +51,9 @@ Rules:
   strings; approval payloads carry capability metadata objects keyed by those
   strings
 
-Envelope grant overrides are deployment policy, not user-owned grants. They must
-not be copied onto the user projection, and they may be revoked dynamically so
-affected delegated sessions must reconnect and re-evaluate current policy.
+Grant overrides are deployment policy, not user-owned grants. They must not be
+copied onto the user projection, and they may be revoked dynamically so affected
+delegated sessions must reconnect and re-evaluate current policy.
 
 ## Capability Naming
 
@@ -111,8 +111,8 @@ Some operations require both:
 - the needed capabilities
 - a registered service identity
 
-Auth enforces this using service identity plus an envelope-compatible presented
-contract.
+Auth enforces this using service identity plus a presented contract compatible
+with the materialized authority.
 
 ## Future Direction
 

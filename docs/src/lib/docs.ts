@@ -495,7 +495,7 @@ const typescriptServiceTutorialDocs: DocEntry[] = [
   {
     title: "Development loop",
     description:
-      "Know when to regenerate artifacts, update the deployment envelope, and restart the service.",
+      "Know when to regenerate artifacts, review deployment authority, and restart the service.",
     href: "/guides/write-a-service/development-loop",
     section: "Getting started",
     sidebarGroup: typescriptServiceTutorialGroup,
@@ -533,10 +533,10 @@ const conceptDocs: DocEntry[] = [
     section: "Trellis Concepts",
   },
   {
-    title: "Envelopes",
+    title: "Deployment authority",
     description:
-      "Identity and deployment authority, boundary expansion, availability, liveness, grant overrides, and contract evidence.",
-    href: "/guides/concepts/envelopes",
+      "Deployment authority, identity authority, authority updates, reconciliation, availability, liveness, grant overrides, and contract evidence.",
+    href: "/guides/concepts/deployment-authority",
     section: "Trellis Concepts",
   },
   {

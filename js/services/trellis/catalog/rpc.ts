@@ -12,12 +12,16 @@ import type {
   TrellisSurfaceStatusResponse,
 } from "../../../packages/trellis/models/trellis/rpc/TrellisSurfaceStatus.ts";
 import { TrellisSurfaceStatusRequestSchema } from "../../../packages/trellis/models/trellis/rpc/TrellisSurfaceStatus.ts";
-import type { EnvelopeSurfaceAction } from "../auth/schemas.ts";
+import type {
+  DeploymentAuthority,
+  DeploymentAuthorityMaterialization,
+  DeploymentAuthoritySurfaceAction,
+  DeploymentResourceBinding,
+} from "../auth/schemas.ts";
 import { hasRequiredCapabilities } from "./permissions.ts";
 import type { ContractsModule } from "./runtime.ts";
 import type { SqlContractStorageRepository } from "./storage.ts";
 import type {
-  SqlDeploymentEnvelopeRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
   SqlImplementationOfferRepository,
@@ -26,6 +30,7 @@ import type {
 } from "../auth/storage.ts";
 import type { AuthRuntimeDeps } from "../auth/runtime_deps.ts";
 import { connectionFilterForSession } from "../auth/session/connections.ts";
+import { analyzeContractProposal } from "../auth/contract_proposal_analysis.ts";
 
 type CatalogLogger = {
   trace: (fields: Record<string, unknown>, message: string) => void;
@@ -34,6 +39,77 @@ type CatalogLogger = {
 const noopLogger: CatalogLogger = {
   trace: () => {},
 };
+
+function resourceKey(kind: string, alias: string): string {
+  return `${kind}\u001f${alias}`;
+}
+
+function resourceBindingsForResponse(
+  records: DeploymentResourceBinding[],
+): Record<string, unknown> {
+  const resources: Record<string, unknown> = {};
+  const resourcesByKind: Record<string, Record<string, unknown>> = {};
+  let jobsBinding:
+    | {
+      namespace: unknown;
+      workStream?: unknown;
+      queues: Record<string, Record<string, unknown>>;
+    }
+    | undefined;
+  for (const record of records) {
+    if (record.kind === "jobs") {
+      const { namespace, workStream, ...queueBinding } = record.binding;
+      jobsBinding ??= {
+        namespace,
+        ...(workStream !== undefined ? { workStream } : {}),
+        queues: {},
+      };
+      jobsBinding.queues[record.alias] = queueBinding;
+      continue;
+    }
+
+    const responseKind = record.kind === "event-consumer"
+      ? "eventConsumers"
+      : record.kind;
+    resourcesByKind[responseKind] ??= {};
+    resourcesByKind[responseKind][record.alias] = record.binding;
+  }
+  for (const [kind, bindings] of Object.entries(resourcesByKind)) {
+    resources[kind] = bindings;
+  }
+  if (jobsBinding) resources.jobs = jobsBinding;
+  return resources;
+}
+
+async function requestedMaterializedBindings(input: {
+  contracts: Pick<
+    ContractsModule,
+    | "getContract"
+    | "validateContract"
+    | "getActiveEntries"
+    | "getKnownEntriesByContractId"
+  >;
+  materializedAuthority: DeploymentAuthorityMaterialization;
+  contractDigest: string;
+}): Promise<DeploymentResourceBinding[]> {
+  const contract = await input.contracts.getContract(input.contractDigest);
+  if (!contract) return [];
+  const analysis = await analyzeContractProposal(input.contracts, contract, {
+    dependencyResolution: "known",
+  });
+  const requestedKeys = new Set(
+    [
+      ...analysis.required.resources,
+      ...analysis.optional.resources,
+      ...analysis.contributedAvailability.resources,
+    ]
+      .filter((resource) => resource.kind !== "transfer")
+      .map((resource) => resourceKey(resource.kind, resource.alias)),
+  );
+  return input.materializedAuthority.resourceBindings.filter((binding) =>
+    requestedKeys.has(resourceKey(binding.kind, binding.alias))
+  );
+}
 
 function toOpenSchemaValue(
   value: NonNullable<TrellisContractV1["schemas"]>[string],
@@ -98,9 +174,16 @@ type SurfaceCapabilities = {
   digestCapabilities: Array<{ digest: string; requiredCapabilities: string[] }>;
 };
 type DigestCapabilities = SurfaceCapabilities["digestCapabilities"][number];
-type DeploymentEnvelopeStorage = Pick<
-  SqlDeploymentEnvelopeRepository,
-  "listEnabledByContractId" | "listEnabledBySurface"
+type DeploymentAuthorityStorage = Pick<
+  {
+    listEnabledBySurface(surface: {
+      contractId: string;
+      kind: "rpc" | "operation" | "event" | "feed";
+      name: string;
+      action?: DeploymentAuthoritySurfaceAction;
+    }): Promise<DeploymentAuthority[]>;
+  },
+  "listEnabledBySurface"
 >;
 type ImplementationOfferStorage = Pick<
   SqlImplementationOfferRepository,
@@ -230,7 +313,7 @@ function requiredSurfaceCapabilities(
 
 function defaultSurfaceAction(
   req: TrellisSurfaceStatusRequest,
-): EnvelopeSurfaceAction {
+): DeploymentAuthoritySurfaceAction {
   if (req.kind === "event") {
     return req.action === "publish" ? "publish" : "subscribe";
   }
@@ -319,7 +402,22 @@ export function createTrellisContractGetHandler(
 }
 
 export function createTrellisBindingsGetHandler(opts: {
+  contracts: Pick<
+    ContractsModule,
+    | "getContract"
+    | "validateContract"
+    | "getActiveEntries"
+    | "getKnownEntriesByContractId"
+  >;
   serviceInstanceStorage: SqlServiceInstanceRepository;
+  deploymentAuthorityStorage: {
+    get(deploymentId: string): Promise<DeploymentAuthority | undefined>;
+  };
+  materializedAuthorityStorage: {
+    get(
+      deploymentId: string,
+    ): Promise<DeploymentAuthorityMaterialization | undefined>;
+  };
   implementationOfferStorage: ImplementationOfferStorage;
   logger?: CatalogLogger;
 }) {
@@ -356,10 +454,6 @@ export function createTrellisBindingsGetHandler(opts: {
     }
 
     const input = req ?? {};
-    if (!svc.resourceBindings) {
-      return Result.ok({ binding: undefined });
-    }
-
     const now = new Date();
     const matchingOffer = (await opts.implementationOfferStorage.listByInstance(
       svc.instanceId,
@@ -375,11 +469,33 @@ export function createTrellisBindingsGetHandler(opts: {
 
     if (!matchingOffer) return Result.ok({ binding: undefined });
 
+    const authority = await opts.deploymentAuthorityStorage.get(
+      svc.deploymentId,
+    );
+    const materializedAuthority = await opts.materializedAuthorityStorage.get(
+      svc.deploymentId,
+    );
+    if (
+      !authority || authority.disabled || !materializedAuthority ||
+      materializedAuthority.status !== "current" ||
+      materializedAuthority.desiredVersion !== authority.version
+    ) {
+      return Result.ok({ binding: undefined });
+    }
+
+    const resources = resourceBindingsForResponse(
+      await requestedMaterializedBindings({
+        contracts: opts.contracts,
+        materializedAuthority,
+        contractDigest: matchingOffer.contractDigest,
+      }),
+    );
+
     return Result.ok({
       binding: {
         contractId: matchingOffer.contractId,
         digest: matchingOffer.contractDigest,
-        resources: svc.resourceBindings,
+        resources,
       },
     });
   };
@@ -398,7 +514,7 @@ export function createTrellisSurfaceStatusHandler(opts: {
     "listByDeploymentsAndStates"
   >;
   deviceDeploymentStorage: Pick<SqlDeviceDeploymentRepository, "get">;
-  deploymentEnvelopeStorage: DeploymentEnvelopeStorage;
+  deploymentAuthorityStorage: DeploymentAuthorityStorage;
   implementationOfferStorage: ImplementationOfferStorage;
   connectionsKV: AuthRuntimeDeps["connectionsKV"];
   logger?: CatalogLogger;
@@ -456,15 +572,18 @@ export function createTrellisSurfaceStatusHandler(opts: {
     }
     const { requiredCapabilities } = surfaceCapabilities;
     const action = defaultSurfaceAction(req);
-    const envelopes = await opts.deploymentEnvelopeStorage.listEnabledBySurface(
-      {
-        contractId: req.contractId,
-        kind: req.kind,
-        name: req.surface,
-        action,
-      },
+    const authorities = await opts.deploymentAuthorityStorage
+      .listEnabledBySurface(
+        {
+          contractId: req.contractId,
+          kind: req.kind,
+          name: req.surface,
+          action,
+        },
+      );
+    const deploymentIds = authorities.map((authority) =>
+      authority.deploymentId
     );
-    const deploymentIds = envelopes.map((envelope) => envelope.deploymentId);
     const activeOffers = await opts.implementationOfferStorage
       .listActiveByContractId(req.contractId);
     const activeOffersByDeployment = new Map<string, Set<string>>();
@@ -487,12 +606,12 @@ export function createTrellisSurfaceStatusHandler(opts: {
         instanceDigests.add(offer.contractDigest);
       }
     }
-    const availableEnvelopes = envelopes.filter((envelope) =>
-      (activeOffersByDeployment.get(envelope.deploymentId)?.size ?? 0) > 0
+    const availableAuthorities = authorities.filter((authority) =>
+      (activeOffersByDeployment.get(authority.deploymentId)?.size ?? 0) > 0
     );
     const availableDigests = new Set(
-      availableEnvelopes.flatMap((envelope) => {
-        const digests = activeOffersByDeployment.get(envelope.deploymentId);
+      availableAuthorities.flatMap((authority) => {
+        const digests = activeOffersByDeployment.get(authority.deploymentId);
         return digests ? [...digests] : [];
       }),
     );
@@ -503,7 +622,7 @@ export function createTrellisSurfaceStatusHandler(opts: {
       );
     if (candidateCapabilities.length === 0) {
       return Result.ok({
-        status: { state: "unavailable", reason: "envelope_unavailable" },
+        status: { state: "unavailable", reason: "authority_unavailable" },
       });
     }
 
@@ -534,13 +653,13 @@ export function createTrellisSurfaceStatusHandler(opts: {
     }
 
     const availableDeploymentIds = new Set(
-      availableEnvelopes
-        .filter((envelope) => {
-          const digests = activeOffersByDeployment.get(envelope.deploymentId);
+      availableAuthorities
+        .filter((authority) => {
+          const digests = activeOffersByDeployment.get(authority.deploymentId);
           return digests !== undefined &&
             [...digests].some((digest) => authorizedDigests.has(digest));
         })
-        .map((envelope) => envelope.deploymentId),
+        .map((authority) => authority.deploymentId),
     );
     const instances = await opts.serviceInstanceStorage
       .listByDeployments(availableDeploymentIds);

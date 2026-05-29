@@ -19,23 +19,26 @@ fn parses_login_logout_and_whoami_top_level_commands() {
 }
 
 #[test]
-fn parses_approvals_revoke_identity_envelope_id_positional() {
+fn parses_identity_grants_revoke_identity_grant_id_positional() {
     let cli = Cli::parse_from([
         "trellis",
-        "approvals",
+        "identity",
+        "grants",
         "revoke",
-        "ienv_123",
+        "igrnt_123",
         "--user",
         "user_123",
     ]);
 
     match cli.command {
-        TopLevelCommand::Approvals(command) => match command.command {
-            ApprovalsSubcommand::Revoke(args) => {
-                assert_eq!(args.identity_envelope_id, "ienv_123");
-                assert_eq!(args.user.as_deref(), Some("user_123"));
-            }
-            other => panic!("unexpected approvals command: {other:?}"),
+        TopLevelCommand::Identity(command) => match command.command {
+            IdentitySubcommand::Grants(command) => match command.command {
+                IdentityGrantsSubcommand::Revoke(args) => {
+                    assert_eq!(args.identity_grant_id, "igrnt_123");
+                    assert_eq!(args.user.as_deref(), Some("user_123"));
+                }
+                other => panic!("unexpected identity grants command: {other:?}"),
+            },
         },
         other => panic!("unexpected top-level command: {other:?}"),
     }
@@ -169,7 +172,7 @@ fn parses_top_level_grant_commands() {
                 assert_eq!(args.deployment, "billing");
                 assert_eq!(
                     args.grant.identity_kind,
-                    DeploymentGrantOverrideIdentityKind::Web
+                    DeploymentAuthorityGrantOverrideIdentityKind::Web
                 );
                 assert_eq!(
                     args.grant.contract_id.as_deref(),
@@ -211,7 +214,7 @@ fn parses_top_level_grant_commands() {
                 assert_eq!(args.deployment, "reader");
                 assert_eq!(
                     args.grant.identity_kind,
-                    DeploymentGrantOverrideIdentityKind::Session
+                    DeploymentAuthorityGrantOverrideIdentityKind::Session
                 );
                 assert_eq!(args.grant.contract_id.as_deref(), Some("trellis.reader@v1"));
                 assert_eq!(
@@ -316,7 +319,7 @@ fn service_and_device_help_shows_native_target_first_usage() {
     assert!(svc_help.contains("<ID> and <COMMAND> are required"));
     assert!(!svc_help.contains("[ID]"));
     assert!(svc_help.contains("apply"));
-    assert!(svc_help.contains("expansions"));
+    assert!(svc_help.contains("authority"));
     assert!(!svc_help.contains("grants"));
 
     let dev_error = Cli::try_parse_from(["trellis", "dev", "--help"])
@@ -390,23 +393,81 @@ fn parses_target_first_service_and_device_resource_tokens() {
         "trellis",
         "svc",
         "billing",
-        "expansions",
-        "approve",
-        "request_123",
-        "--reason",
-        "approved_by_operator",
+        "authority",
+        "accept-update",
+        "plan_123",
+        "--expected-desired-version",
+        "version_123",
     ]);
     match cli.command {
         TopLevelCommand::Svc(command) => {
             assert_eq!(command.id.as_deref(), Some("billing"));
             match command.command {
-                SvcSubcommand::Resource(SvcResourceAction::Expansions(
-                    SvcExpansionsCommand::Approve(args),
+                SvcSubcommand::Resource(SvcResourceAction::Authority(
+                    DeploymentAuthorityCommand::AcceptUpdate(args),
                 )) => {
-                    assert_eq!(args.request_id, "request_123");
-                    assert_eq!(args.reason.as_deref(), Some("approved_by_operator"));
+                    assert_eq!(args.plan_id, "plan_123");
+                    assert_eq!(
+                        args.expected_desired_version.as_deref(),
+                        Some("version_123")
+                    );
                 }
                 other => panic!("unexpected svc command: {other:?}"),
+            }
+        }
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+
+    let cli = Cli::parse_from([
+        "trellis",
+        "svc",
+        "billing",
+        "authority",
+        "plan",
+        "list",
+        "--state",
+        "pending",
+        "--classification",
+        "migration",
+    ]);
+    match cli.command {
+        TopLevelCommand::Svc(command) => {
+            assert_eq!(command.id.as_deref(), Some("billing"));
+            match command.command {
+                SvcSubcommand::Resource(SvcResourceAction::Authority(
+                    DeploymentAuthorityCommand::Plan(AuthorityPlanCommand::List(args)),
+                )) => {
+                    assert_eq!(args.state, Some(DeploymentAuthorityPlanState::Pending));
+                    assert_eq!(
+                        args.classification,
+                        Some(DeploymentAuthorityPlanClassification::Migration)
+                    );
+                }
+                other => panic!("unexpected svc command: {other:?}"),
+            }
+        }
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+
+    let cli = Cli::parse_from([
+        "trellis",
+        "dev",
+        "reader",
+        "authority",
+        "plan",
+        "show",
+        "plan_123",
+    ]);
+    match cli.command {
+        TopLevelCommand::Dev(command) => {
+            assert_eq!(command.id.as_deref(), Some("reader"));
+            match command.command {
+                DevSubcommand::Resource(DevResourceAction::Authority(
+                    DeploymentAuthorityCommand::Plan(AuthorityPlanCommand::Show(args)),
+                )) => {
+                    assert_eq!(args.plan_id, "plan_123");
+                }
+                other => panic!("unexpected dev command: {other:?}"),
             }
         }
         other => panic!("unexpected top-level command: {other:?}"),

@@ -85,11 +85,17 @@ Rules:
 - direct event publish is the default; use a prepared event and service-owned
   outbox only when event publication must be coupled to service-local durable
   state
+- outbox dispatch MAY use a process-local wakeup helper to reduce latency, but
+  the wakeup MUST happen after the outbox write commits; enqueueing a row inside
+  a transaction must not directly publish work that can later roll back
 - consumers should use an inbox only for handlers that are not naturally
   idempotent
 - SQL services own migrations and transactions for local state, outbox rows, and
   inbox rows; NATS KV inbox/outbox helpers provide durable dedupe/queue storage
   but are not transactional with unrelated database side effects
+- process-local outbox wakeups are latency optimizations only; durable retry and
+  recovery still depend on persisted outbox state and an explicit dispatch or
+  recovery scan
 - a prepared event transport record MUST NOT duplicate the publisher's contract
   id or contract digest
 - event subscribe permissions are event-type gates, not per-entity ACLs; do not

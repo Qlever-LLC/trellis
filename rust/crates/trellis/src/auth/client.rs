@@ -1,7 +1,7 @@
 use super::{
-    AdminSessionState, ApprovalEntryRecord, AuthRequestsValidateRequest,
-    AuthRequestsValidateResponse, AuthenticatedUser, ListApprovalsRequest, RevokeApprovalRequest,
-    TrellisAuthError,
+    AdminSessionState, AuthRequestsValidateRequest, AuthRequestsValidateResponse,
+    AuthenticatedUser, IdentityGrantEntryRecord, ListIdentityGrantsRequest,
+    RevokeIdentityGrantRequest, TrellisAuthError,
 };
 use crate::client::{RpcDescriptor, TrellisClient, UserConnectOptions};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -12,7 +12,7 @@ use crate::sdk::auth::{
     rpc::{
         AuthCapabilitiesListRpc, AuthCapabilityGroupsListRpc, AuthDeploymentsCreateRpc,
         AuthDeploymentsDisableRpc, AuthDeploymentsEnableRpc, AuthDeploymentsListRpc,
-        AuthDeploymentsRemoveRpc, AuthIdentitiesListRpc, AuthIdentityEnvelopesRevokeRpc,
+        AuthDeploymentsRemoveRpc, AuthIdentityGrantsListRpc, AuthIdentityGrantsRevokeRpc,
         AuthSessionsListRpc, AuthSessionsMeRpc, AuthUsersCreateRpc, AuthUsersGetRpc,
         AuthUsersListRpc, AuthUsersPasswordResetCreateRpc, AuthUsersUpdateRpc, Empty,
     },
@@ -140,42 +140,42 @@ impl<'a> AuthClient<'a> {
         }
     }
 
-    /// List stored app approval decisions.
-    pub async fn list_approvals(
+    /// List delegated identity grants.
+    pub async fn list_identity_grants(
         &self,
         user: Option<&str>,
         digest: Option<&str>,
-    ) -> Result<Vec<ApprovalEntryRecord>, TrellisAuthError> {
-        let request = ListApprovalsRequest {
+    ) -> Result<Vec<IdentityGrantEntryRecord>, TrellisAuthError> {
+        let request = ListIdentityGrantsRequest {
             limit: AUTH_CLIENT_LIST_LIMIT,
             offset: None,
             user: user.map(ToOwned::to_owned),
         };
-        let approvals = self
-            .call_rpc::<AuthIdentitiesListRpc>(&request)
+        let identity_grants = self
+            .call_rpc::<AuthIdentityGrantsListRpc>(&request)
             .await?
             .entries;
         Ok(match digest {
-            Some(digest) => approvals
+            Some(digest) => identity_grants
                 .into_iter()
                 .filter(|entry| entry.contract_evidence.contract_digest == digest)
                 .collect(),
-            None => approvals,
+            None => identity_grants,
         })
     }
 
-    /// Revoke one stored approval decision.
-    pub async fn revoke_approval(
+    /// Revoke one delegated identity grant.
+    pub async fn revoke_identity_grant(
         &self,
-        identity_envelope_id: &str,
+        identity_grant_id: &str,
         user: Option<&str>,
     ) -> Result<bool, TrellisAuthError> {
-        let request = RevokeApprovalRequest {
-            identity_envelope_id: identity_envelope_id.to_string(),
+        let request = RevokeIdentityGrantRequest {
+            identity_grant_id: identity_grant_id.to_string(),
             user: user.map(ToOwned::to_owned),
         };
         Ok(self
-            .call_rpc::<AuthIdentityEnvelopesRevokeRpc>(&request)
+            .call_rpc::<AuthIdentityGrantsRevokeRpc>(&request)
             .await?
             .success)
     }

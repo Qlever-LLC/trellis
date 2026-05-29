@@ -8,8 +8,8 @@ order: 30
 
 ## Prerequisites
 
-- [trellis-auth.md](./trellis-auth.md) - auth architecture and identity-envelope
-  model
+- [trellis-auth.md](./trellis-auth.md) - auth architecture and identity
+  authority model
 - [auth-protocol.md](./auth-protocol.md) - proofs, connect tokens, and internal
   state rules
 
@@ -36,15 +36,20 @@ Public names use the resource group before the action. Examples:
 
 - `Auth.Deployments.Create`
 - `Auth.Devices.List`
-- `Auth.Envelopes.Expand`
-- `Auth.Envelopes.Shrink`
-- `Auth.EnvelopeExpansions.Approve`
-- `Auth.EnvelopeExpansions.List`
+- `Auth.DeploymentAuthority.List`
+- `Auth.DeploymentAuthority.Get`
+- `Auth.DeploymentAuthority.Plans.List`
+- `Auth.DeploymentAuthority.Plans.Get`
+- `Auth.DeploymentAuthority.Plan`
+- `Auth.DeploymentAuthority.AcceptUpdate`
+- `Auth.DeploymentAuthority.AcceptMigration`
+- `Auth.DeploymentAuthority.Reject`
+- `Auth.DeploymentAuthority.Reconcile`
 
-Shared approval capability views use this shape:
+Shared browser-consent capability views use this shape:
 
 ```ts
-type ContractApprovalCapability = {
+type ContractConsentCapability = {
   displayName: string;
   description: string;
   consequence?: string;
@@ -112,7 +117,7 @@ Request body:
 | `redirectTo` | yes      | Post-login redirect URL                                                                                                                                  |
 | `sessionKey` | yes      | Client public session key                                                                                                                                |
 | `sig`        | yes      | `sign(hash("oauth-init:" + redirectTo + ":" + (provider ?? "") + ":" + canonicalJson(contract) + ":" + canonicalJson(context ?? null)))` by `sessionKey` |
-| `contract`   | yes      | Initiating user-client contract manifest JSON for portal routing and approval planning                                                                   |
+| `contract`   | yes      | Initiating user-client contract manifest JSON for portal routing and consent planning                                                                    |
 | `context`    | no       | Opaque JSON payload for app and portal coordination                                                                                                      |
 
 Behavior:
@@ -121,7 +126,7 @@ Behavior:
 2. Verify `sig` by `sessionKey`
 3. Validate the initiating contract and compute its digest
 4. If an existing delegated user session for that `sessionKey` already covers
-   the requested contract envelope, rebind immediately and return
+   the requested contract access, rebind immediately and return
    `status: "bound"`
 5. Otherwise create an auth-owned browser flow record
 6. Resolve login portal routing from auth-owned portal route selectors using app
@@ -133,8 +138,8 @@ Behavior:
 Rules:
 
 - user-facing apps and tools send their contract manifest when they initiate
-  login; they are approved per-user during auth rather than pre-installed like
-  services
+  login; they receive per-user consent during auth rather than being
+  pre-installed like services
 - app, CLI, and native auth may present a contract digest first; when auth does
   not know that digest it returns `manifest_required`, and the client retries
   with the full manifest for validation, digest verification, and flow storage
@@ -144,13 +149,13 @@ Rules:
   app-owned opaque data
 - a portal is trusted for this redirect only because auth-owned login portal
   routing selected it for the flow; portal routes do not by themselves grant
-  delegated approval or service authority
+  delegated consent or service authority
 - first login does not require pre-registering a portal because the built-in
   Trellis login portal is always available
 - auth MAY apply a matching grant override for the app's contract id and origin;
-  when one matches, or when an existing identity envelope already grants a
-  strict superset of the requested boundary for the same app identity, auth may
-  skip browser UX and return `bound` directly
+  when one matches, or when existing identity authority already grants a strict
+  superset of the requested access for the same app identity, auth may skip
+  browser UX and return `bound` directly
 
 ### GET /auth/login/:provider
 
@@ -265,7 +270,7 @@ type PortalFlowState =
       contractDigest: string;
       displayName: string;
       description: string;
-      capabilities: Record<string, ContractApprovalCapability>;
+      capabilities: Record<string, ContractConsentCapability>;
     };
   }
   | {
@@ -277,7 +282,7 @@ type PortalFlowState =
       contractDigest: string;
       displayName: string;
       description: string;
-      capabilities: Record<string, ContractApprovalCapability>;
+      capabilities: Record<string, ContractConsentCapability>;
     };
   }
   | {
@@ -288,7 +293,7 @@ type PortalFlowState =
       contractDigest: string;
       displayName: string;
       description: string;
-      capabilities: Record<string, ContractApprovalCapability>;
+      capabilities: Record<string, ContractConsentCapability>;
     };
     missingCapabilities: string[];
     userCapabilities: string[];
@@ -312,9 +317,9 @@ Rules:
 - portal MUST treat `redirect.location` as an opaque next auth step
 - `redirect.location` may point back to the originating browser app or to
   another auth-owned step in the same login flow
-- `approval_denied` is a compatibility/fallback state for already-materialized
-  denied flow state; normal user denial returns `redirect` to the originating
-  app with `authError=approval_denied`, and portal helpers MAY treat an
+- `approval_denied` is a fallback state for stored denied flow state; normal
+  user denial returns `redirect` to the originating app with
+  `authError=approval_denied`, and portal helpers MAY treat an
   `approval_denied.returnLocation` as an immediate redirect target
 - for detached CLI/native login, `redirect.location` may resolve to the same
   portal login page; the built-in Trellis portal treats that same-page redirect
@@ -371,23 +376,23 @@ Rules:
 
 ### POST /auth/flow/:flowId/approval
 
-Accepts the portal approval decision for the contract attached to the browser
-flow and returns the next `PortalFlowState`. This endpoint replaces
-server-rendered approval forms.
+Accepts the portal consent decision for the contract attached to the browser
+flow and returns the next `PortalFlowState`. The endpoint path is retained as a
+public browser-flow URL shape.
 
 Rules:
 
-- the portal is not trusted as a service when it submits an approval decision
+- the portal is not trusted as a service when it submits a consent decision
 - auth trusts only the active browser flow identified by `flowId` and the
   server-owned state attached to that flow
 - public portal helpers may expose decisions as `"approved" | "denied"`, but the
   HTTP request body remains the canonical boolean shape below
-- `approved: true` persists the approved contract decision when no existing
-  account-scoped identity envelope or grant override already covers the request,
-  then returns the normal redirect/bind continuation
-- persisted approval reuse is scoped to the Trellis user account and app
-  identity anchor; the current provider origin/subject is retained as audit
-  evidence and is not the approval matching key
+- `approved: true` persists the identity grant when no existing account-scoped
+  identity authority or grant override already covers the request, then returns
+  the normal redirect/bind continuation
+- persisted consent reuse is scoped to the Trellis user account and app identity
+  anchor; the current provider origin/subject is retained as audit evidence and
+  is not the matching key
 - `approved: false` does not persist a denied contract decision; it consumes the
   pending browser flow and returns a redirect to the caller's `redirectTo` with
   `authError=approval_denied`
@@ -445,7 +450,7 @@ type BindResponse =
       contractId: string;
       displayName: string;
       description: string;
-      capabilities: Record<string, ContractApprovalCapability>;
+      capabilities: Record<string, ContractConsentCapability>;
     };
     missingCapabilities: string[];
     userCapabilities: string[];
@@ -459,7 +464,7 @@ Behavior:
 3. Verify `sessionKey` and `sig`
 4. Read the contract already associated with the pending login
 5. Validate the contract, compute digest, derive required capabilities, and
-   check approval
+   check identity authority
 6. Reject the bind if the user projection is inactive
 7. Consume the pending auth state
 8. Create or recover the session record keyed by `sessionKey`
@@ -474,13 +479,13 @@ Behavior:
 Rules:
 
 - normal browser and detached CLI/native flows bind only through the auth-owned
-  browser flow after Trellis has already recorded an approval decision
-- flow bind still rechecks approval and capabilities defensively
+  browser flow after Trellis has already recorded a consent decision
+- flow bind still rechecks identity authority and capabilities defensively
 - portal is a browser UX surface only; bind remains auth-owned
 
-## Identity Envelope RPCs
+## Identity Authority RPCs
 
-### rpc.Auth.Identities.List
+### rpc.Auth.IdentityGrants.List
 
 Request:
 
@@ -500,7 +505,7 @@ type AuthIdentityGrantRow = {
   answer: "approved" | "denied";
   answeredAt: string;
   updatedAt: string;
-  identityEnvelopeId: string;
+  identityGrantId: string;
   identityAnchor:
     | { kind: "web"; contractId: string; origin: string }
     | { kind: "cli"; contractId: string; sessionPublicKey: string }
@@ -512,7 +517,7 @@ type AuthIdentityGrantRow = {
   };
   displayName: string;
   description: string;
-  capabilities: Record<string, ContractApprovalCapability>;
+  capabilities: Record<string, ContractConsentCapability>;
   participantKind: "app" | "agent";
 };
 
@@ -525,12 +530,12 @@ type AuthIdentityGrantRow = {
 }
 ```
 
-Callers without `admin` see only their own identity-envelope grants.
+Callers without `admin` see only their own identity grants.
 
-Identity-envelope grants are account-scoped: linked local and OIDC identities on
-the same Trellis user account see and reuse the same grants for the same app
-identity anchor. `contractDigest` and the provider identity that created the
-grant are evidence metadata, not reuse keys.
+Identity grants are account-scoped: linked local and OIDC identities on the same
+Trellis user account see and reuse the same grants for the same app identity
+anchor. `contractDigest` and the provider identity that created the grant are
+evidence metadata, not reuse keys.
 
 List RPCs use the standard live offset page shape. Requests are
 `{ offset?: number; limit: number }` plus documented filters. Responses are
@@ -540,13 +545,13 @@ change which rows appear at later offsets. `limit` is required, `offset` is
 optional and defaults to the first row, and implementations MUST apply any
 filters in the database query before applying the bound.
 
-### rpc.Auth.IdentityEnvelopes.Revoke
+### rpc.Auth.IdentityGrants.Revoke
 
 Request:
 
 ```ts
 {
-  identityEnvelopeId: string;
+  identityGrantId: string;
   user?: string;
 }
 ```
@@ -559,10 +564,10 @@ Response:
 }
 ```
 
-Revocation removes the addressed identity-envelope grant, revokes matching
-active delegated sessions, and removes reconnect authority until a new approval
-expands the identity envelope again. `contractDigest` is evidence metadata, not
-the revocation key.
+Revocation removes the addressed identity grant, revokes matching active
+delegated sessions, and removes reconnect authority until a new consent decision
+creates an identity grant again. `contractDigest` is evidence metadata, not the
+revocation key.
 
 ## Authenticated User RPCs
 
@@ -658,10 +663,12 @@ Response:
 Rules:
 
 - this is a zero-capability authenticated self-service RPC
-- user sessions receive the user envelope and null device/service entries
-- device sessions receive the device envelope and, when available, the
-  activating user in `user`
-- service sessions receive the service envelope and null user/device entries
+- user sessions receive user identity authority context and null device/service
+  entries
+- device sessions receive device materialized authority context and, when
+  available, the activating user in `user`
+- service sessions receive service materialized authority context and null
+  user/device entries
 
 ### rpc.Auth.Requests.Validate
 
@@ -739,7 +746,7 @@ state that was created at connect, bootstrap, or session binding time.
 Trellis may make it available to services automatically, without requiring every
 service contract to declare an explicit auth `uses` entry for this RPC.
 
-## Device Activation Public Surface
+## Device Activation And Deployment Authority Public Surface
 
 Detailed activation flow semantics, event ordering, and confirmation-code
 behavior are defined in [device-activation.md](./device-activation.md). This
@@ -750,8 +757,8 @@ Public auth-owned surfaces:
 - HTTP endpoints `POST /auth/devices/activate/requests`,
   `POST /auth/devices/activate/wait`, and `POST /auth/devices/connect-info`
 - operation subject `operations.v1.Auth.DeviceUserAuthorities.Resolve`
-- grouped deployment, envelope, service-instance, device-instance, and device
-  lifecycle admin RPCs under `rpc.v1.Auth.*`
+- grouped deployment, deployment-authority, service-instance, device-instance,
+  and device lifecycle admin RPCs under `rpc.v1.Auth.*`
 - event subjects `events.v1.Auth.DeviceUserAuthorities.Requested`,
   `events.v1.Auth.DeviceUserAuthorities.Approved`,
   `events.v1.Auth.DeviceUserAuthorities.Resolved`, and
@@ -762,42 +769,73 @@ Shared request and response types:
 ```ts
 type ActivationDecisionReason = string; // deployment-defined machine-readable code
 
-type EnvelopeBoundary = {
-  contracts: Array<{ contractId: string; required: boolean }>;
-  surfaces: Array<{
-    contractId: string;
-    kind: "rpc" | "operation" | "event" | "feed";
-    name: string;
-    action: "call" | "publish" | "subscribe" | "observe" | "cancel";
-    required: boolean;
-  }>;
-  capabilities: string[];
-  resources: Array<{
-    kind: "kv" | "store" | "jobs" | "transfer";
-    alias: string;
-    required: boolean;
-  }>;
+type AuthorityNeed = {
+  contractId: string;
+  kind:
+    | "rpc"
+    | "operation"
+    | "event"
+    | "feed"
+    | "kv"
+    | "store"
+    | "jobs"
+    | "transfer";
+  name: string;
+  action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
+  required: boolean;
 };
 
-type DeploymentEnvelope = {
-  deploymentId: string;
-  kind: "service" | "device" | "app" | "cli" | "native" | "device-user";
-  disabled: boolean;
-  createdAt: string;
-  updatedAt: string;
-  boundary: EnvelopeBoundary;
-};
-
-type DeploymentContractHistoryEntry = {
+type ContractProposal = {
   deploymentId: string;
   contractId: string;
   contractDigest: string;
-  action: "expanded" | "retracted";
-  reviewedBoundary: EnvelopeBoundary;
-  reviewedContract?: Record<string, unknown>;
-  actor?: Record<string, unknown> | null;
-  reason?: string | null;
+  requestedNeeds: AuthorityNeed[];
+  providedSurfaces: Array<{
+    contractId: string;
+    kind: "rpc" | "operation" | "event" | "feed";
+    name: string;
+  }>;
+  summary?: Record<string, unknown>;
+};
+
+type DeploymentAuthority = {
+  deploymentId: string;
+  kind: "service" | "device" | "app" | "cli" | "native" | "device-user";
+  disabled: boolean;
+  desiredState: {
+    needs: AuthorityNeed[];
+    capabilities: string[];
+    resources: Array<Record<string, unknown>>;
+  };
+  version: string;
   createdAt: string;
+  updatedAt: string;
+};
+
+type MaterializedAuthority = {
+  deploymentId: string;
+  desiredVersion: string;
+  status: "current" | "pending" | "failed";
+  resourceBindings: Array<Record<string, unknown>>;
+  grants: Array<Record<string, unknown>>;
+  reconciledAt: string | null;
+  error?: string;
+};
+
+type AuthorityPlan = {
+  planId: string;
+  deploymentId: string;
+  classification: "update" | "migration";
+  proposal: ContractProposal;
+  desiredChange: Record<string, unknown>;
+  materializationPreview: Record<string, unknown>;
+  warnings: string[];
+  createdAt: string;
+  expiresAt?: string;
+  state?: "pending" | "accepted" | "rejected" | "expired";
+  decisionAt?: string | null;
+  decisionBy?: Record<string, unknown> | null;
+  decisionReason?: string | null;
 };
 
 type DeploymentPortalRoute = {
@@ -808,7 +846,7 @@ type DeploymentPortalRoute = {
   updatedAt: string;
 };
 
-type DeploymentGrantOverride =
+type DeploymentAuthorityGrantOverride =
   & {
     deploymentId: string;
     contractId: string;
@@ -828,17 +866,7 @@ type DeploymentGrantOverride =
       sessionPublicKey: string;
     }
   );
-```
 
-`DeploymentContractHistoryEntry` records reviewed expansion and retraction
-events. It is audit history, not a standalone authority source. Control-plane
-approval authority comes from deployment envelopes, identity envelopes, and
-deployment grant overrides; runtime availability for non-builtin service
-contracts comes from accepted implementation offers. History rows do not promote
-non-builtin contracts into runtime authority or active implementation
-projection.
-
-```ts
 type ServiceInstance = {
   instanceId: string;
   deploymentId: string;
@@ -849,9 +877,8 @@ type ServiceInstance = {
   createdAt: string;
 };
 
-// Service instances record durable service identity, operator state, and
-// resource bindings only. Presented contract ids and digests live on service
-// sessions and accepted implementation offers, not on service-instance records.
+// Service instances record durable service identity and operator state only.
+// Runtime bindings come from materialized authority.
 
 type AuthDeployment =
   | {
@@ -880,146 +907,148 @@ type ListDeploymentsRequest = {
 };
 type ListDeploymentsResponse = PageResponse<AuthDeployment>;
 
-type ListEnvelopesRequest = {
+type ListDeploymentAuthorityRequest = {
   kind?: "service" | "device" | "app" | "cli" | "native" | "device-user";
   disabled?: boolean;
   offset?: number;
   limit: number;
 };
-type ListEnvelopesResponse = PageResponse<DeploymentEnvelope>;
+type ListDeploymentAuthorityResponse = PageResponse<DeploymentAuthority>;
 
-type GetEnvelopeRequest = { deploymentId: string };
-type GetEnvelopeResponse = {
-  envelope: DeploymentEnvelope;
-  resourceBindings: Array<Record<string, unknown>>;
-  contractHistory: DeploymentContractHistoryEntry[];
-  expansionRequests: Array<Record<string, unknown>>;
+type GetDeploymentAuthorityRequest = { deploymentId: string };
+type GetDeploymentAuthorityResponse = {
+  authority: DeploymentAuthority;
+  materializedAuthority: MaterializedAuthority | null;
   portalRoute: DeploymentPortalRoute | null;
-  grantOverrides: DeploymentGrantOverride[];
+  grantOverrides: DeploymentAuthorityGrantOverride[];
+};
+
+type PlanDeploymentAuthorityRequest = {
+  deploymentId: string;
+  contract: Record<string, unknown>;
+  expectedDigest: string;
+};
+type PlanDeploymentAuthorityResponse = { plan: AuthorityPlan };
+type ListAuthorityPlansRequest = {
+  deploymentId?: string;
+  state?: "pending" | "accepted" | "rejected" | "expired";
+  classification?: "update" | "migration";
+  kind?: "service" | "device" | "app" | "cli" | "native" | "device-user";
+  offset?: number;
+  limit: number;
+};
+type ListAuthorityPlansResponse = PageResponse<AuthorityPlan>;
+type GetAuthorityPlanRequest = { planId: string };
+type GetAuthorityPlanResponse = { plan: AuthorityPlan };
+
+type AcceptAuthorityUpdateRequest = {
+  planId: string;
+  expectedDesiredVersion?: string;
+};
+type AcceptAuthorityMigrationRequest = {
+  planId: string;
+  expectedDesiredVersion?: string;
+  acknowledgement: string;
+};
+type AcceptAuthorityResponse = { authority: DeploymentAuthority };
+
+type RejectAuthorityPlanRequest = { planId: string; reason?: string };
+type RejectAuthorityPlanResponse = { success: boolean };
+
+type ReconcileDeploymentAuthorityRequest = {
+  deploymentId: string;
+  desiredVersion?: string;
+};
+type ReconcileDeploymentAuthorityResponse = {
+  authority: DeploymentAuthority;
+  materializedAuthority: MaterializedAuthority;
 };
 
 type PutGrantOverridesRequest = {
   deploymentId: string;
-  overrides: DeploymentGrantOverride[];
+  overrides: DeploymentAuthorityGrantOverride[];
 };
 type ListGrantOverridesRequest = {
   offset?: number;
   limit: number;
 };
-type ListGrantOverridesResponse = PageResponse<DeploymentGrantOverride>;
+type ListGrantOverridesResponse = PageResponse<
+  DeploymentAuthorityGrantOverride
+>;
 type RemoveGrantOverridesRequest = {
   deploymentId: string;
-  overrides: DeploymentGrantOverride[];
+  overrides: DeploymentAuthorityGrantOverride[];
 };
-type GrantOverridesResponse = { grantOverrides: DeploymentGrantOverride[] };
-
-type ExpandEnvelopeRequest = {
-  deploymentId: string;
-  contract: Record<string, unknown>;
-  expectedDigest: string;
-};
-type ExpandEnvelopeResponse = {
-  envelope: DeploymentEnvelope;
-  delta: EnvelopeBoundary;
-  contractHistory: DeploymentContractHistoryEntry;
-  resourceBindings: Array<Record<string, unknown>>;
-};
-
-type ShrinkEnvelopeRequest = {
-  deploymentId: string;
-  proposedBoundary: EnvelopeBoundary;
-  confirm: boolean;
-};
-type ShrinkEnvelopeResponse = {
-  envelope: DeploymentEnvelope;
-  impact: Record<string, unknown>;
-  retainedResources: Array<{ kind: string; alias: string }>;
+type GrantOverridesResponse = {
+  grantOverrides: DeploymentAuthorityGrantOverride[];
 };
 ```
 
-Envelope expansion and shrink are command-style control-plane mutations. They
-are not long-running operations, but they must behave as all-or-nothing updates
-for the durable deployment record:
+Deployment authority RPCs:
 
-- `Auth.Envelopes.Expand` requires a reviewed delta, validates any presented
-  contract by recomputing its digest and derived boundary, validates the staged
-  deployment envelope, provisions or adopts every declared resource, then
-  persists the durable envelope, history, and resource binding rows atomically
-  from Trellis's perspective.
-- `Auth.Envelopes.Shrink` validates the staged deployment envelope before
-  persistence, then kicks affected runtime connections.
-- service and device deployment enable/disable mutations validate with the
-  matching staged deployment-envelope disabled state, because enabled deployment
-  envelopes determine whether a presented contract can authorize runtime access.
-- `Auth.Envelopes.GrantOverrides.Put` replaces all grant override rows for one
-  deployment. `Auth.Envelopes.GrantOverrides.List` pages grant override rows
-  across deployments. `Auth.Envelopes.GrantOverrides.Remove` removes exact
-  matching rows. Mutations return the deployment's current grant override rows.
-  Grant override rows use only two identity shapes: web rows match a
-  `contractId` plus browser `origin`, and session rows match a `contractId` plus
-  `sessionPublicKey`.
-- service and device deployment mutations fail closed when required `uses`
-  dependencies are unknown or cannot be resolved from effective active contracts
-  or the latest approved dependency fallback; Trellis validates staged state
-  before exposing it to runtime permissions.
-- catalog refresh, surface-status checks, portal routing resolution, shrink
-  previews, and unused installed-contract cleanup use targeted durable-store
-  queries for the addressed deployment, digest, route, or binding records rather
-  than broad local scans.
-- service and device deployment removal is the narrow exception: removal may
-  skip `uses` validation so operators can tear down an already-broken graph
-  instead of being trapped by stale dependencies.
-- service and device envelope changes are race-safe review submissions: auth
-  must compare the reviewed presented contract digest with the recomputed digest
-  before mutating durable deployment state.
-- if validation, resource provisioning/adoption, or SQL persistence fails after
-  creating NATS resources, auth best-effort cleans up resources created by that
-  attempt and reports failure rather than exposing a partial envelope change.
-- service bootstrap validates that the presented contract fits the enabled
-  parent deployment envelope and is compatible with the deployment's latest
-  accepted offer under the deployment compatibility mode. Instance state affects
-  runtime availability; it does not activate catalog/auth surfaces.
-- envelope expansion provisions or adopts declared `eventConsumers` as
-  deployment resource bindings. Service bootstrap resolves the stored binding,
-  which runtime auth uses to grant exact JetStream consumer info, pull-next, and
-  ack subjects to service tokens.
-- service bootstrap may create pending expansion requests from presented
-  manifests whose required boundary exceeds the deployment envelope. Unknown
-  required dependencies return dependency blockers unless a latest approved
-  dependency fallback supplies the reviewed dependency shape; bootstrap does not
-  create reviewable surfaces from historical manifests.
-- if active offers for a required dependency are mutually incompatible, service
-  bootstrap reports a catalog repair issue for that active lineage instead of
-  falling back to approved or historical manifests.
+- `Auth.DeploymentAuthority.List` pages deployment-owned desired authority.
+- `Auth.DeploymentAuthority.Get` returns desired deployment authority plus the
+  current materialized authority view, portal routing, and grant overrides.
+- `Auth.DeploymentAuthority.Plan` derives a contract proposal from the presented
+  contract, compares it with desired authority, and returns either an authority
+  update or an authority migration plan, including incompatible same-contract
+  replacement plans.
+- `Auth.DeploymentAuthority.Plans.List` pages pending and historical authority
+  plans with optional deployment, state, classification, and kind filters.
+- `Auth.DeploymentAuthority.Plans.Get` returns one pending or historical
+  authority plan.
+- `Auth.DeploymentAuthority.AcceptUpdate` accepts only plans classified as
+  `"update"`, mutates desired state, and schedules reconciliation after commit.
+- `Auth.DeploymentAuthority.AcceptMigration` accepts only plans classified as
+  `"migration"`, requires explicit admin acknowledgement, and mutates desired
+  state before scheduling reconciliation after commit.
+- `Auth.DeploymentAuthority.Reject` rejects a pending plan without mutating
+  desired or materialized authority.
+- `Auth.DeploymentAuthority.Reconcile` is an admin-triggered convergence request
+  that materializes desired state into resources, bindings, and runtime grants.
+- `Auth.DeploymentAuthority.GrantOverrides.Put` replaces all grant override rows
+  for one deployment. `Auth.DeploymentAuthority.GrantOverrides.List` pages grant
+  override rows across deployments.
+  `Auth.DeploymentAuthority.GrantOverrides.Remove` removes exact matching rows.
+  Mutations return the deployment's current grant override rows.
+
+Rules:
+
+- accepting an authority update or authority migration approves desired
+  authority changes, including resulting resource definition changes, and
+  schedules reconciliation after the desired-state commit
+- authority plans include pending requests and accepted or rejected history;
+  auto-accepted `mutable-dev` same-contract replacement migrations remain
+  visible with a recorded decision timestamp and auto-approval reason
+- reconciliation is the only path that creates, updates, removes, adopts, or
+  purges materialized resources and bindings
+- runtime bootstrap receives only current materialized authority where
+  `materializedAuthority.status === "current"` and
+  `materializedAuthority.desiredVersion === authority.version`; if desired
+  authority is accepted but not yet materialized, bootstrap waits or retries
+- service and device deployment enable/disable mutations validate against staged
+  deployment authority because enabled desired state determines what can later
+  be materialized
+- deployment authority mutations fail closed when required `uses` dependencies
+  are unknown or cannot be resolved from effective active contracts or the
+  latest accepted dependency fallback
+- service and device deployment removal may skip `uses` validation so operators
+  can tear down an already-broken graph instead of being trapped by stale
+  dependencies
+- if a same-`contractId` digest is incompatible with the deployment's latest
+  accepted digest or offer, auth classifies the replacement as an authority
+  migration. Under `strict`, auth records a pending migration plan and waits for
+  explicit admin acceptance. Under `mutable-dev`, auth records the same
+  migration plan, auto-accepts it with an auto-approval decision, mutates
+  desired authority, and schedules reconciliation.
 - missing optional dependency contracts or optional requested surfaces are
-  absent from the requested delta and grant no authority. If they later become
-  active, a fresh reconnect requests a normal expansion before receiving that
-  optional authority.
-- service-originated pending envelope expansion requests are deduplicated for
-  the connected requester and requested delta, and requests created by that
-  requester are removed when the requester disconnects. Envelope expansion stays
-  separate from same-contract replacement compatibility.
-- envelope expansion request rows returned by review/list/get/decision RPCs
-  include `contractId`, `contractDigest`, `delta`, and a compact redacted
-  contract summary, not the full stored manifest. Approval validates against the
-  full manifest stored with the request so large contracts do not exceed NATS
-  RPC payload limits during Console review.
-- if service bootstrap presents a same-`contractId` digest that is incompatible
-  with the deployment's latest accepted offer under `strict` mode, auth returns
-  `contract_compatibility_violation`. Deployments may opt into `mutable-dev` for
-  local development iteration.
-- if the deployment envelope fits but required dependency surfaces are
-  unresolved by active offers or the latest approved dependency fallback,
-  service bootstrap must not persist liveness state, accept a new offer, or
-  create resource bindings for that ready attempt.
-- if the digest presented at bootstrap no longer fits the enabled deployment
-  envelope, service bootstrap returns `contract_changed` and must not refresh
-  that offer into authority.
-- the successful service bootstrap response includes the resolved resource
+  absent from the contract proposal and grant no authority; if they later become
+  active, a fresh plan is required before a reconnect can use that optional
+  authority
+- the successful service bootstrap response includes the materialized resource
   binding payload for the presented digest; service runtimes use that binding to
   initialize KV, store, jobs, and transfer helpers without requiring a
-  post-connect `Trellis.Catalog` or `Trellis.Bindings.Get` call from the service
-  principal.
+  post-connect discovery RPC call from the service principal
 
 ```ts
 type DisableDeploymentRequest = {
@@ -1034,8 +1063,8 @@ type RemoveDeploymentRequest = {
   kind: "service" | "device";
   deploymentId: string;
   cascade?: boolean;
-  // Also run unused installed-contract cleanup for contract digests that are no
-  // longer referenced by any installed deployment record.
+  // Also purge unused known-contract manifests for contract digests that are no
+  // longer referenced by any deployment authority, offer, or history record.
   purgeUnusedContracts?: boolean;
 };
 type RemoveDeploymentResponse = { success: boolean };
@@ -1177,8 +1206,8 @@ type GetDeviceConnectInfoResponse = {
 // `POST /auth/devices/connect-info` and `Auth.Devices.ConnectInfo.Get` return
 // `auth.authority: "user_delegated"` for activated devices and
 // `auth.authority: "admin_reviewed"` for admin/review-approved setup flows.
-// Runtime access still requires the presented contract to fit the
-// device deployment envelope.
+// Runtime access still requires the presented contract to fit deployment
+// authority and for required runtime bindings to be materialized.
 //
 // `POST /auth/devices/activate/wait` verifies the signed `flowId` and then
 // loads the browser flow directly by that id before matching `publicIdentityKey`
@@ -1261,9 +1290,9 @@ Portal rules:
   provider secrets or mutate provider configuration
 - custom portal apps should use explicit Trellis URL config rather than
   same-origin inference
-- portal routing metadata does not imply approval, capabilities, or
-  availability; approval and capabilities come from identity envelopes,
-  deployment envelopes, and grant overrides
+- portal routing metadata does not imply consent, capabilities, or availability;
+  delegated access comes from identity authority, deployment authority, and
+  grant overrides
 - custom portals remain first-class browser apps, but there is no
   portal-specific contract kind or portal-specific auth machinery
 - if a portal later calls Trellis after bind, it does so as a normal
@@ -1276,8 +1305,8 @@ Portal routing rules:
 - login flows resolve portal routing from auth-owned selectors in this order:
   contract id plus origin, contract id, origin, global default, built-in login
   portal fallback
-- device activation resolves portal routing from the device deployment envelope,
-  then falls back to the built-in Trellis device portal
+- device activation resolves portal routing from deployment-owned device portal
+  metadata, then falls back to the built-in Trellis device portal
 - for login routes, the built-in login portal has the explicit id
   `trellis.builtin.login`
 - the built-in device activation portal is a Trellis-owned app contract with the
@@ -1317,12 +1346,12 @@ Capability rule:
 - grant overrides are deployment metadata, not user-owned grants; user-facing
   callers still see only explicit user capabilities in insufficient-capability
   responses
-- deployment grant approval applies only when matching grant overrides
-  themselves cover the required approval capabilities; user capabilities do not
-  turn a grant override into approval authority
+- deployment grant override consent applies only when matching grant overrides
+  themselves cover the required capabilities; user capabilities do not turn a
+  grant override into deployment-owned authority
 - portal routes, defaults, selections, and registration settings do not imply
-  approval, service authority, or capability grants; registration availability
-  is reported explicitly in browser-flow state
+  consent, service authority, or capability grants; registration availability is
+  reported explicitly in browser-flow state
 
 Canonical RPC inventory:
 
@@ -1331,25 +1360,26 @@ Canonical RPC inventory:
 - `rpc.v1.Auth.Deployments.Disable`
 - `rpc.v1.Auth.Deployments.Enable`
 - `rpc.v1.Auth.Deployments.Remove`
-- `rpc.v1.Auth.Envelopes.List`
-- `rpc.v1.Auth.Envelopes.Get`
-- `rpc.v1.Auth.Envelopes.GrantOverrides.Put`
-- `rpc.v1.Auth.Envelopes.GrantOverrides.List`
-- `rpc.v1.Auth.Envelopes.GrantOverrides.Remove`
-- `rpc.v1.Auth.Envelopes.Expand`
-- `rpc.v1.Auth.Envelopes.Shrink`
-- `rpc.v1.Auth.EnvelopeExpansions.Approve`
-- `rpc.v1.Auth.EnvelopeExpansions.List`
-- `rpc.v1.Auth.EnvelopeExpansions.Reject`
-- `rpc.v1.Auth.Envelopes.Changes.Preview`
+- `rpc.v1.Auth.DeploymentAuthority.List`
+- `rpc.v1.Auth.DeploymentAuthority.Get`
+- `rpc.v1.Auth.DeploymentAuthority.Plans.List`
+- `rpc.v1.Auth.DeploymentAuthority.Plans.Get`
+- `rpc.v1.Auth.DeploymentAuthority.Plan`
+- `rpc.v1.Auth.DeploymentAuthority.AcceptUpdate`
+- `rpc.v1.Auth.DeploymentAuthority.AcceptMigration`
+- `rpc.v1.Auth.DeploymentAuthority.Reject`
+- `rpc.v1.Auth.DeploymentAuthority.Reconcile`
+- `rpc.v1.Auth.DeploymentAuthority.GrantOverrides.Put`
+- `rpc.v1.Auth.DeploymentAuthority.GrantOverrides.List`
+- `rpc.v1.Auth.DeploymentAuthority.GrantOverrides.Remove`
 - `rpc.v1.Auth.ServiceInstances.Provision`
 - `rpc.v1.Auth.ServiceInstances.List`
 - `rpc.v1.Auth.ServiceInstances.Disable`
 - `rpc.v1.Auth.ServiceInstances.Enable`
 - `rpc.v1.Auth.ServiceInstances.Remove`
 - `rpc.v1.Auth.Identities.List`
-- `rpc.v1.Auth.Identities.Grants.List`
-- `rpc.v1.Auth.IdentityEnvelopes.Revoke`
+- `rpc.v1.Auth.IdentityGrants.List`
+- `rpc.v1.Auth.IdentityGrants.Revoke`
 - `rpc.v1.Auth.Devices.Provision`
 - `rpc.v1.Auth.Devices.List`
 - `rpc.v1.Auth.Devices.Disable`
@@ -1588,8 +1618,8 @@ Rules:
 
 - `Auth.Capabilities.List` returns capabilities known to the current auth
   runtime: Trellis platform capabilities plus capability metadata projected from
-  known contract manifests. Durable deployment and identity envelopes remain the
-  authority.
+  known contract manifests. Durable deployment authority and identity authority
+  remain the authority sources.
 - The response is an assignment catalog for admin UX; it is not a grant source
   by itself.
 - Capability keys are canonical global keys such as
@@ -1778,9 +1808,9 @@ Trellis publishes these events as part of `trellis.auth@v1`:
 - `events.v1.Auth.DeviceUserAuthorities.Approved`
 - `events.v1.Auth.DeviceUserAuthorities.Resolved`
 
-Services may subscribe only when the presented contract fits the service
-deployment envelope and declares the events in grouped `uses.required` or
-`uses.optional` entries that are active and authorized.
+Services may subscribe only when the presented contract fits materialized
+authority and declares the events in grouped `uses.required` or `uses.optional`
+entries that are active and authorized.
 
 ## Non-Goals
 

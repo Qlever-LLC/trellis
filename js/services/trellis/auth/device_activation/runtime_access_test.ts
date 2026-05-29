@@ -6,7 +6,7 @@ import type {
 
 import type { ContractRecord } from "../../catalog/schemas.ts";
 import type { ContractsModule } from "../../catalog/runtime.ts";
-import type { EnvelopeBoundary } from "../schemas.ts";
+import type { AuthorityNeedSet } from "../schemas.ts";
 
 import { deriveDeviceRuntimeAccess } from "./runtime_access.ts";
 
@@ -195,7 +195,7 @@ Deno.test("deriveDeviceRuntimeAccess includes publish subjects from contract use
   assertEquals(access.value.capabilities.includes("billing.refund"), true);
 });
 
-Deno.test("deriveDeviceRuntimeAccess gates optional use subjects by deployment envelope", async () => {
+Deno.test("deriveDeviceRuntimeAccess gates optional use subjects by deployment authority", async () => {
   const contracts = createDependencyContracts({
     subject: "operations.v1.Billing.Refund",
     version: "v1",
@@ -203,7 +203,7 @@ Deno.test("deriveDeviceRuntimeAccess gates optional use subjects by deployment e
     input: { schema: "object" },
     output: { schema: "object" },
   });
-  const envelope: EnvelopeBoundary = {
+  const authorityNeeds: AuthorityNeedSet = {
     contracts: [{ contractId: "trellis.auth@v1", required: true }],
     surfaces: [{
       contractId: "trellis.auth@v1",
@@ -219,7 +219,7 @@ Deno.test("deriveDeviceRuntimeAccess gates optional use subjects by deployment e
   const access = await deriveDeviceRuntimeAccess(
     makeUsesContractRecord(),
     contracts,
-    envelope,
+    authorityNeeds,
   );
   assertEquals(access.ok, true);
   if (!access.ok) return;

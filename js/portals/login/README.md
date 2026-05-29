@@ -84,9 +84,9 @@ connect. If the implementing service is down, follow-on app calls may fail, but
 the portal should not describe that as an inactive contract dependency.
 
 For device-user authority resolution to succeed, the portal contract boundary
-must fit the relevant device deployment envelope. Trellis fails the authority
+must fit the relevant device deployment authority. Trellis fails the authority
 resolution path instead of substituting another contract when the presented
-presented contract is unknown or exceeds the deployment envelope.
+contract is unknown or exceeds the deployment authority.
 
 If a custom portal needs to call Trellis after login, model that follow-on
 access with a normal `app` contract and deployment-owned portal routing. Passive

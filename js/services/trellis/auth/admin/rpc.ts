@@ -6,6 +6,7 @@ import {
   Result,
 } from "@qlever-llc/result";
 import type { StaticDecode } from "typebox";
+import { ulid } from "ulid";
 
 import type {
   AuthLogger,
@@ -27,13 +28,15 @@ import {
   AuthRequestsValidateResponseSchema,
   deriveDeviceConfirmationCode,
 } from "@qlever-llc/trellis/auth";
-import type { Connection } from "../schemas.ts";
-import type { DeploymentEnvelope, EnvelopeBoundary } from "../schemas.ts";
+import type {
+  Connection,
+  DeploymentAuthority,
+  IdentityGrantRecord,
+} from "../schemas.ts";
 import type {
   BoundedListQuery,
   ListPage,
   SqlDeviceProvisioningSecretRepository,
-  SqlIdentityEnvelopeRepository,
   SqlSessionRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
@@ -45,13 +48,6 @@ type RpcUser =
     typeof AuthRequestsValidateResponseSchema
   >["caller"]
   & AdminCaller;
-const EMPTY_BOUNDARY: EnvelopeBoundary = {
-  contracts: [],
-  surfaces: [],
-  capabilities: [],
-  resources: [],
-};
-
 type DeviceActivation = {
   instanceId: string;
   publicIdentityKey: string;
@@ -132,6 +128,12 @@ type ActiveContractsDeps = {
     opts?: Parameters<ActiveCatalogValidator>[0],
   ) => Promise<void>;
 };
+type AuthorityReconciler = {
+  reconcileDeployment(
+    deploymentId: string,
+    opts?: { desiredVersion?: string },
+  ): Promise<unknown>;
+};
 type ActiveCatalogValidator = (opts: {
   stagedDeviceDeployments?: Iterable<DeviceDeployment>;
   stagedDeviceInstances?: Iterable<DeviceInstance>;
@@ -139,7 +141,16 @@ type ActiveCatalogValidator = (opts: {
 type ActiveCatalogDeps = ActiveContractsDeps & {
   validateActiveCatalog: ActiveCatalogValidator;
   validateActiveCatalogForRemoval?: ActiveCatalogValidator;
+  authorityReconciler?: AuthorityReconciler;
   getActiveCatalogIssues?: () => Promise<ActiveCatalogIssue[]>;
+};
+
+type AdminIdentityGrantStorage = {
+  get(identityGrantId: string): Promise<IdentityGrantRecord | undefined>;
+  listPage(query: BoundedListQuery): Promise<IdentityGrantRecord[]>;
+  listByApprovalEvidenceContractDigests?(
+    contractDigests: Iterable<string>,
+  ): Promise<IdentityGrantRecord[]>;
 };
 
 export type AdminRpcDeps = {
@@ -150,17 +161,7 @@ export type AdminRpcDeps = {
     opts?: Parameters<ActiveCatalogValidator>[0],
   ) => Promise<void>;
   connectionsKV: RuntimeKV<Connection>;
-  contractApprovalStorage:
-    & Pick<
-      SqlIdentityEnvelopeRepository,
-      "get" | "listPage"
-    >
-    & Partial<
-      Pick<
-        SqlIdentityEnvelopeRepository,
-        "listByApprovalEvidenceContractDigests" | "listPage"
-      >
-    >;
+  contractApprovalStorage: AdminIdentityGrantStorage;
   contractStorage?: { delete(digest: string): Promise<void> };
   deviceActivationReviewStorage: {
     get(reviewId: string): Promise<DeviceActivationReviewRecord | undefined>;
@@ -220,9 +221,9 @@ export type AdminRpcDeps = {
       filters?: { disabled?: boolean },
     ): Promise<Array<{ deploymentId: string; disabled?: boolean }>>;
   };
-  deploymentEnvelopeStorage: {
-    get(deploymentId: string): Promise<DeploymentEnvelope | undefined>;
-    put(record: DeploymentEnvelope): Promise<void>;
+  deploymentAuthorityStorage: {
+    get(deploymentId: string): Promise<DeploymentAuthority | undefined>;
+    put(record: DeploymentAuthority): Promise<void>;
   };
   deviceInstanceStorage: {
     get(instanceId: string): Promise<DeviceInstance | undefined>;
@@ -250,6 +251,7 @@ export type AdminRpcDeps = {
   kick: (serverId: string, clientId: number) => Promise<void>;
   logger: Pick<AuthLogger, "trace" | "warn">;
   operationCompletion?: OperationCompletion;
+  authorityReconciler?: AuthorityReconciler;
   publishSessionRevoked: (
     event: {
       origin: string;
@@ -552,37 +554,84 @@ async function loadDeviceActivation(
   return await ctx.deviceActivationStorage.get(instanceId) ?? null;
 }
 
-async function setDeviceDeploymentEnvelopeDisabled(args: {
-  ctx: DeviceDeploymentRpcContext;
+function emptyDeploymentAuthority(args: {
   deploymentId: string;
-  disabled: boolean;
-}): Promise<void> {
-  const envelope = await args.ctx.deploymentEnvelopeStorage.get(
-    args.deploymentId,
-  );
-  if (!envelope) throw new Error("deployment envelope not found");
-  if (envelope.disabled === args.disabled) return;
-  await args.ctx.deploymentEnvelopeStorage.put({
-    ...envelope,
-    disabled: args.disabled,
-    updatedAt: new Date().toISOString(),
-  });
+  kind: DeploymentAuthority["kind"];
+  disabled?: boolean;
+  now?: string;
+}): DeploymentAuthority {
+  const now = args.now ?? new Date().toISOString();
+  return {
+    deploymentId: args.deploymentId,
+    kind: args.kind,
+    disabled: args.disabled ?? false,
+    desiredState: { needs: [], capabilities: [], resources: [], surfaces: [] },
+    version: ulid(),
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
-async function setDeviceDeploymentEnvelopeDisabledIfPresent(args: {
+async function setDeviceDeploymentAuthorityDisabled(args: {
   ctx: DeviceDeploymentRpcContext;
   deploymentId: string;
   disabled: boolean;
-}): Promise<void> {
-  const envelope = await args.ctx.deploymentEnvelopeStorage.get(
+}): Promise<DeploymentAuthority | undefined> {
+  const authority = await args.ctx.deploymentAuthorityStorage.get(
     args.deploymentId,
   );
-  if (!envelope || envelope.disabled === args.disabled) return;
-  await args.ctx.deploymentEnvelopeStorage.put({
-    ...envelope,
+  if (!authority) throw new Error("deployment authority not found");
+  if (authority.disabled === args.disabled) return undefined;
+  const updatedAt = new Date().toISOString();
+  const updatedAuthority = {
+    ...authority,
     disabled: args.disabled,
-    updatedAt: new Date().toISOString(),
-  });
+    version: ulid(),
+    updatedAt,
+  };
+  await args.ctx.deploymentAuthorityStorage.put(updatedAuthority);
+  return updatedAuthority;
+}
+
+async function setDeviceDeploymentAuthorityDisabledIfPresent(args: {
+  ctx: DeviceDeploymentRpcContext;
+  deploymentId: string;
+  disabled: boolean;
+}): Promise<
+  | { previous: DeploymentAuthority; updated: DeploymentAuthority }
+  | undefined
+> {
+  const authority = await args.ctx.deploymentAuthorityStorage.get(
+    args.deploymentId,
+  );
+  if (!authority || authority.disabled === args.disabled) return undefined;
+  const updatedAt = new Date().toISOString();
+  const updatedAuthority = {
+    ...authority,
+    disabled: args.disabled,
+    version: ulid(),
+    updatedAt,
+  };
+  await args.ctx.deploymentAuthorityStorage.put(updatedAuthority);
+  return { previous: authority, updated: updatedAuthority };
+}
+
+async function reconcileDeploymentAuthorityChange(args: {
+  authority: DeploymentAuthority | undefined;
+  ctx: DeviceDeploymentRpcContext;
+}): Promise<void> {
+  if (!args.authority || !args.ctx.authorityReconciler) return;
+  try {
+    await args.ctx.authorityReconciler.reconcileDeployment(
+      args.authority.deploymentId,
+      { desiredVersion: args.authority.version },
+    );
+  } catch (error) {
+    args.ctx.logger.warn({
+      err: toError(error),
+      deploymentId: args.authority.deploymentId,
+    }, "Deployment authority reconciliation trigger failed");
+  }
 }
 
 async function listDeviceDeployments(
@@ -808,20 +857,10 @@ export function createAuthDeploymentsDeviceCreateHandler() {
     );
     try {
       await ctx.deviceDeploymentStorage.put(deployment);
-      const existingEnvelope = await ctx.deploymentEnvelopeStorage.get(
-        deployment.deploymentId,
-      );
-      if (!existingEnvelope) {
-        const now = new Date().toISOString();
-        await ctx.deploymentEnvelopeStorage.put({
-          deploymentId: deployment.deploymentId,
-          kind: "device",
-          disabled: false,
-          createdAt: now,
-          updatedAt: now,
-          boundary: EMPTY_BOUNDARY,
-        });
-      }
+      await ctx.deploymentAuthorityStorage.put(emptyDeploymentAuthority({
+        deploymentId: deployment.deploymentId,
+        kind: "device",
+      }));
     } catch (error) {
       if (previous) {
         await ctx.deviceDeploymentStorage.put(previous).catch(() => undefined);
@@ -868,36 +907,45 @@ export function createAuthDeploymentsDeviceDisableHandler(
       });
     }
     const nextDeployment = { ...deployment, disabled: true };
+    const authority = await ctx.deploymentAuthorityStorage.get(
+      req.deploymentId,
+    );
+    if (!authority) {
+      return invalidRequest({
+        deploymentId: req.deploymentId,
+        reason: "deployment_authority_not_found",
+      });
+    }
     const validated = await validateActiveCatalog(deps, {
       stagedDeviceDeployments: [nextDeployment],
     });
     if (isErr(validated)) return validated;
     try {
       await ctx.deviceDeploymentStorage.put(nextDeployment);
-      await setDeviceDeploymentEnvelopeDisabled({
+      const updatedAuthority = await setDeviceDeploymentAuthorityDisabled({
         ctx,
         deploymentId: nextDeployment.deploymentId,
         disabled: true,
       });
+      const refreshed = await refreshActiveContracts(deps);
+      if (isErr(refreshed)) {
+        return await rollbackRefreshFailure<
+          { deployment: typeof nextDeployment }
+        >(
+          refreshed.error,
+          async () => {
+            await ctx.deviceDeploymentStorage.put(deployment);
+            await ctx.deploymentAuthorityStorage.put(authority);
+          },
+        );
+      }
+      await reconcileDeploymentAuthorityChange({
+        authority: updatedAuthority,
+        ctx,
+      });
     } catch (error) {
       await ctx.deviceDeploymentStorage.put(deployment).catch(() => undefined);
       return Result.err(new UnexpectedError({ cause: toError(error) }));
-    }
-    const refreshed = await refreshActiveContracts(deps);
-    if (isErr(refreshed)) {
-      return await rollbackRefreshFailure<
-        { deployment: typeof nextDeployment }
-      >(
-        refreshed.error,
-        async () => {
-          await ctx.deviceDeploymentStorage.put(deployment);
-          await setDeviceDeploymentEnvelopeDisabled({
-            ctx,
-            deploymentId: deployment.deploymentId,
-            disabled: deployment.disabled,
-          });
-        },
-      );
     }
     for (
       const instance of await listDeviceInstancesForDeployment(
@@ -928,36 +976,45 @@ export function createAuthDeploymentsDeviceEnableHandler(
       });
     }
     const nextDeployment = { ...deployment, disabled: false };
+    const authority = await ctx.deploymentAuthorityStorage.get(
+      req.deploymentId,
+    );
+    if (!authority) {
+      return invalidRequest({
+        deploymentId: req.deploymentId,
+        reason: "deployment_authority_not_found",
+      });
+    }
     const validated = await validateActiveCatalog(deps, {
       stagedDeviceDeployments: [nextDeployment],
     });
     if (isErr(validated)) return validated;
     try {
       await ctx.deviceDeploymentStorage.put(nextDeployment);
-      await setDeviceDeploymentEnvelopeDisabled({
+      const updatedAuthority = await setDeviceDeploymentAuthorityDisabled({
         ctx,
         deploymentId: nextDeployment.deploymentId,
         disabled: false,
       });
+      const refreshed = await refreshActiveContracts(deps);
+      if (isErr(refreshed)) {
+        return await rollbackRefreshFailure<
+          { deployment: typeof nextDeployment }
+        >(
+          refreshed.error,
+          async () => {
+            await ctx.deviceDeploymentStorage.put(deployment);
+            await ctx.deploymentAuthorityStorage.put(authority);
+          },
+        );
+      }
+      await reconcileDeploymentAuthorityChange({
+        authority: updatedAuthority,
+        ctx,
+      });
     } catch (error) {
       await ctx.deviceDeploymentStorage.put(deployment).catch(() => undefined);
       return Result.err(new UnexpectedError({ cause: toError(error) }));
-    }
-    const refreshed = await refreshActiveContracts(deps);
-    if (isErr(refreshed)) {
-      return await rollbackRefreshFailure<
-        { deployment: typeof nextDeployment }
-      >(
-        refreshed.error,
-        async () => {
-          await ctx.deviceDeploymentStorage.put(deployment);
-          await setDeviceDeploymentEnvelopeDisabled({
-            ctx,
-            deploymentId: deployment.deploymentId,
-            disabled: deployment.disabled,
-          });
-        },
-      );
     }
     return Result.ok({ deployment: nextDeployment });
   };
@@ -1049,13 +1106,12 @@ export function createAuthDeploymentsDeviceRemoveHandler(
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
+    let previousAuthority: DeploymentAuthority | undefined;
     const restoreDeletedRecords = async () => {
       await ctx.deviceDeploymentStorage.put(deployment);
-      await setDeviceDeploymentEnvelopeDisabledIfPresent({
-        ctx,
-        deploymentId: deployment.deploymentId,
-        disabled: deployment.disabled,
-      });
+      if (previousAuthority) {
+        await ctx.deploymentAuthorityStorage.put(previousAuthority);
+      }
       for (const instance of instances) {
         await ctx.deviceInstanceStorage.put(instance);
       }
@@ -1074,12 +1130,16 @@ export function createAuthDeploymentsDeviceRemoveHandler(
         await ctx.deviceActivationReviewStorage.put(review);
       }
     };
+    let updatedAuthority: DeploymentAuthority | undefined;
     try {
-      await setDeviceDeploymentEnvelopeDisabledIfPresent({
-        ctx,
-        deploymentId: req.deploymentId,
-        disabled: true,
-      });
+      const authorityChange =
+        await setDeviceDeploymentAuthorityDisabledIfPresent({
+          ctx,
+          deploymentId: req.deploymentId,
+          disabled: true,
+        });
+      previousAuthority = authorityChange?.previous;
+      updatedAuthority = authorityChange?.updated;
       for (const instance of instances) {
         await ctx.deviceInstanceStorage.delete(instance.instanceId);
         await ctx.deviceProvisioningSecretStorage.delete(instance.instanceId);
@@ -1111,6 +1171,10 @@ export function createAuthDeploymentsDeviceRemoveHandler(
         restoreDeletedRecords,
       );
     }
+    await reconcileDeploymentAuthorityChange({
+      authority: updatedAuthority,
+      ctx,
+    });
     for (const review of activationReviews) {
       await deleteBrowserFlow(ctx, review.flowId);
     }

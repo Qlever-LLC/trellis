@@ -61,35 +61,17 @@ pub enum DeviceReviewState {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, ValueEnum)]
-/// Allowed deployment envelope expansion request state filters.
-pub enum EnvelopeExpansionRequestState {
-    Pending,
-    Approved,
-    Rejected,
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq, ValueEnum)]
 /// Identity kinds supported by deployment grant overrides.
-pub enum DeploymentGrantOverrideIdentityKind {
+pub enum DeploymentAuthorityGrantOverrideIdentityKind {
     Web,
     Session,
 }
 
-impl DeploymentGrantOverrideIdentityKind {
+impl DeploymentAuthorityGrantOverrideIdentityKind {
     pub fn as_wire_value(self) -> &'static str {
         match self {
             Self::Web => "web",
             Self::Session => "session",
-        }
-    }
-}
-
-impl EnvelopeExpansionRequestState {
-    pub fn as_wire_value(self) -> &'static str {
-        match self {
-            Self::Pending => "pending",
-            Self::Approved => "approved",
-            Self::Rejected => "rejected",
         }
     }
 }
@@ -100,6 +82,42 @@ impl DeviceReviewState {
             Self::Pending => "pending",
             Self::Approved => "approved",
             Self::Rejected => "rejected",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, ValueEnum)]
+/// Allowed deployment authority plan state filters.
+pub enum DeploymentAuthorityPlanState {
+    Pending,
+    Accepted,
+    Rejected,
+    Expired,
+}
+
+impl DeploymentAuthorityPlanState {
+    pub fn as_wire_value(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Accepted => "accepted",
+            Self::Rejected => "rejected",
+            Self::Expired => "expired",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, ValueEnum)]
+/// Allowed deployment authority plan classification filters.
+pub enum DeploymentAuthorityPlanClassification {
+    Update,
+    Migration,
+}
+
+impl DeploymentAuthorityPlanClassification {
+    pub fn as_wire_value(self) -> &'static str {
+        match self {
+            Self::Update => "update",
+            Self::Migration => "migration",
         }
     }
 }
@@ -232,9 +250,9 @@ pub enum SvcResourceAction {
     Instances(SvcInstancesArgs),
     #[command(override_usage = "trellis svc <ID> provision [OPTIONS]")]
     Provision(SvcProvisionArgs),
-    #[command(override_usage = "trellis svc <ID> expansions <COMMAND>")]
+    #[command(override_usage = "trellis svc <ID> authority <COMMAND>")]
     #[command(subcommand)]
-    Expansions(SvcExpansionsCommand),
+    Authority(DeploymentAuthorityCommand),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -268,6 +286,9 @@ pub enum DevResourceAction {
     Instances(DevInstancesArgs),
     #[command(override_usage = "trellis dev <ID> provision [OPTIONS]")]
     Provision(DevProvisionArgs),
+    #[command(override_usage = "trellis dev <ID> authority <COMMAND>")]
+    #[command(subcommand)]
+    Authority(DeploymentAuthorityCommand),
     #[command(override_usage = "trellis dev <ID> activations <COMMAND>")]
     #[command(subcommand)]
     Activations(DevActivationsCommand),
@@ -357,38 +378,98 @@ pub struct SvcProvisionArgs {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Subcommand)]
-/// Manage pending service deployment envelope expansion requests.
-pub enum SvcExpansionsCommand {
-    #[command(override_usage = "trellis svc <ID> expansions list [OPTIONS]")]
-    List(SvcExpansionsListArgs),
-    #[command(override_usage = "trellis svc <ID> expansions approve <REQUEST_ID> [OPTIONS]")]
-    Approve(SvcExpansionDecisionArgs),
-    #[command(override_usage = "trellis svc <ID> expansions reject <REQUEST_ID> [OPTIONS]")]
-    Reject(SvcExpansionDecisionArgs),
+/// Manage deployment authority plans and reconciliation.
+pub enum DeploymentAuthorityCommand {
+    #[command(override_usage = "trellis <svc|dev> <ID> authority show")]
+    Show,
+    #[command(override_usage = "trellis <svc|dev> <ID> authority plan <COMMAND>")]
+    #[command(subcommand)]
+    Plan(AuthorityPlanCommand),
+    #[command(
+        override_usage = "trellis <svc|dev> <ID> authority accept-update <PLAN_ID> [OPTIONS]"
+    )]
+    AcceptUpdate(AuthorityAcceptUpdateArgs),
+    #[command(
+        override_usage = "trellis <svc|dev> <ID> authority accept-migration <PLAN_ID> --acknowledgement <TEXT> [OPTIONS]"
+    )]
+    AcceptMigration(AuthorityAcceptMigrationArgs),
+    #[command(override_usage = "trellis <svc|dev> <ID> authority reject <PLAN_ID> [OPTIONS]")]
+    Reject(AuthorityRejectArgs),
+    #[command(override_usage = "trellis <svc|dev> <ID> authority reconcile [OPTIONS]")]
+    Reconcile(AuthorityReconcileArgs),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Subcommand)]
+/// Discover deployment authority plans.
+pub enum AuthorityPlanCommand {
+    #[command(override_usage = "trellis <svc|dev> <ID> authority plan list [OPTIONS]")]
+    List(AuthorityPlanListArgs),
+    #[command(override_usage = "trellis <svc|dev> <ID> authority plan show <PLAN_ID>")]
+    Show(AuthorityPlanShowArgs),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Args)]
-/// List service deployment envelope expansion requests.
-pub struct SvcExpansionsListArgs {
-    #[arg(long, default_value = "pending")]
-    pub state: EnvelopeExpansionRequestState,
+/// List deployment authority plans for this deployment.
+pub struct AuthorityPlanListArgs {
+    #[arg(long)]
+    pub state: Option<DeploymentAuthorityPlanState>,
+
+    #[arg(long)]
+    pub classification: Option<DeploymentAuthorityPlanClassification>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Args)]
-/// Decide one service deployment envelope expansion request.
-pub struct SvcExpansionDecisionArgs {
-    #[arg(value_name = "REQUEST_ID")]
-    pub request_id: String,
+/// Show one deployment authority plan.
+pub struct AuthorityPlanShowArgs {
+    #[arg(value_name = "PLAN_ID")]
+    pub plan_id: String,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
+/// Accept one pending deployment authority update plan.
+pub struct AuthorityAcceptUpdateArgs {
+    #[arg(value_name = "PLAN_ID")]
+    pub plan_id: String,
+
+    #[arg(long = "expected-desired-version")]
+    pub expected_desired_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
+/// Accept one pending deployment authority migration plan.
+pub struct AuthorityAcceptMigrationArgs {
+    #[arg(value_name = "PLAN_ID")]
+    pub plan_id: String,
+
+    #[arg(long)]
+    pub acknowledgement: String,
+
+    #[arg(long = "expected-desired-version")]
+    pub expected_desired_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
+/// Reject one pending deployment authority plan.
+pub struct AuthorityRejectArgs {
+    #[arg(value_name = "PLAN_ID")]
+    pub plan_id: String,
 
     #[arg(long)]
     pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Args)]
+/// Request deployment authority reconciliation.
+pub struct AuthorityReconcileArgs {
+    #[arg(long = "desired-version")]
+    pub desired_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Args)]
 /// Add or remove deployment grant overrides.
 pub struct DeploymentGrantMutationArgs {
     #[arg(long = "identity-kind")]
-    pub identity_kind: DeploymentGrantOverrideIdentityKind,
+    pub identity_kind: DeploymentAuthorityGrantOverrideIdentityKind,
 
     #[arg(long = "contract")]
     pub contract_id: Option<String>,

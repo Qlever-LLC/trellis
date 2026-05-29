@@ -18,14 +18,9 @@ pub use crate::sdk::auth::types::{
     AuthDeploymentsRemoveResponse, AuthDevicesDisableRequest, AuthDevicesDisableResponse,
     AuthDevicesEnableRequest, AuthDevicesEnableResponse, AuthDevicesListRequest,
     AuthDevicesListResponse, AuthDevicesProvisionRequest, AuthDevicesProvisionResponse,
-    AuthDevicesRemoveRequest, AuthDevicesRemoveResponse, AuthEnvelopeExpansionsApproveRequest,
-    AuthEnvelopeExpansionsApproveResponse, AuthEnvelopeExpansionsRejectRequest,
-    AuthEnvelopeExpansionsRejectResponse, AuthEnvelopesChangesPreviewRequest,
-    AuthEnvelopesChangesPreviewResponse, AuthEnvelopesExpandRequest, AuthEnvelopesExpandResponse,
-    AuthEnvelopesGetRequest, AuthEnvelopesGetResponse, AuthEnvelopesListRequest,
-    AuthEnvelopesListResponse, AuthEnvelopesShrinkRequest, AuthEnvelopesShrinkResponse,
-    AuthIdentitiesListRequest, AuthIdentitiesListResponse, AuthIdentitiesListResponseEntriesItem,
-    AuthIdentityEnvelopesRevokeRequest, AuthIdentityEnvelopesRevokeResponse,
+    AuthDevicesRemoveRequest, AuthDevicesRemoveResponse, AuthIdentityGrantsListRequest,
+    AuthIdentityGrantsListResponse, AuthIdentityGrantsListResponseEntriesItem,
+    AuthIdentityGrantsRevokeRequest, AuthIdentityGrantsRevokeResponse,
     AuthServiceInstancesDisableRequest, AuthServiceInstancesDisableResponse,
     AuthServiceInstancesEnableRequest, AuthServiceInstancesEnableResponse,
     AuthServiceInstancesListRequest, AuthServiceInstancesListResponse,
@@ -66,10 +61,10 @@ pub use models::{
     WaitForDeviceActivationResponse,
 };
 pub use protocol::{
-    ApprovalEntryRecord, ApprovalScopeRecord, AuthRequestsValidateRequest,
-    AuthRequestsValidateResponse, AuthStartRequest, AuthStartResponse, AuthenticatedIdentity,
-    AuthenticatedUser, ClientTransportRecord, ClientTransportsRecord, JobsBindings, JobsRegistry,
-    ListApprovalsRequest, ResourceBindings, RevokeApprovalRequest, SentinelCredsRecord,
+    AuthRequestsValidateRequest, AuthRequestsValidateResponse, AuthStartRequest, AuthStartResponse,
+    AuthenticatedIdentity, AuthenticatedUser, ClientTransportRecord, ClientTransportsRecord,
+    IdentityGrantContractEvidenceRecord, IdentityGrantEntryRecord, JobsBindings, JobsRegistry,
+    ListIdentityGrantsRequest, ResourceBindings, RevokeIdentityGrantRequest, SentinelCredsRecord,
 };
 pub use session_store::{clear_admin_session, load_admin_session, save_admin_session};
 

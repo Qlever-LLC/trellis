@@ -43,7 +43,7 @@ export type AuthIdentitiesGrantsListInput = Static<
 >;
 
 export const AuthUserGrantRowSchema = Type.Object({
-  identityEnvelopeId: Type.String({ minLength: 1 }),
+  identityGrantId: Type.String({ minLength: 1 }),
   identityAnchor: IdentityAnchorSchema,
   contractEvidence: ContractEvidenceSchema,
   displayName: Type.String({ minLength: 1 }),

@@ -7,6 +7,11 @@ import Type, { type Static } from "typebox";
 import { ParseError, Value } from "typebox/value";
 import type { AuthErrorData } from "./AuthError.ts";
 import type { KVErrorData } from "./KVError.ts";
+import type {
+  OperationAlreadyTerminalErrorData,
+  OperationMismatchErrorData,
+  OperationNotFoundErrorData,
+} from "./OperationLifecycleError.ts";
 import type { StoreErrorData } from "./StoreError.ts";
 import type { TrellisErrorData } from "../models/trellis/TrellisError.ts";
 import { TrellisErrorDataSchema } from "../models/trellis/TrellisError.ts";
@@ -31,6 +36,9 @@ export type TransportableTrellisErrorData =
   | AuthErrorData
   | ValidationErrorData
   | KVErrorData
+  | OperationNotFoundErrorData
+  | OperationAlreadyTerminalErrorData
+  | OperationMismatchErrorData
   | StoreErrorData
   | TransportErrorData
   | TransferErrorData

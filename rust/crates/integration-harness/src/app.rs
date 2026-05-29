@@ -5,9 +5,9 @@ use miette::{miette, IntoDiagnostic, Result};
 use crate::admin::{run_admin_api_fixture, run_password_change_fixture};
 use crate::app_identity_approval::run_app_identity_approval_fixture;
 use crate::browser::{complete_admin_bootstrap, complete_local_login, BrowserContainer};
-use crate::catalog_repair::{
-    run_catalog_repair_fixture, verify_catalog_repair_persistence_after_restart,
-    CatalogRepairPersistenceCheck,
+use crate::catalog_authority::{
+    run_catalog_authority_fixture, verify_catalog_authority_persistence_after_restart,
+    CatalogAuthorityPersistenceCheck,
 };
 use crate::cli::{IntegrationArgs, ListCommand};
 use crate::container::{ContainerBackend, IntegrationWorkdir};
@@ -65,15 +65,16 @@ pub(crate) fn admin_setup_contract_json() -> Result<String> {
             "Auth.Deployments.Disable",
             "Auth.Deployments.Enable",
             "Auth.Deployments.List",
-            "Auth.Envelopes.Expand",
-            "Auth.Envelopes.Get",
-            "Auth.Envelopes.List",
-            "Auth.EnvelopeExpansions.Approve",
-            "Auth.EnvelopeExpansions.List",
+            "Auth.DeploymentAuthority.AcceptMigration",
+            "Auth.DeploymentAuthority.AcceptUpdate",
+            "Auth.DeploymentAuthority.Get",
+            "Auth.DeploymentAuthority.List",
+            "Auth.DeploymentAuthority.Plan",
+            "Auth.DeploymentAuthority.Reconcile",
             "Auth.Health",
-            "Auth.Identities.Grants.List",
+            "Auth.IdentityGrants.List",
             "Auth.Identities.List",
-            "Auth.IdentityEnvelopes.Revoke",
+            "Auth.IdentityGrants.Revoke",
             "Auth.Devices.List",
             "Auth.Devices.Provision",
             "Auth.Portals.Get",
@@ -295,7 +296,8 @@ impl IntegrationRunner {
             outcome.user.user_id
         );
         let mut reports = Vec::new();
-        let mut catalog_repair_persistence_check: Option<CatalogRepairPersistenceCheck> = None;
+        let mut catalog_authority_persistence_check: Option<CatalogAuthorityPersistenceCheck> =
+            None;
         let mut executed_runner_ids = BTreeSet::new();
         for fixture in &selected_fixtures {
             if !executed_runner_ids.insert(fixture.runner_id) {
@@ -450,7 +452,7 @@ impl IntegrationRunner {
                     .await?;
                     run_jobs_fixture(&host_trellis_origin, &admin_login, &browser).await?
                 }
-                "catalog-repair" => {
+                "catalog-authority" => {
                     let admin_login = fresh_admin_login(
                         &outcome,
                         &admin_setup_contract_json,
@@ -459,21 +461,21 @@ impl IntegrationRunner {
                     )
                     .await?;
                     let (passing_cases, persistence_check) =
-                        run_catalog_repair_fixture(&host_trellis_origin, &admin_login, &browser)
+                        run_catalog_authority_fixture(&host_trellis_origin, &admin_login, &browser)
                             .await?;
-                    catalog_repair_persistence_check = Some(persistence_check);
+                    catalog_authority_persistence_check = Some(persistence_check);
                     passing_cases
                 }
-                "catalog-repair-restart" => {
-                    let persistence_check = catalog_repair_persistence_check.as_ref().ok_or_else(|| {
+                "catalog-authority-restart" => {
+                    let persistence_check = catalog_authority_persistence_check.as_ref().ok_or_else(|| {
                         miette!(
-                            "catalog-repair-restart requires catalog-repair to run first so it can create the persistence check"
+                            "catalog-authority-restart requires catalog-authority to run first so it can create the persistence check"
                         )
                     })?;
                     assert_jobs_shared_streams(&nats.server_url(), &nats_dir.join(trellis_creds))
                         .await?;
                     info!("integration preflight: shared Jobs streams are present");
-                    info!("integration preflight: restarting Trellis runtime for catalog repair persistence check");
+                    info!("integration preflight: restarting Trellis runtime for catalog authority persistence check");
                     drop(trellis_runtime);
                     trellis_runtime = TrellisRuntime::start(
                         &workdir,
@@ -495,8 +497,11 @@ impl IntegrationRunner {
                         &browser,
                     )
                     .await?;
-                    verify_catalog_repair_persistence_after_restart(&admin_login, persistence_check)
-                        .await?
+                    verify_catalog_authority_persistence_after_restart(
+                        &admin_login,
+                        persistence_check,
+                    )
+                    .await?
                 }
                 "password-change" => {
                     let admin_login = fresh_admin_login(

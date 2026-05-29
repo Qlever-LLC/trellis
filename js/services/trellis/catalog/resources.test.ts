@@ -199,26 +199,21 @@ Deno.test("event consumer requests resolve approved subscribe filters", () => {
         digest: "events-digest",
         contract: eventDependencyContract(),
       }],
-      envelopeBoundary: {
-        contracts: [],
+      authorityNeeds: {
         surfaces: [
           {
             contractId: "events.example@v1",
             kind: "event",
             name: "Changed",
             action: "subscribe",
-            required: true,
           },
           {
             contractId: "events.example@v1",
             kind: "event",
             name: "Deleted",
             action: "subscribe",
-            required: true,
           },
         ],
-        capabilities: [],
-        resources: [],
       },
     }),
     [{
@@ -286,17 +281,13 @@ Deno.test("event consumer requests ignore incompatible unused dependency schemas
         },
         { digest: "events-stale", contract: staleDependency },
       ],
-      envelopeBoundary: {
-        contracts: [],
+      authorityNeeds: {
         surfaces: [{
           contractId: "events.example@v1",
           kind: "event",
           name: "Changed",
           action: "subscribe",
-          required: true,
         }],
-        capabilities: [],
-        resources: [],
       },
     }),
     [{
@@ -341,17 +332,13 @@ Deno.test("event consumer requests ignore unrelated uses during dependency resol
         digest: "events-digest",
         contract: eventDependencyContract(),
       }],
-      envelopeBoundary: {
-        contracts: [],
+      authorityNeeds: {
         surfaces: [{
           contractId: "events.example@v1",
           kind: "event",
           name: "Changed",
           action: "subscribe",
-          required: true,
         }],
-        capabilities: [],
-        resources: [],
       },
     }),
     [{

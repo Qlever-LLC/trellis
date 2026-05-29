@@ -25,7 +25,7 @@ console.log("Connected to Trellis!");
 
 > **Node.js users:** Import from `@qlever-llc/trellis/service/node` and replace `Deno.env.get(...)` with `process.env`.
 
-`TrellisService.connect(...)` does a lot of heavy lifting. It authenticates your service session, verifies that the presented contract evidence fits the enabled deployment envelope, fetches transport details, and hands back a `service` object with the deployment's persisted resource bindings already resolved. Catalog activation comes from the enabled service deployment envelope and its active required dependency closure, so the contract can be active before this instance connects. If the deployment envelope does not cover the contract boundary yet, bootstrap creates or reuses a pending expansion request and waits while retrying. Required dependencies with only stale incompatible inactive manifests are recorded as unresolved blockers until current dependency evidence is uploaded.
+`TrellisService.connect(...)` does a lot of heavy lifting. It authenticates your service session, verifies that the presented contract evidence fits the enabled deployment authority, fetches transport details, and hands back a `service` object with the deployment's persisted resource bindings already resolved. Catalog activation comes from enabled service deployment authority and its active required dependency closure, so the contract can be active before this instance connects. If deployment authority does not cover the contract boundary yet, bootstrap creates or reuses a pending authority update and waits while retrying. Required dependencies with only stale incompatible inactive manifests are recorded as unresolved blockers until current dependency evidence is uploaded.
 
 Those resolved bindings are Trellis runtime internals. Use the returned
 `service.kv`, `service.store`, and `service.jobs` handles; do not call
@@ -73,12 +73,12 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-The generated `connect_service(...)` helper authenticates the service instance through the public Trellis service facade, presents the generated contract manifest, resolves deployment bindings, prepares authenticated request validation, and waits if bootstrap creates a pending expansion request. `service.run()` owns the NATS service loop for the handlers you register.
+The generated `connect_service(...)` helper authenticates the service instance through the public Trellis service facade, presents the generated contract manifest, resolves deployment bindings, prepares authenticated request validation, and waits if bootstrap creates a pending authority update. `service.run()` owns the NATS service loop for the handlers you register.
 
 {/snippet}
 </LanguageTabs>
 
-Before we can run this, we need to create a deployment, provision a service instance, and add the contract boundary to the deployment envelope.
+Before we can run this, we need to create a deployment, provision a service instance, and accept any deployment authority plan created from the contract boundary.
 
 Every Trellis service authenticates with a unique instance key. `trellis svc <id> provision` prints the private seed for that instance; treat it like a private key and never commit it to source control.
 
@@ -88,7 +88,7 @@ trellis svc orders-service apply --source .
 trellis svc orders-service provision
 ```
 
-Before starting the service, submit the service contract boundary and review the resulting deployment-envelope change in Console. Open **Admin → Services**, select `orders-service`, and use the pending authority approve/reject controls if bootstrap or `trellis svc orders-service apply --source .` created a request. During local development you can also start first and approve the pending expansion request that bootstrap creates.
+Before starting the service, submit the service contract boundary and review the resulting deployment authority change in Console. Open **Admin → Services**, select `orders-service`, and use the pending authority accept/reject controls if bootstrap or `trellis svc orders-service apply --source .` created a request. During local development you can also start first and accept the pending authority update that bootstrap creates; acceptance schedules reconciliation before runtime access becomes available.
 
 Now run your service:
 

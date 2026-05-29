@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
@@ -28,7 +28,6 @@ use trellis::jobs::{
     WorkerHeartbeat,
 };
 use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
-use trellis::sdk::auth::types::AuthEnvelopesExpandRequest;
 use trellis::sdk::core::types::TrellisBindingsGetResponseBinding;
 use trellis::sdk::jobs::client::JobsClient;
 use trellis::sdk::jobs::types::{
@@ -40,6 +39,7 @@ use trellis::sdk::jobs::types::{
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
 use crate::deno_fixture::{deno_fixture_log_paths, deno_fixture_path};
+use crate::deployment_authority::plan_accept_reconcile_deployment_authority;
 use crate::workspace::repo_root;
 
 const JOBS_DEPLOYMENT_ID: &str = "harness.jobs-admin";
@@ -137,16 +137,14 @@ pub(crate) async fn run_jobs_fixture(
 
     let jobs_contract_json = trellis::sdk::jobs::contract::CONTRACT_JSON;
     let jobs_contract_digest = digest_contract_json(jobs_contract_json).into_diagnostic()?;
-    SdkAuthClient::new(&admin_client)
-        .rpc()
-        .auth()
-        .envelopes_expand(&AuthEnvelopesExpandRequest {
-            contract: contract_json_object(jobs_contract_json)?,
-            deployment_id: JOBS_DEPLOYMENT_ID.to_string(),
-            expected_digest: jobs_contract_digest,
-        })
-        .await
-        .into_diagnostic()?;
+    plan_accept_reconcile_deployment_authority(
+        &SdkAuthClient::new(&admin_client),
+        JOBS_DEPLOYMENT_ID,
+        jobs_contract_json,
+        &jobs_contract_digest,
+        "integration harness jobs authority setup",
+    )
+    .await?;
 
     let (jobs_service_seed, jobs_service_key) = generate_session_keypair();
     auth_client
@@ -416,16 +414,14 @@ async fn setup_service_local_jobs(
 
     let contract_json = local_jobs_service_contract_json()?;
     let contract_digest = digest_contract_json(&contract_json).into_diagnostic()?;
-    SdkAuthClient::new(admin_client)
-        .rpc()
-        .auth()
-        .envelopes_expand(&AuthEnvelopesExpandRequest {
-            contract: contract_json_object(&contract_json)?,
-            deployment_id: LOCAL_JOBS_DEPLOYMENT_ID.to_string(),
-            expected_digest: contract_digest.clone(),
-        })
-        .await
-        .into_diagnostic()?;
+    plan_accept_reconcile_deployment_authority(
+        &SdkAuthClient::new(admin_client),
+        LOCAL_JOBS_DEPLOYMENT_ID,
+        &contract_json,
+        &contract_digest,
+        "integration harness local jobs authority setup",
+    )
+    .await?;
 
     let (rust_service_seed, rust_service_key) = generate_session_keypair();
     auth_client
@@ -1791,11 +1787,6 @@ async fn reauth_contract(
             challenge.complete(trellis_url).await.into_diagnostic()
         }
     }
-}
-
-fn contract_json_object(contract_json: &str) -> Result<BTreeMap<String, Value>> {
-    serde_json::from_str(contract_json)
-        .map_err(|error| miette!("failed to parse Jobs contract JSON: {error}"))
 }
 
 #[derive(Debug)]

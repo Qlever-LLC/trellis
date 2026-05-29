@@ -11,8 +11,6 @@ import {
   AuthCapabilityGroupsPutSchema,
   AuthIdentitiesListResponseSchema,
   AuthIdentitiesListSchema,
-  AuthIdentityEnvelopesRevokeResponseSchema,
-  AuthIdentityEnvelopesRevokeSchema,
   AuthRequestsValidateResponseSchema,
   AuthRequestsValidateSchema,
   AuthSessionsMeResponseSchema,
@@ -39,6 +37,28 @@ import {
 import {
   AuthCatalogIssuesResolveResponseSchema,
   AuthCatalogIssuesResolveSchema,
+  AuthDeploymentAuthorityAcceptMigrationSchema,
+  AuthDeploymentAuthorityAcceptResponseSchema,
+  AuthDeploymentAuthorityAcceptUpdateSchema,
+  AuthDeploymentAuthorityGetResponseSchema,
+  AuthDeploymentAuthorityGetSchema,
+  AuthDeploymentAuthorityGrantOverridesListResponseSchema,
+  AuthDeploymentAuthorityGrantOverridesListSchema,
+  AuthDeploymentAuthorityGrantOverridesPutSchema,
+  AuthDeploymentAuthorityGrantOverridesRemoveSchema,
+  AuthDeploymentAuthorityGrantOverridesResponseSchema,
+  AuthDeploymentAuthorityListResponseSchema,
+  AuthDeploymentAuthorityListSchema,
+  AuthDeploymentAuthorityPlanResponseSchema,
+  AuthDeploymentAuthorityPlanSchema,
+  AuthDeploymentAuthorityPlansGetResponseSchema,
+  AuthDeploymentAuthorityPlansGetSchema,
+  AuthDeploymentAuthorityPlansListResponseSchema,
+  AuthDeploymentAuthorityPlansListSchema,
+  AuthDeploymentAuthorityReconcileResponseSchema,
+  AuthDeploymentAuthorityReconcileSchema,
+  AuthDeploymentAuthorityRejectResponseSchema,
+  AuthDeploymentAuthorityRejectSchema,
   AuthDeploymentSchema,
   AuthDeploymentsCreateResponseSchema,
   AuthDeploymentsCreateSchema,
@@ -74,29 +94,10 @@ import {
   AuthDeviceUserAuthoritiesReviewsListSchema,
   AuthDeviceUserAuthoritiesRevokeResponseSchema,
   AuthDeviceUserAuthoritiesRevokeSchema,
-  AuthEnvelopeExpansionsListResponseSchema,
-  AuthEnvelopeExpansionsListSchema,
-  AuthEnvelopeExpansionsRejectResponseSchema,
-  AuthEnvelopeExpansionsRejectSchema,
-  AuthEnvelopesApproveRequestResponseSchema,
-  AuthEnvelopesApproveRequestSchema,
-  AuthEnvelopesChangesPreviewResponseSchema,
-  AuthEnvelopesChangesPreviewSchema,
-  AuthEnvelopesExpandResponseSchema,
-  AuthEnvelopesExpandSchema,
-  AuthEnvelopesGetResponseSchema,
-  AuthEnvelopesGetSchema,
-  AuthEnvelopesGrantOverridesListResponseSchema,
-  AuthEnvelopesGrantOverridesListSchema,
-  AuthEnvelopesGrantOverridesPutSchema,
-  AuthEnvelopesGrantOverridesRemoveSchema,
-  AuthEnvelopesGrantOverridesResponseSchema,
-  AuthEnvelopesListResponseSchema,
-  AuthEnvelopesListSchema,
-  AuthEnvelopesShrinkResponseSchema,
-  AuthEnvelopesShrinkSchema,
-  AuthIdentitiesGrantsListResponseSchema,
-  AuthIdentitiesGrantsListSchema,
+  AuthIdentityGrantsListResponseSchema,
+  AuthIdentityGrantsListSchema,
+  AuthIdentityGrantsRevokeResponseSchema,
+  AuthIdentityGrantsRevokeSchema,
   AuthPortalsGetResponseSchema,
   AuthPortalsGetSchema,
   AuthPortalsListResponseSchema,
@@ -125,8 +126,16 @@ import {
   AuthServiceInstancesProvisionSchema,
   AuthServiceInstancesRemoveResponseSchema,
   AuthServiceInstancesRemoveSchema,
-  DeploymentEnvelopeSchema,
-  DeploymentGrantOverrideSchema,
+  DeploymentAuthorityGrantOverrideSchema,
+  DeploymentAuthorityMaterializationSchema,
+  DeploymentAuthorityMigrationSchema,
+  DeploymentAuthorityNeedSchema,
+  DeploymentAuthorityProposalSchema,
+  DeploymentAuthorityReconciliationStatusSchema,
+  DeploymentAuthorityResourceSchema,
+  DeploymentAuthoritySchema,
+  DeploymentAuthoritySurfaceSchema,
+  DeploymentAuthorityUpdateSchema,
   DeploymentPortalRouteSchema,
   DeploymentResourceBindingSchema,
   DeviceActivationRecordSchema,
@@ -134,9 +143,6 @@ import {
   DeviceConnectInfoSchema,
   DeviceDeploymentSchema,
   DeviceSchema,
-  EnvelopeBoundarySchema,
-  EnvelopeExpansionRequestSchema,
-  EnvelopeHistoryEntrySchema,
   ImplementationOfferSchema,
   ServiceDeploymentSchema,
   ServiceInstanceSchema,
@@ -218,14 +224,20 @@ const schemas = {
   ServiceDeployment: ServiceDeploymentSchema,
   AuthDeployment: AuthDeploymentSchema,
   ServiceInstance: ServiceInstanceSchema,
-  EnvelopeBoundary: EnvelopeBoundarySchema,
-  DeploymentEnvelope: DeploymentEnvelopeSchema,
+  DeploymentAuthority: DeploymentAuthoritySchema,
+  DeploymentAuthorityNeed: DeploymentAuthorityNeedSchema,
+  DeploymentAuthorityResource: DeploymentAuthorityResourceSchema,
+  DeploymentAuthoritySurface: DeploymentAuthoritySurfaceSchema,
+  DeploymentAuthorityUpdate: DeploymentAuthorityUpdateSchema,
+  DeploymentAuthorityMigration: DeploymentAuthorityMigrationSchema,
+  DeploymentAuthorityProposal: DeploymentAuthorityProposalSchema,
+  DeploymentAuthorityMaterialization: DeploymentAuthorityMaterializationSchema,
+  DeploymentAuthorityReconciliationStatus:
+    DeploymentAuthorityReconciliationStatusSchema,
   DeploymentResourceBinding: DeploymentResourceBindingSchema,
-  EnvelopeHistoryEntry: EnvelopeHistoryEntrySchema,
   ImplementationOffer: ImplementationOfferSchema,
   DeploymentPortalRoute: DeploymentPortalRouteSchema,
-  DeploymentGrantOverride: DeploymentGrantOverrideSchema,
-  EnvelopeExpansionRequest: EnvelopeExpansionRequestSchema,
+  DeploymentAuthorityGrantOverride: DeploymentAuthorityGrantOverrideSchema,
   DeviceActivationReview: DeviceActivationReviewSchema,
   DeviceActivationRecord: DeviceActivationRecordSchema,
   DeviceConnectInfo: DeviceConnectInfoSchema,
@@ -241,33 +253,44 @@ const schemas = {
   AuthDeploymentsCreateResponse: AuthDeploymentsCreateResponseSchema,
   AuthDeploymentsListRequest: AuthDeploymentsListSchema,
   AuthDeploymentsListResponse: AuthDeploymentsListResponseSchema,
-  AuthEnvelopesListRequest: AuthEnvelopesListSchema,
-  AuthEnvelopesListResponse: AuthEnvelopesListResponseSchema,
-  AuthEnvelopesGetRequest: AuthEnvelopesGetSchema,
-  AuthEnvelopesGetResponse: AuthEnvelopesGetResponseSchema,
-  AuthEnvelopesGrantOverridesPutRequest: AuthEnvelopesGrantOverridesPutSchema,
-  AuthEnvelopesGrantOverridesListRequest: AuthEnvelopesGrantOverridesListSchema,
-  AuthEnvelopesGrantOverridesListResponse:
-    AuthEnvelopesGrantOverridesListResponseSchema,
-  AuthEnvelopesGrantOverridesResponse:
-    AuthEnvelopesGrantOverridesResponseSchema,
-  AuthEnvelopesGrantOverridesRemoveRequest:
-    AuthEnvelopesGrantOverridesRemoveSchema,
-  AuthEnvelopesExpandRequest: AuthEnvelopesExpandSchema,
-  AuthEnvelopesExpandResponse: AuthEnvelopesExpandResponseSchema,
-  AuthEnvelopesApproveRequestRequest: AuthEnvelopesApproveRequestSchema,
-  AuthEnvelopesApproveRequestResponse:
-    AuthEnvelopesApproveRequestResponseSchema,
-  AuthEnvelopeExpansionsListRequest: AuthEnvelopeExpansionsListSchema,
-  AuthEnvelopeExpansionsListResponse: AuthEnvelopeExpansionsListResponseSchema,
-  AuthEnvelopeExpansionsRejectRequest: AuthEnvelopeExpansionsRejectSchema,
-  AuthEnvelopeExpansionsRejectResponse:
-    AuthEnvelopeExpansionsRejectResponseSchema,
-  AuthEnvelopesChangesPreviewRequest: AuthEnvelopesChangesPreviewSchema,
-  AuthEnvelopesChangesPreviewResponse:
-    AuthEnvelopesChangesPreviewResponseSchema,
-  AuthEnvelopesShrinkRequest: AuthEnvelopesShrinkSchema,
-  AuthEnvelopesShrinkResponse: AuthEnvelopesShrinkResponseSchema,
+  AuthDeploymentAuthorityListRequest: AuthDeploymentAuthorityListSchema,
+  AuthDeploymentAuthorityListResponse:
+    AuthDeploymentAuthorityListResponseSchema,
+  AuthDeploymentAuthorityGetRequest: AuthDeploymentAuthorityGetSchema,
+  AuthDeploymentAuthorityGetResponse: AuthDeploymentAuthorityGetResponseSchema,
+  AuthDeploymentAuthorityPlansListRequest:
+    AuthDeploymentAuthorityPlansListSchema,
+  AuthDeploymentAuthorityPlansListResponse:
+    AuthDeploymentAuthorityPlansListResponseSchema,
+  AuthDeploymentAuthorityPlansGetRequest: AuthDeploymentAuthorityPlansGetSchema,
+  AuthDeploymentAuthorityPlansGetResponse:
+    AuthDeploymentAuthorityPlansGetResponseSchema,
+  AuthDeploymentAuthorityPlanRequest: AuthDeploymentAuthorityPlanSchema,
+  AuthDeploymentAuthorityPlanResponse:
+    AuthDeploymentAuthorityPlanResponseSchema,
+  AuthDeploymentAuthorityAcceptUpdateRequest:
+    AuthDeploymentAuthorityAcceptUpdateSchema,
+  AuthDeploymentAuthorityAcceptMigrationRequest:
+    AuthDeploymentAuthorityAcceptMigrationSchema,
+  AuthDeploymentAuthorityAcceptResponse:
+    AuthDeploymentAuthorityAcceptResponseSchema,
+  AuthDeploymentAuthorityRejectRequest: AuthDeploymentAuthorityRejectSchema,
+  AuthDeploymentAuthorityRejectResponse:
+    AuthDeploymentAuthorityRejectResponseSchema,
+  AuthDeploymentAuthorityReconcileRequest:
+    AuthDeploymentAuthorityReconcileSchema,
+  AuthDeploymentAuthorityReconcileResponse:
+    AuthDeploymentAuthorityReconcileResponseSchema,
+  AuthDeploymentAuthorityGrantOverridesPutRequest:
+    AuthDeploymentAuthorityGrantOverridesPutSchema,
+  AuthDeploymentAuthorityGrantOverridesListRequest:
+    AuthDeploymentAuthorityGrantOverridesListSchema,
+  AuthDeploymentAuthorityGrantOverridesListResponse:
+    AuthDeploymentAuthorityGrantOverridesListResponseSchema,
+  AuthDeploymentAuthorityGrantOverridesResponse:
+    AuthDeploymentAuthorityGrantOverridesResponseSchema,
+  AuthDeploymentAuthorityGrantOverridesRemoveRequest:
+    AuthDeploymentAuthorityGrantOverridesRemoveSchema,
   AuthDeploymentsDisableRequest: AuthDeploymentsDisableSchema,
   AuthDeploymentsDisableResponse: AuthDeploymentsDisableResponseSchema,
   AuthCatalogIssuesResolveRequest: AuthCatalogIssuesResolveSchema,
@@ -317,9 +340,8 @@ const schemas = {
   AuthUserIdentitiesUnlinkResponse: AuthUserIdentitiesUnlinkResponseSchema,
   AuthSessionsMeRequest: AuthSessionsMeSchema,
   AuthSessionsMeResponse: AuthSessionsMeResponseSchema,
-  AuthIdentityEnvelopesRevokeRequest: AuthIdentityEnvelopesRevokeSchema,
-  AuthIdentityEnvelopesRevokeResponse:
-    AuthIdentityEnvelopesRevokeResponseSchema,
+  AuthIdentityGrantsRevokeRequest: AuthIdentityGrantsRevokeSchema,
+  AuthIdentityGrantsRevokeResponse: AuthIdentityGrantsRevokeResponseSchema,
   AuthUsersUpdateRequest: AuthUsersUpdateSchema,
   AuthUsersUpdateResponse: AuthUsersUpdateResponseSchema,
   AuthPortalsListRequest: AuthPortalsListSchema,
@@ -355,8 +377,8 @@ const schemas = {
   AuthConnectionsListResponse: AuthConnectionsListResponseSchema,
   AuthSessionsListRequest: AuthSessionsListSchema,
   AuthSessionsListResponse: AuthSessionsListResponseSchema,
-  AuthIdentitiesGrantsListRequest: AuthIdentitiesGrantsListSchema,
-  AuthIdentitiesGrantsListResponse: AuthIdentitiesGrantsListResponseSchema,
+  AuthIdentityGrantsListRequest: AuthIdentityGrantsListSchema,
+  AuthIdentityGrantsListResponse: AuthIdentityGrantsListResponseSchema,
   AuthSessionsLogoutRequest: AuthSessionsLogoutSchema,
   AuthSessionsLogoutResponse: AuthSessionsLogoutResponseSchema,
   AuthSessionsRevokeRequest: AuthSessionsRevokeSchema,
@@ -431,10 +453,10 @@ export const TRELLIS_AUTH_RPC = {
     capabilities: { call: [] },
     errors: ["AuthError", "UnexpectedError"],
   },
-  "Auth.Identities.Grants.List": {
+  "Auth.IdentityGrants.List": {
     version: "v1",
-    input: schemaRef("AuthIdentitiesGrantsListRequest"),
-    output: schemaRef("AuthIdentitiesGrantsListResponse"),
+    input: schemaRef("AuthIdentityGrantsListRequest"),
+    output: schemaRef("AuthIdentityGrantsListResponse"),
     capabilities: { call: [] },
     errors: ["AuthError", "UnexpectedError"],
   },
@@ -467,80 +489,87 @@ export const TRELLIS_AUTH_RPC = {
     capabilities: { call: ["admin"] },
     errors: ["AuthError", "ValidationError", "UnexpectedError"],
   },
-  "Auth.Envelopes.List": {
+  "Auth.DeploymentAuthority.List": {
     version: "v1",
-    input: schemaRef("AuthEnvelopesListRequest"),
-    output: schemaRef("AuthEnvelopesListResponse"),
+    input: schemaRef("AuthDeploymentAuthorityListRequest"),
+    output: schemaRef("AuthDeploymentAuthorityListResponse"),
     capabilities: { call: ["admin"] },
     errors: ["AuthError", "ValidationError", "UnexpectedError"],
   },
-  "Auth.Envelopes.Get": {
+  "Auth.DeploymentAuthority.Get": {
     version: "v1",
-    input: schemaRef("AuthEnvelopesGetRequest"),
-    output: schemaRef("AuthEnvelopesGetResponse"),
+    input: schemaRef("AuthDeploymentAuthorityGetRequest"),
+    output: schemaRef("AuthDeploymentAuthorityGetResponse"),
     capabilities: { call: ["admin"] },
     errors: ["AuthError", "ValidationError", "UnexpectedError"],
   },
-  "Auth.Envelopes.GrantOverrides.Put": {
+  "Auth.DeploymentAuthority.Plans.List": {
     version: "v1",
-    input: schemaRef("AuthEnvelopesGrantOverridesPutRequest"),
-    output: schemaRef("AuthEnvelopesGrantOverridesResponse"),
+    input: schemaRef("AuthDeploymentAuthorityPlansListRequest"),
+    output: schemaRef("AuthDeploymentAuthorityPlansListResponse"),
+    capabilities: { call: ["admin"] },
+    errors: ["AuthError", "UnexpectedError"],
+  },
+  "Auth.DeploymentAuthority.Plans.Get": {
+    version: "v1",
+    input: schemaRef("AuthDeploymentAuthorityPlansGetRequest"),
+    output: schemaRef("AuthDeploymentAuthorityPlansGetResponse"),
     capabilities: { call: ["admin"] },
     errors: ["AuthError", "ValidationError", "UnexpectedError"],
   },
-  "Auth.Envelopes.GrantOverrides.List": {
+  "Auth.DeploymentAuthority.Plan": {
     version: "v1",
-    input: schemaRef("AuthEnvelopesGrantOverridesListRequest"),
-    output: schemaRef("AuthEnvelopesGrantOverridesListResponse"),
+    input: schemaRef("AuthDeploymentAuthorityPlanRequest"),
+    output: schemaRef("AuthDeploymentAuthorityPlanResponse"),
     capabilities: { call: ["admin"] },
     errors: ["AuthError", "ValidationError", "UnexpectedError"],
   },
-  "Auth.Envelopes.GrantOverrides.Remove": {
+  "Auth.DeploymentAuthority.AcceptUpdate": {
     version: "v1",
-    input: schemaRef("AuthEnvelopesGrantOverridesRemoveRequest"),
-    output: schemaRef("AuthEnvelopesGrantOverridesResponse"),
+    input: schemaRef("AuthDeploymentAuthorityAcceptUpdateRequest"),
+    output: schemaRef("AuthDeploymentAuthorityAcceptResponse"),
     capabilities: { call: ["admin"] },
     errors: ["AuthError", "ValidationError", "UnexpectedError"],
   },
-  "Auth.Envelopes.Expand": {
+  "Auth.DeploymentAuthority.AcceptMigration": {
     version: "v1",
-    input: schemaRef("AuthEnvelopesExpandRequest"),
-    output: schemaRef("AuthEnvelopesExpandResponse"),
+    input: schemaRef("AuthDeploymentAuthorityAcceptMigrationRequest"),
+    output: schemaRef("AuthDeploymentAuthorityAcceptResponse"),
     capabilities: { call: ["admin"] },
     errors: ["AuthError", "ValidationError", "UnexpectedError"],
   },
-  "Auth.EnvelopeExpansions.Approve": {
+  "Auth.DeploymentAuthority.Reject": {
     version: "v1",
-    input: schemaRef("AuthEnvelopesApproveRequestRequest"),
-    output: schemaRef("AuthEnvelopesApproveRequestResponse"),
+    input: schemaRef("AuthDeploymentAuthorityRejectRequest"),
+    output: schemaRef("AuthDeploymentAuthorityRejectResponse"),
     capabilities: { call: ["admin"] },
     errors: ["AuthError", "ValidationError", "UnexpectedError"],
   },
-  "Auth.EnvelopeExpansions.List": {
+  "Auth.DeploymentAuthority.Reconcile": {
     version: "v1",
-    input: schemaRef("AuthEnvelopeExpansionsListRequest"),
-    output: schemaRef("AuthEnvelopeExpansionsListResponse"),
+    input: schemaRef("AuthDeploymentAuthorityReconcileRequest"),
+    output: schemaRef("AuthDeploymentAuthorityReconcileResponse"),
     capabilities: { call: ["admin"] },
     errors: ["AuthError", "ValidationError", "UnexpectedError"],
   },
-  "Auth.EnvelopeExpansions.Reject": {
+  "Auth.DeploymentAuthority.GrantOverrides.Put": {
     version: "v1",
-    input: schemaRef("AuthEnvelopeExpansionsRejectRequest"),
-    output: schemaRef("AuthEnvelopeExpansionsRejectResponse"),
+    input: schemaRef("AuthDeploymentAuthorityGrantOverridesPutRequest"),
+    output: schemaRef("AuthDeploymentAuthorityGrantOverridesResponse"),
     capabilities: { call: ["admin"] },
     errors: ["AuthError", "ValidationError", "UnexpectedError"],
   },
-  "Auth.Envelopes.Changes.Preview": {
+  "Auth.DeploymentAuthority.GrantOverrides.List": {
     version: "v1",
-    input: schemaRef("AuthEnvelopesChangesPreviewRequest"),
-    output: schemaRef("AuthEnvelopesChangesPreviewResponse"),
+    input: schemaRef("AuthDeploymentAuthorityGrantOverridesListRequest"),
+    output: schemaRef("AuthDeploymentAuthorityGrantOverridesListResponse"),
     capabilities: { call: ["admin"] },
     errors: ["AuthError", "ValidationError", "UnexpectedError"],
   },
-  "Auth.Envelopes.Shrink": {
+  "Auth.DeploymentAuthority.GrantOverrides.Remove": {
     version: "v1",
-    input: schemaRef("AuthEnvelopesShrinkRequest"),
-    output: schemaRef("AuthEnvelopesShrinkResponse"),
+    input: schemaRef("AuthDeploymentAuthorityGrantOverridesRemoveRequest"),
+    output: schemaRef("AuthDeploymentAuthorityGrantOverridesResponse"),
     capabilities: { call: ["admin"] },
     errors: ["AuthError", "ValidationError", "UnexpectedError"],
   },
@@ -614,10 +643,10 @@ export const TRELLIS_AUTH_RPC = {
     capabilities: { call: [] },
     errors: ["AuthError", "ValidationError", "UnexpectedError"],
   },
-  "Auth.IdentityEnvelopes.Revoke": {
+  "Auth.IdentityGrants.Revoke": {
     version: "v1",
-    input: schemaRef("AuthIdentityEnvelopesRevokeRequest"),
-    output: schemaRef("AuthIdentityEnvelopesRevokeResponse"),
+    input: schemaRef("AuthIdentityGrantsRevokeRequest"),
+    output: schemaRef("AuthIdentityGrantsRevokeResponse"),
     capabilities: { call: [] },
     errors: ["AuthError", "ValidationError", "UnexpectedError"],
   },
@@ -956,9 +985,9 @@ const TRELLIS_AUTH_RPC_DOCS = {
     markdown:
       "Returns identity and capability details for the caller's session.",
   },
-  "Auth.Identities.Grants.List": {
+  "Auth.IdentityGrants.List": {
     summary: "List identity grants.",
-    markdown: "Lists deployment grants for one identity.",
+    markdown: "Lists identity grants for the caller or an admin-selected user.",
   },
   "Auth.Sessions.Revoke": {
     summary: "Revoke a session.",
@@ -977,51 +1006,58 @@ const TRELLIS_AUTH_RPC_DOCS = {
     summary: "List deployments.",
     markdown: "Lists deployment boundaries and their current state.",
   },
-  "Auth.Envelopes.List": {
-    summary: "List envelopes.",
-    markdown: "Lists deployment envelopes used for authorization decisions.",
+  "Auth.DeploymentAuthority.List": {
+    summary: "List deployment authority.",
+    markdown: "Lists deployment-owned desired authority.",
   },
-  "Auth.Envelopes.Get": {
-    summary: "Read an envelope.",
-    markdown: "Returns one deployment envelope by id.",
+  "Auth.DeploymentAuthority.Get": {
+    summary: "Read deployment authority.",
+    markdown:
+      "Returns desired deployment authority and current materialized authority.",
   },
-  "Auth.Envelopes.GrantOverrides.Put": {
-    summary: "Set grant override.",
-    markdown: "Creates or replaces one deployment grant override.",
+  "Auth.DeploymentAuthority.Plans.List": {
+    summary: "List authority plans.",
+    markdown:
+      "Lists pending and historical deployment authority plans with optional filters.",
   },
-  "Auth.Envelopes.GrantOverrides.List": {
+  "Auth.DeploymentAuthority.Plans.Get": {
+    summary: "Read authority plan.",
+    markdown: "Returns one pending or historical deployment authority plan.",
+  },
+  "Auth.DeploymentAuthority.Plan": {
+    summary: "Plan deployment authority.",
+    markdown: "Builds an authority update or migration plan from a contract.",
+  },
+  "Auth.DeploymentAuthority.AcceptUpdate": {
+    summary: "Accept authority update.",
+    markdown: "Accepts a non-breaking authority update plan.",
+  },
+  "Auth.DeploymentAuthority.AcceptMigration": {
+    summary: "Accept authority migration.",
+    markdown: "Accepts an acknowledged authority migration plan.",
+  },
+  "Auth.DeploymentAuthority.Reject": {
+    summary: "Reject authority plan.",
+    markdown:
+      "Rejects a pending authority plan without mutating desired state.",
+  },
+  "Auth.DeploymentAuthority.Reconcile": {
+    summary: "Reconcile deployment authority.",
+    markdown:
+      "Triggers convergence from desired authority to materialized authority.",
+  },
+  "Auth.DeploymentAuthority.GrantOverrides.Put": {
+    summary: "Set grant overrides.",
+    markdown:
+      "Replaces deployment authority grant overrides for one deployment.",
+  },
+  "Auth.DeploymentAuthority.GrantOverrides.List": {
     summary: "List grant overrides.",
-    markdown: "Lists grant overrides attached to a deployment envelope.",
+    markdown: "Lists deployment authority grant overrides.",
   },
-  "Auth.Envelopes.GrantOverrides.Remove": {
-    summary: "Remove grant override.",
-    markdown: "Removes one deployment grant override.",
-  },
-  "Auth.Envelopes.Expand": {
-    summary: "Expand an envelope.",
-    markdown: "Requests a broader deployment envelope boundary.",
-  },
-  "Auth.EnvelopeExpansions.Approve": {
-    summary: "Approve expansion.",
-    markdown: "Approves a pending deployment envelope expansion request.",
-  },
-  "Auth.EnvelopeExpansions.List": {
-    summary: "List expansions.",
-    markdown:
-      "Lists pending and historical deployment envelope expansion requests.",
-  },
-  "Auth.EnvelopeExpansions.Reject": {
-    summary: "Reject expansion.",
-    markdown: "Rejects a pending deployment envelope expansion request.",
-  },
-  "Auth.Envelopes.Changes.Preview": {
-    summary: "Preview envelope changes.",
-    markdown:
-      "Previews authorization impact before changing a deployment envelope.",
-  },
-  "Auth.Envelopes.Shrink": {
-    summary: "Shrink an envelope.",
-    markdown: "Narrows a deployment envelope boundary.",
+  "Auth.DeploymentAuthority.GrantOverrides.Remove": {
+    summary: "Remove grant overrides.",
+    markdown: "Removes matching deployment authority grant overrides.",
   },
   "Auth.Deployments.Disable": {
     summary: "Disable deployment.",
@@ -1063,9 +1099,9 @@ const TRELLIS_AUTH_RPC_DOCS = {
     summary: "List identities.",
     markdown: "Lists known authenticated identities.",
   },
-  "Auth.IdentityEnvelopes.Revoke": {
-    summary: "Revoke identity envelope.",
-    markdown: "Revokes deployment access for one identity envelope.",
+  "Auth.IdentityGrants.Revoke": {
+    summary: "Revoke identity grant.",
+    markdown: "Revokes deployment access for one identity grant.",
   },
   "Auth.DeviceUserAuthorities.List": {
     summary: "List device authorities.",
@@ -1250,7 +1286,7 @@ const baseTrellisAuth = defineServiceContract(
     docs: {
       summary: "Authentication and authorization APIs.",
       markdown:
-        "Owns Trellis sessions, identities, deployments, envelopes, devices, portals, capability groups, and request validation.",
+        "Owns Trellis sessions, identity grants, deployment authority, devices, portals, capability groups, and request validation.",
     },
     capabilities: {
       "device.review": {

@@ -113,7 +113,7 @@ async function typecheckContextApi(): Promise<void> {
   // @ts-expect-error contract-anchored typing should reject undeclared RPC methods
   const invalidMethod: ClientMethod = "Auth.NotDeclared";
   // @ts-expect-error contract-anchored typing should reject invalid RPC inputs
-  const invalidInput = trellis.request("Auth.Envelopes.Get", {});
+  const invalidInput = trellis.request("Auth.DeploymentAuthority.Get", {});
   // @ts-expect-error contract-anchored typing should reject undeclared RPC methods
   const invalidRpc = trellis.api.rpc.notDeclared;
 

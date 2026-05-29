@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 
-import type { EnvelopeBoundary, UserSession } from "../schemas.ts";
+import type { AuthorityNeedSet, UserSession } from "../schemas.ts";
 import { createTestContracts } from "../../catalog/test_contracts.ts";
 import { resolveUserReconnectSession } from "./user_reconnect.ts";
 
@@ -121,7 +121,7 @@ function createSession(overrides: Partial<UserSession> = {}): UserSession {
   };
 }
 
-function consoleIdentityEnvelope(): EnvelopeBoundary {
+function consoleIdentityAuthority(): AuthorityNeedSet {
   return {
     contracts: [{ contractId: "trellis.audit@v1", required: true }],
     surfaces: [{
@@ -136,13 +136,15 @@ function consoleIdentityEnvelope(): EnvelopeBoundary {
   };
 }
 
-Deno.test("resolveUserReconnectSession refreshes delegated envelope from the presented digest", async () => {
+Deno.test("resolveUserReconnectSession refreshes delegated authority from the presented digest", async () => {
   const contracts = createTestContracts();
   await activateAuditDependency(contracts);
   const digest = await activateContract(contracts, consoleAppContract());
 
   const result = await resolveUserReconnectSession({
-    session: createSession({ identityEnvelope: consoleIdentityEnvelope() }),
+    session: createSession({
+      identityAuthorityNeeds: consoleIdentityAuthority(),
+    }),
     presentedContractDigest: digest,
     contracts,
     loadUserProjection: async () => ({
@@ -175,7 +177,9 @@ Deno.test("resolveUserReconnectSession accepts a known app digest that is not ac
   const digest = await addKnownContract(contracts, consoleAppContract());
 
   const result = await resolveUserReconnectSession({
-    session: createSession({ identityEnvelope: consoleIdentityEnvelope() }),
+    session: createSession({
+      identityAuthorityNeeds: consoleIdentityAuthority(),
+    }),
     presentedContractDigest: digest,
     contracts,
     loadUserProjection: async () => ({
@@ -330,7 +334,9 @@ Deno.test("resolveUserReconnectSession returns insufficient_permissions when app
   const digest = await activateContract(contracts, consoleAppContract());
 
   const result = await resolveUserReconnectSession({
-    session: createSession({ identityEnvelope: consoleIdentityEnvelope() }),
+    session: createSession({
+      identityAuthorityNeeds: consoleIdentityAuthority(),
+    }),
     presentedContractDigest: digest,
     contracts,
     loadUserProjection: async () => ({

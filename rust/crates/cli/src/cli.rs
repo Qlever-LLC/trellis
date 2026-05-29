@@ -45,8 +45,8 @@ pub enum TopLevelCommand {
     Logout,
     /// Show the currently logged-in Trellis admin session.
     Whoami,
-    /// List or revoke stored approval decisions.
-    Approvals(ApprovalsCommand),
+    /// Manage identity authority and delegated grants.
+    Identity(IdentityCommand),
     /// Manage Trellis users.
     Users(UsersCommand),
     /// Inspect and manage login portals.

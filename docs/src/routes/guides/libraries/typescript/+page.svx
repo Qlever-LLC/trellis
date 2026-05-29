@@ -210,11 +210,19 @@ current deployment metadata.
 
 ```ts
 import {
-  dispatchOutbox,
+  OutboxDispatcher,
   SqlOutboxRepository,
   type SqlExecutor,
 } from "@qlever-llc/trellis/service";
 import { Result } from "@qlever-llc/trellis";
+
+// Create one dispatcher for the service process. Use a non-transactional
+// repository here; `outboundClient` is the publisher used by the dispatch
+// worker, and transactional handlers still create repositories over `tx`.
+const outboxRepository = new SqlOutboxRepository(dbExecutor, "postgres");
+const outboxDispatcher = new OutboxDispatcher(outboxRepository, outboundClient, {
+  idleRetryMs: 30_000,
+});
 
 await service.handle.rpc.orders.ship(async ({ input, client }) => {
   const prepared = client.event.orders.shipped.prepare({
@@ -233,17 +241,21 @@ await service.handle.rpc.orders.ship(async ({ input, client }) => {
     await outbox.enqueue(prepared);
   });
 
+  // Signal after the transaction commits so rolled-back rows are never
+  // dispatched. Signals are debounced and only one drain loop runs at a time.
+  outboxDispatcher.notify();
+
   return Result.ok({ accepted: true });
 });
-
-// Run from a service-owned worker, cron, or job after the transaction commits.
-await dispatchOutbox(outboxRepository, client);
 ```
 
 SQL and Drizzle-based services own their schema migrations and transaction
 boundaries. Trellis provides SQL repository adapters and DDL helpers, but your
 service should put the outbox/inbox tables into its normal migration flow and use
-the same database transaction when coupling an outbox row to local state.
+the same database transaction when coupling an outbox row to local state. The
+dispatcher is process-local coordination; `idleRetryMs` is optional, but useful
+as a low-frequency recovery scan for missed signals or rows left behind after a
+restart.
 
 Use an inbox only for handlers that are not naturally idempotent. If replaying a
 message would be harmless because the handler writes idempotently by business

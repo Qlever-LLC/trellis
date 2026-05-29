@@ -56,6 +56,9 @@ Rules:
 - values are opaque bytes plus small metadata, not typed JSON records
 - services discover stores through normal resource bindings rather than through
   cloud-management credentials
+- accepted store requests become deployment authority desired state;
+  reconciliation is the only path that creates, updates, removes, or adopts
+  materialized stores and bindings
 
 `resources.store` is intended for service-local and service-owned binary data.
 It is not a shared public data plane and it does not change the ownership rules
@@ -91,19 +94,37 @@ Rules:
     automatic expiry requested
   - `maxTotalBytes`: optional desired total-store size limit in bytes; omit it
     when the store should not request a finite total-size limit
-- contracts request logical stores; Trellis chooses the concrete physical store
-  identity at service envelope expansion or shrink/expand update time
+- contract proposals request logical stores; accepted requests become deployment
+  authority desired state, and Trellis chooses the concrete physical store
+  identity during reconciliation
 - Trellis validates store declarations from the presented contract, but physical
   store identity is scoped to the deployment and contract lineage rather than
   the digest so compatible service updates preserve objects
-- all declared stores must be provisioned or adopted during approval; approval
-  fails if Trellis cannot create or bind one according to platform policy
-- optional stores (`required: false`) still participate in approval-time
-  provisioning; the flag controls generated service typing, not best-effort
-  omission
+- all accepted stores must be materialized; reconciliation remains pending if
+  Trellis cannot create or bind one according to platform policy
+- optional stores (`required: false`) still participate in reconciliation; the
+  flag controls generated service typing, not best-effort omission
 - when `maxTotalBytes` is omitted, Trellis reconciles the backing NATS object
   store to the backend sentinel for "no contract-requested finite total limit"
   instead of preserving a stale finite limit from an older contract digest
+
+### Authority Update And Migration Classification
+
+Safe store authority updates include:
+
+- adding a new store alias
+- increasing `maxTotalBytes` or `maxObjectBytes`
+- increasing retention or moving from finite retention to no automatic expiry
+- changing `purpose` without changing runtime behavior
+
+Dangerous store authority migrations include:
+
+- removing or renaming a store alias
+- reducing retention, `maxTotalBytes`, or `maxObjectBytes`
+- changing store semantics in a way that may make existing objects invalid or
+  inaccessible
+- adopting an existing object store with incompatible ownership, retention, or
+  size-limit expectations
 
 ### Binding Shape
 
@@ -266,8 +287,8 @@ Rules:
 - store keys are logical object keys within one store alias
 - keys may be path-like and may include `/`
 - keys are exact-match identifiers; prefix matching is only for `list(...)`
-- `ttlMs` is optional in the contract, but installed bindings always expose the
-  effective retention value
+- `ttlMs` is optional in the contract, but materialized bindings always expose
+  the effective retention value
 - deployments may clamp requested limits according to platform policy as long as
   the resulting binding reflects the effective installed limits
 

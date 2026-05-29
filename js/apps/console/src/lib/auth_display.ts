@@ -21,7 +21,7 @@ export type SessionRecord = AuthSessionsListOutput["entries"][number];
 export type ConnectionRecord = AuthConnectionsListOutput["entries"][number];
 
 export type UserGrantRecord = {
-  identityEnvelopeId: string;
+  identityGrantId: string;
   contractEvidence: {
     contractDigest: string;
     contractId: string;

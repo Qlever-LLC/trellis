@@ -1,7 +1,7 @@
 import {
   createAuthIdentitiesGrantsListHandler,
   createAuthIdentitiesListHandler,
-  createAuthIdentityEnvelopesRevokeHandler,
+  createAuthIdentityGrantsRevokeHandler,
 } from "../approval/rpc.ts";
 import { createKick } from "../callout/kick.ts";
 import {
@@ -22,10 +22,12 @@ import {
   createAuthUsersListHandler,
   createAuthUsersUpdateHandler,
 } from "../session/users.ts";
+import type { IdentityGrantRecord } from "../schemas.ts";
 import type {
+  BoundedListQuery,
+  ListPage,
   SqlAccountFlowRepository,
   SqlCapabilityGroupRepository,
-  SqlIdentityEnvelopeRepository,
   SqlLocalCredentialRepository,
   SqlSessionRepository,
   SqlUserAccountRepository,
@@ -61,32 +63,53 @@ export async function registerApprovalAndUserRpcs(deps: {
   accountFlowStorage: SqlAccountFlowRepository;
   userIdentityStorage: SqlUserIdentityRepository;
   localCredentialStorage: SqlLocalCredentialRepository;
-  contractApprovalStorage: SqlIdentityEnvelopeRepository;
+  contractApprovalStorage: {
+    get(
+      identityGrantId: string,
+    ): Promise<IdentityGrantRecord | undefined>;
+    delete(identityGrantId: string): Promise<void>;
+    listCountedPage(
+      query: BoundedListQuery,
+    ): Promise<ListPage<IdentityGrantRecord>>;
+    listCountedPageByUser(
+      userTrellisId: string,
+      query: BoundedListQuery,
+    ): Promise<ListPage<IdentityGrantRecord>>;
+    listApprovedCountedPageByUser(
+      userTrellisId: string,
+      query: BoundedListQuery,
+    ): Promise<ListPage<IdentityGrantRecord>>;
+  };
 }): Promise<void> {
   const kick = createKick(deps);
   const portalBaseUrl = deps.config.web.publicOrigin ??
     deps.config.oauth.redirectBase;
-  await deps.trellis.handle.rpc.auth.identitiesList(
-    createAuthIdentitiesListHandler({
-      contractApprovalStorage: deps.contractApprovalStorage,
-      logger: deps.logger,
-    }),
-  );
-  await deps.trellis.handle.rpc.auth.identitiesGrantsList(
-    createAuthIdentitiesGrantsListHandler({
-      contractApprovalStorage: deps.contractApprovalStorage,
-    }),
-  );
-  await deps.trellis.handle.rpc.auth.identityEnvelopesRevoke(
-    createAuthIdentityEnvelopesRevokeHandler({
-      connectionsKV: deps.connectionsKV,
-      contractApprovalStorage: deps.contractApprovalStorage,
-      kick,
-      logger: deps.logger,
-      publishSessionRevoked: deps.publishSessionRevoked,
-      sessionStorage: deps.sessionStorage,
-    }),
-  );
+  const listIdentities = createAuthIdentitiesListHandler({
+    contractApprovalStorage: deps.contractApprovalStorage,
+    logger: deps.logger,
+  });
+  const listIdentityGrants = createAuthIdentitiesGrantsListHandler({
+    contractApprovalStorage: deps.contractApprovalStorage,
+  });
+  const revokeIdentityGrant = createAuthIdentityGrantsRevokeHandler({
+    connectionsKV: deps.connectionsKV,
+    contractApprovalStorage: deps.contractApprovalStorage,
+    kick,
+    logger: deps.logger,
+    publishSessionRevoked: deps.publishSessionRevoked,
+    sessionStorage: deps.sessionStorage,
+  });
+  await deps.trellis.handle.rpc.auth.identitiesList(async (args) => {
+    return await listIdentities(args);
+  });
+  await deps.trellis.handle.rpc.auth.identityGrantsList(async (args) => {
+    return await listIdentityGrants(args);
+  });
+  await deps.trellis.handle.rpc.auth.identityGrantsRevoke(async (args) => {
+    return await revokeIdentityGrant({
+      ...args,
+    });
+  });
 
   await deps.trellis.handle.rpc.auth.usersList(
     createAuthUsersListHandler(

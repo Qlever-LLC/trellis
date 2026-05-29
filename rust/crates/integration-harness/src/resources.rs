@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::fs::File;
 use std::path::PathBuf;
 use std::process::{Child, Stdio};
@@ -9,7 +8,7 @@ use bytes::Bytes;
 use futures_util::StreamExt;
 use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use trellis::auth::{
     connect_admin_client_async, generate_session_keypair, AdminLoginOutcome, AdminSessionState,
 };
@@ -20,10 +19,6 @@ use trellis::contracts::{
     digest_contract_json, kv, rpc, store, use_contract, ContractKind, ContractManifestBuilder,
 };
 use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
-use trellis::sdk::auth::types::{
-    AuthEnvelopeExpansionsApproveRequest, AuthEnvelopeExpansionsListRequest,
-    AuthEnvelopesExpandRequest,
-};
 use trellis::sdk::core::types::TrellisBindingsGetResponseBinding;
 use trellis::service::{
     ConnectedServiceRuntime, CoreBootstrapBinding, KvResourceEntry, KvResourceHandle,
@@ -34,6 +29,7 @@ use trellis::service::{
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
 use crate::deno_fixture::{deno_fixture_log_paths, deno_fixture_path};
+use crate::deployment_authority::plan_accept_reconcile_deployment_authority;
 use crate::workspace::repo_root;
 
 const PASSING_CASES: usize = 7;
@@ -237,16 +233,14 @@ pub(crate) async fn run_resources_fixture(
         let sdk_auth_client = SdkAuthClient::new(&admin_client);
         let service_contract_json = harness_service_contract_json()?;
         let contract_digest = digest_contract_json(&service_contract_json).into_diagnostic()?;
-        sdk_auth_client
-            .rpc()
-            .auth()
-            .envelopes_expand(&AuthEnvelopesExpandRequest {
-                contract: contract_json_object(&service_contract_json)?,
-                deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
-                expected_digest: contract_digest.clone(),
-            })
-            .await
-            .into_diagnostic()?;
+        plan_accept_reconcile_deployment_authority(
+            &sdk_auth_client,
+            HARNESS_DEPLOYMENT_ID,
+            &service_contract_json,
+            &contract_digest,
+            "integration harness resource service setup",
+        )
+        .await?;
         assert_pending_resource_service_approval(
             trellis_url,
             &auth_client,
@@ -388,19 +382,14 @@ async fn assert_pending_resource_service_approval(
         contract_json.to_string(),
         service_seed,
     ));
-    let pending_request_ids =
-        wait_for_pending_resource_expansion_requests(sdk_auth_client, contract_digest).await?;
-    for request_id in pending_request_ids {
-        sdk_auth_client
-            .rpc()
-            .auth()
-            .envelope_expansions_approve(&AuthEnvelopeExpansionsApproveRequest {
-                request_id,
-                reason: Some("integration harness resource service startup approval".to_string()),
-            })
-            .await
-            .into_diagnostic()?;
-    }
+    plan_accept_reconcile_deployment_authority(
+        sdk_auth_client,
+        HARNESS_PENDING_DEPLOYMENT_ID,
+        contract_json,
+        contract_digest,
+        "integration harness resource service startup approval",
+    )
+    .await?;
 
     let client = connect_task.await.into_diagnostic()??;
     assert_resource_bootstrap_binding(&client, contract_digest)
@@ -420,48 +409,10 @@ async fn connect_pending_resource_service(
         session_key_seed_base64url: &service_seed,
         timeout_ms: 5_000,
         retry_delay_ms: 250,
-        approval_timeout_ms: 30_000,
+        authority_pending_timeout_ms: 30_000,
     })
     .await
     .into_diagnostic()
-}
-
-async fn wait_for_pending_resource_expansion_requests(
-    auth_client: &SdkAuthClient<'_>,
-    contract_digest: &str,
-) -> Result<Vec<String>> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        let response = auth_client
-            .rpc()
-            .auth()
-            .envelope_expansions_list(&AuthEnvelopeExpansionsListRequest {
-                deployment_id: Some(HARNESS_PENDING_DEPLOYMENT_ID.to_string()),
-                limit: 20,
-                offset: None,
-                state: Some("pending".to_string()),
-            })
-            .await
-            .into_diagnostic()?;
-        let request_ids: Vec<_> = response
-            .entries
-            .into_iter()
-            .filter(|request| {
-                request.contract_id == HARNESS_CONTRACT_ID
-                    && request.contract_digest == contract_digest
-            })
-            .map(|request| request.request_id)
-            .collect();
-        if !request_ids.is_empty() {
-            return Ok(request_ids);
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return Err(miette!(
-                "timed out waiting for pending resource envelope expansion request"
-            ));
-        }
-        tokio::time::sleep(Duration::from_millis(250)).await;
-    }
 }
 
 fn assert_resource_bootstrap_binding(client: &TrellisClient, contract_digest: &str) -> Result<()> {
@@ -953,11 +904,6 @@ async fn reauth_contract(
             challenge.complete(trellis_url).await.into_diagnostic()
         }
     }
-}
-
-fn contract_json_object(contract_json: &str) -> Result<BTreeMap<String, Value>> {
-    serde_json::from_str(contract_json)
-        .map_err(|error| miette!("failed to parse contract JSON object: {error}"))
 }
 
 async fn connect_service_with_retry(

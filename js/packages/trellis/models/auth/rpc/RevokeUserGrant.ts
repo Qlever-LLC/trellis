@@ -1,15 +1,15 @@
 import Type, { type Static } from "typebox";
 
-export const AuthIdentityEnvelopesRevokeSchema = Type.Object({
-  identityEnvelopeId: Type.String({ minLength: 1 }),
+export const AuthIdentityGrantsRevokeSchema = Type.Object({
+  identityGrantId: Type.String({ minLength: 1 }),
 });
-export type AuthIdentityEnvelopesRevokeInput = Static<
-  typeof AuthIdentityEnvelopesRevokeSchema
+export type AuthIdentityGrantsRevokeInput = Static<
+  typeof AuthIdentityGrantsRevokeSchema
 >;
 
-export const AuthIdentityEnvelopesRevokeResponseSchema = Type.Object({
+export const AuthIdentityGrantsRevokeResponseSchema = Type.Object({
   success: Type.Boolean(),
 });
-export type AuthIdentityEnvelopesRevokeResponse = Static<
-  typeof AuthIdentityEnvelopesRevokeResponseSchema
+export type AuthIdentityGrantsRevokeResponse = Static<
+  typeof AuthIdentityGrantsRevokeResponseSchema
 >;

@@ -2,7 +2,7 @@
   import LanguageTabs from "$lib/components/LanguageTabs.svelte";
 </script>
 
-Connecting is a good start, but let's actually store some orders. In Trellis, you don't provision databases or juggle connection strings in service code. You ask for a Key-Value bucket in your contract and Trellis provisions it when the deployment envelope expands to include that resource boundary.
+Connecting is a good start, but let's actually store some orders. In Trellis, you don't provision databases or juggle connection strings in service code. You ask for a Key-Value bucket in your contract, accept the desired deployment authority change, and Trellis provisions it during authority reconciliation.
 
 First, define what an `Order` looks like and add a service-owned `orders` KV resource.
 
@@ -144,11 +144,12 @@ async fn open_orders_kv(
 {/snippet}
 </LanguageTabs>
 
-Because we changed the contract, review the pending authority change in Console so Trellis can provision the required new bucket. Open **Admin → Services**, select `orders-service`, inspect the **Authority review required** delta, and approve or reject it.
+Because we changed the contract, review the pending authority change in Console. Accepting it approves the desired resource boundary and schedules reconciliation, which provisions the required new bucket. Open **Admin → Services**, select `orders-service`, inspect the **Authority review required** delta, and accept or reject it.
 
 For local development or automation, the Trellis CLI can decide the same pending request:
 
 ```sh
-trellis svc orders-service expansions list
-trellis svc orders-service expansions approve <request-id> --reason local-dev
+trellis svc orders-service authority plan list --state pending
+trellis svc orders-service authority plan show <plan-id>
+trellis svc orders-service authority accept-update <plan-id>
 ```

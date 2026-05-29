@@ -10,56 +10,55 @@ use trellis::contracts::{
     digest_contract_json, rpc, use_contract, ContractKind, ContractManifestBuilder,
 };
 use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
-use trellis::sdk::auth::types::{
-    AuthEnvelopeExpansionsApproveRequest, AuthEnvelopeExpansionsListRequest,
-    AuthServiceInstancesProvisionRequest,
-};
+use trellis::sdk::auth::types::AuthServiceInstancesProvisionRequest;
 use trellis::sdk::core::client::CoreClient;
 use trellis::service::{ConnectedServiceRuntime, HandlerResult, ServerError, ServiceRuntimeError};
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
+use crate::deployment_authority::plan_accept_reconcile_deployment_authority;
 use crate::rpc::reauth_contract;
 
-const REPAIR_DEPLOYMENT_ID: &str = "harness.catalog-repair";
-const REPAIR_CONTRACT_ID: &str = "trellis.integration-harness.catalog-repair@v1";
-const REPAIR_PERSIST_DEPLOYMENT_ID: &str = "harness.catalog-repair-persist";
-const REPAIR_PERSIST_CONTRACT_ID: &str = "trellis.integration-harness.catalog-repair-persist@v1";
-const REPAIR_SERVICE_NAME: &str = "harness-catalog-repair-rust";
-const REPAIR_RPC_SUBJECT: &str = "rpc.v1.Harness.CatalogRepair.Ping";
+const AUTHORITY_DEPLOYMENT_ID: &str = "harness.catalog-authority";
+const AUTHORITY_CONTRACT_ID: &str = "trellis.integration-harness.catalog-authority@v1";
+const AUTHORITY_PERSIST_DEPLOYMENT_ID: &str = "harness.catalog-authority-persist";
+const AUTHORITY_PERSIST_CONTRACT_ID: &str =
+    "trellis.integration-harness.catalog-authority-persist@v1";
+const AUTHORITY_SERVICE_NAME: &str = "harness-catalog-authority-rust";
+const AUTHORITY_RPC_SUBJECT: &str = "rpc.v1.Harness.CatalogAuthority.Ping";
 
 #[derive(Debug, Clone)]
-pub(crate) struct CatalogRepairPersistenceCheck {
+pub(crate) struct CatalogAuthorityPersistenceCheck {
     contract_id: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-struct RepairPingRequest {
+struct AuthorityPingRequest {
     message: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-struct RepairPingResponse {
+struct AuthorityPingResponse {
     message: String,
 }
 
-struct RepairPingRpc;
+struct AuthorityPingRpc;
 
-impl trellis::client::RpcDescriptor for RepairPingRpc {
-    type Input = RepairPingRequest;
-    type Output = RepairPingResponse;
+impl trellis::client::RpcDescriptor for AuthorityPingRpc {
+    type Input = AuthorityPingRequest;
+    type Output = AuthorityPingResponse;
 
-    const KEY: &'static str = "Repair.Ping";
-    const SUBJECT: &'static str = REPAIR_RPC_SUBJECT;
+    const KEY: &'static str = "Authority.Ping";
+    const SUBJECT: &'static str = AUTHORITY_RPC_SUBJECT;
     const CALLER_CAPABILITIES: &'static [&'static str] = &[];
     const ERRORS: &'static [&'static str] = &["UnexpectedError"];
 }
 
-pub(crate) async fn run_catalog_repair_fixture(
+pub(crate) async fn run_catalog_authority_fixture(
     trellis_url: &str,
     admin_login: &AdminLoginOutcome,
     browser: &BrowserContainer,
-) -> Result<(usize, CatalogRepairPersistenceCheck)> {
+) -> Result<(usize, CatalogAuthorityPersistenceCheck)> {
     let setup_contract_json = admin_setup_contract_json()?;
     let setup_login = reauth_contract(
         &admin_login.state,
@@ -76,43 +75,46 @@ pub(crate) async fn run_catalog_repair_fixture(
     let core_client = CoreClient::new(&admin_client);
 
     auth_client
-        .create_service_deployment(REPAIR_DEPLOYMENT_ID, vec!["harness".to_string()])
+        .create_service_deployment(AUTHORITY_DEPLOYMENT_ID, vec!["harness".to_string()])
         .await
         .into_diagnostic()?;
 
-    let old_contract_json = repair_contract_json(REPAIR_CONTRACT_ID, RepairContractShape::Old)?;
+    let old_contract_json =
+        authority_contract_json(AUTHORITY_CONTRACT_ID, AuthorityContractShape::Old)?;
     let old_digest = digest_contract_json(&old_contract_json).into_diagnostic()?;
-    let new_contract_json = repair_contract_json(REPAIR_CONTRACT_ID, RepairContractShape::New)?;
+    let new_contract_json =
+        authority_contract_json(AUTHORITY_CONTRACT_ID, AuthorityContractShape::New)?;
     let new_digest = digest_contract_json(&new_contract_json).into_diagnostic()?;
-    let service_seed = provision_service_instance(&auth_client, REPAIR_DEPLOYMENT_ID).await?;
+    let service_seed = provision_service_instance(&auth_client, AUTHORITY_DEPLOYMENT_ID).await?;
     let old_connect_task = tokio::spawn(connect_service(
         trellis_url.to_string(),
-        REPAIR_CONTRACT_ID.to_string(),
+        AUTHORITY_CONTRACT_ID.to_string(),
         old_contract_json.clone(),
         old_digest.clone(),
         service_seed.clone(),
         30_000,
     ));
-    approve_pending_expansions(
+    plan_accept_reconcile_deployment_authority(
         &sdk_auth_client,
-        REPAIR_DEPLOYMENT_ID,
-        REPAIR_CONTRACT_ID,
+        AUTHORITY_DEPLOYMENT_ID,
+        &old_contract_json,
         &old_digest,
+        "integration harness catalog authority setup",
     )
     .await?;
     let service_client = Arc::new(old_connect_task.await.into_diagnostic()??);
-    let service_task = start_repair_service(Arc::clone(&service_client), &old_digest);
+    let service_task = start_authority_service(Arc::clone(&service_client), &old_digest);
 
-    let caller_contract_json = repair_caller_contract_json(REPAIR_CONTRACT_ID)?;
+    let caller_contract_json = authority_caller_contract_json(AUTHORITY_CONTRACT_ID)?;
     let caller_login = login_contract(trellis_url, browser, &caller_contract_json).await?;
     let caller_client = connect_admin_client_async(&caller_login.state)
         .await
         .into_diagnostic()?;
-    wait_for_repair_ping(&caller_client, "before-conflict").await?;
+    wait_for_authority_ping(&caller_client, "before-conflict").await?;
 
     assert_incompatible_same_instance_rejected(
         trellis_url,
-        REPAIR_CONTRACT_ID,
+        AUTHORITY_CONTRACT_ID,
         &new_contract_json,
         &new_digest,
         &service_seed,
@@ -120,7 +122,7 @@ pub(crate) async fn run_catalog_repair_fixture(
     .await?;
     let old_reconnect = connect_service(
         trellis_url.to_string(),
-        REPAIR_CONTRACT_ID.to_string(),
+        AUTHORITY_CONTRACT_ID.to_string(),
         old_contract_json.clone(),
         old_digest.clone(),
         service_seed,
@@ -128,15 +130,15 @@ pub(crate) async fn run_catalog_repair_fixture(
     )
     .await?;
     drop(old_reconnect);
-    wait_for_repair_ping(&caller_client, "after-rejected-conflict").await?;
+    wait_for_authority_ping(&caller_client, "after-rejected-conflict").await?;
 
     let persistence_check = create_no_active_issue_check(
         trellis_url,
         &auth_client,
         &sdk_auth_client,
         &core_client,
-        REPAIR_PERSIST_DEPLOYMENT_ID,
-        REPAIR_PERSIST_CONTRACT_ID,
+        AUTHORITY_PERSIST_DEPLOYMENT_ID,
+        AUTHORITY_PERSIST_CONTRACT_ID,
     )
     .await?;
 
@@ -144,9 +146,9 @@ pub(crate) async fn run_catalog_repair_fixture(
     Ok((5, persistence_check))
 }
 
-pub(crate) async fn verify_catalog_repair_persistence_after_restart(
+pub(crate) async fn verify_catalog_authority_persistence_after_restart(
     admin_login: &AdminLoginOutcome,
-    check: &CatalogRepairPersistenceCheck,
+    check: &CatalogAuthorityPersistenceCheck,
 ) -> Result<usize> {
     let admin_client = connect_admin_client_async(&admin_login.state)
         .await
@@ -165,7 +167,7 @@ pub(crate) async fn verify_catalog_repair_persistence_after_restart(
         .find(|issue| issue.contract_id.as_deref() == Some(check.contract_id.as_str()));
     match issue {
         Some(issue) => Err(miette!(
-            "catalog repair persistence retained active issue {} for envelope-authorized contract {}",
+            "catalog authority persistence retained active issue {} for authority-authorized contract {}",
             issue.issue_id,
             check.contract_id
         )),
@@ -180,25 +182,32 @@ async fn create_no_active_issue_check(
     core_client: &CoreClient<'_>,
     deployment_id: &str,
     contract_id: &str,
-) -> Result<CatalogRepairPersistenceCheck> {
+) -> Result<CatalogAuthorityPersistenceCheck> {
     auth_client
         .create_service_deployment(deployment_id, vec!["harness".to_string()])
         .await
         .into_diagnostic()?;
-    let old_contract_json = repair_contract_json(contract_id, RepairContractShape::Old)?;
+    let old_contract_json = authority_contract_json(contract_id, AuthorityContractShape::Old)?;
     let old_digest = digest_contract_json(&old_contract_json).into_diagnostic()?;
-    let new_contract_json = repair_contract_json(contract_id, RepairContractShape::New)?;
+    let new_contract_json = authority_contract_json(contract_id, AuthorityContractShape::New)?;
     let new_digest = digest_contract_json(&new_contract_json).into_diagnostic()?;
     let old_seed = provision_service_instance(auth_client, deployment_id).await?;
     let old_connect_task = tokio::spawn(connect_service(
         trellis_url.to_string(),
         contract_id.to_string(),
-        old_contract_json,
+        old_contract_json.clone(),
         old_digest.clone(),
         old_seed.clone(),
         30_000,
     ));
-    approve_pending_expansions(sdk_auth_client, deployment_id, contract_id, &old_digest).await?;
+    plan_accept_reconcile_deployment_authority(
+        sdk_auth_client,
+        deployment_id,
+        &old_contract_json,
+        &old_digest,
+        "integration harness catalog authority persistence setup",
+    )
+    .await?;
     let old_client = old_connect_task.await.into_diagnostic()??;
     drop(old_client);
 
@@ -211,7 +220,7 @@ async fn create_no_active_issue_check(
     )
     .await?;
     wait_for_catalog_issue_absent(core_client, contract_id).await?;
-    Ok(CatalogRepairPersistenceCheck {
+    Ok(CatalogAuthorityPersistenceCheck {
         contract_id: contract_id.to_string(),
     })
 }
@@ -240,49 +249,49 @@ async fn login_contract(
     challenge.complete(trellis_url).await.into_diagnostic()
 }
 
-fn start_repair_service(
+fn start_authority_service(
     service_client: Arc<TrellisClient>,
     digest: &str,
 ) -> tokio::task::JoinHandle<Result<(), ServiceRuntimeError>> {
     let mut service = ConnectedServiceRuntime::<()>::from_connected_client(
-        REPAIR_SERVICE_NAME,
+        AUTHORITY_SERVICE_NAME,
         Arc::clone(&service_client),
     )
-    .expect("repair service client should include bootstrap binding");
-    service.register_rpc::<RepairPingRpc, _, _>(|_ctx, input| async move {
-        Ok::<_, ServerError>(RepairPingResponse {
+    .expect("authority service client should include bootstrap binding");
+    service.register_rpc::<AuthorityPingRpc, _, _>(|_ctx, input| async move {
+        Ok::<_, ServerError>(AuthorityPingResponse {
             message: input.message,
-        }) as HandlerResult<RepairPingResponse>
+        }) as HandlerResult<AuthorityPingResponse>
     });
     let _ = digest;
     tokio::spawn(async move { service.run().await })
 }
 
-async fn assert_repair_ping(client: &TrellisClient, message: &str) -> Result<()> {
+async fn assert_authority_ping(client: &TrellisClient, message: &str) -> Result<()> {
     let response = client
-        .call::<RepairPingRpc>(&RepairPingRequest {
+        .call::<AuthorityPingRpc>(&AuthorityPingRequest {
             message: message.to_string(),
         })
         .await
-        .map_err(|error| miette!("Repair.Ping `{message}` failed: {error}"))?;
+        .map_err(|error| miette!("Authority.Ping `{message}` failed: {error}"))?;
     if response.message != message {
         return Err(miette!(
-            "Repair.Ping returned `{}` instead of `{message}`",
+            "Authority.Ping returned `{}` instead of `{message}`",
             response.message
         ));
     }
     Ok(())
 }
 
-async fn wait_for_repair_ping(client: &TrellisClient, message: &str) -> Result<()> {
+async fn wait_for_authority_ping(client: &TrellisClient, message: &str) -> Result<()> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
-        match assert_repair_ping(client, message).await {
+        match assert_authority_ping(client, message).await {
             Ok(()) => return Ok(()),
             Err(error) => {
                 if tokio::time::Instant::now() >= deadline {
                     return Err(miette!(
-                        "timed out waiting for Repair.Ping `{message}`: {error}"
+                        "timed out waiting for Authority.Ping `{message}`: {error}"
                     ));
                 }
             }
@@ -312,7 +321,7 @@ async fn connect_service(
     contract_json: String,
     contract_digest: String,
     service_seed: String,
-    approval_timeout_ms: u64,
+    authority_pending_timeout_ms: u64,
 ) -> Result<TrellisClient> {
     TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
         trellis_url: &trellis_url,
@@ -322,7 +331,7 @@ async fn connect_service(
         session_key_seed_base64url: &service_seed,
         timeout_ms: 5_000,
         retry_delay_ms: 250,
-        approval_timeout_ms,
+        authority_pending_timeout_ms,
     })
     .await
     .map_err(|error| miette!("service {contract_id} connect failed: {error}"))
@@ -364,56 +373,6 @@ async fn assert_incompatible_same_instance_rejected(
     }
 }
 
-async fn approve_pending_expansions(
-    auth_client: &SdkAuthClient<'_>,
-    deployment_id: &str,
-    contract_id: &str,
-    contract_digest: &str,
-) -> Result<()> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        let response = auth_client
-            .rpc()
-            .auth()
-            .envelope_expansions_list(&AuthEnvelopeExpansionsListRequest {
-                deployment_id: Some(deployment_id.to_string()),
-                limit: 20,
-                offset: None,
-                state: Some("pending".to_string()),
-            })
-            .await
-            .into_diagnostic()?;
-        let request_ids: Vec<_> = response
-            .entries
-            .into_iter()
-            .filter(|request| {
-                request.contract_id == contract_id && request.contract_digest == contract_digest
-            })
-            .map(|request| request.request_id)
-            .collect();
-        if !request_ids.is_empty() {
-            for request_id in request_ids {
-                auth_client
-                    .rpc()
-                    .auth()
-                    .envelope_expansions_approve(&AuthEnvelopeExpansionsApproveRequest {
-                        request_id,
-                        reason: Some("integration harness catalog repair setup".to_string()),
-                    })
-                    .await
-                    .into_diagnostic()?;
-            }
-            return Ok(());
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return Err(miette!(
-                "timed out waiting for catalog repair expansion request for {deployment_id}"
-            ));
-        }
-        tokio::time::sleep(Duration::from_millis(250)).await;
-    }
-}
-
 async fn wait_for_catalog_issue_absent(
     core_client: &CoreClient<'_>,
     contract_id: &str,
@@ -445,12 +404,12 @@ async fn wait_for_catalog_issue_absent(
 }
 
 #[derive(Debug, Clone, Copy)]
-enum RepairContractShape {
+enum AuthorityContractShape {
     Old,
     New,
 }
 
-fn repair_contract_json(contract_id: &str, shape: RepairContractShape) -> Result<String> {
+fn authority_contract_json(contract_id: &str, shape: AuthorityContractShape) -> Result<String> {
     let old_request_schema = json!({
         "type": "object",
         "properties": { "message": { "type": "string" } },
@@ -467,48 +426,53 @@ fn repair_contract_json(contract_id: &str, shape: RepairContractShape) -> Result
         "required": ["message"]
     });
     let request_schema = match shape {
-        RepairContractShape::Old => old_request_schema,
-        RepairContractShape::New => new_request_schema,
+        AuthorityContractShape::Old => old_request_schema,
+        AuthorityContractShape::New => new_request_schema,
     };
-    let rpc_subject = repair_rpc_subject(contract_id)?;
+    let rpc_subject = authority_rpc_subject(contract_id)?;
     let manifest = ContractManifestBuilder::new(
         contract_id,
-        "Trellis Integration Catalog Repair",
-        "Harness-owned service contract for active catalog repair verification.",
+        "Trellis Integration Catalog Authority",
+        "Harness-owned service contract for active catalog authority verification.",
         ContractKind::Service,
     )
     .use_ref(
         "auth",
         use_contract("trellis.auth@v1").with_rpc_call(["Auth.Requests.Validate"]),
     )
-    .schema("RepairPingRequest", request_schema)
-    .schema("RepairPingResponse", response_schema)
+    .schema("AuthorityPingRequest", request_schema)
+    .schema("AuthorityPingResponse", response_schema)
     .rpc(
-        "Repair.Ping",
-        rpc("v1", rpc_subject, "RepairPingRequest", "RepairPingResponse")
-            .with_call_capabilities(std::iter::empty::<&str>())
-            .with_error_types(["UnexpectedError"]),
+        "Authority.Ping",
+        rpc(
+            "v1",
+            rpc_subject,
+            "AuthorityPingRequest",
+            "AuthorityPingResponse",
+        )
+        .with_call_capabilities(std::iter::empty::<&str>())
+        .with_error_types(["UnexpectedError"]),
     )
     .build()
-    .map_err(|error| miette!("failed to build catalog repair contract: {error}"))?;
+    .map_err(|error| miette!("failed to build catalog authority contract: {error}"))?;
 
     serde_json::to_string(&manifest)
-        .map_err(|error| miette!("failed to serialize catalog repair contract: {error}"))
+        .map_err(|error| miette!("failed to serialize catalog authority contract: {error}"))
 }
 
-fn repair_rpc_subject(contract_id: &str) -> Result<&'static str> {
+fn authority_rpc_subject(contract_id: &str) -> Result<&'static str> {
     match contract_id {
-        REPAIR_CONTRACT_ID => Ok(REPAIR_RPC_SUBJECT),
-        REPAIR_PERSIST_CONTRACT_ID => Ok("rpc.v1.Harness.CatalogRepair.Persist.Ping"),
-        other => Err(miette!("unknown catalog repair contract id `{other}`")),
+        AUTHORITY_CONTRACT_ID => Ok(AUTHORITY_RPC_SUBJECT),
+        AUTHORITY_PERSIST_CONTRACT_ID => Ok("rpc.v1.Harness.CatalogAuthority.Persist.Ping"),
+        other => Err(miette!("unknown catalog authority contract id `{other}`")),
     }
 }
 
-fn repair_caller_contract_json(contract_id: &str) -> Result<String> {
+fn authority_caller_contract_json(contract_id: &str) -> Result<String> {
     let manifest = ContractManifestBuilder::new(
-        "trellis.integration-catalog-repair-agent@v1",
-        "Trellis Integration Catalog Repair Agent",
-        "Verify catalog repair leaves existing RPC providers callable.",
+        "trellis.integration-catalog-authority-agent@v1",
+        "Trellis Integration Catalog Authority Agent",
+        "Verify catalog authority leaves existing RPC providers callable.",
         ContractKind::Agent,
     )
     .use_ref(
@@ -516,12 +480,12 @@ fn repair_caller_contract_json(contract_id: &str) -> Result<String> {
         use_contract("trellis.auth@v1").with_rpc_call(["Auth.Sessions.Logout", "Auth.Sessions.Me"]),
     )
     .use_ref(
-        "repair",
-        use_contract(contract_id).with_rpc_call(["Repair.Ping"]),
+        "authority",
+        use_contract(contract_id).with_rpc_call(["Authority.Ping"]),
     )
     .build()
-    .map_err(|error| miette!("failed to build catalog repair caller contract: {error}"))?;
+    .map_err(|error| miette!("failed to build catalog authority caller contract: {error}"))?;
 
     serde_json::to_string(&manifest)
-        .map_err(|error| miette!("failed to serialize catalog repair caller contract: {error}"))
+        .map_err(|error| miette!("failed to serialize catalog authority caller contract: {error}"))
 }

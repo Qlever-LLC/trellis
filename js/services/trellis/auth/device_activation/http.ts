@@ -16,10 +16,13 @@ import { buildClientTransports } from "../transports.ts";
 import type { Config } from "../../config.ts";
 import type { ContractsModule } from "../../catalog/runtime.ts";
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
+import type { SqlDeploymentPortalRouteRepository } from "../storage.ts";
 import type {
-  SqlDeploymentEnvelopeRepository,
-  SqlDeploymentPortalRouteRepository,
-} from "../storage.ts";
+  DeploymentAuthority,
+  DeploymentAuthorityMaterialization,
+  DeploymentAuthorityPlan,
+} from "../schemas.ts";
+import type { BoundedListQuery } from "../storage.ts";
 import { deviceInstanceId } from "../admin/shared.ts";
 import { isDeviceProofIatFresh } from "./shared.ts";
 
@@ -98,7 +101,20 @@ type DeviceActivationHttpDeps =
       | "getContract"
       | "validateContract"
     >;
-    deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
+    deploymentAuthorityStorage: {
+      get(deploymentId: string): Promise<DeploymentAuthority | undefined>;
+    };
+    deploymentAuthorityPlanStorage: {
+      listFiltered(
+        filters: { deploymentId?: string; state?: string },
+        query: BoundedListQuery,
+      ): Promise<DeploymentAuthorityPlan[]>;
+    };
+    materializedAuthorityStorage: {
+      get(
+        deploymentId: string,
+      ): Promise<DeploymentAuthorityMaterialization | undefined>;
+    };
   }
   & Pick<
     AuthRuntimeDeps,
@@ -214,7 +230,9 @@ function deviceBootstrapDeps(deps: DeviceActivationHttpDeps) {
       loadDeviceActivation(deps, instanceId),
     loadDeviceDeployment: (deploymentId: string) =>
       loadDeviceDeployment(deps, deploymentId),
-    deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
+    deploymentAuthorityStorage: deps.deploymentAuthorityStorage,
+    deploymentAuthorityPlanStorage: deps.deploymentAuthorityPlanStorage,
+    materializedAuthorityStorage: deps.materializedAuthorityStorage,
     verifyIdentityProof: verifyDeviceConnectInfoIdentityProof,
   };
 }

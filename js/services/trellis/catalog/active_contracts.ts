@@ -12,12 +12,14 @@ export type ActiveDeviceInstanceRecord = {
   deploymentId: string;
 };
 
-export type ActiveDeploymentEnvelopeRecord = {
+export type ActiveDeploymentAuthorityRecord = {
   deploymentId: string;
   disabled?: boolean;
-  boundary: {
-    contracts: Array<{ contractId: string }>;
-    surfaces: Array<{ contractId: string }>;
+  desiredState: {
+    needs: Array<
+      | { kind: "contract"; contractId: string }
+      | { kind: "surface"; surface: { contractId: string } }
+    >;
   };
 };
 
@@ -38,7 +40,7 @@ export type ActiveImplementationOfferRecord = {
 export type ActiveCatalogRecordSet = {
   builtinDigests: Iterable<string>;
   builtinContractIds?: Iterable<string>;
-  deploymentEnvelopes: Iterable<ActiveDeploymentEnvelopeRecord>;
+  deploymentAuthorities: Iterable<ActiveDeploymentAuthorityRecord>;
   implementationOffers?: Iterable<ActiveImplementationOfferRecord>;
   evaluationTime?: string | Date;
 };

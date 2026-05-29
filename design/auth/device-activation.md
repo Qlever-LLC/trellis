@@ -42,8 +42,8 @@ Key decisions:
   `trellis.portal.activation@v1`
 - the activation portal is still a browser web app; if it calls Trellis after
   login, it does so as the logged-in user rather than as a service
-- devices present a contract at runtime; deployments validate the derived
-  boundary against the deployment envelope
+- devices present a contract proposal at runtime; deployments validate requested
+  needs against deployment authority and materialized authority
 - device deployments do not carry a separate rollout-target digest field
 - device review is a first-class optional gate controlled by `reviewMode`
 - the provisioning/admin path may generate the device root secret locally, but
@@ -118,13 +118,13 @@ online auth.
 ```json
 {
   "deploymentId": "reader.default",
-  "envelope": {
-    "contracts": ["acme.reader@v1"],
+  "authority": {
+    "contractIds": ["acme.reader@v1"],
     "capabilities": ["acme.reader::read"]
   },
   "contractHistory": [
-    { "contractDigest": "<digest-v1>", "action": "expanded" },
-    { "contractDigest": "<digest-v2>", "action": "expanded" }
+    { "contractDigest": "<digest-v1>", "action": "accepted_update" },
+    { "contractDigest": "<digest-v2>", "action": "accepted_update" }
   ],
   "reviewMode": "none",
   "disabled": false
@@ -135,13 +135,14 @@ Rules:
 
 - `deploymentId` is the stable server-side identifier attached to the device
   instance and activation record
-- `envelope` stores the authority boundary for the deployment
+- `authority` stores deployment-owned desired authority
 - each `contractId` identifies one contract lineage
-- `contractHistory` records reviewed expansion and retraction history for the
-  deployment; it is audit metadata, not authority
-- activated devices present a contract; auth checks that the derived required
-  boundary fits the deployment envelope
-- unknown or envelope-incompatible presented contracts are rejected instead of
+- `contractHistory` records accepted authority update and authority migration
+  history for the deployment; it is audit metadata, not authority
+- activated devices present a contract proposal; auth checks that derived
+  requested needs fit deployment authority and that reconciliation has produced
+  the required materialized authority
+- unknown or authority-incompatible presented contracts are rejected instead of
   falling back to another digest in the deployment
 - `reviewMode: "required"` means portal completion creates or resumes a pending
   review rather than activating immediately
@@ -168,13 +169,13 @@ Routing rules:
 - app and CLI login flows resolve portal routing from auth-owned global login
   route selectors keyed by app identity, then fall back to the built-in Trellis
   login portal
-- activated-device flows resolve portal routing from the device deployment
-  envelope, then fall back to the built-in Trellis device portal
+- activated-device flows resolve portal routing from device deployment
+  authority, then fall back to the built-in Trellis device portal
 
 This is automatic resolution in the sense that callers do not choose the portal
 explicitly. It is still explicit on the server side because Trellis relies on
-auth-owned login route selectors, stored deployment-envelope metadata for device
-flows, device-deployment records, and the built-in Trellis fallback.
+auth-owned login route selectors, stored deployment authority metadata for
+device flows, device-deployment records, and the built-in Trellis fallback.
 
 ### 6) Known-device activation uses one auth-owned operation
 
@@ -269,7 +270,8 @@ Rules:
   admin display, but the map may also include deployment-specific opaque keys
 - auth, activation, and connect-info decisions do not depend on this metadata
 - device instances do not store authority; connect-info and runtime auth resolve
-  the presented contract against the enabled device deployment envelope
+  the presented contract proposal against enabled device deployment authority
+  and materialized authority
 
 `DeviceProvisioningSecret` is the auth-owned activation secret material keyed by
 `instanceId`.
@@ -395,7 +397,7 @@ Activated devices need current runtime connect information from Trellis both:
 - on later startups when activation is already complete and the device wants to
   reconnect directly
 
-Recommended shared envelope:
+Recommended shared response shape:
 
 ```ts
 type DeviceConnectInfo = {
@@ -442,10 +444,11 @@ Rules:
 ### 11) Runtime auth presents a contract
 
 Runtime auth happens after connect-info returns `ready`. Device runtime is gated
-by registration, lifecycle state, and a presented contract boundary that fits
-the enabled device deployment envelope. Activation is the user-delegated
-authority path; admin review can grant setup authority, but neither path
-replaces the runtime envelope check.
+by registration, lifecycle state, and a presented contract proposal whose
+requested needs fit enabled device deployment authority and have converged into
+materialized authority. Activation is the user-delegated authority path; admin
+review can grant setup authority, but neither path replaces the runtime
+authority check.
 
 At connect time the device presents:
 
@@ -459,14 +462,14 @@ Auth validates:
    `activated`, or no activation exists and the instance is still `registered`
    under an admin/review-approved setup flow
 3. the device deployment is present and enabled
-4. the presented contract derives a required boundary that fits the device
-   deployment envelope
+4. the presented contract proposal derives requested needs that fit device
+   deployment authority and are present in materialized authority
 
-This keeps validation explicit while separating envelope fit from implementation
-offer liveness. Activation is not the runtime gate by itself: registration,
-lifecycle state, and envelope fit remain mandatory. Admin/review-approved setup
-sessions do not create or mutate activation records; activation remains the
-separate step that adds user-delegated authority.
+This keeps validation explicit while separating authority fit from
+implementation offer liveness. Activation is not the runtime gate by itself:
+registration, lifecycle state, and materialized authority remain mandatory.
+Admin/review-approved setup sessions do not create or mutate activation records;
+activation remains the separate step that adds user-delegated authority.
 
 Lifecycle events are:
 
@@ -496,7 +499,7 @@ Rules:
   should throw rather than returning a rejected union branch to the caller; Rust
   helpers should surface the failure through their normal `Result` error path
 - connect-info helpers own the identity-key proof/signature step and return the
-  auth-owned ready/connect-info envelope
+  auth-owned ready/connect-info response
 - portal and admin browser apps SHOULD prefer a typed device-activation client
   wrapper over manually spelling auth RPC method names and payload shapes
 - authenticated portal-side activation starts the
@@ -521,12 +524,13 @@ Rules:
   by services for enriching those heartbeats
 - Deno device runtimes MAY use the high-level device-user authority helper after
   registration when they need user-delegated authority; runtime connectivity
-  itself is still controlled by lifecycle checks and deployment-envelope fit
+  itself is still controlled by lifecycle checks, deployment authority, and
+  materialized authority
 - callers do not manage or persist serialized local activation state directly
 - Deno file-backed activation persistence stays internal to that
   activation-status helper, with storage-location overrides when the runtime
   needs to control the storage location
-- online approval waiting and offline confirmation actions resolve
+- online activation waiting and offline confirmation actions resolve
   user-delegated authority; they do not enable device-owned runtime access
 - Rust activated-device code SHOULD use the Rust helpers for deterministic
   identity derivation, activation payload and URL construction, wait-request

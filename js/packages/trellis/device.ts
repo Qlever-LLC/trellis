@@ -9,6 +9,7 @@ import {
   Result,
   UnexpectedError,
 } from "@qlever-llc/result";
+import { ulid } from "ulid";
 import {
   CONTRACT_STATE_METADATA,
   type ContractStateMetadata,
@@ -728,7 +729,7 @@ export async function startDeviceActivationWithDeps<
 > {
   const rootSecret = normalizeRootSecret(args.rootSecret);
   const identity = await deriveDeviceIdentity(rootSecret);
-  const nonce = crypto.randomUUID();
+  const nonce = ulid();
   const payload = await buildDeviceActivationPayload({
     activationKey: identity.activationKey,
     publicIdentityKey: identity.publicIdentityKey,

@@ -157,11 +157,11 @@ pub type ServiceOperationWatch<TProgress, TOutput> =
 /// Default request/connect timeout for service bootstrap and NATS RPC calls.
 pub const DEFAULT_TIMEOUT_MS: u64 = 5_000;
 
-/// Default retry delay while service contract approval is pending.
+/// Default retry delay while service deployment authority is pending.
 pub const DEFAULT_RETRY_DELAY_MS: u64 = 1_000;
 
-/// Default maximum time to wait for service contract approval.
-pub const DEFAULT_APPROVAL_TIMEOUT_MS: u64 = 60_000;
+/// Default maximum time to wait for service deployment authority to become ready.
+pub const DEFAULT_AUTHORITY_PENDING_TIMEOUT_MS: u64 = 60_000;
 
 /// Contract constants emitted by generated Rust service SDKs.
 pub trait GeneratedServiceContract {
@@ -186,10 +186,10 @@ pub struct ServiceConnectOptions<'a> {
     pub session_key_seed_base64url: &'a str,
     /// Request/connect timeout in milliseconds.
     pub timeout_ms: u64,
-    /// Retry delay in milliseconds while bootstrap is pending approval.
+    /// Retry delay in milliseconds while bootstrap is pending authority readiness.
     pub retry_delay_ms: u64,
-    /// Maximum approval wait time in milliseconds.
-    pub approval_timeout_ms: u64,
+    /// Maximum authority-pending wait time in milliseconds.
+    pub authority_pending_timeout_ms: u64,
 }
 
 impl<'a> ServiceConnectOptions<'a> {
@@ -201,7 +201,7 @@ impl<'a> ServiceConnectOptions<'a> {
             session_key_seed_base64url,
             timeout_ms: DEFAULT_TIMEOUT_MS,
             retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
-            approval_timeout_ms: DEFAULT_APPROVAL_TIMEOUT_MS,
+            authority_pending_timeout_ms: DEFAULT_AUTHORITY_PENDING_TIMEOUT_MS,
         }
     }
 }
@@ -873,7 +873,7 @@ where
                 session_key_seed_base64url: options.session_key_seed_base64url,
                 timeout_ms: options.timeout_ms,
                 retry_delay_ms: options.retry_delay_ms,
-                approval_timeout_ms: options.approval_timeout_ms,
+                authority_pending_timeout_ms: options.authority_pending_timeout_ms,
             })
             .await?;
         let binding = parse_bootstrap_binding(&client)?;

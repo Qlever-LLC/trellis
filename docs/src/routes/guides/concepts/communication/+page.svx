@@ -68,13 +68,13 @@ uses: {
 Contracts must declare dependencies with grouped `uses.required` and `uses.optional`:
 
 - required dependencies fail closed during runtime permission derivation when the referenced contract or surface is unknown
-- service expansion planning can collect pending evidence before every required dependency is live. If a required dependency manifest is known but inactive, Trellis can use it to show the requested surfaces for review. If it is unknown or only stale incompatible inactive manifests remain, Trellis records the unresolved contract id as a blocker until that service uploads current evidence.
+- authority planning can collect pending evidence before every required dependency is live. If a required dependency manifest is known but inactive, Trellis can use it to show the requested surfaces for review. If it is unknown or only stale incompatible inactive manifests remain, Trellis records the unresolved contract id as a blocker until that service uploads current evidence.
 - optional dependencies participate in contract identity but grant no authority when the target contract or surface is missing
 - if the same alias appears in both groups, the required entry wins
 
-If a dependency is not declared in `uses`, Trellis will not grant that cross-contract access when the contract boundary is added to the deployment envelope.
+If a dependency is not declared in `uses`, Trellis will not grant that cross-contract access when the contract boundary is added to deployment authority.
 
-Approved service boundaries only become runtime-active when the full required dependency closure resolves from known manifests and fits the deployment envelope; until then service bootstrap waits instead of receiving NATS credentials. If a service instance presents a different digest for the same contract id, `strict` deployments reject incompatible same-contract replacement, while `mutable-dev` deployments allow unreleased local iteration.
+Approved service boundaries only become runtime-active when the full required dependency closure resolves from known manifests and fits deployment authority; until then service bootstrap waits instead of receiving NATS credentials. If a service instance presents a different digest for the same contract id, Trellis checks same-lineage compatibility. Incompatible same-contract replacement is an authority migration: `strict` deployments record a pending plan, while `mutable-dev` deployments record and auto-accept that plan for unreleased local iteration.
 
 ## Surface availability
 

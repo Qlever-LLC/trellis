@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects } from "@std/assert";
+import { ulid } from "ulid";
 
 import { deriveDeviceConfirmationCode, deriveDeviceIdentity } from "../auth.ts";
 import { defineDeviceContract } from "../contract.ts";
@@ -1189,7 +1190,7 @@ Deno.test("checkDeviceActivation keys state files by deployment origin and devic
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              flowId: crypto.randomUUID(),
+              flowId: ulid(),
               instanceId: "dev_123",
               deploymentId: "reader.default",
               activationUrl: activationUrl("flow_keyed"),

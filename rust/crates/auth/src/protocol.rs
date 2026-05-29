@@ -10,7 +10,7 @@ pub struct JobsRegistry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-/// Jobs resource bindings attached to a service deployment envelope.
+/// Jobs resource bindings attached to materialized deployment authority.
 pub struct JobsBindings {
     pub namespace: String,
     pub queues: BTreeMap<String, Value>,
@@ -19,7 +19,7 @@ pub struct JobsBindings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-/// Resource bindings granted through a service deployment envelope.
+/// Resource bindings granted through materialized deployment authority.
 pub struct ResourceBindings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jobs: Option<JobsBindings>,
@@ -109,18 +109,18 @@ pub enum AuthStartResponse {
     },
 }
 
-/// Filter parameters for `Auth.Identities.List`.
-pub type ListApprovalsRequest = trellis_sdk_auth::types::AuthIdentitiesListRequest;
+/// Filter parameters for `Auth.IdentityGrants.List`.
+pub type ListIdentityGrantsRequest = trellis_sdk_auth::types::AuthIdentityGrantsListRequest;
 
-/// Approval scope returned by `Auth.Identities.List`.
-pub type ApprovalScopeRecord =
-    trellis_sdk_auth::types::AuthIdentitiesListResponseEntriesItemContractEvidence;
+/// Contract evidence returned by `Auth.IdentityGrants.List`.
+pub type IdentityGrantContractEvidenceRecord =
+    trellis_sdk_auth::types::AuthIdentityGrantsListResponseEntriesItemContractEvidence;
 
-/// Stored approval decision returned by `Auth.Identities.List`.
-pub type ApprovalEntryRecord = trellis_sdk_auth::types::AuthIdentitiesListResponseEntriesItem;
+/// Stored identity grant returned by `Auth.IdentityGrants.List`.
+pub type IdentityGrantEntryRecord = trellis_sdk_auth::types::AuthIdentityGrantsListResponseEntriesItem;
 
-/// Request payload for `Auth.IdentityEnvelopes.Revoke`.
-pub type RevokeApprovalRequest = trellis_sdk_auth::types::AuthIdentityEnvelopesRevokeRequest;
+/// Request payload for `Auth.IdentityGrants.Revoke`.
+pub type RevokeIdentityGrantRequest = trellis_sdk_auth::types::AuthIdentityGrantsRevokeRequest;
 
 /// Request payload for `Auth.Requests.Validate`.
 pub type AuthRequestsValidateRequest = trellis_sdk_auth::types::AuthRequestsValidateRequest;

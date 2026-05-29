@@ -9,15 +9,16 @@ use trellis::client::{SessionAuth, TrellisClient, UserConnectOptions};
 use trellis::contracts::{
     digest_contract_json, use_contract, ContractKind, ContractManifestBuilder,
 };
-use trellis::sdk::auth::{AuthClient as SdkAuthClient, AuthEnvelopesExpandRequest};
+use trellis::sdk::auth::AuthClient as SdkAuthClient;
 use trellis::service::{ConnectedServiceRuntime, HandlerResult, ServerError};
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::{approve_current_flow, complete_local_login_until_approval, BrowserContainer};
+use crate::deployment_authority::plan_accept_reconcile_deployment_authority;
 use crate::rpc::{
-    assert_rust_client_ping, connect_service_with_retry, contract_json_object,
-    expect_rust_client_call_denied, harness_service_contract_json, reauth_contract,
-    HarnessPingResponse, HarnessRustPingRpc, HarnessTsPingRpc, HARNESS_CONTRACT_ID,
+    assert_rust_client_ping, connect_service_with_retry, expect_rust_client_call_denied,
+    harness_service_contract_json, reauth_contract, HarnessPingResponse, HarnessRustPingRpc,
+    HarnessTsPingRpc, HARNESS_CONTRACT_ID,
 };
 
 const APP_APPROVAL_DEPLOYMENT_ID: &str = "harness.app-identity-approval";
@@ -48,16 +49,14 @@ pub(crate) async fn run_app_identity_approval_fixture(
 
     let service_contract_json = harness_service_contract_json()?;
     let service_contract_digest = digest_contract_json(&service_contract_json).into_diagnostic()?;
-    SdkAuthClient::new(&admin_client)
-        .rpc()
-        .auth()
-        .envelopes_expand(&AuthEnvelopesExpandRequest {
-            contract: contract_json_object(&service_contract_json)?,
-            deployment_id: APP_APPROVAL_DEPLOYMENT_ID.to_string(),
-            expected_digest: service_contract_digest.clone(),
-        })
-        .await
-        .into_diagnostic()?;
+    plan_accept_reconcile_deployment_authority(
+        &SdkAuthClient::new(&admin_client),
+        APP_APPROVAL_DEPLOYMENT_ID,
+        &service_contract_json,
+        &service_contract_digest,
+        "integration harness app identity approval service setup",
+    )
+    .await?;
 
     let (service_seed, service_key) = generate_session_keypair();
     auth_client
@@ -110,7 +109,7 @@ pub(crate) async fn run_app_identity_approval_fixture(
         expect_rust_client_call_denied::<HarnessTsPingRpc>(
             &app_client,
             "app-unapproved-ts",
-            "approved app identity envelope unexpectedly allowed Harness.Ts.Ping",
+            "approved app identity grant unexpectedly allowed Harness.Ts.Ping",
         )
         .await?;
 
@@ -141,7 +140,7 @@ fn harness_app_contract_json() -> Result<String> {
     let manifest = ContractManifestBuilder::new(
         "trellis.integration-rpc-app@v1",
         "Trellis Integration RPC App",
-        "Verify app identity-envelope approval for a narrow harness RPC caller.",
+        "Verify app identity grant approval for a narrow harness RPC caller.",
         ContractKind::App,
     )
     .use_ref(
@@ -163,7 +162,7 @@ fn harness_stale_app_contract_json() -> Result<String> {
     let manifest = ContractManifestBuilder::new(
         "trellis.integration-rpc-app@v1",
         "Trellis Integration RPC App",
-        "Verify stale app identity-envelope approval does not cover broader RPC access.",
+        "Verify stale app identity grant approval does not cover broader RPC access.",
         ContractKind::App,
     )
     .use_ref(
@@ -366,28 +365,26 @@ async fn revoke_app_identity_approval(
     contract_digest: &str,
     app_origin: &str,
 ) -> Result<()> {
-    let approvals = auth_client
-        .list_approvals(Some(user_id), Some(contract_digest))
+    let identity_grants = auth_client
+        .list_identity_grants(Some(user_id), Some(contract_digest))
         .await
         .into_diagnostic()?;
-    let approval = approvals
+    let identity_grant = identity_grants
         .iter()
         .find(|entry| {
             entry.contract_evidence.contract_digest == contract_digest
                 && entry.identity_anchor.get("kind") == Some(&json!("web"))
                 && entry.identity_anchor.get("origin") == Some(&json!(app_origin))
         })
-        .ok_or_else(|| miette!("app identity approval was not stored after approval"))?;
+        .ok_or_else(|| miette!("app identity grant was not stored after approval"))?;
     let revoked = auth_client
-        .revoke_approval(&approval.identity_envelope_id, Some(user_id))
+        .revoke_identity_grant(&identity_grant.identity_grant_id, Some(user_id))
         .await
         .into_diagnostic()?;
     if revoked {
         Ok(())
     } else {
-        Err(miette!(
-            "Auth.IdentityEnvelopes.Revoke returned success=false"
-        ))
+        Err(miette!("Auth.IdentityGrants.Revoke returned success=false"))
     }
 }
 

@@ -36,7 +36,7 @@ export const TrellisSurfaceStatusResponseSchema = Type.Object({
     Type.Object({
       state: Type.Literal("unavailable"),
       reason: Type.Union([
-        Type.Literal("envelope_unavailable"),
+        Type.Literal("authority_unavailable"),
       ]),
     }),
     Type.Object({

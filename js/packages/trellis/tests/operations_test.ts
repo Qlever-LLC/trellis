@@ -7,6 +7,7 @@ import {
   controlSubject,
   type OperationEvent,
   OperationInvoker,
+  type OperationLifecycleError,
   type OperationRef,
   type OperationSignalAck,
   type OperationTransferProgress,
@@ -14,6 +15,9 @@ import {
   type StartedTransfer,
 } from "../operations.ts";
 import {
+  OperationAlreadyTerminalError,
+  OperationMismatchError,
+  OperationNotFoundError,
   TransferError,
   TransportError,
   UnexpectedError,
@@ -142,6 +146,31 @@ class FakeOperationTransport implements OperationTransport {
   }
 }
 
+function acceptedRefundFrame() {
+  return {
+    kind: "accepted",
+    ref: {
+      id: "op_123",
+      service: "billing",
+      operation: "Billing.Refund",
+    },
+    snapshot: {
+      revision: 1,
+      state: "pending",
+    },
+  };
+}
+
+async function startRefundReference(transport: FakeOperationTransport) {
+  const operation = new OperationInvoker(transport, refundOperation);
+  return await operation.input({ chargeId: "ch_123" }).start().match({
+    ok: (value) => value,
+    err: (error) => {
+      throw error;
+    },
+  });
+}
+
 Deno.test("OperationInvoker.input().start() posts input to the operation subject and returns an accepted OperationRef", async () => {
   const transport = new FakeOperationTransport([
     {
@@ -188,7 +217,7 @@ Deno.test("OperationInvoker.input().start() type surface stays specific", () => 
   let started!: Started;
   const typed: AsyncResult<
     OperationRef<typeof refundOperation>,
-    TransportError | UnexpectedError
+    OperationLifecycleError | TransportError | UnexpectedError
   > = started;
   assertEquals(true, true);
 });
@@ -338,7 +367,7 @@ Deno.test("OperationInvoker.input().transfer().start() type surface stays specif
   let started!: Started;
   const typed: AsyncResult<
     StartedTransfer<typeof uploadOperation>,
-    TransportError | UnexpectedError | TransferError
+    OperationLifecycleError | TransportError | UnexpectedError | TransferError
   > = started;
   assertEquals(true, true);
 });
@@ -1010,6 +1039,60 @@ Deno.test("OperationRef.get() surfaces control error frames with the runtime err
   assertEquals(context.controlErrorType, "AuthError");
 });
 
+Deno.test("OperationRef.get() reconstructs serialized lifecycle control errors", async () => {
+  const transport = new FakeOperationTransport([
+    acceptedRefundFrame(),
+    {
+      kind: "error",
+      error: {
+        id: "err_not_found",
+        type: "OperationNotFoundError",
+        message: "Operation not found: op_missing",
+        operationId: "op_missing",
+      },
+    },
+  ]);
+  const reference = await startRefundReference(transport);
+
+  const result = await reference.get();
+  const error = result.match({
+    ok: () => {
+      throw new Error("expected get() to fail");
+    },
+    err: (value) => value,
+  });
+
+  assertInstanceOf(error, OperationNotFoundError);
+  assertEquals(error.toSerializable().type, "OperationNotFoundError");
+  assertEquals(error.operationId, "op_missing");
+});
+
+Deno.test("OperationRef.get() keeps minimal lifecycle control errors as TransportError", async () => {
+  const transport = new FakeOperationTransport([
+    acceptedRefundFrame(),
+    {
+      kind: "error",
+      error: {
+        type: "OperationNotFoundError",
+        message: "Operation not found: op_missing",
+      },
+    },
+  ]);
+  const reference = await startRefundReference(transport);
+
+  const result = await reference.get();
+  const error = result.match({
+    ok: () => {
+      throw new Error("expected get() to fail");
+    },
+    err: (value) => value,
+  });
+
+  assertInstanceOf(error, TransportError);
+  assertEquals(error.code, "trellis.operation.control_error");
+  assertEquals(error.getContext().controlErrorType, "OperationNotFoundError");
+});
+
 Deno.test("OperationRef.cancel() sends action:cancel to <subject>.control and decodes the returned snapshot frame", async () => {
   const transport = new FakeOperationTransport([
     {
@@ -1108,6 +1191,37 @@ Deno.test("OperationRef.cancel() surfaces control error frames with the runtime 
   const context = error.getContext();
   assertEquals(context.controlErrorType, "ValidationError");
   assertEquals(context.controlErrorMessage, "cannot cancel now");
+});
+
+Deno.test("OperationRef.cancel() reconstructs serialized lifecycle control errors", async () => {
+  const transport = new FakeOperationTransport([
+    acceptedRefundFrame(),
+    {
+      kind: "error",
+      error: {
+        id: "err_terminal",
+        type: "OperationAlreadyTerminalError",
+        message: "Operation already terminal: op_123",
+        operationId: "op_123",
+        state: "completed",
+        service: "billing",
+        operation: "Billing.Refund",
+      },
+    },
+  ]);
+  const reference = await startRefundReference(transport);
+
+  const result = await reference.cancel();
+  const error = result.match({
+    ok: () => {
+      throw new Error("expected cancel() to fail");
+    },
+    err: (value) => value,
+  });
+
+  assertInstanceOf(error, OperationAlreadyTerminalError);
+  assertEquals(error.toSerializable().type, "OperationAlreadyTerminalError");
+  assertEquals(error.state, "completed");
 });
 
 Deno.test("OperationRef.signal() sends action:signal with input and decodes signal-accepted ack", async () => {
@@ -1245,6 +1359,38 @@ Deno.test("OperationRef.signal() omits input from the control body when no input
   assertEquals(ack.signal, "continue");
 });
 
+Deno.test("OperationRef.signal() reconstructs serialized lifecycle control errors", async () => {
+  const transport = new FakeOperationTransport([
+    acceptedRefundFrame(),
+    {
+      kind: "error",
+      error: {
+        id: "err_mismatch",
+        type: "OperationMismatchError",
+        message: "Operation mismatch: op_123",
+        operationId: "op_123",
+        expectedService: "billing",
+        expectedOperation: "Billing.Refund",
+        actualService: "billing",
+        actualOperation: "Billing.Status",
+      },
+    },
+  ]);
+  const reference = await startRefundReference(transport);
+
+  const result = await reference.signal("approveRefund");
+  const error = result.match({
+    ok: () => {
+      throw new Error("expected signal() to fail");
+    },
+    err: (value) => value,
+  });
+
+  assertInstanceOf(error, OperationMismatchError);
+  assertEquals(error.toSerializable().type, "OperationMismatchError");
+  assertEquals(error.actualOperation, "Billing.Status");
+});
+
 Deno.test("OperationRef.wait() watches until a terminal snapshot without a request timeout", async () => {
   const transport = new FakeOperationTransport([
     {
@@ -1379,6 +1525,33 @@ Deno.test("OperationRef.wait() surfaces control error frames with the runtime er
   const context = error.getContext();
   assertEquals(context.controlErrorType, "UnexpectedError");
   assertEquals(context.controlErrorMessage, "watch backend unavailable");
+});
+
+Deno.test("OperationRef.wait() returns serialized lifecycle control errors", async () => {
+  const transport = new FakeOperationTransport([
+    acceptedRefundFrame(),
+    {
+      kind: "error",
+      error: {
+        id: "err_not_found",
+        type: "OperationNotFoundError",
+        message: "Operation not found: op_123",
+        operationId: "op_123",
+      },
+    },
+  ]);
+  const reference = await startRefundReference(transport);
+
+  const result = await reference.wait();
+  const error = result.match({
+    ok: () => {
+      throw new Error("expected wait() to fail");
+    },
+    err: (value) => value,
+  });
+
+  assertInstanceOf(error, OperationNotFoundError);
+  assertEquals(error.toSerializable().type, "OperationNotFoundError");
 });
 
 Deno.test("OperationRef.watch() sends action:watch to <subject>.control and yields operation events", async () => {
@@ -1546,6 +1719,45 @@ Deno.test("OperationRef.watch() surfaces an initial control error frame during i
   const context = thrown.getContext();
   assertEquals(context.controlErrorType, "AuthError");
   assertEquals(context.controlErrorMessage, "cannot watch this operation");
+});
+
+Deno.test("OperationRef.watch() throws serialized lifecycle control errors during iteration", async () => {
+  const transport = new FakeOperationTransport([
+    acceptedRefundFrame(),
+    {
+      kind: "error",
+      error: {
+        id: "err_mismatch",
+        type: "OperationMismatchError",
+        message: "Operation mismatch: op_123",
+        operationId: "op_123",
+        expectedService: "billing",
+        expectedOperation: "Billing.Refund",
+        actualService: "billing",
+        actualOperation: "Billing.Status",
+      },
+    },
+  ]);
+  const reference = await startRefundReference(transport);
+  const watch = await reference.watch().match({
+    ok: (value) => value,
+    err: (error) => {
+      throw error;
+    },
+  });
+
+  let thrown: unknown;
+  try {
+    for await (const _event of watch) {
+      throw new Error("expected watch iteration to fail");
+    }
+  } catch (error) {
+    thrown = error;
+  }
+
+  assertInstanceOf(thrown, OperationMismatchError);
+  assertEquals(thrown.toSerializable().type, "OperationMismatchError");
+  assertEquals(thrown.actualOperation, "Billing.Status");
 });
 
 Deno.test("OperationRef.watch() maps malformed event frames to TransportError", async () => {

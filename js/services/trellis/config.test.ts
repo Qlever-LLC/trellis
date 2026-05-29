@@ -1,4 +1,5 @@
 import { assertEquals, assertThrows } from "@std/assert";
+import { ulid } from "ulid";
 
 import {
   loadAuthConfigFromFile,
@@ -552,7 +553,7 @@ Deno.test("auth lifecycle modules do not read config during import", async () =>
   );
 
   try {
-    const suffix = `?importTimeConfigTest=${crypto.randomUUID()}`;
+    const suffix = `?importTimeConfigTest=${ulid()}`;
     await import(`./auth/callout/callout.ts${suffix}`);
     await import(`./auth/device_activation/http.ts${suffix}`);
     await import(`./auth/device_activation/operation.ts${suffix}`);

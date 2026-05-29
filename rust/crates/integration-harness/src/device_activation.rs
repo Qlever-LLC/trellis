@@ -16,11 +16,10 @@ use trellis::contracts::{
 };
 use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
 use trellis::sdk::auth::operations::AuthDeviceUserAuthoritiesResolveOperation;
-use trellis::sdk::auth::types::{
-    AuthDeviceUserAuthoritiesResolveInput, AuthEnvelopesExpandRequest,
-};
+use trellis::sdk::auth::types::AuthDeviceUserAuthoritiesResolveInput;
 
 use crate::browser::BrowserContainer;
+use crate::deployment_authority::plan_accept_reconcile_deployment_authority;
 use crate::rpc::reauth_contract;
 
 const DEVICE_ACTIVATION_PASSING_CASES: usize = 27;
@@ -50,16 +49,14 @@ pub(crate) async fn run_device_activation_fixture(
         .create_device_deployment(&deployment_id, Some("none"))
         .await
         .into_diagnostic()?;
-    sdk_auth
-        .rpc()
-        .auth()
-        .envelopes_expand(&AuthEnvelopesExpandRequest {
-            contract: contract_json_object(&device_contract_json)?,
-            deployment_id: deployment_id.clone(),
-            expected_digest: device_contract_digest.clone(),
-        })
-        .await
-        .into_diagnostic()?;
+    plan_accept_reconcile_deployment_authority(
+        &sdk_auth,
+        &deployment_id,
+        &device_contract_json,
+        &device_contract_digest,
+        "integration harness device activation authority setup",
+    )
+    .await?;
 
     let root_secret = device_root_secret();
     let activation = DeviceActivationSessionBuilder::new(&root_secret, format!("nonce-{suffix}"))
@@ -430,16 +427,14 @@ async fn run_review_required_activation(
         .create_device_deployment(&deployment_id, Some("required"))
         .await
         .into_diagnostic()?;
-    sdk_auth
-        .rpc()
-        .auth()
-        .envelopes_expand(&AuthEnvelopesExpandRequest {
-            contract: contract_json_object(device_contract_json)?,
-            deployment_id: deployment_id.clone(),
-            expected_digest: device_contract_digest.to_string(),
-        })
-        .await
-        .into_diagnostic()?;
+    plan_accept_reconcile_deployment_authority(
+        sdk_auth,
+        &deployment_id,
+        device_contract_json,
+        device_contract_digest,
+        "integration harness device review authority setup",
+    )
+    .await?;
 
     let device_root_secret = device_root_secret();
     let activation =
@@ -660,19 +655,18 @@ async fn assert_device_undeclared_access_denied(
     device_contract_json: &str,
     deployment_id: &str,
 ) -> Result<()> {
-    if device_auth
-        .rpc()
-        .auth()
-        .envelopes_expand(&AuthEnvelopesExpandRequest {
-            contract: contract_json_object(device_contract_json)?,
-            deployment_id: deployment_id.to_string(),
-            expected_digest: digest_contract_json(device_contract_json).into_diagnostic()?,
-        })
-        .await
-        .is_ok()
+    if plan_accept_reconcile_deployment_authority(
+        device_auth,
+        deployment_id,
+        device_contract_json,
+        &digest_contract_json(device_contract_json).into_diagnostic()?,
+        "integration harness undeclared device authority attempt",
+    )
+    .await
+    .is_ok()
     {
         return Err(miette!(
-            "activated device unexpectedly expanded an envelope without declared access"
+            "activated device unexpectedly updated deployment authority without declared access"
         ));
     }
     Ok(())
@@ -690,7 +684,10 @@ fn device_activation_admin_contract_json() -> Result<String> {
         use_contract("trellis.auth@v1")
             .with_rpc_call([
                 "Auth.Deployments.Create",
-                "Auth.Envelopes.Expand",
+                "Auth.DeploymentAuthority.AcceptMigration",
+                "Auth.DeploymentAuthority.AcceptUpdate",
+                "Auth.DeploymentAuthority.Plan",
+                "Auth.DeploymentAuthority.Reconcile",
                 "Auth.Devices.Provision",
                 "Auth.DeviceUserAuthorities.List",
                 "Auth.DeviceUserAuthorities.Reviews.Decide",
@@ -758,11 +755,6 @@ fn assert_value_field(value: &Value, field: &str, expected: &str) -> Result<()> 
         )),
         None => Err(miette!("device connectInfo missing string field `{field}`")),
     }
-}
-
-fn contract_json_object(contract_json: &str) -> Result<BTreeMap<String, Value>> {
-    serde_json::from_str(contract_json)
-        .map_err(|error| miette!("failed to parse contract JSON: {error}"))
 }
 
 fn device_root_secret() -> [u8; 32] {

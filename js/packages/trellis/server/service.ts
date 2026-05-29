@@ -194,6 +194,7 @@ type ServiceBootstrapFailure = {
   message?: string;
   serverNow?: number;
   requestId?: string;
+  planId?: string;
   deploymentId?: string;
   issueId?: string;
   activeContractDigest?: string;
@@ -358,7 +359,7 @@ function bootstrapContractStateError(args: {
   const base =
     `Service '${args.serviceName}' could not bootstrap contract '${args.contractId}' (${args.contractDigest}) during ${args.step}. ` +
     "This usually means Trellis has stale or incomplete state for this service session. " +
-    "Expand the service deployment envelope or re-run instance provisioning so Trellis records an accepted implementation offer, permissions, and resource bindings for this instance key.";
+    "Accept the pending deployment authority plan or re-run authority reconciliation so Trellis records current permissions and resource bindings for this instance key.";
   const cause = args.cause
     ? ` Underlying error: ${getErrorCauseMessage(args.cause)}`
     : "";
@@ -575,9 +576,13 @@ async function fetchServiceBootstrapInfo(args: {
         includeContract = true;
         continue;
       }
-      if (failure.reason === "envelope_expansion_required") {
+      if (
+        failure.reason === "authority_update_required" ||
+        failure.reason === "authority_migration_required" ||
+        failure.reason === "authority_reconciliation_pending"
+      ) {
         const retryDelayMs = bootstrapRetryDelayMs(settled.response);
-        const pendingKey = failure.requestId ??
+        const pendingKey = failure.planId ?? failure.requestId ??
           `${failure.deploymentId ?? "unknown"}:${args.contractDigest}`;
         if (!loggedPendingRequests.has(pendingKey)) {
           loggedPendingRequests.add(pendingKey);
@@ -585,12 +590,13 @@ async function fetchServiceBootstrapInfo(args: {
             {
               service: args.serviceName,
               deploymentId: failure.deploymentId,
-              requestId: failure.requestId,
+              planId: failure.planId,
               contractId: args.contractId,
               contractDigest: args.contractDigest,
               retryDelayMs,
             },
-            "Service deployment envelope expansion pending; waiting for approval",
+            failure.message ??
+              "Service deployment authority pending; waiting for approval or reconciliation",
           );
         }
         await delay(retryDelayMs);
@@ -2428,7 +2434,7 @@ export class TrellisService<
   completeOperation(
     operationId: string,
     output: unknown,
-  ): AsyncResult<unknown, UnexpectedError> {
+  ): AsyncResult<unknown, BaseError> {
     return AsyncResult.from((async () => {
       const completed = await this.#server.operations.complete(
         operationId,
@@ -2450,7 +2456,7 @@ export class TrellisService<
         return Result.ok(current);
       }
 
-      return Result.err(toUnexpectedError(completed.error));
+      return Result.err(completed.error);
     })());
   }
 

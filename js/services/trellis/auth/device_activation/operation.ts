@@ -14,7 +14,12 @@ import type { Config } from "../../config.ts";
 import { buildClientTransports } from "../transports.ts";
 import { isDeviceProofIatFresh } from "./shared.ts";
 import { resolveDeviceConnectInfo } from "../bootstrap/device.ts";
-import type { SqlDeploymentEnvelopeRepository } from "../storage.ts";
+import type {
+  DeploymentAuthority,
+  DeploymentAuthorityMaterialization,
+  DeploymentAuthorityPlan,
+} from "../schemas.ts";
+import type { BoundedListQuery } from "../storage.ts";
 
 type DeviceActivationActor = {
   participantKind: "app" | "agent";
@@ -123,7 +128,20 @@ type DeviceActivationOperationDeps = {
   deviceDeploymentStorage: {
     get(deploymentId: string): Promise<DeviceDeployment | undefined>;
   };
-  deploymentEnvelopeStorage: Pick<SqlDeploymentEnvelopeRepository, "get">;
+  deploymentAuthorityStorage: {
+    get(deploymentId: string): Promise<DeploymentAuthority | undefined>;
+  };
+  deploymentAuthorityPlanStorage: {
+    listFiltered(
+      filters: { deploymentId?: string; state?: string },
+      query: BoundedListQuery,
+    ): Promise<DeploymentAuthorityPlan[]>;
+  };
+  materializedAuthorityStorage: {
+    get(
+      deploymentId: string,
+    ): Promise<DeploymentAuthorityMaterialization | undefined>;
+  };
   deviceInstanceStorage: {
     get(instanceId: string): Promise<DeviceInstance | undefined>;
     put(record: DeviceInstance): Promise<void>;
@@ -611,7 +629,9 @@ export function createGetDeviceConnectInfoHandler(
         await deps.deviceActivationStorage.get(instanceId) ?? null,
       loadDeviceDeployment: async (deploymentId) =>
         await deps.deviceDeploymentStorage.get(deploymentId) ?? null,
-      deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
+      deploymentAuthorityStorage: deps.deploymentAuthorityStorage,
+      deploymentAuthorityPlanStorage: deps.deploymentAuthorityPlanStorage,
+      materializedAuthorityStorage: deps.materializedAuthorityStorage,
     }, req);
 
     if (result.status === "activation_required") {

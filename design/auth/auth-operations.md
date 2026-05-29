@@ -30,10 +30,10 @@ It covers:
 
 ### TTL Defaults
 
-| Config key        | Default | Description                         |
-| ----------------- | ------- | ----------------------------------- |
-| `ttlMs.sessions`  | 24h     | Session expires after inactivity    |
-| `ttlMs.natsJwt`   | 1h      | NATS JWT expiry; triggers reconnect |
+| Config key       | Default | Description                         |
+| ---------------- | ------- | ----------------------------------- |
+| `ttlMs.sessions` | 24h     | Session expires after inactivity    |
+| `ttlMs.natsJwt`  | 1h      | NATS JWT expiry; triggers reconnect |
 
 Relationship: `ttlMs.natsJwt < ttlMs.sessions`.
 
@@ -42,37 +42,38 @@ request-id replay-cache retention.
 
 ### Per-service Secrets
 
-| Config key             | Description            |
-| ---------------------- | ---------------------- |
-| `sessionKeySeedFile`   | Base64url Ed25519 seed file |
-| `client.natsServers`   | NATS server URL(s)     |
-| `nats.sentinelCredsPath` | Path to sentinel creds |
+| Config key               | Description                 |
+| ------------------------ | --------------------------- |
+| `sessionKeySeedFile`     | Base64url Ed25519 seed file |
+| `client.natsServers`     | NATS server URL(s)          |
+| `nats.sentinelCredsPath` | Path to sentinel creds      |
 
 Additional `trellis` service config:
 
-| Config key                | Description                 |
-| ------------------------- | --------------------------- |
-| `nats.auth.credsPath`     | Auth account credentials    |
-| `nats.trellis.credsPath`  | Trellis account credentials |
-| `storage.dbPath`          | SQLite auth/control-plane DB |
+| Config key               | Description                  |
+| ------------------------ | ---------------------------- |
+| `nats.auth.credsPath`    | Auth account credentials     |
+| `nats.trellis.credsPath` | Trellis account credentials  |
+| `storage.dbPath`         | SQLite auth/control-plane DB |
 
 ### Store TTLs
 
-| Store                  | TTL               |
-| ---------------------- | ----------------- |
+| Store                  | TTL                                     |
+| ---------------------- | --------------------------------------- |
 | sessions               | SQL rows, expired from `ttlMs.sessions` |
-| users                  | None              |
-| oauthStates            | 5 min             |
-| pendingAuth            | 5 min             |
-| deviceActivationFlows  | 30 min            |
-| deviceActivations      | None              |
-| deviceInstances        | None              |
-| identityEnvelopes      | None              |
-| deploymentEnvelopes    | None              |
-| loginPortals           | None              |
-| deploymentPortalRoutes | None              |
-| services               | None              |
-| connections            | 2h                |
+| users                  | None                                    |
+| oauthStates            | 5 min                                   |
+| pendingAuth            | 5 min                                   |
+| deviceActivationFlows  | 30 min                                  |
+| deviceActivations      | None                                    |
+| deviceInstances        | None                                    |
+| identityAuthority      | None                                    |
+| deploymentAuthority    | None                                    |
+| materializedAuthority  | None                                    |
+| loginPortals           | None                                    |
+| deploymentPortalRoutes | None                                    |
+| services               | None                                    |
+| connections            | 2h                                      |
 
 ## Deployment Checklist
 
@@ -88,9 +89,10 @@ Cluster-wide required state:
 - device activation record store
 - device instance store
 - device deployment store
-- identity envelope tables
+- identity authority and identity grant tables
 - auth-owned login portal records, settings, and route selectors
-- deployment envelope tables, including device portal-route metadata
+- deployment authority and materialized authority tables, including device
+  portal-route metadata
 - connection store
 
 Production requirements:

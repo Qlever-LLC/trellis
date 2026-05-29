@@ -13,7 +13,7 @@ import {
   templateToWildcard,
 } from "../../catalog/uses.ts";
 import type { ContractRecord } from "../../catalog/schemas.ts";
-import type { EnvelopeBoundary, EnvelopeBoundarySurface } from "../schemas.ts";
+import type { AuthorityNeedSet, AuthorityNeedSetSurface } from "../schemas.ts";
 
 function uniqueSorted(values: Iterable<string>): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
@@ -45,11 +45,11 @@ const TRANSFER_UPLOAD_SUBJECT = "transfer.v1.upload.*.*";
 const TRANSFER_DOWNLOAD_SUBJECT = "transfer.v1.download.*.*";
 
 function envelopeHasSurface(
-  envelope: EnvelopeBoundary | undefined,
-  surface: Omit<EnvelopeBoundarySurface, "required">,
+  authorityNeeds: AuthorityNeedSet | undefined,
+  surface: Omit<AuthorityNeedSetSurface, "required">,
 ): boolean {
-  if (!envelope) return true;
-  return envelope.surfaces.some((allowed) =>
+  if (!authorityNeeds) return true;
+  return authorityNeeds.surfaces.some((allowed) =>
     allowed.contractId === surface.contractId &&
     allowed.kind === surface.kind &&
     allowed.name === surface.name &&
@@ -79,7 +79,7 @@ function hasOperationControlCapability(
 export async function deriveDeviceRuntimeAccess(
   contractRecord: ContractRecord,
   contracts?: Pick<ContractsModule, "getActiveEntries">,
-  envelopeBoundary?: EnvelopeBoundary,
+  authorityNeeds?: AuthorityNeedSet,
 ): Promise<DeviceRuntimeAccessResult<DeviceRuntimeAccess>> {
   const analysis = contractRecord.analysis;
   if (!analysis) {
@@ -129,7 +129,7 @@ export async function deriveDeviceRuntimeAccess(
 
     for (const method of uses.rpcCalls) {
       if (
-        !envelopeHasSurface(envelopeBoundary, {
+        !envelopeHasSurface(authorityNeeds, {
           contractId: method.contractId,
           kind: "rpc",
           name: method.key,
@@ -143,7 +143,7 @@ export async function deriveDeviceRuntimeAccess(
     }
 
     for (const operation of uses.operationCalls) {
-      const hasCallSurface = envelopeHasSurface(envelopeBoundary, {
+      const hasCallSurface = envelopeHasSurface(authorityNeeds, {
         contractId: operation.contractId,
         kind: "operation",
         name: operation.key,
@@ -157,13 +157,13 @@ export async function deriveDeviceRuntimeAccess(
       for (const capability of operation.operation.capabilities?.call ?? []) {
         capabilities.push(capability);
       }
-      const hasObserveSurface = envelopeHasSurface(envelopeBoundary, {
+      const hasObserveSurface = envelopeHasSurface(authorityNeeds, {
         contractId: operation.contractId,
         kind: "operation",
         name: operation.key,
         action: "observe",
       });
-      const hasCancelSurface = envelopeHasSurface(envelopeBoundary, {
+      const hasCancelSurface = envelopeHasSurface(authorityNeeds, {
         contractId: operation.contractId,
         kind: "operation",
         name: operation.key,
@@ -181,7 +181,7 @@ export async function deriveDeviceRuntimeAccess(
 
     for (const method of uses.rpcCalls) {
       if (
-        !envelopeHasSurface(envelopeBoundary, {
+        !envelopeHasSurface(authorityNeeds, {
           contractId: method.contractId,
           kind: "rpc",
           name: method.key,
@@ -195,7 +195,7 @@ export async function deriveDeviceRuntimeAccess(
 
     for (const event of uses.eventPublishes) {
       if (
-        !envelopeHasSurface(envelopeBoundary, {
+        !envelopeHasSurface(authorityNeeds, {
           contractId: event.contractId,
           kind: "event",
           name: event.key,
@@ -210,7 +210,7 @@ export async function deriveDeviceRuntimeAccess(
 
     for (const event of uses.eventSubscribes) {
       if (
-        !envelopeHasSurface(envelopeBoundary, {
+        !envelopeHasSurface(authorityNeeds, {
           contractId: event.contractId,
           kind: "event",
           name: event.key,

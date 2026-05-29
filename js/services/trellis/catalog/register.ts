@@ -1,13 +1,14 @@
 import type { ContractsModule } from "./runtime.ts";
 import type {
-  SqlDeploymentEnvelopeRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
   SqlImplementationOfferRepository,
+  SqlMaterializedAuthorityRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
 } from "../auth/storage.ts";
 import type { AuthRuntimeDeps } from "../auth/runtime_deps.ts";
+import type { DeploymentAuthority } from "../auth/schemas.ts";
 import {
   createTrellisBindingsGetHandler,
   createTrellisCatalogHandler,
@@ -41,7 +42,16 @@ type CatalogRegistrationDeps = {
   serviceDeploymentStorage: SqlServiceDeploymentRepository;
   deviceInstanceStorage: SqlDeviceInstanceRepository;
   deviceDeploymentStorage: SqlDeviceDeploymentRepository;
-  deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
+  deploymentAuthorityStorage: {
+    get(deploymentId: string): Promise<DeploymentAuthority | undefined>;
+    listEnabledBySurface(surface: {
+      contractId: string;
+      kind: "rpc" | "operation" | "event" | "feed";
+      name: string;
+      action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
+    }): Promise<DeploymentAuthority[]>;
+  };
+  materializedAuthorityStorage: SqlMaterializedAuthorityRepository;
   implementationOfferStorage: SqlImplementationOfferRepository;
   connectionsKV: AuthRuntimeDeps["connectionsKV"];
   logger: {
@@ -71,7 +81,10 @@ export async function registerCatalog(
   deps: CatalogRegistrationDeps,
 ): Promise<void> {
   const trellisBindingsGetHandler = createTrellisBindingsGetHandler({
+    contracts: deps.contracts,
     serviceInstanceStorage: deps.serviceInstanceStorage,
+    deploymentAuthorityStorage: deps.deploymentAuthorityStorage,
+    materializedAuthorityStorage: deps.materializedAuthorityStorage,
     implementationOfferStorage: deps.implementationOfferStorage,
     logger: deps.logger,
   });
@@ -81,7 +94,7 @@ export async function registerCatalog(
     serviceDeploymentStorage: deps.serviceDeploymentStorage,
     deviceInstanceStorage: deps.deviceInstanceStorage,
     deviceDeploymentStorage: deps.deviceDeploymentStorage,
-    deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
+    deploymentAuthorityStorage: deps.deploymentAuthorityStorage,
     implementationOfferStorage: deps.implementationOfferStorage,
     connectionsKV: deps.connectionsKV,
     logger: deps.logger,

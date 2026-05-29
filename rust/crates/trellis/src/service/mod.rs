@@ -65,8 +65,8 @@ pub use runtime::{
 pub use runtime_facade::{
     ConnectedServiceRuntime, CoreBootstrapBinding, DefaultServiceRunner, GeneratedServiceContract,
     ServiceConnectOptions, ServiceHandle, ServiceHandlerContext, ServiceOperationProvider,
-    ServiceOperationWatch, ServiceRuntimeError, ServiceRuntimeRunner, DEFAULT_APPROVAL_TIMEOUT_MS,
-    DEFAULT_RETRY_DELAY_MS, DEFAULT_TIMEOUT_MS,
+    ServiceOperationWatch, ServiceRuntimeError, ServiceRuntimeRunner,
+    DEFAULT_AUTHORITY_PENDING_TIMEOUT_MS, DEFAULT_RETRY_DELAY_MS, DEFAULT_TIMEOUT_MS,
 };
 pub use service::{AuthenticatedRouter, RequestValidation, RequestValidator};
 pub use service_host::{bootstrap_service_host, ServiceHost};

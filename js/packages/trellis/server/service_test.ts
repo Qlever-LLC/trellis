@@ -972,7 +972,7 @@ Deno.test("TrellisService.connect surfaces bootstrap failure reasons", async () 
   }
 });
 
-Deno.test("TrellisService.connect waits for pending envelope expansion", async () => {
+Deno.test("TrellisService.connect waits for pending authority update", async () => {
   const originalFetch = globalThis.fetch;
   const testLogger = createTestLogger();
   let fetchCount = 0;
@@ -984,10 +984,10 @@ Deno.test("TrellisService.connect waits for pending envelope expansion", async (
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              reason: "envelope_expansion_required",
+              reason: "authority_update_required",
               message:
-                "Service deployment 'demo-js' envelope does not cover contract 'trellis.demo-service@v1'. An expansion request was created.",
-              requestId: "request_123",
+                "Service deployment 'demo-js' authority does not cover contract 'trellis.demo-service@v1'. A deployment authority update plan is pending.",
+              planId: "plan_123",
               deploymentId: "demo-js",
             }),
             {
@@ -1050,14 +1050,65 @@ Deno.test("TrellisService.connect waits for pending envelope expansion", async (
       "Trellis could not open the service runtime connection.",
     );
     assertEquals(fetchCount, 2);
-    assertEquals(testLogger.infoCalls, [[{
-      service: "svc",
-      deploymentId: "demo-js",
-      requestId: "request_123",
-      contractId: core.CONTRACT_ID,
-      contractDigest: core.CONTRACT_DIGEST,
-      retryDelayMs: 0,
-    }, "Service deployment envelope expansion pending; waiting for approval"]]);
+    assertEquals(testLogger.infoCalls, [[
+      {
+        service: "svc",
+        deploymentId: "demo-js",
+        planId: "plan_123",
+        contractId: core.CONTRACT_ID,
+        contractDigest: core.CONTRACT_DIGEST,
+        retryDelayMs: 0,
+      },
+      "Service deployment 'demo-js' authority does not cover contract 'trellis.demo-service@v1'. A deployment authority update plan is pending.",
+    ]]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("TrellisService.connect treats failed authority reconciliation as terminal", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCount = 0;
+
+  try {
+    globalThis.fetch = (() => {
+      fetchCount += 1;
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            reason: "authority_reconciliation_failed",
+            message:
+              "Service deployment 'demo-js' authority reconciliation failed.",
+            deploymentId: "demo-js",
+          }),
+          {
+            status: 409,
+            headers: {
+              "Content-Type": "application/json",
+              "Retry-After": "0",
+            },
+          },
+        ),
+      );
+    }) as typeof fetch;
+
+    await assertRejects(
+      () =>
+        TrellisService.connect({
+          trellisUrl: "https://trellis.example.com",
+          contract: core,
+          name: "svc",
+          sessionKeySeed: TEST_SEED,
+          server: {},
+        }, {
+          connect: async (): Promise<NatsConnection> => {
+            throw new Error("connect should not be called");
+          },
+        }).orThrow(),
+      Error,
+      "Service bootstrap failed: Service deployment 'demo-js' authority reconciliation failed.",
+    );
+    assertEquals(fetchCount, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }

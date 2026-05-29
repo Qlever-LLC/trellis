@@ -3,7 +3,7 @@ import { digestContractManifest } from "@qlever-llc/trellis/contracts";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 
 import {
-  SqlDeploymentEnvelopeRepository,
+  SqlDeploymentAuthorityRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
   SqlImplementationOfferRepository,
@@ -34,7 +34,7 @@ async function withContractsModule(
     module: ContractsModule,
     contractStorage: SqlContractStorageRepository,
     serviceDeploymentStorage: SqlServiceDeploymentRepository,
-    deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository,
+    deploymentAuthorityStorage: SqlDeploymentAuthorityRepository,
     implementationOfferStorage: SqlImplementationOfferRepository,
   ) => Promise<void>,
 ): Promise<void> {
@@ -52,7 +52,7 @@ async function withContractsModule(
     const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
       storage.db,
     );
-    const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
+    const deploymentAuthorityStorage = new SqlDeploymentAuthorityRepository(
       storage.db,
     );
     const implementationOfferStorage = new SqlImplementationOfferRepository(
@@ -63,7 +63,7 @@ async function withContractsModule(
         builtinContracts: [],
         contractStorage,
         implementationOfferStorage,
-        deploymentEnvelopeStorage,
+        deploymentAuthorityStorage,
         serviceInstanceStorage: new SqlServiceInstanceRepository(storage.db),
         serviceDeploymentStorage,
         deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),
@@ -71,7 +71,7 @@ async function withContractsModule(
       }),
       contractStorage,
       serviceDeploymentStorage,
-      deploymentEnvelopeStorage,
+      deploymentAuthorityStorage,
       implementationOfferStorage,
     );
   } finally {
@@ -108,31 +108,34 @@ function testDeviceDeployment(
   };
 }
 
-type TestDeploymentEnvelopeKind = "service" | "device";
+type TestDeploymentAuthorityKind = "service" | "device";
 
-type TestEnvelopeBoundary = {
-  contracts: Array<{ contractId: string; required: boolean }>;
-  surfaces: Array<never>;
+type TestAuthorityDesiredState = {
+  needs: Array<{ kind: "contract"; contractId: string; required: boolean }>;
   capabilities: string[];
   resources: Array<never>;
+  surfaces: Array<never>;
 };
 
-function envelopeBoundary(contractIds: string[]): TestEnvelopeBoundary {
+function authorityDesiredState(
+  contractIds: string[],
+): TestAuthorityDesiredState {
   return {
-    contracts: contractIds.map((contractId) => ({
+    needs: contractIds.map((contractId) => ({
+      kind: "contract",
       contractId,
       required: true,
     })),
-    surfaces: [],
     capabilities: [],
     resources: [],
+    surfaces: [],
   };
 }
 
-async function putDeploymentEnvelope(
-  storage: SqlDeploymentEnvelopeRepository,
+async function putDeploymentAuthority(
+  storage: SqlDeploymentAuthorityRepository,
   deploymentId: string,
-  kind: TestDeploymentEnvelopeKind,
+  kind: TestDeploymentAuthorityKind,
   contractIds: string[],
   disabled = false,
 ): Promise<void> {
@@ -140,9 +143,10 @@ async function putDeploymentEnvelope(
     deploymentId,
     kind,
     disabled,
+    desiredState: authorityDesiredState(contractIds),
+    version: "1",
     createdAt: TEST_NOW,
     updatedAt: TEST_NOW,
-    boundary: envelopeBoundary(contractIds),
   });
 }
 
@@ -206,7 +210,7 @@ Deno.test("contracts runtime does not treat installed inactive manifests as acti
     module,
     contractStorage,
     serviceDeployments,
-    envelopes,
+    authorities,
   ) => {
     const installed = await module.installServiceContract(
       makeOperationContract("billing@v1", "operations.v1.Billing.Refund"),
@@ -214,7 +218,7 @@ Deno.test("contracts runtime does not treat installed inactive manifests as acti
     await serviceDeployments.put(
       testServiceDeployment("billing.default", ["Billing"]),
     );
-    await putDeploymentEnvelope(envelopes, "billing.default", "service", [
+    await putDeploymentAuthority(authorities, "billing.default", "service", [
       installed.id,
     ]);
 
@@ -554,7 +558,7 @@ Deno.test("contracts runtime reports missing active offer manifest without delet
     const deviceDeploymentStorage = new SqlDeviceDeploymentRepository(
       storage.db,
     );
-    const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
+    const deploymentAuthorityStorage = new SqlDeploymentAuthorityRepository(
       storage.db,
     );
     const implementationOfferStorage = new SqlImplementationOfferRepository(
@@ -564,7 +568,7 @@ Deno.test("contracts runtime reports missing active offer manifest without delet
       builtinContracts: [],
       contractStorage,
       implementationOfferStorage,
-      deploymentEnvelopeStorage,
+      deploymentAuthorityStorage,
       serviceInstanceStorage,
       serviceDeploymentStorage,
       deviceDeploymentStorage,
@@ -573,8 +577,8 @@ Deno.test("contracts runtime reports missing active offer manifest without delet
     await serviceDeploymentStorage.put(
       testServiceDeployment("service.default", ["Service"]),
     );
-    await putDeploymentEnvelope(
-      deploymentEnvelopeStorage,
+    await putDeploymentAuthority(
+      deploymentAuthorityStorage,
       "service.default",
       "service",
       ["service@v1"],
@@ -626,7 +630,7 @@ Deno.test("contracts runtime includes accepted implementation offers as active",
     module,
     _contractStorage,
     deployments,
-    _envelopes,
+    _authorities,
     offers,
   ) => {
     const installed = await module.installServiceContract(
@@ -651,7 +655,7 @@ Deno.test("contracts runtime excludes expired and stale implementation offers", 
     module,
     _contractStorage,
     deployments,
-    _envelopes,
+    _authorities,
     offers,
   ) => {
     const expired = await module.installServiceContract(
@@ -682,7 +686,7 @@ Deno.test("contracts runtime keeps compatible active offer digests", async () =>
     module,
     _contractStorage,
     deployments,
-    _envelopes,
+    _authorities,
     offers,
   ) => {
     const first = makeOperationContract(
@@ -734,7 +738,7 @@ Deno.test("contracts runtime reports incompatible active implementation offers",
     module,
     _contractStorage,
     deployments,
-    _envelopes,
+    _authorities,
     offers,
   ) => {
     const first = makeOperationContract(
@@ -782,7 +786,7 @@ Deno.test("contracts runtime reports invalid active manifest without deleting st
     module,
     contractStorage,
     deployments,
-    _envelopes,
+    _authorities,
     offers,
   ) => {
     await contractStorage.put({
@@ -847,7 +851,7 @@ Deno.test("contracts runtime reports divergent non-builtin implementation offers
     const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
       storage.db,
     );
-    const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
+    const deploymentAuthorityStorage = new SqlDeploymentAuthorityRepository(
       storage.db,
     );
     const implementationOfferStorage = new SqlImplementationOfferRepository(
@@ -857,7 +861,7 @@ Deno.test("contracts runtime reports divergent non-builtin implementation offers
       builtinContracts: [],
       contractStorage,
       implementationOfferStorage,
-      deploymentEnvelopeStorage,
+      deploymentAuthorityStorage,
       serviceInstanceStorage,
       serviceDeploymentStorage,
       deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),
@@ -881,8 +885,8 @@ Deno.test("contracts runtime reports divergent non-builtin implementation offers
     await serviceDeploymentStorage.put(
       testServiceDeployment("service.default", ["Billing"]),
     );
-    await putDeploymentEnvelope(
-      deploymentEnvelopeStorage,
+    await putDeploymentAuthority(
+      deploymentAuthorityStorage,
       "service.default",
       "service",
       ["billing@v1"],
@@ -943,7 +947,7 @@ Deno.test("contracts runtime reports divergent non-builtin implementation offers
 
 Deno.test("contracts runtime keeps compatible duplicate non-builtin implementation offers", async () => {
   await withContractsModule(
-    async (module, _contracts, deployments, envelopes, offers) => {
+    async (module, _contracts, deployments, authorities, offers) => {
       const first = makeOperationContract(
         "billing@v1",
         "operations.v1.Billing.Refund",
@@ -963,7 +967,7 @@ Deno.test("contracts runtime keeps compatible duplicate non-builtin implementati
       await deployments.put(
         testServiceDeployment("service.default", ["Billing"]),
       );
-      await putDeploymentEnvelope(envelopes, "service.default", "service", [
+      await putDeploymentAuthority(authorities, "service.default", "service", [
         "billing@v1",
       ]);
       await putAcceptedOffer(offers, "service.default", firstInstalled, {
@@ -977,7 +981,7 @@ Deno.test("contracts runtime keeps compatible duplicate non-builtin implementati
       await deployments.put(
         testServiceDeployment("service.other", ["Billing"]),
       );
-      await putDeploymentEnvelope(envelopes, "service.other", "service", [
+      await putDeploymentAuthority(authorities, "service.other", "service", [
         "billing@v1",
       ]);
       await putAcceptedOffer(offers, "service.other", secondInstalled, {
@@ -1015,7 +1019,7 @@ Deno.test("contracts runtime refresh ignores stale deployment digests for built-
     const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
       storage.db,
     );
-    const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
+    const deploymentAuthorityStorage = new SqlDeploymentAuthorityRepository(
       storage.db,
     );
     const current = makeOperationContract(
@@ -1029,7 +1033,7 @@ Deno.test("contracts runtime refresh ignores stale deployment digests for built-
     const module = createContractsModule({
       builtinContracts: [{ digest: currentDigest, contract: current }],
       contractStorage,
-      deploymentEnvelopeStorage,
+      deploymentAuthorityStorage,
       serviceInstanceStorage,
       serviceDeploymentStorage,
       deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),
@@ -1070,7 +1074,7 @@ Deno.test("contracts runtime dry-run rejects incompatible staged active digests 
     const module = createContractsModule({
       builtinContracts: [],
       contractStorage,
-      deploymentEnvelopeStorage: new SqlDeploymentEnvelopeRepository(
+      deploymentAuthorityStorage: new SqlDeploymentAuthorityRepository(
         storage.db,
       ),
       serviceInstanceStorage,
@@ -1151,7 +1155,7 @@ Deno.test("contracts runtime strict validation rejects proposed active uses depe
     const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
       storage.db,
     );
-    const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
+    const deploymentAuthorityStorage = new SqlDeploymentAuthorityRepository(
       storage.db,
     );
     const implementationOfferStorage = new SqlImplementationOfferRepository(
@@ -1161,7 +1165,7 @@ Deno.test("contracts runtime strict validation rejects proposed active uses depe
       builtinContracts: [],
       contractStorage,
       implementationOfferStorage,
-      deploymentEnvelopeStorage,
+      deploymentAuthorityStorage,
       serviceInstanceStorage,
       serviceDeploymentStorage,
       deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),
@@ -1174,8 +1178,8 @@ Deno.test("contracts runtime strict validation rejects proposed active uses depe
     await serviceDeploymentStorage.put(
       testServiceDeployment("billing.default", ["Billing"]),
     );
-    await putDeploymentEnvelope(
-      deploymentEnvelopeStorage,
+    await putDeploymentAuthority(
+      deploymentAuthorityStorage,
       "billing.default",
       "service",
       [billing.id],
@@ -1218,8 +1222,8 @@ Deno.test("contracts runtime strict validation rejects proposed active uses depe
     await serviceDeploymentStorage.put(
       testServiceDeployment("billing.default", ["Billing"], true),
     );
-    await putDeploymentEnvelope(
-      deploymentEnvelopeStorage,
+    await putDeploymentAuthority(
+      deploymentAuthorityStorage,
       "billing.default",
       "service",
       [billing.id],
@@ -1237,8 +1241,8 @@ Deno.test("contracts runtime strict validation rejects proposed active uses depe
     await serviceDeploymentStorage.put(
       testServiceDeployment("portal.default", ["Portal"]),
     );
-    await putDeploymentEnvelope(
-      deploymentEnvelopeStorage,
+    await putDeploymentAuthority(
+      deploymentAuthorityStorage,
       "portal.default",
       "service",
       [portal.id],
@@ -1297,7 +1301,7 @@ Deno.test("contracts runtime ignores unrelated offers when persisted context can
     const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
       storage.db,
     );
-    const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
+    const deploymentAuthorityStorage = new SqlDeploymentAuthorityRepository(
       storage.db,
     );
     const implementationOfferStorage = new SqlImplementationOfferRepository(
@@ -1307,7 +1311,7 @@ Deno.test("contracts runtime ignores unrelated offers when persisted context can
       builtinContracts: [],
       contractStorage,
       implementationOfferStorage,
-      deploymentEnvelopeStorage,
+      deploymentAuthorityStorage,
       serviceInstanceStorage: new SqlServiceInstanceRepository(storage.db),
       serviceDeploymentStorage,
       deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),
@@ -1321,8 +1325,8 @@ Deno.test("contracts runtime ignores unrelated offers when persisted context can
     await serviceDeploymentStorage.put(
       testServiceDeployment("active.default", ["Active"]),
     );
-    await putDeploymentEnvelope(
-      deploymentEnvelopeStorage,
+    await putDeploymentAuthority(
+      deploymentAuthorityStorage,
       "active.default",
       "service",
       [activeContract.id],
@@ -1370,7 +1374,7 @@ Deno.test("contracts runtime does not activate contracts from user sessions", as
     const module = createContractsModule({
       builtinContracts: [],
       contractStorage,
-      deploymentEnvelopeStorage: new SqlDeploymentEnvelopeRepository(
+      deploymentAuthorityStorage: new SqlDeploymentAuthorityRepository(
         storage.db,
       ),
       serviceInstanceStorage,
@@ -1419,7 +1423,7 @@ Deno.test("contracts runtime does not activate contracts from user sessions", as
     const refreshedModule = createContractsModule({
       builtinContracts: [],
       contractStorage,
-      deploymentEnvelopeStorage: new SqlDeploymentEnvelopeRepository(
+      deploymentAuthorityStorage: new SqlDeploymentAuthorityRepository(
         storage.db,
       ),
       serviceInstanceStorage,
@@ -1459,13 +1463,13 @@ Deno.test("contracts runtime keeps service deployment records cold without activ
     const deviceDeploymentStorage = new SqlDeviceDeploymentRepository(
       storage.db,
     );
-    const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
+    const deploymentAuthorityStorage = new SqlDeploymentAuthorityRepository(
       storage.db,
     );
     const module = createContractsModule({
       builtinContracts: [],
       contractStorage,
-      deploymentEnvelopeStorage,
+      deploymentAuthorityStorage,
       serviceInstanceStorage,
       serviceDeploymentStorage,
       deviceDeploymentStorage,
@@ -1477,8 +1481,8 @@ Deno.test("contracts runtime keeps service deployment records cold without activ
     await serviceDeploymentStorage.put(
       testServiceDeployment("service.default", ["Service"]),
     );
-    await putDeploymentEnvelope(
-      deploymentEnvelopeStorage,
+    await putDeploymentAuthority(
+      deploymentAuthorityStorage,
       "service.default",
       "service",
       [installed.id],
@@ -1502,7 +1506,7 @@ Deno.test("contracts runtime ignores offer-only non-builtin manifests", async ()
       module,
       contractStorage,
       serviceDeploymentStorage,
-      deploymentEnvelopeStorage,
+      deploymentAuthorityStorage,
     ) => {
       const validated = await module.validateContract(
         makeOperationContract("offer-only@v1", "operations.v1.OfferOnly.Run"),
@@ -1510,8 +1514,8 @@ Deno.test("contracts runtime ignores offer-only non-builtin manifests", async ()
       await serviceDeploymentStorage.put(
         testServiceDeployment("service.offer", ["OfferOnly"]),
       );
-      await putDeploymentEnvelope(
-        deploymentEnvelopeStorage,
+      await putDeploymentAuthority(
+        deploymentAuthorityStorage,
         "service.offer",
         "service",
         [validated.contract.id],
@@ -1547,13 +1551,13 @@ Deno.test("contracts runtime keeps enabled service and device deployment records
     const deviceDeploymentStorage = new SqlDeviceDeploymentRepository(
       storage.db,
     );
-    const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
+    const deploymentAuthorityStorage = new SqlDeploymentAuthorityRepository(
       storage.db,
     );
     const module = createContractsModule({
       builtinContracts: [],
       contractStorage,
-      deploymentEnvelopeStorage,
+      deploymentAuthorityStorage,
       serviceInstanceStorage,
       serviceDeploymentStorage,
       deviceDeploymentStorage,
@@ -1582,15 +1586,15 @@ Deno.test("contracts runtime keeps enabled service and device deployment records
     await serviceDeploymentStorage.put(
       testServiceDeployment("service.default", ["Service"]),
     );
-    await putDeploymentEnvelope(
-      deploymentEnvelopeStorage,
+    await putDeploymentAuthority(
+      deploymentAuthorityStorage,
       "service.default",
       "service",
       [service.id],
     );
     await deviceDeploymentStorage.put(testDeviceDeployment("device.default"));
-    await putDeploymentEnvelope(
-      deploymentEnvelopeStorage,
+    await putDeploymentAuthority(
+      deploymentAuthorityStorage,
       "device.default",
       "device",
       [device.id],
@@ -1628,7 +1632,7 @@ Deno.test("contracts runtime excludes stale offers for disabled parent deploymen
       storage.db,
     );
     const deviceInstanceStorage = new SqlDeviceInstanceRepository(storage.db);
-    const deploymentEnvelopeStorage = new SqlDeploymentEnvelopeRepository(
+    const deploymentAuthorityStorage = new SqlDeploymentAuthorityRepository(
       storage.db,
     );
     const implementationOfferStorage = new SqlImplementationOfferRepository(
@@ -1638,7 +1642,7 @@ Deno.test("contracts runtime excludes stale offers for disabled parent deploymen
       builtinContracts: [],
       contractStorage,
       implementationOfferStorage,
-      deploymentEnvelopeStorage,
+      deploymentAuthorityStorage,
       serviceInstanceStorage,
       serviceDeploymentStorage,
       deviceDeploymentStorage,
@@ -1659,8 +1663,8 @@ Deno.test("contracts runtime excludes stale offers for disabled parent deploymen
     await serviceDeploymentStorage.put(
       testServiceDeployment("service.disabled", ["Service"], true),
     );
-    await putDeploymentEnvelope(
-      deploymentEnvelopeStorage,
+    await putDeploymentAuthority(
+      deploymentAuthorityStorage,
       "service.disabled",
       "service",
       [service.id],
@@ -1677,8 +1681,8 @@ Deno.test("contracts runtime excludes stale offers for disabled parent deploymen
     await deviceDeploymentStorage.put(
       testDeviceDeployment("device.disabled", true),
     );
-    await putDeploymentEnvelope(
-      deploymentEnvelopeStorage,
+    await putDeploymentAuthority(
+      deploymentAuthorityStorage,
       "device.disabled",
       "device",
       [device.id],

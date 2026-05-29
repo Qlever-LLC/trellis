@@ -6,13 +6,11 @@ use trellis::auth::{connect_admin_client_async, generate_session_keypair, AdminL
 use trellis::client::{ServiceConnectWithContractOptions, TrellisClient};
 use trellis::contracts::digest_contract_json;
 use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
-use trellis::sdk::auth::types::{
-    AuthEnvelopeExpansionsApproveRequest, AuthEnvelopeExpansionsListRequest,
-};
 use trellis::service::{ConnectedServiceRuntime, HandlerResult, ServerError};
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::BrowserContainer;
+use crate::deployment_authority::plan_accept_reconcile_deployment_authority;
 use crate::rpc::{
     assert_rust_client_caller_context, assert_rust_client_ping, assert_rust_client_trace_context,
     caller_context_response, harness_caller_contract_json, harness_service_contract_json,
@@ -83,19 +81,14 @@ pub(crate) async fn run_service_approval_fixture(
     let ts_service = TsServiceProcess::start(trellis_url, &contract_digest, &ts_service_seed)?;
 
     let sdk_auth_client = SdkAuthClient::new(&admin_client);
-    let pending_request_ids =
-        wait_for_pending_expansion_requests(&sdk_auth_client, &contract_digest).await?;
-    for request_id in &pending_request_ids {
-        sdk_auth_client
-            .rpc()
-            .auth()
-            .envelope_expansions_approve(&AuthEnvelopeExpansionsApproveRequest {
-                request_id: request_id.clone(),
-                reason: Some("integration harness service startup approval".to_string()),
-            })
-            .await
-            .into_diagnostic()?;
-    }
+    plan_accept_reconcile_deployment_authority(
+        &sdk_auth_client,
+        APPROVAL_DEPLOYMENT_ID,
+        &service_contract_json,
+        &contract_digest,
+        "integration harness service startup approval",
+    )
+    .await?;
 
     let service_client = Arc::new(rust_connect_task.await.into_diagnostic()??);
     let mut service = ConnectedServiceRuntime::<()>::from_connected_client(
@@ -188,46 +181,8 @@ async fn connect_approval_rust_service(
         session_key_seed_base64url: &service_seed,
         timeout_ms: 5_000,
         retry_delay_ms: 250,
-        approval_timeout_ms: 30_000,
+        authority_pending_timeout_ms: 30_000,
     })
     .await
     .into_diagnostic()
-}
-
-async fn wait_for_pending_expansion_requests(
-    auth_client: &SdkAuthClient<'_>,
-    contract_digest: &str,
-) -> Result<Vec<String>> {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
-    loop {
-        let response = auth_client
-            .rpc()
-            .auth()
-            .envelope_expansions_list(&AuthEnvelopeExpansionsListRequest {
-                deployment_id: Some(APPROVAL_DEPLOYMENT_ID.to_string()),
-                limit: 20,
-                offset: None,
-                state: Some("pending".to_string()),
-            })
-            .await
-            .into_diagnostic()?;
-        let request_ids: Vec<_> = response
-            .entries
-            .into_iter()
-            .filter(|request| {
-                request.contract_id == HARNESS_CONTRACT_ID
-                    && request.contract_digest == contract_digest
-            })
-            .map(|request| request.request_id)
-            .collect();
-        if !request_ids.is_empty() {
-            return Ok(request_ids);
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return Err(miette!(
-                "timed out waiting for service bootstrap envelope expansion request"
-            ));
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-    }
 }

@@ -38,7 +38,8 @@ Deno.test("registerCatalog mounts all catalog RPCs when active contract refresh 
     serviceDeploymentStorage: {} as never,
     deviceInstanceStorage: {} as never,
     deviceDeploymentStorage: {} as never,
-    deploymentEnvelopeStorage: {} as never,
+    deploymentAuthorityStorage: {} as never,
+    materializedAuthorityStorage: {} as never,
     implementationOfferStorage: {} as never,
     connectionsKV: {} as never,
     logger: {

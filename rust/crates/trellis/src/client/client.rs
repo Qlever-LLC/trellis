@@ -27,6 +27,8 @@ use crate::client::{
 const HEALTH_HEARTBEAT_SUBJECT: &str = "events.v1.Health.Heartbeat";
 const HEALTH_HEARTBEAT_INTERVAL_MS: u64 = 30_000;
 const DEFAULT_EVENT_STREAM: &str = "trellis";
+const DEFAULT_AUTHORITY_RETRY_DELAY_MS: u64 = 1_000;
+const DEFAULT_AUTHORITY_PENDING_TIMEOUT_MS: u64 = 60_000;
 static HEALTH_HEARTBEAT_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 static FEED_INBOX_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -60,7 +62,7 @@ pub struct ServiceConnectWithContractOptions<'a> {
     pub session_key_seed_base64url: &'a str,
     pub timeout_ms: u64,
     pub retry_delay_ms: u64,
-    pub approval_timeout_ms: u64,
+    pub authority_pending_timeout_ms: u64,
 }
 
 /// Connection options for an activated device principal.
@@ -196,7 +198,7 @@ struct ServiceBootstrapFetchOptions<'a> {
     contract: Option<&'a Value>,
     timeout_ms: u64,
     retry_delay_ms: Option<u64>,
-    approval_timeout_ms: Option<u64>,
+    authority_pending_timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -407,8 +409,8 @@ async fn fetch_service_bootstrap(
             contract_digest: opts.contract_digest,
             contract: None,
             timeout_ms: opts.timeout_ms,
-            retry_delay_ms: None,
-            approval_timeout_ms: None,
+            retry_delay_ms: Some(DEFAULT_AUTHORITY_RETRY_DELAY_MS),
+            authority_pending_timeout_ms: Some(DEFAULT_AUTHORITY_PENDING_TIMEOUT_MS),
         },
     )
     .await
@@ -428,7 +430,7 @@ async fn fetch_service_bootstrap_with_contract(
             contract: Some(contract),
             timeout_ms: opts.timeout_ms,
             retry_delay_ms: Some(opts.retry_delay_ms),
-            approval_timeout_ms: Some(opts.approval_timeout_ms),
+            authority_pending_timeout_ms: Some(opts.authority_pending_timeout_ms),
         },
     )
     .await
@@ -452,7 +454,7 @@ async fn fetch_service_bootstrap_inner(
 
     let mut include_contract = false;
     let mut adjusted_iat = false;
-    let approval_deadline = opts.approval_timeout_ms.map(|timeout_ms| {
+    let authority_pending_deadline = opts.authority_pending_timeout_ms.map(|timeout_ms| {
         tokio::time::Instant::now() + std::time::Duration::from_millis(timeout_ms)
     });
     loop {
@@ -496,16 +498,23 @@ async fn fetch_service_bootstrap_inner(
             {
                 include_contract = true;
                 continue;
-            } else if failure.reason == "envelope_expansion_required" && opts.contract.is_some() {
-                include_contract = true;
+            } else if (failure.reason == "authority_reconciliation_pending"
+                || (matches!(
+                    failure.reason.as_str(),
+                    "authority_update_required" | "authority_migration_required"
+                ) && opts.contract.is_some()))
+                && opts.retry_delay_ms.is_some()
+            {
+                if opts.contract.is_some() {
+                    include_contract = true;
+                }
                 let retry_delay =
-                    std::time::Duration::from_millis(opts.retry_delay_ms.unwrap_or(1_000).max(1));
-                if let Some(deadline) = approval_deadline {
+                    std::time::Duration::from_millis(opts.retry_delay_ms.unwrap_or(1).max(1));
+                if let Some(deadline) = authority_pending_deadline {
                     let now = tokio::time::Instant::now();
                     if now >= deadline {
                         return Err(TrellisClientError::Bootstrap(
-                            "timed out waiting for service bootstrap envelope expansion approval"
-                                .into(),
+                            "timed out waiting for service deployment authority".into(),
                         ));
                     }
                     tokio::time::sleep(retry_delay.min(deadline.saturating_duration_since(now)))
@@ -517,7 +526,7 @@ async fn fetch_service_bootstrap_inner(
             } else if failure.reason == "contract_activation_pending" && opts.contract.is_some() {
                 let retry_delay =
                     std::time::Duration::from_millis(opts.retry_delay_ms.unwrap_or(1_000).max(1));
-                if let Some(deadline) = approval_deadline {
+                if let Some(deadline) = authority_pending_deadline {
                     let now = tokio::time::Instant::now();
                     if now >= deadline {
                         return Err(TrellisClientError::Bootstrap(
@@ -679,7 +688,7 @@ async fn fetch_device_connect_info(
             .map_err(|error| TrellisClientError::Bootstrap(error.to_string()))?;
         let request_ended_at = now_iat_seconds();
 
-        if !status.is_success() {
+        if status != reqwest::StatusCode::OK {
             if attempt == 0
                 && adjust_iat_after_out_of_range(
                     &body,
@@ -957,7 +966,7 @@ impl TrellisClient {
         .await
     }
 
-    /// Connect using service bootstrap, presenting the contract manifest and waiting while approval is pending.
+    /// Connect using service bootstrap, presenting the contract manifest and waiting while authority is pending.
     pub async fn connect_service_with_contract(
         opts: ServiceConnectWithContractOptions<'_>,
     ) -> Result<Self, TrellisClientError> {
@@ -1969,6 +1978,44 @@ mod tests {
         assert_eq!(response.connect_info.instance_id, "dev_123");
     }
 
+    #[tokio::test]
+    async fn device_connect_info_reports_authority_reconciliation_pending_response() {
+        let error = fetch_device_connect_info_single_response_error(
+            "202 Accepted",
+            json!({ "reason": "authority_reconciliation_pending" }),
+        )
+        .await;
+
+        match error {
+            TrellisClientError::BootstrapHttp { status, body } => {
+                assert_eq!(status, 202);
+                assert!(body.contains("authority_reconciliation_pending"));
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn device_connect_info_reports_authority_reconciliation_failed_response() {
+        let error = fetch_device_connect_info_single_response_error(
+            "202 Accepted",
+            json!({
+                "reason": "authority_reconciliation_failed",
+                "reconciliationError": "bucket update failed"
+            }),
+        )
+        .await;
+
+        match error {
+            TrellisClientError::BootstrapHttp { status, body } => {
+                assert_eq!(status, 202);
+                assert!(body.contains("authority_reconciliation_failed"));
+                assert!(body.contains("bucket update failed"));
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
     #[test]
     fn device_iat_clock_applies_connect_info_skew() {
         let clock = IatClock::from_offset_seconds(30);
@@ -2018,6 +2065,36 @@ mod tests {
             .write_all(response.as_bytes())
             .await
             .expect("write response");
+    }
+
+    async fn fetch_device_connect_info_single_response_error(
+        status: &'static str,
+        body: Value,
+    ) -> TrellisClientError {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind connect-info server");
+        let url = format!("http://{}", listener.local_addr().expect("local addr"));
+        let server_task = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("connect-info request");
+            let _request = read_json_http_request(&mut stream).await;
+            write_json_http_response(&mut stream, status, body).await;
+        });
+        let auth = SessionAuth::from_seed_base64url("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8")
+            .expect("session auth");
+        let opts = DeviceConnectOptions {
+            trellis_url: &url,
+            contract_digest: "digest-alpha",
+            public_identity_key: &auth.session_key,
+            identity_seed_base64url: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+            timeout_ms: 2_000,
+        };
+
+        let error = fetch_device_connect_info(&auth, &opts)
+            .await
+            .expect_err("connect-info response should fail");
+        server_task.await.expect("server task");
+        error
     }
 
     async fn write_ready_service_bootstrap(stream: &mut TcpStream) {
@@ -2212,7 +2289,7 @@ mod tests {
             session_key_seed_base64url: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
             timeout_ms: 2_000,
             retry_delay_ms: 1,
-            approval_timeout_ms: 2_000,
+            authority_pending_timeout_ms: 2_000,
         };
         let contract: Value = serde_json::from_str(opts.contract_json).expect("contract json");
 
@@ -2256,7 +2333,7 @@ mod tests {
             session_key_seed_base64url: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
             timeout_ms: 2_000,
             retry_delay_ms: 1,
-            approval_timeout_ms: 2_000,
+            authority_pending_timeout_ms: 2_000,
         };
         let contract: Value = serde_json::from_str(opts.contract_json).expect("contract json");
 
@@ -2286,7 +2363,7 @@ mod tests {
             write_json_http_response(
                 &mut stream,
                 "202 Accepted",
-                json!({ "reason": "envelope_expansion_required" }),
+                json!({ "reason": "authority_update_required" }),
             )
             .await;
         });
@@ -2308,14 +2385,14 @@ mod tests {
         match error {
             TrellisClientError::BootstrapHttp { status, body } => {
                 assert_eq!(status, 202);
-                assert!(body.contains("envelope_expansion_required"));
+                assert!(body.contains("authority_update_required"));
             }
             other => panic!("unexpected error: {other}"),
         }
     }
 
     #[tokio::test]
-    async fn service_bootstrap_waits_for_envelope_expansion_approval() {
+    async fn service_bootstrap_without_contract_waits_for_authority_reconciliation() {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind bootstrap server");
@@ -2326,7 +2403,100 @@ mod tests {
             write_json_http_response(
                 &mut first,
                 "202 Accepted",
-                json!({ "reason": "envelope_expansion_required" }),
+                json!({ "reason": "authority_reconciliation_pending" }),
+            )
+            .await;
+
+            let (mut second, _) = listener.accept().await.expect("second bootstrap request");
+            let second_request = read_json_http_request(&mut second).await;
+            write_ready_service_bootstrap(&mut second).await;
+            (first_request, second_request)
+        });
+        let auth = SessionAuth::from_seed_base64url("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8")
+            .expect("session auth");
+        fetch_service_bootstrap_inner(
+            &auth,
+            &ServiceBootstrapFetchOptions {
+                trellis_url: &url,
+                contract_id: "trellis.jobs@v1",
+                contract_digest: "digest-alpha",
+                contract: None,
+                timeout_ms: 2_000,
+                retry_delay_ms: Some(1),
+                authority_pending_timeout_ms: None,
+            },
+        )
+        .await
+        .expect("bootstrap retry succeeds");
+        let (first_request, second_request) = server_task.await.expect("server task");
+
+        assert!(first_request.get("contract").is_none());
+        assert!(second_request.get("contract").is_none());
+    }
+
+    #[tokio::test]
+    async fn service_bootstrap_without_contract_times_out_waiting_for_authority_reconciliation() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind bootstrap server");
+        let url = format!("http://{}", listener.local_addr().expect("local addr"));
+        let server_task = tokio::spawn(async move {
+            let mut requests = 0usize;
+            while let Ok(Ok((mut stream, _))) =
+                tokio::time::timeout(std::time::Duration::from_millis(100), listener.accept()).await
+            {
+                requests += 1;
+                let _request = read_json_http_request(&mut stream).await;
+                write_json_http_response(
+                    &mut stream,
+                    "202 Accepted",
+                    json!({ "reason": "authority_reconciliation_pending" }),
+                )
+                .await;
+            }
+            requests
+        });
+        let auth = SessionAuth::from_seed_base64url("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8")
+            .expect("session auth");
+
+        let error = fetch_service_bootstrap_inner(
+            &auth,
+            &ServiceBootstrapFetchOptions {
+                trellis_url: &url,
+                contract_id: "trellis.jobs@v1",
+                contract_digest: "digest-alpha",
+                contract: None,
+                timeout_ms: 2_000,
+                retry_delay_ms: Some(1),
+                authority_pending_timeout_ms: Some(5),
+            },
+        )
+        .await
+        .expect_err("pending reconciliation should time out");
+        let requests = server_task.await.expect("server task");
+
+        match error {
+            TrellisClientError::Bootstrap(message) => {
+                assert!(message.contains("timed out waiting for service deployment authority"));
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+        assert!(requests >= 1);
+    }
+
+    #[tokio::test]
+    async fn service_bootstrap_waits_for_authority_update() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind bootstrap server");
+        let url = format!("http://{}", listener.local_addr().expect("local addr"));
+        let server_task = tokio::spawn(async move {
+            let (mut first, _) = listener.accept().await.expect("first bootstrap request");
+            let first_request = read_json_http_request(&mut first).await;
+            write_json_http_response(
+                &mut first,
+                "202 Accepted",
+                json!({ "reason": "authority_update_required" }),
             )
             .await;
 
@@ -2345,7 +2515,7 @@ mod tests {
             session_key_seed_base64url: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
             timeout_ms: 2_000,
             retry_delay_ms: 1,
-            approval_timeout_ms: 2_000,
+            authority_pending_timeout_ms: 2_000,
         };
         let contract: Value = serde_json::from_str(opts.contract_json).expect("contract json");
 
@@ -2362,7 +2532,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn service_bootstrap_times_out_waiting_for_envelope_expansion() {
+    async fn service_bootstrap_times_out_waiting_for_authority_update() {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind bootstrap server");
@@ -2381,7 +2551,7 @@ mod tests {
                 write_json_http_response(
                     &mut stream,
                     "202 Accepted",
-                    json!({ "reason": "envelope_expansion_required" }),
+                    json!({ "reason": "authority_update_required" }),
                 )
                 .await;
             }
@@ -2396,13 +2566,13 @@ mod tests {
             session_key_seed_base64url: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
             timeout_ms: 2_000,
             retry_delay_ms: 1,
-            approval_timeout_ms: 5,
+            authority_pending_timeout_ms: 5,
         };
         let contract: Value = serde_json::from_str(opts.contract_json).expect("contract json");
 
         let error = fetch_service_bootstrap_with_contract(&auth, &opts, &contract)
             .await
-            .expect_err("pending approval should time out");
+            .expect_err("pending authority update should time out");
         let request_count = server_task.await.expect("server task");
 
         match error {
@@ -2412,5 +2582,53 @@ mod tests {
             other => panic!("unexpected error: {other}"),
         }
         assert!(request_count >= 1);
+    }
+
+    #[tokio::test]
+    async fn service_bootstrap_reports_reconciliation_failure_without_retrying() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind bootstrap server");
+        let url = format!("http://{}", listener.local_addr().expect("local addr"));
+        let server_task = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("bootstrap request");
+            let _request = read_json_http_request(&mut stream).await;
+            write_json_http_response(
+                &mut stream,
+                "202 Accepted",
+                json!({
+                    "reason": "authority_reconciliation_failed",
+                    "reconciliationError": "bucket update failed"
+                }),
+            )
+            .await;
+        });
+        let auth = SessionAuth::from_seed_base64url("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8")
+            .expect("session auth");
+        let opts = ServiceConnectWithContractOptions {
+            trellis_url: &url,
+            contract_id: "trellis.jobs@v1",
+            contract_digest: "digest-alpha",
+            contract_json: r#"{"id":"trellis.jobs@v1"}"#,
+            session_key_seed_base64url: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+            timeout_ms: 2_000,
+            retry_delay_ms: 1,
+            authority_pending_timeout_ms: 2_000,
+        };
+        let contract: Value = serde_json::from_str(opts.contract_json).expect("contract json");
+
+        let error = fetch_service_bootstrap_with_contract(&auth, &opts, &contract)
+            .await
+            .expect_err("reconciliation failure should be surfaced");
+        server_task.await.expect("server task");
+
+        match error {
+            TrellisClientError::BootstrapHttp { status, body } => {
+                assert_eq!(status, 202);
+                assert!(body.contains("authority_reconciliation_failed"));
+                assert!(body.contains("bucket update failed"));
+            }
+            other => panic!("unexpected error: {other}"),
+        }
     }
 }

@@ -1,8 +1,12 @@
 import type { InferSchemaType } from "./contracts.ts";
 import { AsyncResult, err, isErr, ok, type Result } from "@qlever-llc/result";
 
-import type { JsonValue } from "./codec.ts";
+import { type JsonValue, parseUnknownSchema } from "./codec.ts";
 import {
+  getBuiltinRpcError,
+  OperationAlreadyTerminalError,
+  OperationMismatchError,
+  OperationNotFoundError,
   TransferError,
   TransportError,
   UnexpectedError,
@@ -46,6 +50,15 @@ export type OperationTransferProgress = {
   transferredBytes: number;
 };
 
+/** Errors returned when an operation control request violates lifecycle state. */
+export type OperationLifecycleError =
+  | OperationNotFoundError
+  | OperationAlreadyTerminalError
+  | OperationMismatchError;
+
+/** Errors returned when an operation control request fails before producing a snapshot or ack. */
+export type OperationControlError = TransportError | OperationLifecycleError;
+
 export type TerminalOperation<TProgress = unknown, TOutput = unknown> =
   | (OperationSnapshot<TProgress, TOutput> & { state: "completed" })
   | (OperationSnapshot<TProgress, TOutput> & { state: "failed" })
@@ -81,7 +94,7 @@ export type StartedTransfer<
   >;
   wait(): AsyncResult<
     CompletedTransfer<TDesc, TProgress, TOutput>,
-    TransportError | UnexpectedError | TransferError
+    OperationControlError | UnexpectedError | TransferError
   >;
 };
 
@@ -95,26 +108,26 @@ export type OperationRef<
   operation: string;
   get(): AsyncResult<
     OperationSnapshot<TProgress, TOutput>,
-    TransportError | UnexpectedError
+    OperationControlError | UnexpectedError
   >;
   wait(): AsyncResult<
     TerminalOperation<TProgress, TOutput>,
-    TransportError | UnexpectedError
+    OperationControlError | UnexpectedError
   >;
   watch(): AsyncResult<
     AsyncIterable<OperationEvent<TProgress, TOutput>>,
-    TransportError | UnexpectedError
+    OperationControlError | UnexpectedError
   >;
   cancel(): AsyncResult<
     OperationSnapshot<TProgress, TOutput>,
-    TransportError | UnexpectedError
+    OperationControlError | UnexpectedError
   >;
   signal(
     signal: string,
     input?: unknown,
   ): AsyncResult<
     OperationSignalAck<TProgress, TOutput>,
-    TransportError | UnexpectedError
+    OperationControlError | UnexpectedError
   >;
 };
 
@@ -252,7 +265,7 @@ interface OperationInputBuilderBase<
     callbacks?: OperationObserverCallbacks<TProgress, TOutput>,
   ): AsyncResult<
     OperationRef<TDesc, TProgress, TOutput>,
-    TransportError | UnexpectedError
+    OperationControlError | UnexpectedError
   >;
 }
 
@@ -275,7 +288,7 @@ export interface TransferOperationBuilder<
     callbacks?: OperationObserverCallbacks<TProgress, TOutput>,
   ): AsyncResult<
     StartedTransfer<TDesc, TProgress, TOutput>,
-    TransportError | UnexpectedError | TransferError
+    OperationControlError | UnexpectedError | TransferError
   >;
 }
 
@@ -565,10 +578,10 @@ function decodeAcceptedEnvelope<TProgress, TOutput>(
 
 function decodeSnapshotFrame<TProgress, TOutput>(
   value: JsonValue,
-): Result<OperationSnapshotFrame<TProgress, TOutput>, TransportError> {
+): Result<OperationSnapshotFrame<TProgress, TOutput>, OperationControlError> {
   try {
     if (isOperationControlErrorFrame(value)) {
-      return err(controlFrameToTransportError(value));
+      return err(controlFrameToError(value));
     }
 
     const frame = value as OperationSnapshotFrame<TProgress, TOutput>;
@@ -589,10 +602,10 @@ function decodeSnapshotFrame<TProgress, TOutput>(
 
 function decodeSignalAckFrame<TProgress, TOutput>(
   value: JsonValue,
-): Result<OperationSignalAckFrame<TProgress, TOutput>, TransportError> {
+): Result<OperationSignalAckFrame<TProgress, TOutput>, OperationControlError> {
   try {
     if (isOperationControlErrorFrame(value)) {
-      return err(controlFrameToTransportError(value));
+      return err(controlFrameToError(value));
     }
 
     const frame = value as OperationSignalAckFrame<TProgress, TOutput>;
@@ -647,14 +660,14 @@ class RuntimeOperationRef<
 
   get(): AsyncResult<
     OperationSnapshot<TProgress, TOutput>,
-    TransportError | UnexpectedError
+    OperationControlError | UnexpectedError
   > {
     return this.#controlSnapshot("get");
   }
 
   wait(): AsyncResult<
     TerminalOperation<TProgress, TOutput>,
-    TransportError | UnexpectedError
+    OperationControlError | UnexpectedError
   > {
     return AsyncResult.from((async () => {
       const initialTerminal = await this.#terminalSnapshotFromGet().take();
@@ -686,7 +699,8 @@ class RuntimeOperationRef<
           return ok(terminal);
         }
         return err(
-          cause instanceof TransportError || cause instanceof UnexpectedError
+          cause instanceof TransportError || cause instanceof UnexpectedError ||
+            isOperationLifecycleError(cause)
             ? cause
             : new UnexpectedError({ cause }),
         );
@@ -709,7 +723,7 @@ class RuntimeOperationRef<
 
   #terminalSnapshotFromGet(): AsyncResult<
     TerminalOperation<TProgress, TOutput> | null,
-    TransportError | UnexpectedError
+    OperationControlError | UnexpectedError
   > {
     return AsyncResult.from((async () => {
       const snapshotValue = await this.#controlSnapshot("get").take();
@@ -725,7 +739,7 @@ class RuntimeOperationRef<
 
   cancel(): AsyncResult<
     OperationSnapshot<TProgress, TOutput>,
-    TransportError | UnexpectedError
+    OperationControlError | UnexpectedError
   > {
     return this.#controlSnapshot("cancel");
   }
@@ -735,9 +749,14 @@ class RuntimeOperationRef<
     input?: unknown,
   ): AsyncResult<
     OperationSignalAck<TProgress, TOutput>,
-    TransportError | UnexpectedError
+    OperationControlError | UnexpectedError
   > {
-    return AsyncResult.from((async () => {
+    return AsyncResult.from((async (): Promise<
+      Result<
+        OperationSignalAck<TProgress, TOutput>,
+        OperationControlError | UnexpectedError
+      >
+    > => {
       const body: {
         action: "signal";
         operationId: string;
@@ -757,7 +776,7 @@ class RuntimeOperationRef<
         body,
       ).take();
       if (isErr(responseValue)) {
-        return responseValue;
+        return err(responseValue.error);
       }
 
       return decodeSignalAckFrame<TProgress, TOutput>(responseValue);
@@ -779,7 +798,7 @@ class RuntimeOperationRef<
 
   watch(): AsyncResult<
     AsyncIterable<OperationEvent<TProgress, TOutput>>,
-    TransportError | UnexpectedError
+    OperationControlError | UnexpectedError
   > {
     return AsyncResult.from((async () => {
       const rawIterable = await this.#transport.watchJson(
@@ -829,7 +848,7 @@ class RuntimeOperationRef<
     action: "get" | "wait" | "cancel" | "watch",
   ): AsyncResult<
     OperationSnapshot<TProgress, TOutput>,
-    TransportError | UnexpectedError
+    OperationControlError | UnexpectedError
   > {
     return AsyncResult.from((async () => {
       const responseValue = await this.#transport.requestJson(
@@ -840,7 +859,7 @@ class RuntimeOperationRef<
         },
       ).take();
       if (isErr(responseValue)) {
-        return responseValue;
+        return err(responseValue.error);
       }
 
       const frame = decodeSnapshotFrame<TProgress, TOutput>(
@@ -856,7 +875,7 @@ class RuntimeOperationRef<
 
 function decodeWatchFrame<TProgress, TOutput>(
   value: JsonValue,
-): Result<OperationEvent<TProgress, TOutput> | null, TransportError> {
+): Result<OperationEvent<TProgress, TOutput> | null, OperationControlError> {
   try {
     if (
       value && typeof value === "object" &&
@@ -866,7 +885,7 @@ function decodeWatchFrame<TProgress, TOutput>(
     }
 
     if (isOperationControlErrorFrame(value)) {
-      return err(controlFrameToTransportError(value));
+      return err(controlFrameToError(value));
     }
 
     const frame = value as
@@ -898,7 +917,7 @@ type OperationWatchObservation<TProgress, TOutput> = {
   task?: Promise<
     Result<
       TerminalOperation<TProgress, TOutput>,
-      TransportError | UnexpectedError
+      OperationControlError | UnexpectedError
     >
   >;
   close?: () => Promise<void>;
@@ -962,7 +981,7 @@ function beginObservedWatch<
   options: ObservedWatchOptions<TProgress, TOutput> = {},
 ): AsyncResult<
   OperationWatchObservation<TProgress, TOutput>,
-  TransportError | UnexpectedError
+  OperationControlError | UnexpectedError
 > {
   if (!hasObserverCallbacks(callbacks)) {
     return AsyncResult.ok({});
@@ -982,7 +1001,7 @@ function beginObservedWatch<
     const task = (async (): Promise<
       Result<
         TerminalOperation<TProgress, TOutput>,
-        TransportError | UnexpectedError
+        OperationControlError | UnexpectedError
       >
     > => {
       try {
@@ -1020,7 +1039,8 @@ function beginObservedWatch<
         }));
       } catch (cause) {
         return err(
-          cause instanceof TransportError || cause instanceof UnexpectedError
+          cause instanceof TransportError || cause instanceof UnexpectedError ||
+            isOperationLifecycleError(cause)
             ? cause
             : new UnexpectedError({ cause }),
         );
@@ -1042,7 +1062,7 @@ function startObservedOperation<
   callbacks: OperationObserverCallbacks<TProgress, TOutput>,
 ): AsyncResult<
   OperationRef<TDesc, TProgress, TOutput>,
-  TransportError | UnexpectedError
+  OperationControlError | UnexpectedError
 > {
   return AsyncResult.from((async () => {
     const startedValue = await invokeOperation<TDesc, TProgress, TOutput>(
@@ -1100,7 +1120,7 @@ function startObservedTransfer<
   callbacks: OperationObserverCallbacks<TProgress, TOutput>,
 ): AsyncResult<
   StartedTransfer<TDesc, TProgress, TOutput>,
-  TransportError | UnexpectedError | TransferError
+  OperationControlError | UnexpectedError | TransferError
 > {
   return AsyncResult.from((async () => {
     const startedValue = await invokeOperation<TDesc, TProgress, TOutput>(
@@ -1420,7 +1440,7 @@ export class OperationInvoker<
     callbacks?: OperationObserverCallbacks<TProgress, TOutput>,
   ): AsyncResult<
     OperationRef<TDesc, TProgress, TOutput>,
-    TransportError | UnexpectedError
+    OperationControlError | UnexpectedError
   > {
     return createOperationInputBuilder<TDesc, TProgress, TOutput>(
       this.#transport,
@@ -1452,9 +1472,14 @@ function isOperationControlErrorFrame(
     typeof Reflect.get(value, "error") === "object";
 }
 
-function controlFrameToTransportError(
+function controlFrameToError(
   frame: OperationControlErrorFrame,
-): TransportError {
+): OperationControlError {
+  const lifecycleError = controlFrameToLifecycleError(frame);
+  if (lifecycleError) {
+    return lifecycleError;
+  }
+
   return createTransportError({
     code: "trellis.operation.control_error",
     message: "Trellis rejected the operation control request.",
@@ -1465,6 +1490,58 @@ function controlFrameToTransportError(
       controlErrorMessage: frame.error.message,
     },
   });
+}
+
+function controlFrameToLifecycleError(
+  frame: OperationControlErrorFrame,
+): OperationLifecycleError | undefined {
+  if (!isFullOperationLifecycleErrorData(frame.error)) {
+    return undefined;
+  }
+
+  const descriptor = getBuiltinRpcError(frame.error.type);
+  if (!descriptor?.schema) {
+    return undefined;
+  }
+
+  const parsed = parseUnknownSchema(
+    descriptor.schema as Parameters<typeof parseUnknownSchema>[0],
+    frame.error as JsonValue,
+  ).take();
+  if (isErr(parsed)) {
+    return undefined;
+  }
+
+  const error = descriptor.fromSerializable(parsed);
+  return isOperationLifecycleError(error) ? error : undefined;
+}
+
+function isOperationLifecycleError(
+  error: unknown,
+): error is OperationLifecycleError {
+  return error instanceof OperationNotFoundError ||
+    error instanceof OperationAlreadyTerminalError ||
+    error instanceof OperationMismatchError;
+}
+
+function isFullOperationLifecycleErrorData(
+  error: { type: string; message: string },
+): boolean {
+  if (typeof Reflect.get(error, "id") !== "string") {
+    return false;
+  }
+
+  switch (error.type) {
+    case "OperationNotFoundError":
+    case "OperationAlreadyTerminalError":
+      return typeof Reflect.get(error, "operationId") === "string";
+    case "OperationMismatchError":
+      return typeof Reflect.get(error, "operationId") === "string" &&
+        typeof Reflect.get(error, "expectedService") === "string" &&
+        typeof Reflect.get(error, "expectedOperation") === "string";
+    default:
+      return false;
+  }
 }
 
 function deferred<T>(): {
@@ -1492,7 +1569,7 @@ function createAcceptedReplayFilter<TProgress, TOutput>(
 }
 
 function failedObservation<TProgress, TOutput>(
-  error: TransportError | UnexpectedError,
+  error: OperationControlError | UnexpectedError,
 ): OperationWatchObservation<TProgress, TOutput> {
   return {
     task: Promise.resolve(err(error)),
@@ -1519,7 +1596,7 @@ function toObservedCallbackError(cause: unknown): UnexpectedError {
 }
 
 function isObservedCallbackError(
-  error: TransportError | UnexpectedError,
+  error: OperationControlError | UnexpectedError,
 ): boolean {
   return error instanceof UnexpectedError &&
     error.getContext().operationObserverCallback === true;

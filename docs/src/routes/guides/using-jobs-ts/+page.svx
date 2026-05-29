@@ -104,7 +104,7 @@ Update the `Orders.Create` handler in `main.ts` to enqueue a fulfillment job aft
 
 ```ts
 await service.handle.rpc.orders.create(async ({ input }) => {
-  const orderId = crypto.randomUUID();
+  const orderId = ulid();
   const order = {
     orderId,
     customerId: input.customerId,
@@ -168,7 +168,7 @@ service.jobs.chargePayment.handle(async ({ job }) => {
   }
 
   // charge payment...
-  const chargeId = `ch_${crypto.randomUUID()}`;
+  const chargeId = `ch_${ulid()}`;
 
   const notifyJob = await service.jobs.notifyWarehouse.create({
     orderId: job.payload.orderId,
@@ -236,7 +236,7 @@ service.jobs.chargePayment.handle(async ({ job }) => {
 
 1. Update job schemas and the contract's top-level `jobs` map
 2. Rebuild contract artifacts: `deno task prepare`
-3. Review and approve or reject the pending service authority change in Console if queues changed; use `trellis svc <service-id> expansions ...` only for local or automation fallback
+3. Review and accept or reject the pending service authority change in Console if queues changed; use `trellis svc <service-id> authority plan list` and `authority plan show <PLAN_ID>` only for local or automation fallback
 4. Restart the service
 
 ## Next steps

@@ -6,17 +6,17 @@ import {
   resolveCurrentSessionApproval,
 } from "./start_request.ts";
 import type { ApprovalResolution } from "./support.ts";
-import type { EnvelopeBoundary } from "../schemas.ts";
+import type { AuthorityNeedSet } from "../schemas.ts";
 
-const EMPTY_BOUNDARY: EnvelopeBoundary = {
+const EMPTY_AUTHORITY_NEEDS: AuthorityNeedSet = {
   contracts: [],
   surfaces: [],
   capabilities: [],
   resources: [],
 };
 
-function boundary(overrides: Partial<EnvelopeBoundary>): EnvelopeBoundary {
-  return { ...EMPTY_BOUNDARY, ...overrides };
+function boundary(overrides: Partial<AuthorityNeedSet>): AuthorityNeedSet {
+  return { ...EMPTY_AUTHORITY_NEEDS, ...overrides };
 }
 
 function resolutionFixture(): ApprovalResolution {
@@ -94,7 +94,7 @@ function currentSessionFixture() {
   };
 }
 
-Deno.test("approval resolver requires a persisted identity envelope", () => {
+Deno.test("approval resolver requires a persisted identity grant", () => {
   assertEquals(
     resolveCurrentSessionApproval({
       requestedIdentity: {
@@ -152,7 +152,7 @@ Deno.test("approval resolver requires concrete subject and capability subsets", 
       delegatedCapabilities: ["admin"],
       delegatedPublishSubjects: [],
       delegatedSubscribeSubjects: ["events.v1.Auth.Connections.Opened.>"],
-      identityEnvelope: boundary({ capabilities: ["admin"] }),
+      identityAuthorityNeeds: boundary({ capabilities: ["admin"] }),
       resolution: resolutionFixture(),
     }),
     {
@@ -162,8 +162,8 @@ Deno.test("approval resolver requires concrete subject and capability subsets", 
   );
 });
 
-Deno.test("approval resolver binds same web identity with new digest when existing identity envelope fits", () => {
-  const identityEnvelope = boundary({
+Deno.test("approval resolver binds same web identity with new digest when existing identity grant fits", () => {
+  const identityAuthorityNeeds = boundary({
     contracts: [{ contractId: "billing@v1", required: true }],
     surfaces: [{
       contractId: "billing@v1",
@@ -175,7 +175,7 @@ Deno.test("approval resolver binds same web identity with new digest when existi
     capabilities: ["admin"],
   });
   const resolution = resolutionFixture();
-  resolution.requestedBoundary = identityEnvelope;
+  resolution.requestedAuthority = identityAuthorityNeeds;
 
   assertEquals(
     resolveCurrentSessionApproval({
@@ -197,16 +197,16 @@ Deno.test("approval resolver binds same web identity with new digest when existi
       delegatedCapabilities: ["admin"],
       delegatedPublishSubjects: ["rpc.v1.Auth.Sessions.Me"],
       delegatedSubscribeSubjects: ["events.v1.Auth.Connections.Opened.>"],
-      identityEnvelope,
+      identityAuthorityNeeds,
       resolution,
     }),
-    { status: "approved", source: "existing_envelope" },
+    { status: "approved", source: "existing_identity_grant" },
   );
 });
 
-Deno.test("approval resolver requests delta for same identity when new digest exceeds envelope", () => {
+Deno.test("approval resolver requests delta for same identity when new digest exceeds authority", () => {
   const resolution = resolutionFixture();
-  resolution.requestedBoundary = boundary({
+  resolution.requestedAuthority = boundary({
     capabilities: ["admin", "billing.export"],
   });
 
@@ -230,7 +230,7 @@ Deno.test("approval resolver requests delta for same identity when new digest ex
       delegatedCapabilities: ["admin"],
       delegatedPublishSubjects: [],
       delegatedSubscribeSubjects: [],
-      identityEnvelope: boundary({ capabilities: ["admin"] }),
+      identityAuthorityNeeds: boundary({ capabilities: ["admin"] }),
       resolution,
     }),
     {
@@ -287,7 +287,7 @@ Deno.test("approval resolver requires exact cli/native identity anchor kind", ()
       delegatedCapabilities: ["admin"],
       delegatedPublishSubjects: ["rpc.v1.Auth.Sessions.Me"],
       delegatedSubscribeSubjects: ["events.v1.Auth.Connections.Opened.>"],
-      identityEnvelope: boundary({ capabilities: ["admin"] }),
+      identityAuthorityNeeds: boundary({ capabilities: ["admin"] }),
       identityAnchor: {
         kind: "cli",
         contractId: "trellis.console@v1",
@@ -333,7 +333,7 @@ Deno.test("approval resolver reports insufficient user capabilities", () => {
 });
 
 Deno.test("approval resolver reports unavailable system surface", () => {
-  const requestedBoundary = boundary({
+  const requestedAuthority = boundary({
     surfaces: [{
       contractId: "billing@v1",
       kind: "operation",
@@ -343,7 +343,7 @@ Deno.test("approval resolver reports unavailable system surface", () => {
     }],
   });
   const resolution = resolutionFixture();
-  resolution.requestedBoundary = requestedBoundary;
+  resolution.requestedAuthority = requestedAuthority;
 
   assertEquals(
     resolveCurrentSessionApproval({
@@ -366,14 +366,14 @@ Deno.test("approval resolver reports unavailable system surface", () => {
       delegatedPublishSubjects: ["rpc.v1.Auth.Sessions.Me"],
       delegatedSubscribeSubjects: ["events.v1.Auth.Connections.Opened.>"],
       resolution,
-      systemAvailabilityEnvelope: EMPTY_BOUNDARY,
+      systemAvailabilityAuthority: EMPTY_AUTHORITY_NEEDS,
     }),
-    { status: "unavailable", missingAvailability: requestedBoundary },
+    { status: "unavailable", missingAvailability: requestedAuthority },
   );
 });
 
 Deno.test("approval resolver uses resolution system availability when no override argument is passed", () => {
-  const requestedBoundary = boundary({
+  const requestedAuthority = boundary({
     surfaces: [{
       contractId: "billing@v1",
       kind: "operation",
@@ -384,8 +384,10 @@ Deno.test("approval resolver uses resolution system availability when no overrid
     capabilities: ["admin"],
   });
   const resolution = resolutionFixture();
-  resolution.requestedBoundary = requestedBoundary;
-  resolution.systemAvailabilityEnvelope = boundary({ capabilities: ["admin"] });
+  resolution.requestedAuthority = requestedAuthority;
+  resolution.systemAvailabilityAuthority = boundary({
+    capabilities: ["admin"],
+  });
 
   assertEquals(
     resolveCurrentSessionApproval({
@@ -407,13 +409,13 @@ Deno.test("approval resolver uses resolution system availability when no overrid
       delegatedCapabilities: ["admin"],
       delegatedPublishSubjects: ["rpc.v1.Auth.Sessions.Me"],
       delegatedSubscribeSubjects: ["events.v1.Auth.Connections.Opened.>"],
-      identityEnvelope: requestedBoundary,
+      identityAuthorityNeeds: requestedAuthority,
       resolution,
     }),
     {
       status: "unavailable",
       missingAvailability: boundary({
-        surfaces: requestedBoundary.surfaces,
+        surfaces: requestedAuthority.surfaces,
       }),
     },
   );
@@ -421,8 +423,8 @@ Deno.test("approval resolver uses resolution system availability when no overrid
 
 Deno.test("approval resolver does not treat system capability gaps as availability gaps", () => {
   const resolution = resolutionFixture();
-  resolution.requestedBoundary = boundary({ capabilities: ["admin"] });
-  resolution.systemAvailabilityEnvelope = boundary({});
+  resolution.requestedAuthority = boundary({ capabilities: ["admin"] });
+  resolution.systemAvailabilityAuthority = boundary({});
 
   assertEquals(
     resolveCurrentSessionApproval({
@@ -444,10 +446,10 @@ Deno.test("approval resolver does not treat system capability gaps as availabili
       delegatedCapabilities: ["admin"],
       delegatedPublishSubjects: ["rpc.v1.Auth.Sessions.Me"],
       delegatedSubscribeSubjects: ["events.v1.Auth.Connections.Opened.>"],
-      identityEnvelope: boundary({ capabilities: ["admin"] }),
+      identityAuthorityNeeds: boundary({ capabilities: ["admin"] }),
       resolution,
     }),
-    { status: "approved", source: "existing_envelope" },
+    { status: "approved", source: "existing_identity_grant" },
   );
 });
 
@@ -559,7 +561,7 @@ Deno.test("auth start requires a manifest when digest cannot be resolved", async
   );
 });
 
-Deno.test("auth start auto-approves contract changes when current session envelope already covers them", async () => {
+Deno.test("auth start auto-approves contract changes when current session authority already covers them", async () => {
   let bindCalls = 0;
   const handler = createAuthStartRequestHandler({
     verifyInitRequest: async () => true,
@@ -584,7 +586,7 @@ Deno.test("auth start auto-approves contract changes when current session envelo
         "events.v1.Auth.Connections.Opened.>",
         "events.v1.Auth.Connections.Closed.>",
       ],
-      identityEnvelope: boundary({ capabilities: ["admin"] }),
+      identityAuthorityNeeds: boundary({ capabilities: ["admin"] }),
     }),
     getApprovalResolution: async () => resolutionFixture(),
     planContract: async () => resolutionFixture().plan,
@@ -618,7 +620,7 @@ Deno.test("auth start auto-approves contract changes when current session envelo
   assertEquals(response.status, "bound");
 });
 
-Deno.test("auth start falls back to normal auth flow when current session envelope is too small", async () => {
+Deno.test("auth start falls back to normal auth flow when current session authority is too small", async () => {
   const handler = createAuthStartRequestHandler({
     verifyInitRequest: async () => true,
     loadCurrentUserSession: async () => ({
@@ -717,7 +719,7 @@ Deno.test("auth start falls back to normal auth flow when app identity changes",
   assertEquals(response.status, "flow_started");
 });
 
-Deno.test("auth start does not treat stored digest approval as identity-envelope authority", async () => {
+Deno.test("auth start does not treat stored digest approval as identity authority", async () => {
   let bindCalls = 0;
   const approvedResolution = resolutionFixture();
   approvedResolution.effectiveApproval = {

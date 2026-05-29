@@ -1,10 +1,10 @@
 import type {
+  AuthorityNeedSet,
+  AuthorityNeedSetContract,
+  AuthorityNeedSetResource,
+  AuthorityNeedSetSurface,
   CapabilityGroup,
-  DeploymentGrantOverride,
-  EnvelopeBoundary,
-  EnvelopeBoundaryContract,
-  EnvelopeBoundaryResource,
-  EnvelopeBoundarySurface,
+  DeploymentAuthorityGrantOverride,
 } from "./schemas.ts";
 import { resolveCapabilities } from "./capability_groups.ts";
 
@@ -12,79 +12,79 @@ export type GrantOverrideCapabilityGroupLoader = {
   get(groupKey: string): Promise<CapabilityGroup | undefined>;
 };
 
-const EMPTY_BOUNDARY: EnvelopeBoundary = {
+const EMPTY_AUTHORITY_NEEDS: AuthorityNeedSet = {
   contracts: [],
   surfaces: [],
   capabilities: [],
   resources: [],
 };
 
-export type EnvelopeFitEvaluation = {
+export type AuthorityNeedsFitEvaluation = {
   fits: boolean;
-  missingAvailability: EnvelopeBoundary;
+  missingAvailability: AuthorityNeedSet;
   missingCapabilities: string[];
 };
 
-export type EnvelopeIdentityAnchor =
+export type AuthorityIdentityAnchor =
   | { kind: "web"; contractId: string; origin: string }
   | { kind: "cli"; contractId: string; sessionPublicKey: string }
   | { kind: "native"; contractId: string; sessionPublicKey: string }
   | { kind: "device-user"; contractId: string; devicePublicKey: string };
 
-export type DeploymentEnvelopeRows = {
-  contracts: Array<EnvelopeBoundaryContract & { deploymentId: string }>;
+export type DeploymentAuthorityRows = {
+  contracts: Array<AuthorityNeedSetContract & { deploymentId: string }>;
   surfaces: Array<{
     deploymentId: string;
     contractId: string;
-    kind: EnvelopeBoundarySurface["kind"];
+    kind: AuthorityNeedSetSurface["kind"];
     name: string;
-    action: EnvelopeBoundarySurface["action"];
+    action: AuthorityNeedSetSurface["action"];
     required: boolean;
   }>;
   capabilities: Array<{ deploymentId: string; capability: string }>;
   resources: Array<{
     deploymentId: string;
-    kind: EnvelopeBoundaryResource["kind"];
+    kind: AuthorityNeedSetResource["kind"];
     alias: string;
     required: boolean;
   }>;
 };
 
-export type ShrinkDependent = {
+export type AuthorityReductionDependent = {
   kind: string;
   id: string;
-  boundary: EnvelopeBoundary;
+  needs: AuthorityNeedSet;
 };
 
-export type ShrinkPendingRequest = {
+export type AuthorityReductionPendingProposal = {
   requestId: string;
-  delta: EnvelopeBoundary;
+  delta: AuthorityNeedSet;
 };
 
-export type ShrinkResourceBinding = {
-  kind: EnvelopeBoundaryResource["kind"];
+export type AuthorityReductionResourceBinding = {
+  kind: AuthorityNeedSetResource["kind"];
   alias: string;
 };
 
-export type EnvelopeShrinkImpact = {
-  removed: EnvelopeBoundary;
+export type AuthorityReductionImpact = {
+  removed: AuthorityNeedSet;
   impactedDependents: Array<{
     kind: string;
     id: string;
-    missing: EnvelopeBoundary;
+    missing: AuthorityNeedSet;
   }>;
-  orphanedResources: ShrinkResourceBinding[];
+  orphanedResources: AuthorityReductionResourceBinding[];
   impactedPendingRequests: Array<{
     requestId: string;
-    missing: EnvelopeBoundary;
+    missing: AuthorityNeedSet;
   }>;
 };
 
-function contractKey(contract: EnvelopeBoundaryContract): string {
+function contractKey(contract: AuthorityNeedSetContract): string {
   return contract.contractId;
 }
 
-function surfaceKey(surface: EnvelopeBoundarySurface): string {
+function surfaceKey(surface: AuthorityNeedSetSurface): string {
   return [
     surface.contractId,
     surface.kind,
@@ -93,7 +93,7 @@ function surfaceKey(surface: EnvelopeBoundarySurface): string {
   ].join("\u001f");
 }
 
-function resourceKey(resource: EnvelopeBoundaryResource): string {
+function resourceKey(resource: AuthorityNeedSetResource): string {
   return [resource.kind, resource.alias].join("\u001f");
 }
 
@@ -101,9 +101,9 @@ function coversRequired(existingRequired: boolean, requestedRequired: boolean) {
   return existingRequired || !requestedRequired;
 }
 
-function normalizeBoundary(boundary: EnvelopeBoundary): EnvelopeBoundary {
-  const contracts = new Map<string, EnvelopeBoundaryContract>();
-  for (const contract of boundary.contracts) {
+function normalizeAuthorityNeeds(needs: AuthorityNeedSet): AuthorityNeedSet {
+  const contracts = new Map<string, AuthorityNeedSetContract>();
+  for (const contract of needs.contracts) {
     const key = contractKey(contract);
     const existing = contracts.get(key);
     contracts.set(key, {
@@ -112,8 +112,8 @@ function normalizeBoundary(boundary: EnvelopeBoundary): EnvelopeBoundary {
     });
   }
 
-  const surfaces = new Map<string, EnvelopeBoundarySurface>();
-  for (const surface of boundary.surfaces) {
+  const surfaces = new Map<string, AuthorityNeedSetSurface>();
+  for (const surface of needs.surfaces) {
     const key = surfaceKey(surface);
     const existing = surfaces.get(key);
     surfaces.set(key, {
@@ -122,8 +122,8 @@ function normalizeBoundary(boundary: EnvelopeBoundary): EnvelopeBoundary {
     });
   }
 
-  const resources = new Map<string, EnvelopeBoundaryResource>();
-  for (const resource of boundary.resources) {
+  const resources = new Map<string, AuthorityNeedSetResource>();
+  for (const resource of needs.resources) {
     const key = resourceKey(resource);
     const existing = resources.get(key);
     resources.set(key, {
@@ -141,10 +141,10 @@ function normalizeBoundary(boundary: EnvelopeBoundary): EnvelopeBoundary {
       left.contractId.localeCompare(right.contractId) ||
       left.kind.localeCompare(right.kind) ||
       left.name.localeCompare(right.name) ||
-      left.action.localeCompare(right.action) ||
+      (left.action ?? "").localeCompare(right.action ?? "") ||
       String(left.required).localeCompare(String(right.required))
     ),
-    capabilities: [...new Set(boundary.capabilities)].sort(),
+    capabilities: [...new Set(needs.capabilities)].sort(),
     resources: [...resources.values()].sort((left, right) =>
       left.kind.localeCompare(right.kind) ||
       left.alias.localeCompare(right.alias) ||
@@ -154,20 +154,20 @@ function normalizeBoundary(boundary: EnvelopeBoundary): EnvelopeBoundary {
 }
 
 function hasContract(
-  envelope: EnvelopeBoundary,
-  requested: EnvelopeBoundaryContract,
+  desired: AuthorityNeedSet,
+  requested: AuthorityNeedSetContract,
 ): boolean {
-  return envelope.contracts.some((contract) =>
+  return desired.contracts.some((contract) =>
     contract.contractId === requested.contractId &&
     coversRequired(contract.required, requested.required)
   );
 }
 
 function hasSurface(
-  envelope: EnvelopeBoundary,
-  requested: EnvelopeBoundarySurface,
+  desired: AuthorityNeedSet,
+  requested: AuthorityNeedSetSurface,
 ): boolean {
-  return envelope.surfaces.some((surface) =>
+  return desired.surfaces.some((surface) =>
     surface.contractId === requested.contractId &&
     surface.kind === requested.kind &&
     surface.name === requested.name &&
@@ -177,69 +177,69 @@ function hasSurface(
 }
 
 function hasResource(
-  envelope: EnvelopeBoundary,
-  requested: EnvelopeBoundaryResource,
+  desired: AuthorityNeedSet,
+  requested: AuthorityNeedSetResource,
 ): boolean {
-  return envelope.resources.some((resource) =>
+  return desired.resources.some((resource) =>
     resource.kind === requested.kind &&
     resource.alias === requested.alias &&
     coversRequired(resource.required, requested.required)
   );
 }
 
-function isEmptyBoundary(boundary: EnvelopeBoundary): boolean {
-  return boundary.contracts.length === 0 && boundary.surfaces.length === 0 &&
-    boundary.capabilities.length === 0 && boundary.resources.length === 0;
+function isEmptyAuthorityNeeds(needs: AuthorityNeedSet): boolean {
+  return needs.contracts.length === 0 && needs.surfaces.length === 0 &&
+    needs.capabilities.length === 0 && needs.resources.length === 0;
 }
 
-/** Computes the boundary rows and capabilities not covered by an envelope. */
-export function computeEnvelopeDelta(
-  envelope: EnvelopeBoundary,
-  requested: EnvelopeBoundary,
-): EnvelopeBoundary {
-  const normalizedEnvelope = normalizeBoundary(envelope);
-  const normalizedRequested = normalizeBoundary(requested);
-  const capabilities = new Set(normalizedEnvelope.capabilities);
+/** Computes requested needs and capabilities not covered by desired authority. */
+export function computeAuthorityNeedsDelta(
+  desired: AuthorityNeedSet,
+  requested: AuthorityNeedSet,
+): AuthorityNeedSet {
+  const normalizedDesired = normalizeAuthorityNeeds(desired);
+  const normalizedRequested = normalizeAuthorityNeeds(requested);
+  const capabilities = new Set(normalizedDesired.capabilities);
 
-  return normalizeBoundary({
+  return normalizeAuthorityNeeds({
     contracts: normalizedRequested.contracts.filter((contract) =>
-      !hasContract(normalizedEnvelope, contract)
+      !hasContract(normalizedDesired, contract)
     ),
     surfaces: normalizedRequested.surfaces.filter((surface) =>
-      !hasSurface(normalizedEnvelope, surface)
+      !hasSurface(normalizedDesired, surface)
     ),
     capabilities: normalizedRequested.capabilities.filter((capability) =>
       !capabilities.has(capability)
     ),
     resources: normalizedRequested.resources.filter((resource) =>
-      !hasResource(normalizedEnvelope, resource)
+      !hasResource(normalizedDesired, resource)
     ),
   });
 }
 
-/** Evaluates whether a requested boundary fits the effective envelope. */
-export function evaluateEnvelopeFit(
-  envelope: EnvelopeBoundary,
-  requested: EnvelopeBoundary,
-): EnvelopeFitEvaluation {
-  const delta = computeEnvelopeDelta(envelope, requested);
-  const missingAvailability = normalizeBoundary({
-    ...EMPTY_BOUNDARY,
+/** Evaluates whether requested needs fit deployment authority desired state. */
+export function evaluateProposalNeedsFit(
+  desired: AuthorityNeedSet,
+  requested: AuthorityNeedSet,
+): AuthorityNeedsFitEvaluation {
+  const delta = computeAuthorityNeedsDelta(desired, requested);
+  const missingAvailability = normalizeAuthorityNeeds({
+    ...EMPTY_AUTHORITY_NEEDS,
     contracts: delta.contracts,
     surfaces: delta.surfaces,
     resources: delta.resources,
   });
 
   return {
-    fits: isEmptyBoundary(delta),
+    fits: isEmptyAuthorityNeeds(delta),
     missingAvailability,
     missingCapabilities: delta.capabilities,
   };
 }
 
 function overrideMatchesIdentity(
-  override: DeploymentGrantOverride,
-  identity: EnvelopeIdentityAnchor,
+  override: DeploymentAuthorityGrantOverride,
+  identity: AuthorityIdentityAnchor,
 ): boolean {
   if (override.contractId !== identity.contractId) return false;
   if (override.identityKind === "web") {
@@ -250,12 +250,12 @@ function overrideMatchesIdentity(
 }
 
 /** Applies matching deployment grant overrides as capability overlays only. */
-export async function applyGrantOverrideCapabilities(
-  envelope: EnvelopeBoundary,
-  overrides: DeploymentGrantOverride[],
-  identity: EnvelopeIdentityAnchor,
+export async function applyGrantOverrideAuthorityCapabilities(
+  desired: AuthorityNeedSet,
+  overrides: DeploymentAuthorityGrantOverride[],
+  identity: AuthorityIdentityAnchor,
   capabilityGroupStorage?: GrantOverrideCapabilityGroupLoader,
-): Promise<EnvelopeBoundary> {
+): Promise<AuthorityNeedSet> {
   const matchingOverrides = overrides.filter((override) =>
     overrideMatchesIdentity(override, identity)
   );
@@ -272,19 +272,19 @@ export async function applyGrantOverrideCapabilities(
     capabilityGroups,
   }, capabilityGroupStorage);
   const capabilities = [
-    ...envelope.capabilities,
+    ...desired.capabilities,
     ...concreteCapabilities,
     ...groupCapabilities,
   ];
-  return normalizeBoundary({ ...envelope, capabilities });
+  return normalizeAuthorityNeeds({ ...desired, capabilities });
 }
 
-/** Converts an in-memory boundary to deterministic modeled child rows. */
-export function boundaryToDeploymentEnvelopeRows(
+/** Converts in-memory authority needs to deterministic modeled child rows. */
+export function authorityNeedsToDeploymentAuthorityRows(
   deploymentId: string,
-  boundary: EnvelopeBoundary,
-): DeploymentEnvelopeRows {
-  const normalized = normalizeBoundary(boundary);
+  needs: AuthorityNeedSet,
+): DeploymentAuthorityRows {
+  const normalized = normalizeAuthorityNeeds(needs);
   return {
     contracts: normalized.contracts.map((contract) => ({
       deploymentId,
@@ -293,6 +293,7 @@ export function boundaryToDeploymentEnvelopeRows(
     surfaces: normalized.surfaces.map((surface) => ({
       deploymentId,
       ...surface,
+      action: surface.action,
     })),
     capabilities: normalized.capabilities.map((capability) => ({
       deploymentId,
@@ -306,30 +307,30 @@ export function boundaryToDeploymentEnvelopeRows(
 }
 
 /**
- * Previews which dependent boundaries, requests, and resources a shrink would
+ * Previews which dependent need sets, proposals, and resources a reduction would
  * leave uncovered. Resource bindings are reported as orphaned, not deleted.
  */
-export function previewEnvelopeShrinkImpact(input: {
-  current: EnvelopeBoundary;
-  proposed: EnvelopeBoundary;
-  dependents?: ShrinkDependent[];
-  resourceBindings?: ShrinkResourceBinding[];
-  pendingRequests?: ShrinkPendingRequest[];
-}): EnvelopeShrinkImpact {
-  const removed = computeEnvelopeDelta(input.proposed, input.current);
+export function previewAuthorityReductionImpact(input: {
+  current: AuthorityNeedSet;
+  proposed: AuthorityNeedSet;
+  dependents?: AuthorityReductionDependent[];
+  resourceBindings?: AuthorityReductionResourceBinding[];
+  pendingRequests?: AuthorityReductionPendingProposal[];
+}): AuthorityReductionImpact {
+  const removed = computeAuthorityNeedsDelta(input.proposed, input.current);
   const impactedDependents = (input.dependents ?? [])
     .map((dependent) => ({
       kind: dependent.kind,
       id: dependent.id,
-      missing: computeEnvelopeDelta(input.proposed, dependent.boundary),
+      missing: computeAuthorityNeedsDelta(input.proposed, dependent.needs),
     }))
-    .filter((impact) => !isEmptyBoundary(impact.missing));
+    .filter((impact) => !isEmptyAuthorityNeeds(impact.missing));
   const impactedPendingRequests = (input.pendingRequests ?? [])
     .map((request) => ({
       requestId: request.requestId,
-      missing: computeEnvelopeDelta(input.proposed, request.delta),
+      missing: computeAuthorityNeedsDelta(input.proposed, request.delta),
     }))
-    .filter((impact) => !isEmptyBoundary(impact.missing));
+    .filter((impact) => !isEmptyAuthorityNeeds(impact.missing));
   const removedResources = new Set(
     removed.resources.map((resource) => resourceKey(resource)),
   );

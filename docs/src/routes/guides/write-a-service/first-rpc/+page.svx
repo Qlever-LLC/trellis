@@ -61,6 +61,7 @@ Now implement the handler in `handlers/orders.ts`:
 
 ```ts
 import { ok } from "@qlever-llc/trellis";
+import { ulid } from "ulid";
 import type {
   RpcHandlerArgs,
   RpcHandlerResult,
@@ -73,7 +74,7 @@ export async function createOrderHandler({
   input,
   client,
 }: Args): Promise<Result> {
-  const orderId = crypto.randomUUID();
+  const orderId = ulid();
   const order = {
     orderId,
     customerId: input.customerId,
@@ -204,7 +205,7 @@ pub async fn create_order(
     _ctx: ServiceHandlerContext,
     input: CreateOrderRequest,
 ) -> HandlerResult<CreateOrderResponse> {
-    let order_id = uuid::Uuid::new_v4().to_string();
+    let order_id = ulid::Ulid::new().to_string();
     let order = Order {
         order_id: order_id.clone(),
         customer_id: input.customer_id,
@@ -253,4 +254,4 @@ Handlers return `HandlerResult<T>`, which is `Result<T, ServerError>`. Return `O
 {/snippet}
 </LanguageTabs>
 
-Expand the deployment envelope to include the new RPC boundary, then restart the service.
+Review and update deployment authority to include the new RPC boundary, then restart the service.

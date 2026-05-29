@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use trellis::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
 use trellis::client::{ServiceConnectOptions, ServiceConnectWithContractOptions, TrellisClient};
 use trellis::contracts::{
@@ -11,15 +11,17 @@ use trellis::contracts::{
 };
 use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
 use trellis::sdk::auth::types::{
-    AuthEnvelopeExpansionsApproveRequest, AuthEnvelopeExpansionsListRequest,
-    AuthEnvelopeExpansionsListResponseEntriesItem, AuthEnvelopesExpandRequest,
-    AuthEnvelopesGetRequest,
+    AuthDeploymentAuthorityGetRequest, AuthDeploymentAuthorityReconcileRequest,
 };
 use trellis::service::{ConnectedServiceRuntime, HandlerResult, ServerError, ServiceRuntimeError};
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::BrowserContainer;
-use crate::rpc::{contract_json_object, reauth_contract};
+use crate::deployment_authority::{
+    accept_deployment_authority_plan, plan_accept_reconcile_deployment_authority,
+    plan_deployment_authority,
+};
+use crate::rpc::reauth_contract;
 
 const PASSING_CASES: usize = 11;
 const CONSUMER_DEPLOYMENT_ID: &str = "harness.optional-consumer";
@@ -100,35 +102,30 @@ pub(crate) async fn run_optional_uses_fixture(
         consumer_seed.clone(),
         30_000,
     ));
-    let request_ids =
+    let plans =
         wait_for_consumer_pending_optional_delta(&sdk_auth_client, &consumer_digest, false).await?;
-    for request_id in request_ids {
-        sdk_auth_client
-            .rpc()
-            .auth()
-            .envelope_expansions_approve(&AuthEnvelopeExpansionsApproveRequest {
-                request_id,
-                reason: Some("integration harness optional dependency setup".to_string()),
-            })
-            .await
-            .into_diagnostic()?;
+    for plan in plans {
+        accept_deployment_authority_plan(
+            &sdk_auth_client,
+            &plan,
+            "integration harness optional dependency setup",
+        )
+        .await?;
     }
     let consumer_client = consumer_connect_task.await.into_diagnostic()??;
-    assert_consumer_envelope_omits_dependency(&sdk_auth_client).await?;
+    assert_consumer_authority_omits_dependency(&sdk_auth_client).await?;
     drop(consumer_client);
 
     let dependency_contract_json = optional_dependency_contract_json()?;
     let dependency_digest = digest_contract_json(&dependency_contract_json).into_diagnostic()?;
-    sdk_auth_client
-        .rpc()
-        .auth()
-        .envelopes_expand(&AuthEnvelopesExpandRequest {
-            contract: contract_json_object(&dependency_contract_json)?,
-            deployment_id: DEPENDENCY_DEPLOYMENT_ID.to_string(),
-            expected_digest: dependency_digest.clone(),
-        })
-        .await
-        .into_diagnostic()?;
+    plan_accept_reconcile_deployment_authority(
+        &sdk_auth_client,
+        DEPENDENCY_DEPLOYMENT_ID,
+        &dependency_contract_json,
+        &dependency_digest,
+        "integration harness optional dependency authority setup",
+    )
+    .await?;
 
     let (dependency_seed, dependency_key) = generate_session_keypair();
     auth_client
@@ -173,21 +170,18 @@ pub(crate) async fn run_optional_uses_fixture(
     {
         abort_service_task(service_task).await;
         return Err(miette!(
-            "consumer connected with active optional dependency before expansion approval"
+            "consumer connected with active optional dependency before authority acceptance"
         ));
     }
-    let request_ids =
+    let plans =
         wait_for_consumer_pending_optional_delta(&sdk_auth_client, &consumer_digest, true).await?;
-    for request_id in request_ids {
-        sdk_auth_client
-            .rpc()
-            .auth()
-            .envelope_expansions_approve(&AuthEnvelopeExpansionsApproveRequest {
-                request_id,
-                reason: Some("integration harness active optional dependency".to_string()),
-            })
-            .await
-            .into_diagnostic()?;
+    for plan in plans {
+        accept_deployment_authority_plan(
+            &sdk_auth_client,
+            &plan,
+            "integration harness active optional dependency",
+        )
+        .await?;
     }
     let reconnect_result = async {
         let reconnected_consumer = connect_optional_consumer(
@@ -198,7 +192,7 @@ pub(crate) async fn run_optional_uses_fixture(
             30_000,
         )
         .await?;
-        assert_consumer_envelope_includes_dependency(&sdk_auth_client).await?;
+        assert_consumer_authority_includes_dependency(&sdk_auth_client).await?;
         assert_optional_dependency_call(&reconnected_consumer).await
     }
     .await;
@@ -287,16 +281,15 @@ async fn run_required_dependency_closure_fixture(
         })
         .await
         .map_err(|error| miette!("failed to provision required dependency instance: {error}"))?;
-    sdk_auth_client
-        .rpc()
-        .auth()
-        .envelopes_expand(&AuthEnvelopesExpandRequest {
-            contract: contract_json_object(&dependency_contract_json)?,
-            deployment_id: REQUIRED_DEPLOYMENT_ID.to_string(),
-            expected_digest: dependency_digest.clone(),
-        })
-        .await
-        .map_err(|error| miette!("failed to expand required dependency envelope: {error}"))?;
+    plan_accept_reconcile_deployment_authority(
+        sdk_auth_client,
+        REQUIRED_DEPLOYMENT_ID,
+        &dependency_contract_json,
+        &dependency_digest,
+        "integration harness required dependency authority setup",
+    )
+    .await
+    .map_err(|error| miette!("failed to update required dependency authority: {error}"))?;
     auth_client
         .disable_service_deployment(REQUIRED_DEPLOYMENT_ID)
         .await
@@ -346,6 +339,16 @@ async fn run_required_dependency_closure_fixture(
         .enable_service_deployment(REQUIRED_DEPLOYMENT_ID)
         .await
         .map_err(|error| miette!("failed to enable required dependency deployment: {error}"))?;
+    sdk_auth_client
+        .rpc()
+        .auth()
+        .deployment_authority_reconcile(&AuthDeploymentAuthorityReconcileRequest {
+            deployment_id: REQUIRED_DEPLOYMENT_ID.to_string(),
+            desired_version: None,
+        })
+        .await
+        .into_diagnostic()
+        .map_err(|error| miette!("failed to reconcile re-enabled required dependency: {error}"))?;
 
     let dependency_client = connect_service(
         trellis_url,
@@ -374,18 +377,15 @@ async fn run_required_dependency_closure_fixture(
     let updated_dependency_contract_json = required_dependency_contract_json(true)?;
     let updated_dependency_digest =
         digest_contract_json(&updated_dependency_contract_json).into_diagnostic()?;
-    sdk_auth_client
-        .rpc()
-        .auth()
-        .envelopes_expand(&AuthEnvelopesExpandRequest {
-            contract: contract_json_object(&updated_dependency_contract_json)?,
-            deployment_id: REQUIRED_DEPLOYMENT_ID.to_string(),
-            expected_digest: updated_dependency_digest.clone(),
-        })
-        .await
-        .map_err(|error| {
-            miette!("failed to expand updated required dependency envelope: {error}")
-        })?;
+    plan_accept_reconcile_deployment_authority(
+        sdk_auth_client,
+        REQUIRED_DEPLOYMENT_ID,
+        &updated_dependency_contract_json,
+        &updated_dependency_digest,
+        "integration harness required dependency authority update",
+    )
+    .await
+    .map_err(|error| miette!("failed to update required dependency authority: {error}"))?;
     assert_service_digest_connects(
         trellis_url,
         REQUIRED_DEP_CONTRACT_ID,
@@ -712,7 +712,7 @@ async fn connect_service(
     contract_json: &str,
     contract_digest: &str,
     service_seed: &str,
-    approval_timeout_ms: u64,
+    authority_pending_timeout_ms: u64,
 ) -> Result<TrellisClient> {
     TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
         trellis_url,
@@ -722,7 +722,7 @@ async fn connect_service(
         session_key_seed_base64url: service_seed,
         timeout_ms: 5_000,
         retry_delay_ms: 250,
-        approval_timeout_ms,
+        authority_pending_timeout_ms,
     })
     .await
     .map_err(|error| miette!("service {contract_id} connect failed: {error}"))
@@ -770,7 +770,7 @@ async fn assert_service_digest_connects(
     .map(|_| ())
     .map_err(|error| {
         miette!(
-            "service contract {contract_id} old digest {contract_digest} failed to reconnect after envelope-compatible update: {error}"
+            "service contract {contract_id} old digest {contract_digest} failed to reconnect after authority-compatible update: {error}"
         )
     })
 }
@@ -780,83 +780,93 @@ async fn wait_for_pending_delta(
     deployment_id: &str,
     contract_id: &str,
     contract_digest: &str,
-) -> Result<Vec<AuthEnvelopeExpansionsListResponseEntriesItem>> {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
-    loop {
-        let response = auth_client
-            .rpc()
-            .auth()
-            .envelope_expansions_list(&AuthEnvelopeExpansionsListRequest {
-                deployment_id: Some(deployment_id.to_string()),
-                limit: 20,
-                offset: None,
-                state: Some("pending".to_string()),
-            })
-            .await
-            .into_diagnostic()?;
-        let requests: Vec<_> = response
-            .entries
-            .into_iter()
-            .filter(|request| {
-                request.contract_id == contract_id && request.contract_digest == contract_digest
-            })
-            .collect();
-        if !requests.is_empty() {
-            return Ok(requests);
-        }
-        if tokio::time::Instant::now() >= deadline {
+) -> Result<Vec<Value>> {
+    let candidates = match contract_id {
+        UNKNOWN_REQUIRED_CONSUMER_CONTRACT_ID => required_consumer_contract_json(
+            UNKNOWN_REQUIRED_CONSUMER_CONTRACT_ID,
+            UNKNOWN_REQUIRED_DEP_CONTRACT_ID,
+            "Required.Dep.Ping",
+        )
+        .map(|contract| vec![contract])?,
+        REQUIRED_CONSUMER_CONTRACT_ID => vec![
+            required_consumer_contract_json(
+                REQUIRED_CONSUMER_CONTRACT_ID,
+                REQUIRED_DEP_CONTRACT_ID,
+                "Required.Dep.Ping",
+            )?,
+            required_consumer_contract_json(
+                REQUIRED_CONSUMER_CONTRACT_ID,
+                REQUIRED_DEP_CONTRACT_ID,
+                "Required.Dep.Pong",
+            )?,
+        ],
+        CYCLE_A_CONTRACT_ID => cycle_contract_json(
+            CYCLE_A_CONTRACT_ID,
+            CYCLE_B_CONTRACT_ID,
+            "Cycle.B.Ping",
+            CYCLE_A_SUBJECT,
+        )
+        .map(|contract| vec![contract])?,
+        CYCLE_B_CONTRACT_ID => cycle_contract_json(
+            CYCLE_B_CONTRACT_ID,
+            CYCLE_A_CONTRACT_ID,
+            "Cycle.A.Ping",
+            CYCLE_B_SUBJECT,
+        )
+        .map(|contract| vec![contract])?,
+        other => {
             return Err(miette!(
-                "timed out waiting for envelope expansion request for {deployment_id}"
-            ));
+                "unknown deployment authority plan contract `{other}`"
+            ))
         }
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-    }
+    };
+    let contract_json = candidates
+        .into_iter()
+        .find(|contract| {
+            digest_contract_json(contract)
+                .map(|digest| digest == contract_digest)
+                .unwrap_or(false)
+        })
+        .ok_or_else(|| miette!("no contract candidate matched digest {contract_digest}"))?;
+    Ok(vec![
+        plan_deployment_authority(auth_client, deployment_id, &contract_json, contract_digest)
+            .await?,
+    ])
 }
 
 async fn approve_requests(
     auth_client: &SdkAuthClient<'_>,
-    requests: Vec<AuthEnvelopeExpansionsListResponseEntriesItem>,
+    requests: Vec<Value>,
     reason: &str,
 ) -> Result<()> {
-    for request in requests {
-        auth_client
-            .rpc()
-            .auth()
-            .envelope_expansions_approve(&AuthEnvelopeExpansionsApproveRequest {
-                request_id: request.request_id,
-                reason: Some(reason.to_string()),
-            })
-            .await
-            .into_diagnostic()?;
+    for request in &requests {
+        accept_deployment_authority_plan(auth_client, request, reason).await?;
     }
     Ok(())
 }
 
-fn assert_required_unknown_delta_fails_closed(
-    requests: &[AuthEnvelopeExpansionsListResponseEntriesItem],
-) -> Result<()> {
+fn assert_required_unknown_delta_fails_closed(requests: &[Value]) -> Result<()> {
     for request in requests {
-        let has_unknown_contract = request.delta.contracts.iter().any(|contract| {
-            contract.contract_id == UNKNOWN_REQUIRED_DEP_CONTRACT_ID && contract.required
+        let has_unknown_contract = plan_needs(request).iter().any(|need| {
+            need.get("kind").and_then(Value::as_str) == Some("contract")
+                && need.get("contractId").and_then(Value::as_str)
+                    == Some(UNKNOWN_REQUIRED_DEP_CONTRACT_ID)
+                && need.get("required").and_then(Value::as_bool) == Some(true)
         });
         if !has_unknown_contract {
             return Err(miette!(
                 "unknown required dependency did not appear as a required pending contract"
             ));
         }
-        if request
-            .delta
-            .surfaces
-            .iter()
-            .any(|surface| surface.contract_id == UNKNOWN_REQUIRED_DEP_CONTRACT_ID)
-        {
+        if plan_surfaces(request).iter().any(|surface| {
+            surface.get("contractId").and_then(Value::as_str)
+                == Some(UNKNOWN_REQUIRED_DEP_CONTRACT_ID)
+        }) {
             return Err(miette!(
                 "unknown required dependency derived surfaces before its manifest was known"
             ));
         }
-        if request
-            .delta
-            .capabilities
+        if plan_capabilities(request)
             .iter()
             .any(|capability| capability.contains("::required.dep."))
         {
@@ -869,15 +879,17 @@ fn assert_required_unknown_delta_fails_closed(
 }
 
 fn assert_required_dependency_delta(
-    requests: &[AuthEnvelopeExpansionsListResponseEntriesItem],
+    requests: &[Value],
     rpc_name: &str,
     capability: &str,
 ) -> Result<()> {
     let has_surface = requests.iter().any(|request| {
-        request.delta.surfaces.iter().any(|surface| {
-            surface.contract_id != request.contract_id
-                && surface.name == rpc_name
-                && surface.required
+        plan_surfaces(request).iter().any(|surface| {
+            surface.get("name").and_then(Value::as_str) == Some(rpc_name)
+                && surface
+                    .get("required")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true)
         })
     });
     if !has_surface {
@@ -887,9 +899,7 @@ fn assert_required_dependency_delta(
     }
     if !capability.is_empty()
         && !requests.iter().any(|request| {
-            request
-                .delta
-                .capabilities
+            plan_capabilities(request)
                 .iter()
                 .any(|value| value == capability)
         })
@@ -899,6 +909,30 @@ fn assert_required_dependency_delta(
         ));
     }
     Ok(())
+}
+
+fn plan_needs(plan: &Value) -> Vec<Value> {
+    plan.pointer("/proposal/requestedNeeds")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn plan_surfaces(plan: &Value) -> Vec<Value> {
+    plan.pointer("/desiredChange/surfaces")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn plan_capabilities(plan: &Value) -> Vec<String> {
+    plan.pointer("/desiredChange/capabilities")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(ToOwned::to_owned)
+        .collect()
 }
 
 fn spawn_required_dependency_service(
@@ -1038,7 +1072,7 @@ async fn connect_optional_consumer(
     contract_json: String,
     contract_digest: String,
     service_seed: String,
-    approval_timeout_ms: u64,
+    authority_pending_timeout_ms: u64,
 ) -> Result<TrellisClient> {
     TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
         trellis_url: &trellis_url,
@@ -1048,7 +1082,7 @@ async fn connect_optional_consumer(
         session_key_seed_base64url: &service_seed,
         timeout_ms: 5_000,
         retry_delay_ms: 250,
-        approval_timeout_ms,
+        authority_pending_timeout_ms,
     })
     .await
     .into_diagnostic()
@@ -1058,137 +1092,98 @@ async fn wait_for_consumer_pending_optional_delta(
     auth_client: &SdkAuthClient<'_>,
     consumer_digest: &str,
     expect_optional_dependency: bool,
-) -> Result<Vec<String>> {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
-    loop {
-        let response = auth_client
-            .rpc()
-            .auth()
-            .envelope_expansions_list(&AuthEnvelopeExpansionsListRequest {
-                deployment_id: Some(CONSUMER_DEPLOYMENT_ID.to_string()),
-                limit: 20,
-                offset: None,
-                state: Some("pending".to_string()),
-            })
-            .await
-            .into_diagnostic()?;
-        let requests: Vec<_> = response
-            .entries
-            .iter()
-            .filter(|request| {
-                request.contract_id == CONSUMER_CONTRACT_ID
-                    && request.contract_digest == consumer_digest
-            })
-            .collect();
-        if !requests.is_empty() {
-            let mut saw_expected_optional_delta = false;
-            for request in &requests {
-                let has_optional_contract = request
-                    .delta
-                    .contracts
-                    .iter()
-                    .any(|contract| contract.contract_id == DEPENDENCY_CONTRACT_ID);
-                let has_optional_surface = request.delta.surfaces.iter().any(|surface| {
-                    surface.contract_id == DEPENDENCY_CONTRACT_ID
-                        && surface.name == "Optional.Dep.Ping"
-                });
-                if expect_optional_dependency && (!has_optional_contract || !has_optional_surface) {
-                    continue;
-                }
-                if expect_optional_dependency {
-                    saw_expected_optional_delta = true;
-                }
-                if !expect_optional_dependency && (has_optional_contract || has_optional_surface) {
-                    return Err(miette!(
-                        "missing optional dependency appeared in pending expansion delta"
-                    ));
-                }
-            }
-            if expect_optional_dependency && !saw_expected_optional_delta {
-                if tokio::time::Instant::now() < deadline {
-                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-                    continue;
-                }
-                return Err(miette!(
-                    "active optional dependency did not appear in pending expansion delta"
-                ));
-            }
-            return Ok(requests
-                .into_iter()
-                .filter(|request| {
-                    !expect_optional_dependency
-                        || request.delta.surfaces.iter().any(|surface| {
-                            surface.contract_id == DEPENDENCY_CONTRACT_ID
-                                && surface.name == "Optional.Dep.Ping"
-                        })
-                })
-                .map(|request| request.request_id.clone())
-                .collect());
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return Err(miette!(
-                "timed out waiting for optional consumer envelope expansion request"
-            ));
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+) -> Result<Vec<Value>> {
+    let contract_json = optional_consumer_contract_json()?;
+    let plan = plan_deployment_authority(
+        auth_client,
+        CONSUMER_DEPLOYMENT_ID,
+        &contract_json,
+        consumer_digest,
+    )
+    .await?;
+    let has_optional_contract = plan_needs(&plan).iter().any(|need| {
+        need.get("kind").and_then(Value::as_str) == Some("contract")
+            && need.get("contractId").and_then(Value::as_str) == Some(DEPENDENCY_CONTRACT_ID)
+    });
+    let has_optional_surface = plan_surfaces(&plan).iter().any(|surface| {
+        surface.get("contractId").and_then(Value::as_str) == Some(DEPENDENCY_CONTRACT_ID)
+            && surface.get("name").and_then(Value::as_str) == Some("Optional.Dep.Ping")
+    });
+    if expect_optional_dependency && (!has_optional_contract || !has_optional_surface) {
+        return Err(miette!(
+            "active optional dependency did not appear in pending authority plan"
+        ));
     }
+    if !expect_optional_dependency && (has_optional_contract || has_optional_surface) {
+        return Err(miette!(
+            "missing optional dependency appeared in pending authority plan"
+        ));
+    }
+    Ok(vec![plan])
 }
 
-async fn assert_consumer_envelope_omits_dependency(auth_client: &SdkAuthClient<'_>) -> Result<()> {
-    let envelope = auth_client
+async fn assert_consumer_authority_omits_dependency(auth_client: &SdkAuthClient<'_>) -> Result<()> {
+    let authority = auth_client
         .rpc()
         .auth()
-        .envelopes_get(&AuthEnvelopesGetRequest {
+        .deployment_authority_get(&AuthDeploymentAuthorityGetRequest {
             deployment_id: CONSUMER_DEPLOYMENT_ID.to_string(),
         })
         .await
         .into_diagnostic()?;
-    if envelope
-        .envelope
-        .boundary
-        .contracts
+    if authority
+        .authority
+        .desired_state
+        .needs
         .iter()
-        .any(|contract| contract.contract_id == DEPENDENCY_CONTRACT_ID)
+        .any(|need| need.get("contractId").and_then(Value::as_str) == Some(DEPENDENCY_CONTRACT_ID))
     {
         return Err(miette!(
-            "consumer envelope included missing optional dependency contract"
+            "consumer authority included missing optional dependency contract"
         ));
     }
-    if envelope.envelope.boundary.surfaces.iter().any(|surface| {
-        surface.contract_id == DEPENDENCY_CONTRACT_ID && surface.name == "Optional.Dep.Ping"
-    }) {
+    if authority
+        .authority
+        .desired_state
+        .surfaces
+        .iter()
+        .any(|surface| {
+            surface.contract_id == DEPENDENCY_CONTRACT_ID && surface.name == "Optional.Dep.Ping"
+        })
+    {
         return Err(miette!(
-            "consumer envelope included missing optional dependency RPC surface"
+            "consumer authority included missing optional dependency RPC surface"
         ));
     }
     Ok(())
 }
 
-async fn assert_consumer_envelope_includes_dependency(
+async fn assert_consumer_authority_includes_dependency(
     auth_client: &SdkAuthClient<'_>,
 ) -> Result<()> {
-    let envelope = auth_client
+    let authority = auth_client
         .rpc()
         .auth()
-        .envelopes_get(&AuthEnvelopesGetRequest {
+        .deployment_authority_get(&AuthDeploymentAuthorityGetRequest {
             deployment_id: CONSUMER_DEPLOYMENT_ID.to_string(),
         })
         .await
         .into_diagnostic()?;
-    let includes_contract = envelope
-        .envelope
-        .boundary
-        .contracts
-        .iter()
-        .any(|contract| contract.contract_id == DEPENDENCY_CONTRACT_ID && !contract.required);
-    let includes_surface = envelope.envelope.boundary.surfaces.iter().any(|surface| {
-        surface.contract_id == DEPENDENCY_CONTRACT_ID
-            && surface.name == "Optional.Dep.Ping"
-            && !surface.required
+    let includes_contract = authority.authority.desired_state.needs.iter().any(|need| {
+        need.get("contractId").and_then(Value::as_str) == Some(DEPENDENCY_CONTRACT_ID)
+            && need.get("required").and_then(Value::as_bool) == Some(false)
     });
+    let includes_surface = authority
+        .authority
+        .desired_state
+        .surfaces
+        .iter()
+        .any(|surface| {
+            surface.contract_id == DEPENDENCY_CONTRACT_ID && surface.name == "Optional.Dep.Ping"
+        });
     if !includes_contract || !includes_surface {
         return Err(miette!(
-            "consumer envelope did not include active optional dependency after reconnect"
+            "consumer authority did not include active optional dependency after reconnect"
         ));
     }
     Ok(())

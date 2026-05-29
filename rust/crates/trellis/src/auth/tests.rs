@@ -187,7 +187,7 @@ fn contract_digest_changes_for_identity_fields() {
         "required": {
           "auth": {
             "contract": "trellis.auth@v1",
-            "rpc": { "call": ["Auth.Sessions.Me", "Auth.Sessions.Logout", "Auth.Identities.List"] }
+            "rpc": { "call": ["Auth.Sessions.Me", "Auth.Sessions.Logout", "Auth.IdentityGrants.List"] }
           }
         }
       }

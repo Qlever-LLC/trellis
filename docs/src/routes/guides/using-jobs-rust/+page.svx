@@ -51,7 +51,7 @@ service
     .rpc()
     .orders()
     .create(|_ctx, req| async move {
-        let order_id = uuid::Uuid::new_v4().to_string();
+        let order_id = ulid::Ulid::new().to_string();
         // save order...
 
         service
@@ -123,7 +123,7 @@ service
             return Err(JobsError::cancelled());
         }
 
-        let charge_id = format!("ch_{}", uuid::Uuid::new_v4());
+        let charge_id = format!("ch_{}", ulid::Ulid::new());
 
         service
             .jobs()

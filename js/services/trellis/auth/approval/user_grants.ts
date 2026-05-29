@@ -1,13 +1,10 @@
 import { type AsyncResult, type BaseError, Result } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 
-import type {
-  IdentityEnvelopeRecord,
-  UserParticipantKind,
-} from "../schemas.ts";
+import type { IdentityGrantRecord, UserParticipantKind } from "../schemas.ts";
 import type {
   BoundedListQuery,
-  SqlIdentityEnvelopeRepository,
+  ListPage,
   SqlSessionRepository,
 } from "../storage.ts";
 import { parseConnectionKey } from "../session/connections.ts";
@@ -31,6 +28,22 @@ type RpcUser = {
   userId: string;
   identity?: { provider: string; subject: string };
   capabilities?: string[];
+};
+
+type IdentityGrantStorage = {
+  get(identityGrantId: string): Promise<IdentityGrantRecord | undefined>;
+  delete(identityGrantId: string): Promise<void>;
+  listCountedPage(
+    query: BoundedListQuery,
+  ): Promise<ListPage<IdentityGrantRecord>>;
+  listCountedPageByUser(
+    userTrellisId: string,
+    query: BoundedListQuery,
+  ): Promise<ListPage<IdentityGrantRecord>>;
+  listApprovedCountedPageByUser(
+    userTrellisId: string,
+    query: BoundedListQuery,
+  ): Promise<ListPage<IdentityGrantRecord>>;
 };
 
 /** Formats a provider and subject pair for approval RPC inputs. */
@@ -58,15 +71,15 @@ export function requireUserCaller(caller: {
   };
 }
 
-function toUserGrant(envelope: IdentityEnvelopeRecord) {
-  const approvalEvidence = envelope.approvalEvidence as
-    & IdentityEnvelopeRecord["approvalEvidence"]
+function toUserGrant(grant: IdentityGrantRecord) {
+  const approvalEvidence = grant.approvalEvidence as
+    & IdentityGrantRecord["approvalEvidence"]
     & {
       participantKind: "app" | "agent";
     };
   return {
-    identityEnvelopeId: envelope.identityEnvelopeId,
-    identityAnchor: envelope.identityAnchor,
+    identityGrantId: grant.identityGrantId,
+    identityAnchor: grant.identityAnchor,
     contractEvidence: {
       contractDigest: approvalEvidence.contractDigest,
       contractId: approvalEvidence.contractId,
@@ -75,15 +88,15 @@ function toUserGrant(envelope: IdentityEnvelopeRecord) {
     description: approvalEvidence.description,
     participantKind: approvalEvidence.participantKind,
     capabilities: Object.keys(approvalEvidence.capabilities),
-    grantedAt: envelope.answeredAt.toISOString(),
-    updatedAt: envelope.updatedAt.toISOString(),
+    grantedAt: grant.answeredAt.toISOString(),
+    updatedAt: grant.updatedAt.toISOString(),
   };
 }
 
 /** Revokes active sessions and connections for a user contract grant. */
 export async function revokeGrantSessions(args: {
   userTrellisId: string;
-  identityEnvelopeId: string;
+  identityGrantId: string;
   participantKind?: UserParticipantKind;
   sessionStorage: ApprovalSessionStore;
   connectionsKV: ApprovalKVLike;
@@ -105,7 +118,7 @@ export async function revokeGrantSessions(args: {
     const session = entry.session;
     if (
       session.type !== "user" ||
-      session.identityEnvelopeId !== args.identityEnvelopeId
+      session.identityGrantId !== args.identityGrantId
     ) continue;
     if (
       args.participantKind && session.participantKind !== args.participantKind
@@ -136,9 +149,9 @@ export async function revokeGrantSessions(args: {
   }
 }
 
-/** Creates the Auth.Identities.Grants.List RPC handler backed by SQL approval storage. */
+/** Creates the Auth.IdentityGrants.List RPC handler backed by SQL approval storage. */
 export function createAuthIdentitiesGrantsListHandler(deps: {
-  contractApprovalStorage: SqlIdentityEnvelopeRepository;
+  contractApprovalStorage: IdentityGrantStorage;
 }) {
   return async (
     {
@@ -161,7 +174,7 @@ export function createAuthIdentitiesGrantsListHandler(deps: {
         user.userId,
         input,
       );
-    const grants = page.entries.map((envelope) => toUserGrant(envelope));
+    const grants = page.entries.map((grant) => toUserGrant(grant));
 
     grants.sort((left, right) =>
       left.displayName.localeCompare(right.displayName)
@@ -170,9 +183,9 @@ export function createAuthIdentitiesGrantsListHandler(deps: {
   };
 }
 
-/** Creates an Auth.IdentityEnvelopes.Revoke handler using SQL grants and KV sessions. */
+/** Creates an Auth.IdentityGrants.Revoke handler using SQL grants and KV sessions. */
 export function createUserGrantRevokeHandler(deps: {
-  contractApprovalStorage: SqlIdentityEnvelopeRepository;
+  contractApprovalStorage: IdentityGrantStorage;
   sessionStorage: ApprovalSessionStore;
   connectionsKV: ApprovalKVLike;
   kick: (serverId: string, clientId: number) => Promise<void>;
@@ -190,7 +203,7 @@ export function createUserGrantRevokeHandler(deps: {
       input: req,
       context: { caller },
     }: {
-      input: { identityEnvelopeId: string };
+      input: { identityGrantId: string };
       context: {
         caller: {
           type: string;
@@ -202,24 +215,24 @@ export function createUserGrantRevokeHandler(deps: {
   ) => {
     const user = requireUserCaller(caller);
     if (
-      typeof req.identityEnvelopeId !== "string" ||
-      req.identityEnvelopeId.length === 0
+      typeof req.identityGrantId !== "string" ||
+      req.identityGrantId.length === 0
     ) {
       return Result.err(new AuthError({ reason: "invalid_request" }));
     }
 
     const existing = await deps.contractApprovalStorage.get(
-      req.identityEnvelopeId,
+      req.identityGrantId,
     );
     if (existing === undefined) return Result.ok({ success: false });
     if (existing.userTrellisId !== user.userId) {
       return Result.err(new AuthError({ reason: "insufficient_permissions" }));
     }
 
-    await deps.contractApprovalStorage.delete(req.identityEnvelopeId);
+    await deps.contractApprovalStorage.delete(req.identityGrantId);
     await revokeGrantSessions({
       userTrellisId: user.userId,
-      identityEnvelopeId: req.identityEnvelopeId,
+      identityGrantId: req.identityGrantId,
       sessionStorage: deps.sessionStorage,
       connectionsKV: deps.connectionsKV,
       kick: deps.kick,

@@ -10,7 +10,7 @@ import type {
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
   SqlDeviceProvisioningSecretRepository,
-  SqlIdentityEnvelopeRepository,
+  SqlIdentityGrantRepository,
   SqlImplementationOfferRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
@@ -78,7 +78,7 @@ export type AuthRuntimeDeps = {
       };
     };
   };
-  contractApprovalStorage: SqlIdentityEnvelopeRepository;
+  identityGrantStorage: SqlIdentityGrantRepository;
   capabilityGroupStorage: SqlCapabilityGroupRepository;
   deploymentPortalRouteStorage: SqlDeploymentPortalRouteRepository;
   deviceActivationReviewStorage: SqlDeviceActivationReviewRepository;

@@ -20,11 +20,11 @@ use trellis::contracts::{
     digest_contract_json, rpc, use_contract, ContractKind, ContractManifestBuilder,
 };
 use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
-use trellis::sdk::auth::types::AuthEnvelopesExpandRequest;
 use trellis::service::{ConnectedServiceRuntime, DeclaredRpcError, HandlerResult, ServerError};
 
 use crate::browser::{complete_local_login, BrowserContainer};
 use crate::deno_fixture::{deno_fixture_log_paths, deno_fixture_path};
+use crate::deployment_authority::plan_accept_reconcile_deployment_authority;
 use crate::workspace::repo_root;
 
 pub(crate) const HARNESS_DEPLOYMENT_ID: &str = "harness.rpc";
@@ -328,16 +328,14 @@ pub(crate) async fn run_rpc_fixture(
     let service_contract_json = harness_service_contract_json()?;
     let contract_digest = digest_contract_json(&service_contract_json).into_diagnostic()?;
     let sdk_auth_client = SdkAuthClient::new(&admin_client);
-    sdk_auth_client
-        .rpc()
-        .auth()
-        .envelopes_expand(&AuthEnvelopesExpandRequest {
-            contract: contract_json_object(&service_contract_json)?,
-            deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
-            expected_digest: contract_digest.clone(),
-        })
-        .await
-        .into_diagnostic()?;
+    plan_accept_reconcile_deployment_authority(
+        &sdk_auth_client,
+        HARNESS_DEPLOYMENT_ID,
+        &service_contract_json,
+        &contract_digest,
+        "integration harness RPC service setup",
+    )
+    .await?;
 
     let (rust_service_seed, rust_service_key) = generate_session_keypair();
     auth_client

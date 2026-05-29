@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
@@ -19,11 +18,11 @@ use trellis::contracts::{
     digest_contract_json, event, rpc, use_contract, ContractKind, ContractManifestBuilder,
 };
 use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
-use trellis::sdk::auth::types::AuthEnvelopesExpandRequest;
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
 use crate::deno_fixture::{deno_fixture_log_paths, deno_fixture_path};
+use crate::deployment_authority::plan_accept_reconcile_deployment_authority;
 use crate::workspace::repo_root;
 
 const HARNESS_DEPLOYMENT_ID: &str = "harness.events";
@@ -334,16 +333,14 @@ pub(crate) async fn run_events_fixture(
     let service_contract_json = harness_service_contract_json()?;
     let contract_digest = digest_contract_json(&service_contract_json).into_diagnostic()?;
     let sdk_auth_client = SdkAuthClient::new(&admin_client);
-    sdk_auth_client
-        .rpc()
-        .auth()
-        .envelopes_expand(&AuthEnvelopesExpandRequest {
-            contract: contract_json_object(&service_contract_json)?,
-            deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
-            expected_digest: contract_digest.clone(),
-        })
-        .await
-        .into_diagnostic()?;
+    plan_accept_reconcile_deployment_authority(
+        &sdk_auth_client,
+        HARNESS_DEPLOYMENT_ID,
+        &service_contract_json,
+        &contract_digest,
+        "integration harness events service setup",
+    )
+    .await?;
 
     let (provider_service_seed, provider_service_key) = generate_session_keypair();
     auth_client
@@ -366,16 +363,14 @@ pub(crate) async fn run_events_fixture(
     let consumer_contract_json = harness_service_consumer_contract_json()?;
     let consumer_contract_digest =
         digest_contract_json(&consumer_contract_json).into_diagnostic()?;
-    sdk_auth_client
-        .rpc()
-        .auth()
-        .envelopes_expand(&AuthEnvelopesExpandRequest {
-            contract: contract_json_object(&consumer_contract_json)?,
-            deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
-            expected_digest: consumer_contract_digest.clone(),
-        })
-        .await
-        .into_diagnostic()?;
+    plan_accept_reconcile_deployment_authority(
+        &sdk_auth_client,
+        HARNESS_DEPLOYMENT_ID,
+        &consumer_contract_json,
+        &consumer_contract_digest,
+        "integration harness events consumer setup",
+    )
+    .await?;
 
     let (consumer_service_seed, consumer_service_key) = generate_session_keypair();
     auth_client
@@ -1594,9 +1589,4 @@ async fn run_ts_script_capture(
 
 fn caller_contract_digest() -> Result<String> {
     digest_contract_json(&harness_caller_contract_json()?).into_diagnostic()
-}
-
-fn contract_json_object(contract_json: &str) -> Result<BTreeMap<String, Value>> {
-    serde_json::from_str(contract_json)
-        .map_err(|error| miette!("failed to parse harness events contract JSON: {error}"))
 }

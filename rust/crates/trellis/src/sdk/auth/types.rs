@@ -196,6 +196,460 @@ pub struct AuthConnectionsListResponse {
     pub next_offset: Option<i64>,
     pub offset: i64,
 }
+/// Generated schema type `AuthDeploymentAuthorityAcceptMigrationRequest`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptMigrationRequest {
+    pub acknowledgement: String,
+    #[serde(rename = "expectedDesiredVersion")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_desired_version: Option<String>,
+    #[serde(rename = "planId")]
+    pub plan_id: String,
+}
+/// Generated schema type `AuthDeploymentAuthorityAcceptMigrationResponse`.
+/// Generated schema type `AuthDeploymentAuthorityAcceptMigrationResponseAuthority`.
+/// Generated schema type `AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredState`.
+/// Generated schema type `AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateResourcesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateResourcesItem {
+    pub alias: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub definition: Option<BTreeMap<String, Value>>,
+    pub kind: String,
+    pub required: bool,
+}
+/// Generated schema type `AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateSurfacesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateSurfacesItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    pub kind: String,
+    pub name: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredState {
+    pub capabilities: Vec<String>,
+    pub needs: Vec<Value>,
+    pub resources:
+        Vec<AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateResourcesItem>,
+    pub surfaces:
+        Vec<AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateSurfacesItem>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptMigrationResponseAuthority {
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(rename = "deploymentId")]
+    pub deployment_id: String,
+    #[serde(rename = "desiredState")]
+    pub desired_state: AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredState,
+    pub disabled: bool,
+    pub kind: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: String,
+    pub version: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptMigrationResponse {
+    pub authority: AuthDeploymentAuthorityAcceptMigrationResponseAuthority,
+}
+/// Generated schema type `AuthDeploymentAuthorityAcceptUpdateRequest`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptUpdateRequest {
+    #[serde(rename = "expectedDesiredVersion")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_desired_version: Option<String>,
+    #[serde(rename = "planId")]
+    pub plan_id: String,
+}
+/// Generated schema type `AuthDeploymentAuthorityAcceptUpdateResponse`.
+/// Generated schema type `AuthDeploymentAuthorityAcceptUpdateResponseAuthority`.
+/// Generated schema type `AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredState`.
+/// Generated schema type `AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateResourcesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateResourcesItem {
+    pub alias: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub definition: Option<BTreeMap<String, Value>>,
+    pub kind: String,
+    pub required: bool,
+}
+/// Generated schema type `AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateSurfacesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateSurfacesItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    pub kind: String,
+    pub name: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredState {
+    pub capabilities: Vec<String>,
+    pub needs: Vec<Value>,
+    pub resources:
+        Vec<AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateResourcesItem>,
+    pub surfaces: Vec<AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateSurfacesItem>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptUpdateResponseAuthority {
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(rename = "deploymentId")]
+    pub deployment_id: String,
+    #[serde(rename = "desiredState")]
+    pub desired_state: AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredState,
+    pub disabled: bool,
+    pub kind: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: String,
+    pub version: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptUpdateResponse {
+    pub authority: AuthDeploymentAuthorityAcceptUpdateResponseAuthority,
+}
+/// Generated schema type `AuthDeploymentAuthorityGetRequest`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityGetRequest {
+    #[serde(rename = "deploymentId")]
+    pub deployment_id: String,
+}
+/// Generated schema type `AuthDeploymentAuthorityGetResponse`.
+/// Generated schema type `AuthDeploymentAuthorityGetResponseAuthority`.
+/// Generated schema type `AuthDeploymentAuthorityGetResponseAuthorityDesiredState`.
+/// Generated schema type `AuthDeploymentAuthorityGetResponseAuthorityDesiredStateResourcesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityGetResponseAuthorityDesiredStateResourcesItem {
+    pub alias: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub definition: Option<BTreeMap<String, Value>>,
+    pub kind: String,
+    pub required: bool,
+}
+/// Generated schema type `AuthDeploymentAuthorityGetResponseAuthorityDesiredStateSurfacesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityGetResponseAuthorityDesiredStateSurfacesItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    pub kind: String,
+    pub name: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityGetResponseAuthorityDesiredState {
+    pub capabilities: Vec<String>,
+    pub needs: Vec<Value>,
+    pub resources: Vec<AuthDeploymentAuthorityGetResponseAuthorityDesiredStateResourcesItem>,
+    pub surfaces: Vec<AuthDeploymentAuthorityGetResponseAuthorityDesiredStateSurfacesItem>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityGetResponseAuthority {
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(rename = "deploymentId")]
+    pub deployment_id: String,
+    #[serde(rename = "desiredState")]
+    pub desired_state: AuthDeploymentAuthorityGetResponseAuthorityDesiredState,
+    pub disabled: bool,
+    pub kind: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: String,
+    pub version: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityGetResponse {
+    pub authority: AuthDeploymentAuthorityGetResponseAuthority,
+    #[serde(rename = "grantOverrides")]
+    pub grant_overrides: Vec<Value>,
+    #[serde(rename = "materializedAuthority")]
+    pub materialized_authority: Value,
+    #[serde(rename = "portalRoute")]
+    pub portal_route: Value,
+}
+/// Generated schema type `AuthDeploymentAuthorityGrantOverridesListRequest`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityGrantOverridesListRequest {
+    pub limit: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<i64>,
+}
+/// Generated schema type `AuthDeploymentAuthorityGrantOverridesListResponse`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityGrantOverridesListResponse {
+    pub count: i64,
+    pub entries: Vec<Value>,
+    pub limit: i64,
+    #[serde(rename = "nextOffset")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_offset: Option<i64>,
+    pub offset: i64,
+}
+/// Generated schema type `AuthDeploymentAuthorityGrantOverridesPutRequest`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityGrantOverridesPutRequest {
+    #[serde(rename = "deploymentId")]
+    pub deployment_id: String,
+    pub overrides: Vec<Value>,
+}
+/// Generated schema type `AuthDeploymentAuthorityGrantOverridesPutResponse`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityGrantOverridesPutResponse {
+    #[serde(rename = "grantOverrides")]
+    pub grant_overrides: Vec<Value>,
+}
+/// Generated schema type `AuthDeploymentAuthorityGrantOverridesRemoveRequest`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityGrantOverridesRemoveRequest {
+    #[serde(rename = "deploymentId")]
+    pub deployment_id: String,
+    pub overrides: Vec<Value>,
+}
+/// Generated schema type `AuthDeploymentAuthorityGrantOverridesRemoveResponse`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityGrantOverridesRemoveResponse {
+    #[serde(rename = "grantOverrides")]
+    pub grant_overrides: Vec<Value>,
+}
+/// Generated schema type `AuthDeploymentAuthorityListRequest`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityListRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    pub limit: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<i64>,
+}
+/// Generated schema type `AuthDeploymentAuthorityListResponse`.
+/// Generated schema type `AuthDeploymentAuthorityListResponseEntriesItem`.
+/// Generated schema type `AuthDeploymentAuthorityListResponseEntriesItemDesiredState`.
+/// Generated schema type `AuthDeploymentAuthorityListResponseEntriesItemDesiredStateResourcesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityListResponseEntriesItemDesiredStateResourcesItem {
+    pub alias: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub definition: Option<BTreeMap<String, Value>>,
+    pub kind: String,
+    pub required: bool,
+}
+/// Generated schema type `AuthDeploymentAuthorityListResponseEntriesItemDesiredStateSurfacesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityListResponseEntriesItemDesiredStateSurfacesItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    pub kind: String,
+    pub name: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityListResponseEntriesItemDesiredState {
+    pub capabilities: Vec<String>,
+    pub needs: Vec<Value>,
+    pub resources: Vec<AuthDeploymentAuthorityListResponseEntriesItemDesiredStateResourcesItem>,
+    pub surfaces: Vec<AuthDeploymentAuthorityListResponseEntriesItemDesiredStateSurfacesItem>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityListResponseEntriesItem {
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(rename = "deploymentId")]
+    pub deployment_id: String,
+    #[serde(rename = "desiredState")]
+    pub desired_state: AuthDeploymentAuthorityListResponseEntriesItemDesiredState,
+    pub disabled: bool,
+    pub kind: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: String,
+    pub version: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityListResponse {
+    pub count: i64,
+    pub entries: Vec<AuthDeploymentAuthorityListResponseEntriesItem>,
+    pub limit: i64,
+    #[serde(rename = "nextOffset")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_offset: Option<i64>,
+    pub offset: i64,
+}
+/// Generated schema type `AuthDeploymentAuthorityPlanRequest`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityPlanRequest {
+    pub contract: BTreeMap<String, Value>,
+    #[serde(rename = "deploymentId")]
+    pub deployment_id: String,
+    #[serde(rename = "expectedDigest")]
+    pub expected_digest: String,
+}
+/// Generated schema type `AuthDeploymentAuthorityPlanResponse`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityPlanResponse {
+    pub plan: Value,
+}
+/// Generated schema type `AuthDeploymentAuthorityPlansGetRequest`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityPlansGetRequest {
+    #[serde(rename = "planId")]
+    pub plan_id: String,
+}
+/// Generated schema type `AuthDeploymentAuthorityPlansGetResponse`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityPlansGetResponse {
+    pub plan: Value,
+}
+/// Generated schema type `AuthDeploymentAuthorityPlansListRequest`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityPlansListRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub classification: Option<String>,
+    #[serde(rename = "deploymentId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deployment_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    pub limit: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+}
+/// Generated schema type `AuthDeploymentAuthorityPlansListResponse`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityPlansListResponse {
+    pub count: i64,
+    pub entries: Vec<Value>,
+    pub limit: i64,
+    #[serde(rename = "nextOffset")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_offset: Option<i64>,
+    pub offset: i64,
+}
+/// Generated schema type `AuthDeploymentAuthorityReconcileRequest`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityReconcileRequest {
+    #[serde(rename = "deploymentId")]
+    pub deployment_id: String,
+    #[serde(rename = "desiredVersion")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub desired_version: Option<String>,
+}
+/// Generated schema type `AuthDeploymentAuthorityReconcileResponse`.
+/// Generated schema type `AuthDeploymentAuthorityReconcileResponseAuthority`.
+/// Generated schema type `AuthDeploymentAuthorityReconcileResponseAuthorityDesiredState`.
+/// Generated schema type `AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateResourcesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateResourcesItem {
+    pub alias: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub definition: Option<BTreeMap<String, Value>>,
+    pub kind: String,
+    pub required: bool,
+}
+/// Generated schema type `AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateSurfacesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateSurfacesItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    pub kind: String,
+    pub name: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityReconcileResponseAuthorityDesiredState {
+    pub capabilities: Vec<String>,
+    pub needs: Vec<Value>,
+    pub resources: Vec<AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateResourcesItem>,
+    pub surfaces: Vec<AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateSurfacesItem>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityReconcileResponseAuthority {
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(rename = "deploymentId")]
+    pub deployment_id: String,
+    #[serde(rename = "desiredState")]
+    pub desired_state: AuthDeploymentAuthorityReconcileResponseAuthorityDesiredState,
+    pub disabled: bool,
+    pub kind: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: String,
+    pub version: String,
+}
+/// Generated schema type `AuthDeploymentAuthorityReconcileResponseMaterializedAuthority`.
+/// Generated schema type `AuthDeploymentAuthorityReconcileResponseMaterializedAuthorityResourceBindingsItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityReconcileResponseMaterializedAuthorityResourceBindingsItem {
+    pub alias: String,
+    pub binding: BTreeMap<String, Value>,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(rename = "deploymentId")]
+    pub deployment_id: String,
+    pub kind: String,
+    pub limits: Value,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityReconcileResponseMaterializedAuthority {
+    #[serde(rename = "deploymentId")]
+    pub deployment_id: String,
+    #[serde(rename = "desiredVersion")]
+    pub desired_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub grants: Vec<BTreeMap<String, Value>>,
+    #[serde(rename = "reconciledAt")]
+    pub reconciled_at: Value,
+    #[serde(rename = "resourceBindings")]
+    pub resource_bindings:
+        Vec<AuthDeploymentAuthorityReconcileResponseMaterializedAuthorityResourceBindingsItem>,
+    pub status: String,
+}
+/// Generated schema type `AuthDeploymentAuthorityReconcileResponseReconciliation`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityReconcileResponseReconciliation {
+    #[serde(rename = "deploymentId")]
+    pub deployment_id: String,
+    #[serde(rename = "desiredVersion")]
+    pub desired_version: String,
+    #[serde(rename = "finishedAt")]
+    pub finished_at: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(rename = "startedAt")]
+    pub started_at: Value,
+    pub state: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityReconcileResponse {
+    pub authority: AuthDeploymentAuthorityReconcileResponseAuthority,
+    #[serde(rename = "materializedAuthority")]
+    pub materialized_authority: AuthDeploymentAuthorityReconcileResponseMaterializedAuthority,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reconciliation: Option<AuthDeploymentAuthorityReconcileResponseReconciliation>,
+}
+/// Generated schema type `AuthDeploymentAuthorityRejectRequest`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityRejectRequest {
+    #[serde(rename = "planId")]
+    pub plan_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+/// Generated schema type `AuthDeploymentAuthorityRejectResponse`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityRejectResponse {
+    pub success: bool,
+}
 /// Generated schema type `AuthDeploymentsCreateRequest`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDeploymentsCreateRequest(pub Value);
@@ -677,1723 +1131,6 @@ pub struct AuthDevicesRemoveRequest {
 pub struct AuthDevicesRemoveResponse {
     pub success: bool,
 }
-/// Generated schema type `AuthEnvelopeExpansionsApproveRequest`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveRequest {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
-    #[serde(rename = "requestId")]
-    pub request_id: String,
-}
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponse`.
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseContractHistoryItem`.
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseContractHistoryItemDelta`.
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseContractHistoryItemDeltaContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseContractHistoryItemDeltaContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseContractHistoryItemDeltaResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseContractHistoryItemDeltaResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseContractHistoryItemDeltaSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseContractHistoryItemDeltaSurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseContractHistoryItemDelta {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopeExpansionsApproveResponseContractHistoryItemDeltaContractsItem>,
-    pub resources: Vec<AuthEnvelopeExpansionsApproveResponseContractHistoryItemDeltaResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopeExpansionsApproveResponseContractHistoryItemDeltaSurfacesItem>,
-}
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseContractHistoryItemSource`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseContractHistoryItemSource {
-    #[serde(rename = "contractDigest")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub contract_digest: Option<String>,
-    #[serde(rename = "contractId")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub contract_id: Option<String>,
-    #[serde(rename = "requestId")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub request_id: Option<String>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseContractHistoryItem {
-    pub action: String,
-    pub actor: Value,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-    pub delta: AuthEnvelopeExpansionsApproveResponseContractHistoryItemDelta,
-    #[serde(rename = "entryId")]
-    pub entry_id: String,
-    pub reason: Value,
-    #[serde(rename = "resultingUpdatedAt")]
-    pub resulting_updated_at: String,
-    #[serde(rename = "scopeId")]
-    pub scope_id: String,
-    #[serde(rename = "scopeKind")]
-    pub scope_kind: String,
-    pub source: AuthEnvelopeExpansionsApproveResponseContractHistoryItemSource,
-}
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseDelta`.
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseDeltaContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseDeltaContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseDeltaResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseDeltaResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseDeltaSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseDeltaSurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseDelta {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopeExpansionsApproveResponseDeltaContractsItem>,
-    pub resources: Vec<AuthEnvelopeExpansionsApproveResponseDeltaResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopeExpansionsApproveResponseDeltaSurfacesItem>,
-}
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseEnvelope`.
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseEnvelopeBoundary`.
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseEnvelopeBoundaryContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseEnvelopeBoundaryContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseEnvelopeBoundaryResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseEnvelopeBoundaryResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseEnvelopeBoundarySurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseEnvelopeBoundarySurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseEnvelopeBoundary {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopeExpansionsApproveResponseEnvelopeBoundaryContractsItem>,
-    pub resources: Vec<AuthEnvelopeExpansionsApproveResponseEnvelopeBoundaryResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopeExpansionsApproveResponseEnvelopeBoundarySurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseEnvelope {
-    pub boundary: AuthEnvelopeExpansionsApproveResponseEnvelopeBoundary,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-    pub disabled: bool,
-    pub kind: String,
-    #[serde(rename = "updatedAt")]
-    pub updated_at: String,
-}
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseRequest`.
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseRequestDelta`.
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseRequestDeltaContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseRequestDeltaContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseRequestDeltaResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseRequestDeltaResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseRequestDeltaSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseRequestDeltaSurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseRequestDelta {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopeExpansionsApproveResponseRequestDeltaContractsItem>,
-    pub resources: Vec<AuthEnvelopeExpansionsApproveResponseRequestDeltaResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopeExpansionsApproveResponseRequestDeltaSurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseRequest {
-    pub contract: BTreeMap<String, Value>,
-    #[serde(rename = "contractDigest")]
-    pub contract_digest: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-    #[serde(rename = "decidedAt")]
-    pub decided_at: Value,
-    #[serde(rename = "decidedBy")]
-    pub decided_by: Value,
-    #[serde(rename = "decisionReason")]
-    pub decision_reason: Value,
-    pub delta: AuthEnvelopeExpansionsApproveResponseRequestDelta,
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-    #[serde(rename = "requestId")]
-    pub request_id: String,
-    #[serde(rename = "requestedBy")]
-    pub requested_by: BTreeMap<String, Value>,
-    #[serde(rename = "requestedByKind")]
-    pub requested_by_kind: String,
-    pub state: String,
-}
-/// Generated schema type `AuthEnvelopeExpansionsApproveResponseResourceBindingsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponseResourceBindingsItem {
-    pub alias: String,
-    pub binding: BTreeMap<String, Value>,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-    pub kind: String,
-    pub limits: Value,
-    #[serde(rename = "updatedAt")]
-    pub updated_at: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsApproveResponse {
-    #[serde(rename = "contractHistory")]
-    pub contract_history: Vec<AuthEnvelopeExpansionsApproveResponseContractHistoryItem>,
-    pub delta: AuthEnvelopeExpansionsApproveResponseDelta,
-    pub envelope: AuthEnvelopeExpansionsApproveResponseEnvelope,
-    pub request: AuthEnvelopeExpansionsApproveResponseRequest,
-    #[serde(rename = "resourceBindings")]
-    pub resource_bindings: Vec<AuthEnvelopeExpansionsApproveResponseResourceBindingsItem>,
-}
-/// Generated schema type `AuthEnvelopeExpansionsListRequest`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsListRequest {
-    #[serde(rename = "deploymentId")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub deployment_id: Option<String>,
-    pub limit: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub offset: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub state: Option<String>,
-}
-/// Generated schema type `AuthEnvelopeExpansionsListResponse`.
-/// Generated schema type `AuthEnvelopeExpansionsListResponseEntriesItem`.
-/// Generated schema type `AuthEnvelopeExpansionsListResponseEntriesItemDelta`.
-/// Generated schema type `AuthEnvelopeExpansionsListResponseEntriesItemDeltaContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsListResponseEntriesItemDeltaContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopeExpansionsListResponseEntriesItemDeltaResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsListResponseEntriesItemDeltaResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopeExpansionsListResponseEntriesItemDeltaSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsListResponseEntriesItemDeltaSurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsListResponseEntriesItemDelta {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopeExpansionsListResponseEntriesItemDeltaContractsItem>,
-    pub resources: Vec<AuthEnvelopeExpansionsListResponseEntriesItemDeltaResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopeExpansionsListResponseEntriesItemDeltaSurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsListResponseEntriesItem {
-    pub contract: BTreeMap<String, Value>,
-    #[serde(rename = "contractDigest")]
-    pub contract_digest: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-    #[serde(rename = "decidedAt")]
-    pub decided_at: Value,
-    #[serde(rename = "decidedBy")]
-    pub decided_by: Value,
-    #[serde(rename = "decisionReason")]
-    pub decision_reason: Value,
-    pub delta: AuthEnvelopeExpansionsListResponseEntriesItemDelta,
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-    #[serde(rename = "requestId")]
-    pub request_id: String,
-    #[serde(rename = "requestedBy")]
-    pub requested_by: BTreeMap<String, Value>,
-    #[serde(rename = "requestedByKind")]
-    pub requested_by_kind: String,
-    pub state: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsListResponse {
-    pub count: i64,
-    pub entries: Vec<AuthEnvelopeExpansionsListResponseEntriesItem>,
-    pub limit: i64,
-    #[serde(rename = "nextOffset")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next_offset: Option<i64>,
-    pub offset: i64,
-}
-/// Generated schema type `AuthEnvelopeExpansionsRejectRequest`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsRejectRequest {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
-    #[serde(rename = "requestId")]
-    pub request_id: String,
-}
-/// Generated schema type `AuthEnvelopeExpansionsRejectResponse`.
-/// Generated schema type `AuthEnvelopeExpansionsRejectResponseRequest`.
-/// Generated schema type `AuthEnvelopeExpansionsRejectResponseRequestDelta`.
-/// Generated schema type `AuthEnvelopeExpansionsRejectResponseRequestDeltaContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsRejectResponseRequestDeltaContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopeExpansionsRejectResponseRequestDeltaResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsRejectResponseRequestDeltaResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopeExpansionsRejectResponseRequestDeltaSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsRejectResponseRequestDeltaSurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsRejectResponseRequestDelta {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopeExpansionsRejectResponseRequestDeltaContractsItem>,
-    pub resources: Vec<AuthEnvelopeExpansionsRejectResponseRequestDeltaResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopeExpansionsRejectResponseRequestDeltaSurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsRejectResponseRequest {
-    pub contract: BTreeMap<String, Value>,
-    #[serde(rename = "contractDigest")]
-    pub contract_digest: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-    #[serde(rename = "decidedAt")]
-    pub decided_at: Value,
-    #[serde(rename = "decidedBy")]
-    pub decided_by: Value,
-    #[serde(rename = "decisionReason")]
-    pub decision_reason: Value,
-    pub delta: AuthEnvelopeExpansionsRejectResponseRequestDelta,
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-    #[serde(rename = "requestId")]
-    pub request_id: String,
-    #[serde(rename = "requestedBy")]
-    pub requested_by: BTreeMap<String, Value>,
-    #[serde(rename = "requestedByKind")]
-    pub requested_by_kind: String,
-    pub state: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopeExpansionsRejectResponse {
-    pub request: AuthEnvelopeExpansionsRejectResponseRequest,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewRequest`.
-/// Generated schema type `AuthEnvelopesChangesPreviewRequestProposedBoundary`.
-/// Generated schema type `AuthEnvelopesChangesPreviewRequestProposedBoundaryContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewRequestProposedBoundaryContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewRequestProposedBoundaryResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewRequestProposedBoundaryResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewRequestProposedBoundarySurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewRequestProposedBoundarySurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewRequestProposedBoundary {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopesChangesPreviewRequestProposedBoundaryContractsItem>,
-    pub resources: Vec<AuthEnvelopesChangesPreviewRequestProposedBoundaryResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopesChangesPreviewRequestProposedBoundarySurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewRequest {
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-    #[serde(rename = "proposedBoundary")]
-    pub proposed_boundary: AuthEnvelopesChangesPreviewRequestProposedBoundary,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponse`.
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseCurrent`.
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseCurrentBoundary`.
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseCurrentBoundaryContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseCurrentBoundaryContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseCurrentBoundaryResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseCurrentBoundaryResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseCurrentBoundarySurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseCurrentBoundarySurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseCurrentBoundary {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopesChangesPreviewResponseCurrentBoundaryContractsItem>,
-    pub resources: Vec<AuthEnvelopesChangesPreviewResponseCurrentBoundaryResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopesChangesPreviewResponseCurrentBoundarySurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseCurrent {
-    pub boundary: AuthEnvelopesChangesPreviewResponseCurrentBoundary,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-    pub disabled: bool,
-    pub kind: String,
-    #[serde(rename = "updatedAt")]
-    pub updated_at: String,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpact`.
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedDeviceSessionsItem`.
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedDeviceSessionsItemMissing`.
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedDeviceSessionsItemMissingContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedDeviceSessionsItemMissingContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedDeviceSessionsItemMissingResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedDeviceSessionsItemMissingResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedDeviceSessionsItemMissingSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedDeviceSessionsItemMissingSurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedDeviceSessionsItemMissing {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<
-        AuthEnvelopesChangesPreviewResponseImpactImpactedDeviceSessionsItemMissingContractsItem,
-    >,
-    pub resources: Vec<
-        AuthEnvelopesChangesPreviewResponseImpactImpactedDeviceSessionsItemMissingResourcesItem,
-    >,
-    pub surfaces:
-        Vec<AuthEnvelopesChangesPreviewResponseImpactImpactedDeviceSessionsItemMissingSurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedDeviceSessionsItem {
-    #[serde(rename = "contractDigest")]
-    pub contract_digest: Value,
-    #[serde(rename = "contractId")]
-    pub contract_id: Value,
-    pub missing: AuthEnvelopesChangesPreviewResponseImpactImpactedDeviceSessionsItemMissing,
-    #[serde(rename = "sessionKey")]
-    pub session_key: String,
-    pub r#type: Value,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedIdentityEnvelopesItem`.
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedIdentityEnvelopesItemMissing`.
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedIdentityEnvelopesItemMissingContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedIdentityEnvelopesItemMissingContractsItem
-{
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedIdentityEnvelopesItemMissingResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedIdentityEnvelopesItemMissingResourcesItem
-{
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedIdentityEnvelopesItemMissingSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedIdentityEnvelopesItemMissingSurfacesItem
-{
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedIdentityEnvelopesItemMissing {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<
-        AuthEnvelopesChangesPreviewResponseImpactImpactedIdentityEnvelopesItemMissingContractsItem,
-    >,
-    pub resources: Vec<
-        AuthEnvelopesChangesPreviewResponseImpactImpactedIdentityEnvelopesItemMissingResourcesItem,
-    >,
-    pub surfaces: Vec<
-        AuthEnvelopesChangesPreviewResponseImpactImpactedIdentityEnvelopesItemMissingSurfacesItem,
-    >,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedIdentityEnvelopesItem {
-    #[serde(rename = "identityAnchor")]
-    pub identity_anchor: Value,
-    #[serde(rename = "identityEnvelopeId")]
-    pub identity_envelope_id: String,
-    pub missing: AuthEnvelopesChangesPreviewResponseImpactImpactedIdentityEnvelopesItemMissing,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedPendingRequestsItem`.
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedPendingRequestsItemMissing`.
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedPendingRequestsItemMissingContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedPendingRequestsItemMissingContractsItem
-{
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedPendingRequestsItemMissingResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedPendingRequestsItemMissingResourcesItem
-{
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedPendingRequestsItemMissingSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedPendingRequestsItemMissingSurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedPendingRequestsItemMissing {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<
-        AuthEnvelopesChangesPreviewResponseImpactImpactedPendingRequestsItemMissingContractsItem,
-    >,
-    pub resources: Vec<
-        AuthEnvelopesChangesPreviewResponseImpactImpactedPendingRequestsItemMissingResourcesItem,
-    >,
-    pub surfaces: Vec<
-        AuthEnvelopesChangesPreviewResponseImpactImpactedPendingRequestsItemMissingSurfacesItem,
-    >,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedPendingRequestsItem {
-    pub missing: AuthEnvelopesChangesPreviewResponseImpactImpactedPendingRequestsItemMissing,
-    #[serde(rename = "requestId")]
-    pub request_id: String,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedServiceInstancesItem`.
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedServiceInstancesItemMissing`.
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedServiceInstancesItemMissingContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedServiceInstancesItemMissingContractsItem
-{
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedServiceInstancesItemMissingResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedServiceInstancesItemMissingResourcesItem
-{
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedServiceInstancesItemMissingSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedServiceInstancesItemMissingSurfacesItem
-{
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedServiceInstancesItemMissing {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<
-        AuthEnvelopesChangesPreviewResponseImpactImpactedServiceInstancesItemMissingContractsItem,
-    >,
-    pub resources: Vec<
-        AuthEnvelopesChangesPreviewResponseImpactImpactedServiceInstancesItemMissingResourcesItem,
-    >,
-    pub surfaces: Vec<
-        AuthEnvelopesChangesPreviewResponseImpactImpactedServiceInstancesItemMissingSurfacesItem,
-    >,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedServiceInstancesItem {
-    pub missing: AuthEnvelopesChangesPreviewResponseImpactImpactedServiceInstancesItemMissing,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedSessionsItem`.
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedSessionsItemMissing`.
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedSessionsItemMissingContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedSessionsItemMissingContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedSessionsItemMissingResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedSessionsItemMissingResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactImpactedSessionsItemMissingSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedSessionsItemMissingSurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedSessionsItemMissing {
-    pub capabilities: Vec<String>,
-    pub contracts:
-        Vec<AuthEnvelopesChangesPreviewResponseImpactImpactedSessionsItemMissingContractsItem>,
-    pub resources:
-        Vec<AuthEnvelopesChangesPreviewResponseImpactImpactedSessionsItemMissingResourcesItem>,
-    pub surfaces:
-        Vec<AuthEnvelopesChangesPreviewResponseImpactImpactedSessionsItemMissingSurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactImpactedSessionsItem {
-    #[serde(rename = "contractDigest")]
-    pub contract_digest: Value,
-    #[serde(rename = "contractId")]
-    pub contract_id: Value,
-    pub missing: AuthEnvelopesChangesPreviewResponseImpactImpactedSessionsItemMissing,
-    #[serde(rename = "sessionKey")]
-    pub session_key: String,
-    pub r#type: Value,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactOrphanedResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactOrphanedResourcesItem {
-    pub alias: String,
-    pub kind: String,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactRemoved`.
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactRemovedContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactRemovedContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactRemovedResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactRemovedResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseImpactRemovedSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactRemovedSurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpactRemoved {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopesChangesPreviewResponseImpactRemovedContractsItem>,
-    pub resources: Vec<AuthEnvelopesChangesPreviewResponseImpactRemovedResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopesChangesPreviewResponseImpactRemovedSurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseImpact {
-    #[serde(rename = "impactedDeviceSessions")]
-    pub impacted_device_sessions:
-        Vec<AuthEnvelopesChangesPreviewResponseImpactImpactedDeviceSessionsItem>,
-    #[serde(rename = "impactedIdentityEnvelopes")]
-    pub impacted_identity_envelopes:
-        Vec<AuthEnvelopesChangesPreviewResponseImpactImpactedIdentityEnvelopesItem>,
-    #[serde(rename = "impactedPendingRequests")]
-    pub impacted_pending_requests:
-        Vec<AuthEnvelopesChangesPreviewResponseImpactImpactedPendingRequestsItem>,
-    #[serde(rename = "impactedServiceInstances")]
-    pub impacted_service_instances:
-        Vec<AuthEnvelopesChangesPreviewResponseImpactImpactedServiceInstancesItem>,
-    #[serde(rename = "impactedSessions")]
-    pub impacted_sessions: Vec<AuthEnvelopesChangesPreviewResponseImpactImpactedSessionsItem>,
-    #[serde(rename = "orphanedResources")]
-    pub orphaned_resources: Vec<AuthEnvelopesChangesPreviewResponseImpactOrphanedResourcesItem>,
-    pub removed: AuthEnvelopesChangesPreviewResponseImpactRemoved,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseProposed`.
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseProposedBoundary`.
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseProposedBoundaryContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseProposedBoundaryContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseProposedBoundaryResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseProposedBoundaryResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesChangesPreviewResponseProposedBoundarySurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseProposedBoundarySurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseProposedBoundary {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopesChangesPreviewResponseProposedBoundaryContractsItem>,
-    pub resources: Vec<AuthEnvelopesChangesPreviewResponseProposedBoundaryResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopesChangesPreviewResponseProposedBoundarySurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponseProposed {
-    pub boundary: AuthEnvelopesChangesPreviewResponseProposedBoundary,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-    pub disabled: bool,
-    pub kind: String,
-    #[serde(rename = "updatedAt")]
-    pub updated_at: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesChangesPreviewResponse {
-    pub current: AuthEnvelopesChangesPreviewResponseCurrent,
-    pub impact: AuthEnvelopesChangesPreviewResponseImpact,
-    pub proposed: AuthEnvelopesChangesPreviewResponseProposed,
-}
-/// Generated schema type `AuthEnvelopesExpandRequest`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesExpandRequest {
-    pub contract: BTreeMap<String, Value>,
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-    #[serde(rename = "expectedDigest")]
-    pub expected_digest: String,
-}
-/// Generated schema type `AuthEnvelopesExpandResponse`.
-/// Generated schema type `AuthEnvelopesExpandResponseContractHistoryItem`.
-/// Generated schema type `AuthEnvelopesExpandResponseContractHistoryItemDelta`.
-/// Generated schema type `AuthEnvelopesExpandResponseContractHistoryItemDeltaContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesExpandResponseContractHistoryItemDeltaContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesExpandResponseContractHistoryItemDeltaResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesExpandResponseContractHistoryItemDeltaResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesExpandResponseContractHistoryItemDeltaSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesExpandResponseContractHistoryItemDeltaSurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesExpandResponseContractHistoryItemDelta {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopesExpandResponseContractHistoryItemDeltaContractsItem>,
-    pub resources: Vec<AuthEnvelopesExpandResponseContractHistoryItemDeltaResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopesExpandResponseContractHistoryItemDeltaSurfacesItem>,
-}
-/// Generated schema type `AuthEnvelopesExpandResponseContractHistoryItemSource`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesExpandResponseContractHistoryItemSource {
-    #[serde(rename = "contractDigest")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub contract_digest: Option<String>,
-    #[serde(rename = "contractId")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub contract_id: Option<String>,
-    #[serde(rename = "requestId")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub request_id: Option<String>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesExpandResponseContractHistoryItem {
-    pub action: String,
-    pub actor: Value,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-    pub delta: AuthEnvelopesExpandResponseContractHistoryItemDelta,
-    #[serde(rename = "entryId")]
-    pub entry_id: String,
-    pub reason: Value,
-    #[serde(rename = "resultingUpdatedAt")]
-    pub resulting_updated_at: String,
-    #[serde(rename = "scopeId")]
-    pub scope_id: String,
-    #[serde(rename = "scopeKind")]
-    pub scope_kind: String,
-    pub source: AuthEnvelopesExpandResponseContractHistoryItemSource,
-}
-/// Generated schema type `AuthEnvelopesExpandResponseDelta`.
-/// Generated schema type `AuthEnvelopesExpandResponseDeltaContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesExpandResponseDeltaContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesExpandResponseDeltaResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesExpandResponseDeltaResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesExpandResponseDeltaSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesExpandResponseDeltaSurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesExpandResponseDelta {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopesExpandResponseDeltaContractsItem>,
-    pub resources: Vec<AuthEnvelopesExpandResponseDeltaResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopesExpandResponseDeltaSurfacesItem>,
-}
-/// Generated schema type `AuthEnvelopesExpandResponseEnvelope`.
-/// Generated schema type `AuthEnvelopesExpandResponseEnvelopeBoundary`.
-/// Generated schema type `AuthEnvelopesExpandResponseEnvelopeBoundaryContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesExpandResponseEnvelopeBoundaryContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesExpandResponseEnvelopeBoundaryResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesExpandResponseEnvelopeBoundaryResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesExpandResponseEnvelopeBoundarySurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesExpandResponseEnvelopeBoundarySurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesExpandResponseEnvelopeBoundary {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopesExpandResponseEnvelopeBoundaryContractsItem>,
-    pub resources: Vec<AuthEnvelopesExpandResponseEnvelopeBoundaryResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopesExpandResponseEnvelopeBoundarySurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesExpandResponseEnvelope {
-    pub boundary: AuthEnvelopesExpandResponseEnvelopeBoundary,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-    pub disabled: bool,
-    pub kind: String,
-    #[serde(rename = "updatedAt")]
-    pub updated_at: String,
-}
-/// Generated schema type `AuthEnvelopesExpandResponseResourceBindingsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesExpandResponseResourceBindingsItem {
-    pub alias: String,
-    pub binding: BTreeMap<String, Value>,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-    pub kind: String,
-    pub limits: Value,
-    #[serde(rename = "updatedAt")]
-    pub updated_at: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesExpandResponse {
-    #[serde(rename = "contractHistory")]
-    pub contract_history: Vec<AuthEnvelopesExpandResponseContractHistoryItem>,
-    pub delta: AuthEnvelopesExpandResponseDelta,
-    pub envelope: AuthEnvelopesExpandResponseEnvelope,
-    #[serde(rename = "resourceBindings")]
-    pub resource_bindings: Vec<AuthEnvelopesExpandResponseResourceBindingsItem>,
-}
-/// Generated schema type `AuthEnvelopesGetRequest`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGetRequest {
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-}
-/// Generated schema type `AuthEnvelopesGetResponse`.
-/// Generated schema type `AuthEnvelopesGetResponseContractHistoryItem`.
-/// Generated schema type `AuthEnvelopesGetResponseContractHistoryItemDelta`.
-/// Generated schema type `AuthEnvelopesGetResponseContractHistoryItemDeltaContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGetResponseContractHistoryItemDeltaContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesGetResponseContractHistoryItemDeltaResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGetResponseContractHistoryItemDeltaResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesGetResponseContractHistoryItemDeltaSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGetResponseContractHistoryItemDeltaSurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGetResponseContractHistoryItemDelta {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopesGetResponseContractHistoryItemDeltaContractsItem>,
-    pub resources: Vec<AuthEnvelopesGetResponseContractHistoryItemDeltaResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopesGetResponseContractHistoryItemDeltaSurfacesItem>,
-}
-/// Generated schema type `AuthEnvelopesGetResponseContractHistoryItemSource`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGetResponseContractHistoryItemSource {
-    #[serde(rename = "contractDigest")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub contract_digest: Option<String>,
-    #[serde(rename = "contractId")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub contract_id: Option<String>,
-    #[serde(rename = "requestId")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub request_id: Option<String>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGetResponseContractHistoryItem {
-    pub action: String,
-    pub actor: Value,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-    pub delta: AuthEnvelopesGetResponseContractHistoryItemDelta,
-    #[serde(rename = "entryId")]
-    pub entry_id: String,
-    pub reason: Value,
-    #[serde(rename = "resultingUpdatedAt")]
-    pub resulting_updated_at: String,
-    #[serde(rename = "scopeId")]
-    pub scope_id: String,
-    #[serde(rename = "scopeKind")]
-    pub scope_kind: String,
-    pub source: AuthEnvelopesGetResponseContractHistoryItemSource,
-}
-/// Generated schema type `AuthEnvelopesGetResponseEnvelope`.
-/// Generated schema type `AuthEnvelopesGetResponseEnvelopeBoundary`.
-/// Generated schema type `AuthEnvelopesGetResponseEnvelopeBoundaryContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGetResponseEnvelopeBoundaryContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesGetResponseEnvelopeBoundaryResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGetResponseEnvelopeBoundaryResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesGetResponseEnvelopeBoundarySurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGetResponseEnvelopeBoundarySurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGetResponseEnvelopeBoundary {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopesGetResponseEnvelopeBoundaryContractsItem>,
-    pub resources: Vec<AuthEnvelopesGetResponseEnvelopeBoundaryResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopesGetResponseEnvelopeBoundarySurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGetResponseEnvelope {
-    pub boundary: AuthEnvelopesGetResponseEnvelopeBoundary,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-    pub disabled: bool,
-    pub kind: String,
-    #[serde(rename = "updatedAt")]
-    pub updated_at: String,
-}
-/// Generated schema type `AuthEnvelopesGetResponseExpansionRequestsItem`.
-/// Generated schema type `AuthEnvelopesGetResponseExpansionRequestsItemDelta`.
-/// Generated schema type `AuthEnvelopesGetResponseExpansionRequestsItemDeltaContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGetResponseExpansionRequestsItemDeltaContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesGetResponseExpansionRequestsItemDeltaResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGetResponseExpansionRequestsItemDeltaResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesGetResponseExpansionRequestsItemDeltaSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGetResponseExpansionRequestsItemDeltaSurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGetResponseExpansionRequestsItemDelta {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopesGetResponseExpansionRequestsItemDeltaContractsItem>,
-    pub resources: Vec<AuthEnvelopesGetResponseExpansionRequestsItemDeltaResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopesGetResponseExpansionRequestsItemDeltaSurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGetResponseExpansionRequestsItem {
-    pub contract: BTreeMap<String, Value>,
-    #[serde(rename = "contractDigest")]
-    pub contract_digest: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-    #[serde(rename = "decidedAt")]
-    pub decided_at: Value,
-    #[serde(rename = "decidedBy")]
-    pub decided_by: Value,
-    #[serde(rename = "decisionReason")]
-    pub decision_reason: Value,
-    pub delta: AuthEnvelopesGetResponseExpansionRequestsItemDelta,
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-    #[serde(rename = "requestId")]
-    pub request_id: String,
-    #[serde(rename = "requestedBy")]
-    pub requested_by: BTreeMap<String, Value>,
-    #[serde(rename = "requestedByKind")]
-    pub requested_by_kind: String,
-    pub state: String,
-}
-/// Generated schema type `AuthEnvelopesGetResponseImplementationOffersItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGetResponseImplementationOffersItem {
-    #[serde(rename = "acceptedAt")]
-    pub accepted_at: Value,
-    #[serde(rename = "contractDigest")]
-    pub contract_digest: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-    #[serde(rename = "deploymentKind")]
-    pub deployment_kind: String,
-    #[serde(rename = "expiresAt")]
-    pub expires_at: Value,
-    #[serde(rename = "firstOfferedAt")]
-    pub first_offered_at: String,
-    #[serde(rename = "instanceId")]
-    pub instance_id: Value,
-    #[serde(rename = "lastRefreshedAt")]
-    pub last_refreshed_at: String,
-    #[serde(rename = "lineageKey")]
-    pub lineage_key: String,
-    pub liveness: String,
-    #[serde(rename = "offerId")]
-    pub offer_id: String,
-    #[serde(rename = "staleAt")]
-    pub stale_at: Value,
-    pub status: String,
-}
-/// Generated schema type `AuthEnvelopesGetResponseResourceBindingsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGetResponseResourceBindingsItem {
-    pub alias: String,
-    pub binding: BTreeMap<String, Value>,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-    pub kind: String,
-    pub limits: Value,
-    #[serde(rename = "updatedAt")]
-    pub updated_at: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGetResponse {
-    #[serde(rename = "contractHistory")]
-    pub contract_history: Vec<AuthEnvelopesGetResponseContractHistoryItem>,
-    pub envelope: AuthEnvelopesGetResponseEnvelope,
-    #[serde(rename = "expansionRequests")]
-    pub expansion_requests: Vec<AuthEnvelopesGetResponseExpansionRequestsItem>,
-    #[serde(rename = "grantOverrides")]
-    pub grant_overrides: Vec<Value>,
-    #[serde(rename = "implementationOffers")]
-    pub implementation_offers: Vec<AuthEnvelopesGetResponseImplementationOffersItem>,
-    #[serde(rename = "portalRoute")]
-    pub portal_route: Value,
-    #[serde(rename = "resourceBindings")]
-    pub resource_bindings: Vec<AuthEnvelopesGetResponseResourceBindingsItem>,
-}
-/// Generated schema type `AuthEnvelopesGrantOverridesListRequest`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGrantOverridesListRequest {
-    pub limit: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub offset: Option<i64>,
-}
-/// Generated schema type `AuthEnvelopesGrantOverridesListResponse`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGrantOverridesListResponse {
-    pub count: i64,
-    pub entries: Vec<Value>,
-    pub limit: i64,
-    #[serde(rename = "nextOffset")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next_offset: Option<i64>,
-    pub offset: i64,
-}
-/// Generated schema type `AuthEnvelopesGrantOverridesPutRequest`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGrantOverridesPutRequest {
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-    pub overrides: Vec<Value>,
-}
-/// Generated schema type `AuthEnvelopesGrantOverridesPutResponse`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGrantOverridesPutResponse {
-    #[serde(rename = "grantOverrides")]
-    pub grant_overrides: Vec<Value>,
-}
-/// Generated schema type `AuthEnvelopesGrantOverridesRemoveRequest`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGrantOverridesRemoveRequest {
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-    pub overrides: Vec<Value>,
-}
-/// Generated schema type `AuthEnvelopesGrantOverridesRemoveResponse`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesGrantOverridesRemoveResponse {
-    #[serde(rename = "grantOverrides")]
-    pub grant_overrides: Vec<Value>,
-}
-/// Generated schema type `AuthEnvelopesListRequest`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesListRequest {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub disabled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub kind: Option<String>,
-    pub limit: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub offset: Option<i64>,
-}
-/// Generated schema type `AuthEnvelopesListResponse`.
-/// Generated schema type `AuthEnvelopesListResponseEntriesItem`.
-/// Generated schema type `AuthEnvelopesListResponseEntriesItemBoundary`.
-/// Generated schema type `AuthEnvelopesListResponseEntriesItemBoundaryContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesListResponseEntriesItemBoundaryContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesListResponseEntriesItemBoundaryResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesListResponseEntriesItemBoundaryResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesListResponseEntriesItemBoundarySurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesListResponseEntriesItemBoundarySurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesListResponseEntriesItemBoundary {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopesListResponseEntriesItemBoundaryContractsItem>,
-    pub resources: Vec<AuthEnvelopesListResponseEntriesItemBoundaryResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopesListResponseEntriesItemBoundarySurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesListResponseEntriesItem {
-    pub boundary: AuthEnvelopesListResponseEntriesItemBoundary,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-    pub disabled: bool,
-    pub kind: String,
-    #[serde(rename = "updatedAt")]
-    pub updated_at: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesListResponse {
-    pub count: i64,
-    pub entries: Vec<AuthEnvelopesListResponseEntriesItem>,
-    pub limit: i64,
-    #[serde(rename = "nextOffset")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next_offset: Option<i64>,
-    pub offset: i64,
-}
-/// Generated schema type `AuthEnvelopesShrinkRequest`.
-/// Generated schema type `AuthEnvelopesShrinkRequestProposedBoundary`.
-/// Generated schema type `AuthEnvelopesShrinkRequestProposedBoundaryContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkRequestProposedBoundaryContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesShrinkRequestProposedBoundaryResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkRequestProposedBoundaryResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesShrinkRequestProposedBoundarySurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkRequestProposedBoundarySurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkRequestProposedBoundary {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopesShrinkRequestProposedBoundaryContractsItem>,
-    pub resources: Vec<AuthEnvelopesShrinkRequestProposedBoundaryResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopesShrinkRequestProposedBoundarySurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkRequest {
-    pub confirm: bool,
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-    #[serde(rename = "proposedBoundary")]
-    pub proposed_boundary: AuthEnvelopesShrinkRequestProposedBoundary,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponse`.
-/// Generated schema type `AuthEnvelopesShrinkResponseEnvelope`.
-/// Generated schema type `AuthEnvelopesShrinkResponseEnvelopeBoundary`.
-/// Generated schema type `AuthEnvelopesShrinkResponseEnvelopeBoundaryContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseEnvelopeBoundaryContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseEnvelopeBoundaryResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseEnvelopeBoundaryResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseEnvelopeBoundarySurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseEnvelopeBoundarySurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseEnvelopeBoundary {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopesShrinkResponseEnvelopeBoundaryContractsItem>,
-    pub resources: Vec<AuthEnvelopesShrinkResponseEnvelopeBoundaryResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopesShrinkResponseEnvelopeBoundarySurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseEnvelope {
-    pub boundary: AuthEnvelopesShrinkResponseEnvelopeBoundary,
-    #[serde(rename = "createdAt")]
-    pub created_at: String,
-    #[serde(rename = "deploymentId")]
-    pub deployment_id: String,
-    pub disabled: bool,
-    pub kind: String,
-    #[serde(rename = "updatedAt")]
-    pub updated_at: String,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseImpact`.
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedDeviceSessionsItem`.
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedDeviceSessionsItemMissing`.
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedDeviceSessionsItemMissingContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedDeviceSessionsItemMissingContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedDeviceSessionsItemMissingResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedDeviceSessionsItemMissingResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedDeviceSessionsItemMissingSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedDeviceSessionsItemMissingSurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedDeviceSessionsItemMissing {
-    pub capabilities: Vec<String>,
-    pub contracts:
-        Vec<AuthEnvelopesShrinkResponseImpactImpactedDeviceSessionsItemMissingContractsItem>,
-    pub resources:
-        Vec<AuthEnvelopesShrinkResponseImpactImpactedDeviceSessionsItemMissingResourcesItem>,
-    pub surfaces:
-        Vec<AuthEnvelopesShrinkResponseImpactImpactedDeviceSessionsItemMissingSurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedDeviceSessionsItem {
-    #[serde(rename = "contractDigest")]
-    pub contract_digest: Value,
-    #[serde(rename = "contractId")]
-    pub contract_id: Value,
-    pub missing: AuthEnvelopesShrinkResponseImpactImpactedDeviceSessionsItemMissing,
-    #[serde(rename = "sessionKey")]
-    pub session_key: String,
-    pub r#type: Value,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedIdentityEnvelopesItem`.
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedIdentityEnvelopesItemMissing`.
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedIdentityEnvelopesItemMissingContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedIdentityEnvelopesItemMissingContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedIdentityEnvelopesItemMissingResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedIdentityEnvelopesItemMissingResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedIdentityEnvelopesItemMissingSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedIdentityEnvelopesItemMissingSurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedIdentityEnvelopesItemMissing {
-    pub capabilities: Vec<String>,
-    pub contracts:
-        Vec<AuthEnvelopesShrinkResponseImpactImpactedIdentityEnvelopesItemMissingContractsItem>,
-    pub resources:
-        Vec<AuthEnvelopesShrinkResponseImpactImpactedIdentityEnvelopesItemMissingResourcesItem>,
-    pub surfaces:
-        Vec<AuthEnvelopesShrinkResponseImpactImpactedIdentityEnvelopesItemMissingSurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedIdentityEnvelopesItem {
-    #[serde(rename = "identityAnchor")]
-    pub identity_anchor: Value,
-    #[serde(rename = "identityEnvelopeId")]
-    pub identity_envelope_id: String,
-    pub missing: AuthEnvelopesShrinkResponseImpactImpactedIdentityEnvelopesItemMissing,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedPendingRequestsItem`.
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedPendingRequestsItemMissing`.
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedPendingRequestsItemMissingContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedPendingRequestsItemMissingContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedPendingRequestsItemMissingResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedPendingRequestsItemMissingResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedPendingRequestsItemMissingSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedPendingRequestsItemMissingSurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedPendingRequestsItemMissing {
-    pub capabilities: Vec<String>,
-    pub contracts:
-        Vec<AuthEnvelopesShrinkResponseImpactImpactedPendingRequestsItemMissingContractsItem>,
-    pub resources:
-        Vec<AuthEnvelopesShrinkResponseImpactImpactedPendingRequestsItemMissingResourcesItem>,
-    pub surfaces:
-        Vec<AuthEnvelopesShrinkResponseImpactImpactedPendingRequestsItemMissingSurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedPendingRequestsItem {
-    pub missing: AuthEnvelopesShrinkResponseImpactImpactedPendingRequestsItemMissing,
-    #[serde(rename = "requestId")]
-    pub request_id: String,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedServiceInstancesItem`.
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedServiceInstancesItemMissing`.
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedServiceInstancesItemMissingContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedServiceInstancesItemMissingContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedServiceInstancesItemMissingResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedServiceInstancesItemMissingResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedServiceInstancesItemMissingSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedServiceInstancesItemMissingSurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedServiceInstancesItemMissing {
-    pub capabilities: Vec<String>,
-    pub contracts:
-        Vec<AuthEnvelopesShrinkResponseImpactImpactedServiceInstancesItemMissingContractsItem>,
-    pub resources:
-        Vec<AuthEnvelopesShrinkResponseImpactImpactedServiceInstancesItemMissingResourcesItem>,
-    pub surfaces:
-        Vec<AuthEnvelopesShrinkResponseImpactImpactedServiceInstancesItemMissingSurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedServiceInstancesItem {
-    pub missing: AuthEnvelopesShrinkResponseImpactImpactedServiceInstancesItemMissing,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedSessionsItem`.
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedSessionsItemMissing`.
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedSessionsItemMissingContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedSessionsItemMissingContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedSessionsItemMissingResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedSessionsItemMissingResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactImpactedSessionsItemMissingSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedSessionsItemMissingSurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedSessionsItemMissing {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopesShrinkResponseImpactImpactedSessionsItemMissingContractsItem>,
-    pub resources: Vec<AuthEnvelopesShrinkResponseImpactImpactedSessionsItemMissingResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopesShrinkResponseImpactImpactedSessionsItemMissingSurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactImpactedSessionsItem {
-    #[serde(rename = "contractDigest")]
-    pub contract_digest: Value,
-    #[serde(rename = "contractId")]
-    pub contract_id: Value,
-    pub missing: AuthEnvelopesShrinkResponseImpactImpactedSessionsItemMissing,
-    #[serde(rename = "sessionKey")]
-    pub session_key: String,
-    pub r#type: Value,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactOrphanedResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactOrphanedResourcesItem {
-    pub alias: String,
-    pub kind: String,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactRemoved`.
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactRemovedContractsItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactRemovedContractsItem {
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactRemovedResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactRemovedResourcesItem {
-    pub alias: String,
-    pub kind: String,
-    pub required: bool,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseImpactRemovedSurfacesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactRemovedSurfacesItem {
-    pub action: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-    pub kind: String,
-    pub name: String,
-    pub required: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpactRemoved {
-    pub capabilities: Vec<String>,
-    pub contracts: Vec<AuthEnvelopesShrinkResponseImpactRemovedContractsItem>,
-    pub resources: Vec<AuthEnvelopesShrinkResponseImpactRemovedResourcesItem>,
-    pub surfaces: Vec<AuthEnvelopesShrinkResponseImpactRemovedSurfacesItem>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseImpact {
-    #[serde(rename = "impactedDeviceSessions")]
-    pub impacted_device_sessions: Vec<AuthEnvelopesShrinkResponseImpactImpactedDeviceSessionsItem>,
-    #[serde(rename = "impactedIdentityEnvelopes")]
-    pub impacted_identity_envelopes:
-        Vec<AuthEnvelopesShrinkResponseImpactImpactedIdentityEnvelopesItem>,
-    #[serde(rename = "impactedPendingRequests")]
-    pub impacted_pending_requests:
-        Vec<AuthEnvelopesShrinkResponseImpactImpactedPendingRequestsItem>,
-    #[serde(rename = "impactedServiceInstances")]
-    pub impacted_service_instances:
-        Vec<AuthEnvelopesShrinkResponseImpactImpactedServiceInstancesItem>,
-    #[serde(rename = "impactedSessions")]
-    pub impacted_sessions: Vec<AuthEnvelopesShrinkResponseImpactImpactedSessionsItem>,
-    #[serde(rename = "orphanedResources")]
-    pub orphaned_resources: Vec<AuthEnvelopesShrinkResponseImpactOrphanedResourcesItem>,
-    pub removed: AuthEnvelopesShrinkResponseImpactRemoved,
-}
-/// Generated schema type `AuthEnvelopesShrinkResponseRetainedResourcesItem`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponseRetainedResourcesItem {
-    pub alias: String,
-    pub kind: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthEnvelopesShrinkResponse {
-    pub envelope: AuthEnvelopesShrinkResponseEnvelope,
-    pub impact: AuthEnvelopesShrinkResponseImpact,
-    #[serde(rename = "retainedResources")]
-    pub retained_resources: Vec<AuthEnvelopesShrinkResponseRetainedResourcesItem>,
-}
 /// Generated schema type `AuthHealthResponse`.
 /// Generated schema type `AuthHealthResponseChecksItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -2415,52 +1152,6 @@ pub struct AuthHealthResponse {
     pub service: String,
     pub status: String,
     pub timestamp: String,
-}
-/// Generated schema type `AuthIdentitiesGrantsListRequest`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthIdentitiesGrantsListRequest {
-    pub limit: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub offset: Option<i64>,
-}
-/// Generated schema type `AuthIdentitiesGrantsListResponse`.
-/// Generated schema type `AuthIdentitiesGrantsListResponseEntriesItem`.
-/// Generated schema type `AuthIdentitiesGrantsListResponseEntriesItemContractEvidence`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthIdentitiesGrantsListResponseEntriesItemContractEvidence {
-    #[serde(rename = "contractDigest")]
-    pub contract_digest: String,
-    #[serde(rename = "contractId")]
-    pub contract_id: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthIdentitiesGrantsListResponseEntriesItem {
-    pub capabilities: Vec<String>,
-    #[serde(rename = "contractEvidence")]
-    pub contract_evidence: AuthIdentitiesGrantsListResponseEntriesItemContractEvidence,
-    pub description: String,
-    #[serde(rename = "displayName")]
-    pub display_name: String,
-    #[serde(rename = "grantedAt")]
-    pub granted_at: String,
-    #[serde(rename = "identityAnchor")]
-    pub identity_anchor: Value,
-    #[serde(rename = "identityEnvelopeId")]
-    pub identity_envelope_id: String,
-    #[serde(rename = "participantKind")]
-    pub participant_kind: String,
-    #[serde(rename = "updatedAt")]
-    pub updated_at: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthIdentitiesGrantsListResponse {
-    pub count: i64,
-    pub entries: Vec<AuthIdentitiesGrantsListResponseEntriesItem>,
-    pub limit: i64,
-    #[serde(rename = "nextOffset")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next_offset: Option<i64>,
-    pub offset: i64,
 }
 /// Generated schema type `AuthIdentitiesListRequest`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -2503,8 +1194,8 @@ pub struct AuthIdentitiesListResponseEntriesItem {
     pub display_name: String,
     #[serde(rename = "identityAnchor")]
     pub identity_anchor: Value,
-    #[serde(rename = "identityEnvelopeId")]
-    pub identity_envelope_id: String,
+    #[serde(rename = "identityGrantId")]
+    pub identity_grant_id: String,
     #[serde(rename = "participantKind")]
     pub participant_kind: String,
     #[serde(rename = "updatedAt")]
@@ -2521,17 +1212,65 @@ pub struct AuthIdentitiesListResponse {
     pub next_offset: Option<i64>,
     pub offset: i64,
 }
-/// Generated schema type `AuthIdentityEnvelopesRevokeRequest`.
+/// Generated schema type `AuthIdentityGrantsListRequest`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthIdentityEnvelopesRevokeRequest {
-    #[serde(rename = "identityEnvelopeId")]
-    pub identity_envelope_id: String,
+pub struct AuthIdentityGrantsListRequest {
+    pub limit: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
 }
-/// Generated schema type `AuthIdentityEnvelopesRevokeResponse`.
+/// Generated schema type `AuthIdentityGrantsListResponse`.
+/// Generated schema type `AuthIdentityGrantsListResponseEntriesItem`.
+/// Generated schema type `AuthIdentityGrantsListResponseEntriesItemContractEvidence`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthIdentityEnvelopesRevokeResponse {
+pub struct AuthIdentityGrantsListResponseEntriesItemContractEvidence {
+    #[serde(rename = "contractDigest")]
+    pub contract_digest: String,
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthIdentityGrantsListResponseEntriesItem {
+    pub capabilities: Vec<String>,
+    #[serde(rename = "contractEvidence")]
+    pub contract_evidence: AuthIdentityGrantsListResponseEntriesItemContractEvidence,
+    pub description: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    #[serde(rename = "grantedAt")]
+    pub granted_at: String,
+    #[serde(rename = "identityAnchor")]
+    pub identity_anchor: Value,
+    #[serde(rename = "identityGrantId")]
+    pub identity_grant_id: String,
+    #[serde(rename = "participantKind")]
+    pub participant_kind: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthIdentityGrantsListResponse {
+    pub count: i64,
+    pub entries: Vec<AuthIdentityGrantsListResponseEntriesItem>,
+    pub limit: i64,
+    #[serde(rename = "nextOffset")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_offset: Option<i64>,
+    pub offset: i64,
+}
+/// Generated schema type `AuthIdentityGrantsRevokeRequest`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthIdentityGrantsRevokeRequest {
+    #[serde(rename = "identityGrantId")]
+    pub identity_grant_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+}
+/// Generated schema type `AuthIdentityGrantsRevokeResponse`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthIdentityGrantsRevokeResponse {
     pub success: bool,
 }
 /// Generated schema type `AuthPortalsGetRequest`.

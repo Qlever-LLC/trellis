@@ -9,20 +9,13 @@ import {
   isErr,
   Result,
 } from "@qlever-llc/result";
-import type { NatsConnection } from "@nats-io/nats-core";
 import { AuthRequestsValidateResponseSchema } from "@qlever-llc/trellis/auth";
-import {
-  createNatsResourcePurgeManager,
-  type PurgeableContractResourceBindings,
-  purgeContractResourceBindings,
-} from "../../catalog/resources.ts";
+import { ulid } from "ulid";
 
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import {
   type Connection,
-  type DeploymentEnvelope,
-  type DeploymentResourceBinding,
-  type EnvelopeBoundary,
+  type DeploymentAuthority,
   ServiceInstanceSchema,
 } from "../schemas.ts";
 import type {
@@ -47,13 +40,6 @@ type RpcUser =
     typeof AuthRequestsValidateResponseSchema
   >["caller"]
   & AdminCaller;
-
-const EMPTY_BOUNDARY: EnvelopeBoundary = {
-  contracts: [],
-  surfaces: [],
-  capabilities: [],
-  resources: [],
-};
 
 type ServiceDeploymentStorage = {
   get(deploymentId: string): Promise<ServiceDeployment | undefined>;
@@ -100,21 +86,23 @@ type RuntimeKickDeps = {
       Pick<SqlSessionRepository, "listEntries" | "listEntriesByContractDigests">
     >;
 };
-type DeploymentResourceBindingStorage = {
-  listByDeployment(deploymentId: string): Promise<DeploymentResourceBinding[]>;
-};
 type ActiveCatalogValidator = (validationOpts: {
   extraActiveDigests?: Iterable<string>;
   stagedServiceDeployments?: Iterable<ServiceDeployment>;
   stagedServiceInstances?: Iterable<ServiceInstance>;
-  stagedDeploymentEnvelopes?: Iterable<DeploymentEnvelope>;
 }) => Promise<unknown>;
 type ActiveContractsRefresher = (
   validationOpts?: Parameters<ActiveCatalogValidator>[0],
 ) => Promise<void>;
-type DeploymentEnvelopeStorage = {
-  get(deploymentId: string): Promise<DeploymentEnvelope | undefined>;
-  put(record: DeploymentEnvelope): Promise<void>;
+type DeploymentAuthorityStorage = {
+  get(deploymentId: string): Promise<DeploymentAuthority | undefined>;
+  put(record: DeploymentAuthority): Promise<void>;
+};
+type AuthorityReconciler = {
+  reconcileDeployment(
+    deploymentId: string,
+    opts?: { desiredVersion?: string },
+  ): Promise<unknown>;
 };
 
 export type ServiceAdminRpcDeps = {
@@ -123,7 +111,7 @@ export type ServiceAdminRpcDeps = {
     & Partial<Pick<AuthRuntimeDeps["logger"], "warn">>;
   serviceDeploymentStorage: ServiceDeploymentStorage;
   serviceInstanceStorage: ServiceInstanceStorage;
-  deploymentEnvelopeStorage?: DeploymentEnvelopeStorage;
+  deploymentAuthorityStorage?: DeploymentAuthorityStorage;
 };
 
 type KVLike<V> = {
@@ -201,41 +189,88 @@ async function validateActiveCatalog(
   }
 }
 
-async function setDeploymentEnvelopeDisabled(args: {
-  storage: DeploymentEnvelopeStorage;
+function emptyDeploymentAuthority(args: {
   deploymentId: string;
-  disabled: boolean;
+  kind: DeploymentAuthority["kind"];
+  disabled?: boolean;
   now?: string;
-}): Promise<DeploymentEnvelope> {
-  const envelope = await args.storage.get(args.deploymentId);
-  if (!envelope) throw new Error("deployment envelope not found");
-  if (envelope.disabled === args.disabled) return envelope;
-  await args.storage.put({
-    ...envelope,
-    disabled: args.disabled,
-    updatedAt: args.now ?? new Date().toISOString(),
-  });
-  return envelope;
+}): DeploymentAuthority {
+  const now = args.now ?? new Date().toISOString();
+  return {
+    deploymentId: args.deploymentId,
+    kind: args.kind,
+    disabled: args.disabled ?? false,
+    desiredState: { needs: [], capabilities: [], resources: [], surfaces: [] },
+    version: ulid(),
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
-async function setDeploymentEnvelopeDisabledIfPresent(args: {
-  storage: DeploymentEnvelopeStorage;
+async function setDeploymentAuthorityDisabled(args: {
+  storage: DeploymentAuthorityStorage;
   deploymentId: string;
   disabled: boolean;
   now?: string;
-}): Promise<void> {
-  let envelope: DeploymentEnvelope | undefined;
-  try {
-    envelope = await args.storage.get(args.deploymentId);
-  } catch {
-    return;
-  }
-  if (!envelope || envelope.disabled === args.disabled) return;
-  await args.storage.put({
-    ...envelope,
+}): Promise<DeploymentAuthority | undefined> {
+  const authority = await args.storage.get(args.deploymentId);
+  if (!authority) throw new Error("deployment authority not found");
+  if (authority.disabled === args.disabled) return undefined;
+  const updatedAt = args.now ?? new Date().toISOString();
+  const updatedAuthority = {
+    ...authority,
     disabled: args.disabled,
-    updatedAt: args.now ?? new Date().toISOString(),
-  });
+    version: ulid(),
+    updatedAt,
+  };
+  await args.storage.put(updatedAuthority);
+  return updatedAuthority;
+}
+
+async function setDeploymentAuthorityDisabledIfPresent(args: {
+  storage: DeploymentAuthorityStorage;
+  deploymentId: string;
+  disabled: boolean;
+  now?: string;
+}): Promise<
+  | { previous: DeploymentAuthority; updated: DeploymentAuthority }
+  | undefined
+> {
+  let authority: DeploymentAuthority | undefined;
+  try {
+    authority = await args.storage.get(args.deploymentId);
+  } catch {
+    return undefined;
+  }
+  if (!authority || authority.disabled === args.disabled) return undefined;
+  const updatedAt = args.now ?? new Date().toISOString();
+  const updatedAuthority = {
+    ...authority,
+    disabled: args.disabled,
+    version: ulid(),
+    updatedAt,
+  };
+  await args.storage.put(updatedAuthority);
+  return { previous: authority, updated: updatedAuthority };
+}
+
+async function reconcileDeploymentAuthorityChange(args: {
+  authority: DeploymentAuthority | undefined;
+  authorityReconciler?: AuthorityReconciler;
+  logger?: Partial<Pick<AuthRuntimeDeps["logger"], "warn">>;
+}): Promise<void> {
+  if (!args.authority || !args.authorityReconciler) return;
+  try {
+    await args.authorityReconciler.reconcileDeployment(
+      args.authority.deploymentId,
+      { desiredVersion: args.authority.version },
+    );
+  } catch (error) {
+    args.logger?.warn?.({
+      err: toError(error),
+      deploymentId: args.authority.deploymentId,
+    }, "Deployment authority reconciliation trigger failed");
+  }
 }
 
 async function rollbackRefreshFailure<T>(
@@ -261,59 +296,6 @@ function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-function stringField(
-  value: Record<string, unknown>,
-  field: string,
-): string | undefined {
-  const fieldValue = value[field];
-  return typeof fieldValue === "string" && fieldValue.length > 0
-    ? fieldValue
-    : undefined;
-}
-
-function deploymentResourceBindingsToPurgeable(
-  bindings: DeploymentResourceBinding[],
-): PurgeableContractResourceBindings[] {
-  const purgeable: PurgeableContractResourceBindings = {};
-  for (const binding of bindings) {
-    if (binding.kind === "kv") {
-      const bucket = stringField(binding.binding, "bucket");
-      if (bucket) {
-        purgeable.kv ??= {};
-        purgeable.kv[binding.alias] = {
-          bucket,
-          history: typeof binding.binding.history === "number"
-            ? binding.binding.history
-            : 0,
-          ttlMs: typeof binding.binding.ttlMs === "number"
-            ? binding.binding.ttlMs
-            : 0,
-          ...(typeof binding.binding.maxValueBytes === "number"
-            ? { maxValueBytes: binding.binding.maxValueBytes }
-            : {}),
-        };
-      }
-      continue;
-    }
-    if (binding.kind === "store") {
-      const name = stringField(binding.binding, "name");
-      if (name) {
-        purgeable.store ??= {};
-        purgeable.store[binding.alias] = {
-          name,
-          ttlMs: typeof binding.binding.ttlMs === "number"
-            ? binding.binding.ttlMs
-            : 0,
-          ...(typeof binding.binding.maxTotalBytes === "number"
-            ? { maxTotalBytes: binding.binding.maxTotalBytes }
-            : {}),
-        };
-      }
-    }
-  }
-  return [purgeable];
-}
-
 export function createAuthDeploymentsServiceListHandler(
   serviceDeps: ServiceAdminRpcDeps,
 ) {
@@ -327,7 +309,8 @@ export function createAuthDeploymentsServiceListHandler(
   > => {
     const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
-    const { logger, serviceDeploymentStorage } = serviceDeps;
+    const { logger, serviceDeploymentStorage, deploymentAuthorityStorage } =
+      serviceDeps;
     logger.trace(
       { rpc: "Auth.Deployments.List", kind: "service", caller },
       "RPC request",
@@ -361,7 +344,8 @@ export function createAuthDeploymentsServiceCreateHandler(
   ) => {
     const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
-    const { logger, serviceDeploymentStorage } = serviceDeps;
+    const { logger, serviceDeploymentStorage, deploymentAuthorityStorage } =
+      serviceDeps;
     logger.trace({
       rpc: "Auth.Deployments.Create",
       kind: "service",
@@ -383,22 +367,11 @@ export function createAuthDeploymentsServiceCreateHandler(
 
     try {
       await serviceDeploymentStorage.put(deployment);
-      if (serviceDeps.deploymentEnvelopeStorage) {
-        const existingEnvelope = await serviceDeps.deploymentEnvelopeStorage
-          .get(
-            deployment.deploymentId,
-          );
-        if (!existingEnvelope) {
-          const now = new Date().toISOString();
-          await serviceDeps.deploymentEnvelopeStorage.put({
-            deploymentId: deployment.deploymentId,
-            kind: "service",
-            disabled: false,
-            createdAt: now,
-            updatedAt: now,
-            boundary: EMPTY_BOUNDARY,
-          });
-        }
+      if (deploymentAuthorityStorage) {
+        await deploymentAuthorityStorage.put(emptyDeploymentAuthority({
+          deploymentId: deployment.deploymentId,
+          kind: "service",
+        }));
       }
     } catch (error) {
       await serviceDeploymentStorage.delete(deployment.deploymentId).catch(() =>
@@ -416,9 +389,11 @@ export function createAuthDeploymentsServiceDisableHandler(
     refreshActiveContracts: () => Promise<void>;
     validateActiveCatalog: ActiveCatalogValidator;
     validateActiveCatalogForRemoval?: ActiveCatalogValidator;
+    authorityReconciler?: AuthorityReconciler;
+    logger?: Partial<Pick<AuthRuntimeDeps["logger"], "warn">>;
     serviceDeploymentStorage: ServiceDeploymentStorage;
     serviceInstanceStorage: ServiceInstanceStorage;
-    deploymentEnvelopeStorage: DeploymentEnvelopeStorage;
+    deploymentAuthorityStorage: DeploymentAuthorityStorage;
   } & RuntimeKickDeps,
 ) {
   return async ({ input: req, context: { caller } }: {
@@ -428,7 +403,7 @@ export function createAuthDeploymentsServiceDisableHandler(
     const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
     const {
-      deploymentEnvelopeStorage,
+      deploymentAuthorityStorage,
       serviceDeploymentStorage,
       serviceInstanceStorage,
     } = deps;
@@ -439,52 +414,51 @@ export function createAuthDeploymentsServiceDisableHandler(
       });
     }
     const nextDeployment = { ...deployment, disabled: true };
-    const deploymentEnvelope = await deploymentEnvelopeStorage.get(
+    const deploymentAuthority = await deploymentAuthorityStorage.get(
       req.deploymentId,
     );
-    if (!deploymentEnvelope) {
-      return invalid("/deploymentId", "deployment envelope not found", {
+    if (!deploymentAuthority) {
+      return invalid("/deploymentId", "deployment authority not found", {
         deploymentId: req.deploymentId,
       });
     }
-    const nextDeploymentEnvelope = {
-      ...deploymentEnvelope,
-      disabled: true,
-    };
     const validated = await validateActiveCatalog(
       deps.validateActiveCatalogForRemoval ?? deps.validateActiveCatalog,
       {
         stagedServiceDeployments: [nextDeployment],
-        stagedDeploymentEnvelopes: [nextDeploymentEnvelope],
       },
     );
     if (isErr(validated)) return validated;
+    let updatedAuthority: DeploymentAuthority | undefined;
     try {
       await serviceDeploymentStorage.put(nextDeployment);
-      await setDeploymentEnvelopeDisabled({
-        storage: deploymentEnvelopeStorage,
+      updatedAuthority = await setDeploymentAuthorityDisabled({
+        storage: deploymentAuthorityStorage,
         deploymentId: nextDeployment.deploymentId,
         disabled: true,
+      });
+      const refreshed = await refreshActiveContracts(
+        deps.refreshActiveContracts,
+      );
+      if (isErr(refreshed)) {
+        return await rollbackRefreshFailure<
+          { deployment: typeof nextDeployment }
+        >(
+          refreshed.error,
+          async () => {
+            await serviceDeploymentStorage.put(deployment);
+            await deploymentAuthorityStorage.put(deploymentAuthority);
+          },
+        );
+      }
+      await reconcileDeploymentAuthorityChange({
+        authority: updatedAuthority,
+        authorityReconciler: deps.authorityReconciler,
+        logger: deps.logger,
       });
     } catch (error) {
       await serviceDeploymentStorage.put(deployment).catch(() => undefined);
       return Result.err(new UnexpectedError({ cause: toError(error) }));
-    }
-    const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
-    if (isErr(refreshed)) {
-      return await rollbackRefreshFailure<
-        { deployment: typeof nextDeployment }
-      >(
-        refreshed.error,
-        async () => {
-          await serviceDeploymentStorage.put(deployment);
-          await setDeploymentEnvelopeDisabled({
-            storage: deploymentEnvelopeStorage,
-            deploymentId: deployment.deploymentId,
-            disabled: deployment.disabled,
-          });
-        },
-      );
     }
     for (
       const instance of await instancesForDeployment(
@@ -507,7 +481,9 @@ export function createAuthDeploymentsServiceEnableHandler(deps: {
   refreshActiveContracts: () => Promise<void>;
   validateActiveCatalog: ActiveCatalogValidator;
   serviceDeploymentStorage: ServiceDeploymentStorage;
-  deploymentEnvelopeStorage: DeploymentEnvelopeStorage;
+  deploymentAuthorityStorage: DeploymentAuthorityStorage;
+  authorityReconciler?: AuthorityReconciler;
+  logger?: Partial<Pick<AuthRuntimeDeps["logger"], "warn">>;
 }) {
   return async (
     { input: req, context: { caller } }: {
@@ -522,7 +498,7 @@ export function createAuthDeploymentsServiceEnableHandler(deps: {
   > => {
     const authorized = requireAdmin(caller);
     if (authorized.isErr()) return authorized;
-    const { deploymentEnvelopeStorage, serviceDeploymentStorage } = deps;
+    const { deploymentAuthorityStorage, serviceDeploymentStorage } = deps;
     const deployment = await serviceDeploymentStorage.get(req.deploymentId);
     if (!deployment) {
       return invalid("/deploymentId", "service deployment not found", {
@@ -530,47 +506,45 @@ export function createAuthDeploymentsServiceEnableHandler(deps: {
       });
     }
     const nextDeployment = { ...deployment, disabled: false };
-    const deploymentEnvelope = await deploymentEnvelopeStorage.get(
+    const deploymentAuthority = await deploymentAuthorityStorage.get(
       req.deploymentId,
     );
-    if (!deploymentEnvelope) {
-      return invalid("/deploymentId", "deployment envelope not found", {
+    if (!deploymentAuthority) {
+      return invalid("/deploymentId", "deployment authority not found", {
         deploymentId: req.deploymentId,
       });
     }
-    const nextDeploymentEnvelope = {
-      ...deploymentEnvelope,
-      disabled: false,
-    };
     const validated = await validateActiveCatalog(deps.validateActiveCatalog, {
       stagedServiceDeployments: [nextDeployment],
-      stagedDeploymentEnvelopes: [nextDeploymentEnvelope],
     });
     if (isErr(validated)) return validated;
     try {
       await serviceDeploymentStorage.put(nextDeployment);
-      await setDeploymentEnvelopeDisabled({
-        storage: deploymentEnvelopeStorage,
+      const updatedAuthority = await setDeploymentAuthorityDisabled({
+        storage: deploymentAuthorityStorage,
         deploymentId: nextDeployment.deploymentId,
         disabled: false,
+      });
+      const refreshed = await refreshActiveContracts(
+        deps.refreshActiveContracts,
+      );
+      if (isErr(refreshed)) {
+        return await rollbackRefreshFailure(
+          refreshed.error,
+          async () => {
+            await serviceDeploymentStorage.put(deployment);
+            await deploymentAuthorityStorage.put(deploymentAuthority);
+          },
+        );
+      }
+      await reconcileDeploymentAuthorityChange({
+        authority: updatedAuthority,
+        authorityReconciler: deps.authorityReconciler,
+        logger: deps.logger,
       });
     } catch (error) {
       await serviceDeploymentStorage.put(deployment).catch(() => undefined);
       return Result.err(new UnexpectedError({ cause: toError(error) }));
-    }
-    const refreshed = await refreshActiveContracts(deps.refreshActiveContracts);
-    if (isErr(refreshed)) {
-      return await rollbackRefreshFailure(
-        refreshed.error,
-        async () => {
-          await serviceDeploymentStorage.put(deployment);
-          await setDeploymentEnvelopeDisabled({
-            storage: deploymentEnvelopeStorage,
-            deploymentId: deployment.deploymentId,
-            disabled: deployment.disabled,
-          });
-        },
-      );
     }
     return Result.ok({ deployment: nextDeployment });
   };
@@ -585,16 +559,12 @@ export function createAuthDeploymentsServiceRemoveHandler(
       validateActiveCatalogForRemoval?: ActiveCatalogValidator;
       serviceDeploymentStorage: ServiceDeploymentStorage;
       serviceInstanceStorage: ServiceInstanceStorage;
-      deploymentEnvelopeStorage?: DeploymentEnvelopeStorage;
-      nats?: NatsConnection;
-      deploymentResourceBindingStorage?: DeploymentResourceBindingStorage;
+      deploymentAuthorityStorage: DeploymentAuthorityStorage;
+      authorityReconciler?: AuthorityReconciler;
       logger?: {
         trace?: AuthRuntimeDeps["logger"]["trace"];
         warn?: AuthRuntimeDeps["logger"]["warn"];
       };
-      purgeResourceBindings?: (
-        bindings: Iterable<PurgeableContractResourceBindings>,
-      ) => Promise<void>;
     }
     & RuntimeKickDeps
     & {
@@ -621,6 +591,13 @@ export function createAuthDeploymentsServiceRemoveHandler(
       return invalid(
         "/purgeResources",
         "resource purge requires cascade removal",
+        { deploymentId: req.deploymentId },
+      );
+    }
+    if (req.purgeResources === true) {
+      return invalid(
+        "/purgeResources",
+        "direct physical resource purge is no longer supported by service removal",
         { deploymentId: req.deploymentId },
       );
     }
@@ -673,50 +650,16 @@ export function createAuthDeploymentsServiceRemoveHandler(
         "Unused contract purge no longer applies to offer-backed runtime state and was skipped",
       );
     }
+    let previousAuthority: DeploymentAuthority | undefined;
     const restoreDeletedRecords = async () => {
       await serviceDeploymentStorage.put(existing);
-      if (deps.deploymentEnvelopeStorage) {
-        await setDeploymentEnvelopeDisabledIfPresent({
-          storage: deps.deploymentEnvelopeStorage,
-          deploymentId: existing.deploymentId,
-          disabled: existing.disabled,
-        });
+      if (previousAuthority) {
+        await deps.deploymentAuthorityStorage.put(previousAuthority);
       }
       for (const instance of instances) {
         await serviceInstanceStorage.put(instance);
       }
     };
-    if (req.purgeResources === true) {
-      if (!deps.deploymentResourceBindingStorage) {
-        return Result.err(
-          new UnexpectedError({
-            cause: new Error(
-              "resource purge requires deploymentResourceBindingStorage",
-            ),
-          }),
-        );
-      }
-      const bindings = deploymentResourceBindingsToPurgeable(
-        await deps.deploymentResourceBindingStorage.listByDeployment(
-          req.deploymentId,
-        ),
-      );
-      try {
-        if (deps.purgeResourceBindings) {
-          await deps.purgeResourceBindings(bindings);
-        } else {
-          if (!deps.nats) {
-            throw new Error("NATS connection is required to purge resources");
-          }
-          await purgeContractResourceBindings(
-            bindings,
-            createNatsResourcePurgeManager(deps.nats),
-          );
-        }
-      } catch (error) {
-        return Result.err(new UnexpectedError({ cause: toError(error) }));
-      }
-    }
     try {
       for (const instance of instances) {
         await kickInstanceRuntimeAccess({
@@ -727,27 +670,17 @@ export function createAuthDeploymentsServiceRemoveHandler(
         });
       }
     } catch (error) {
-      if (req.purgeResources === true) {
-        void error;
-        for (const instance of instances) {
-          try {
-            await deps.sessionStorage.deleteByInstanceKey(instance.instanceKey);
-          } catch {
-            // Resource purge already succeeded; session deletion is best-effort.
-          }
-        }
-      } else {
-        return Result.err(new UnexpectedError({ cause: toError(error) }));
-      }
+      return Result.err(new UnexpectedError({ cause: toError(error) }));
     }
+    let updatedAuthority: DeploymentAuthority | undefined;
     try {
-      if (deps.deploymentEnvelopeStorage) {
-        await setDeploymentEnvelopeDisabledIfPresent({
-          storage: deps.deploymentEnvelopeStorage,
-          deploymentId: req.deploymentId,
-          disabled: true,
-        });
-      }
+      const authorityChange = await setDeploymentAuthorityDisabledIfPresent({
+        storage: deps.deploymentAuthorityStorage,
+        deploymentId: req.deploymentId,
+        disabled: true,
+      });
+      previousAuthority = authorityChange?.previous;
+      updatedAuthority = authorityChange?.updated;
       for (const instance of instances) {
         await serviceInstanceStorage.delete(instance.instanceId);
       }
@@ -776,6 +709,11 @@ export function createAuthDeploymentsServiceRemoveHandler(
         restoreDeletedRecords,
       );
     }
+    await reconcileDeploymentAuthorityChange({
+      authority: updatedAuthority,
+      authorityReconciler: deps.authorityReconciler,
+      logger: deps.logger,
+    });
     return Result.ok({ success: true });
   };
 }

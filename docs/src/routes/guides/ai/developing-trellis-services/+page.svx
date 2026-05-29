@@ -10,7 +10,7 @@ Use the raw files as stable, pasteable references:
 ## When to use each file
 
 Use `llms.txt` as a small bootstrap document for every Trellis task. It tells an
-agent to use runtime authority and envelope wording, prefer generated surfaces,
+agent to use deployment authority and identity authority wording, prefer generated surfaces,
 and avoid stale service APIs.
 
 Use `llms-full.txt` when the agent will change a contract, generated SDK usage,
@@ -82,10 +82,16 @@ when event enqueue must commit with service-local durable state:
 
 ```ts
 import {
-  dispatchOutbox,
+  OutboxDispatcher,
   SqlOutboxRepository,
   type SqlExecutor,
 } from "@qlever-llc/trellis/service";
+
+const outboxRepository = new SqlOutboxRepository(dbExecutor, "postgres");
+// `outboundClient` is the publisher used by the dispatch worker.
+const outboxDispatcher = new OutboxDispatcher(outboxRepository, outboundClient, {
+  idleRetryMs: 30_000,
+});
 
 const prepared = client.event.orders.shipped.prepare({
   orderId: input.orderId,
@@ -101,8 +107,11 @@ await db.transaction(async (tx) => {
   await outbox.enqueue(prepared);
 });
 
-await dispatchOutbox(outboxRepository, client);
+outboxDispatcher.notify(); // after commit; debounced and single-flight
 ```
+
+Do not signal from inside the transaction. Notify only after commit so the
+dispatcher cannot publish work that later rolls back.
 
 Use `SqlInboxRepository` only for handlers that are not naturally idempotent. Use
 `NatsKvOutboxRepository` and `NatsKvInboxRepository` only when NATS KV durability

@@ -61,6 +61,8 @@ export {
   MemoryOutboxRepository,
   NatsKvInboxRepository,
   NatsKvOutboxRepository,
+  OutboxDispatcher,
+  type OutboxDispatcherOptions,
   type OutboxDispatchResult,
   type OutboxKvEntry,
   type OutboxKvStore,

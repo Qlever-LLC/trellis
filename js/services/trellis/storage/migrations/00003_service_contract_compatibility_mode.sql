@@ -1,2 +1,1 @@
-ALTER TABLE `service_deployments`
-ADD `contract_compatibility_mode` text NOT NULL DEFAULT 'strict';
+SELECT 1;

@@ -13,12 +13,12 @@ https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt
 
 - Trellis services are contract-driven participants. Contracts declare the public
   surfaces a participant owns and the external surfaces it uses.
-- Runtime authority is envelope-based. Identity envelopes and deployment
-  envelopes are the authority presented to the runtime. Do not describe current
-  service development with older catalog-update language.
+- Runtime authority comes from deployment authority and identity authority. Do
+  not describe current service development with older catalog-update or
+  legacy authority terminology.
 - NATS is the transport boundary. Application code should use generated Trellis
   APIs rather than hand-built subjects.
-- The runtime owns authentication, authorization, envelope validation,
+- The runtime owns authentication, authorization, authority validation,
   deployment approval, resource bindings, request context, and wire validation.
 - Use operations for caller-visible async workflows. Use jobs for service-private
   background work.
@@ -33,8 +33,8 @@ https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt
 3. Declare cross-contract dependencies under `uses` with the smallest required
    surface selection.
 4. Regenerate SDKs and contract artifacts with the repository's Trellis tooling.
-5. Update the deployment envelope or local install metadata through the normal
-   Trellis CLI/runtime flow for the service.
+5. Review and update deployment authority or local install metadata through the
+   normal Trellis CLI/runtime flow for the service.
 6. Compile and test the service against the generated APIs. Treat generated API
    errors as contract drift, not as places to add stringly typed shortcuts.
 
@@ -364,8 +364,8 @@ repo.
 
 ## Common mistakes to avoid
 
-- Referring to old catalog-update behavior instead of runtime authority and
-  envelopes.
+- Referring to old catalog-update behavior instead of deployment authority and
+  identity authority.
 - Hand-building transport subjects, envelopes, headers, or JSON payloads instead
   of using generated Trellis APIs.
 - Adding compatibility shims before confirming that compatibility is required.

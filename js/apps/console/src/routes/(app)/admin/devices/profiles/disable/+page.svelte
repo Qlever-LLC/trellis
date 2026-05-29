@@ -122,7 +122,7 @@
           <div class="rounded-box border border-base-300 bg-base-200/40 p-3 text-sm">
             <div class="trellis-identifier font-medium">{selectedDeployment.deploymentId}</div>
             <div class="text-base-content/60">Review mode: {selectedDeployment.reviewMode ?? "none"}</div>
-            <div class="text-base-content/60">Authority: review the deployment envelope boundary.</div>
+            <div class="text-base-content/60">Authority: review the deployment authority desired state.</div>
           </div>
         {/if}
 

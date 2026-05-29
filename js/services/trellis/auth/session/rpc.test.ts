@@ -15,11 +15,7 @@ import {
 } from "./rpc.ts";
 import { connectionKey } from "./connections.ts";
 import { createAuthSessionsRevokeHandler } from "./revoke.ts";
-import type {
-  IdentityEnvelopeRecord,
-  Session,
-  UserSession,
-} from "../schemas.ts";
+import type { IdentityGrantRecord, Session, UserSession } from "../schemas.ts";
 import type { UserProjectionEntry } from "../schemas.ts";
 import {
   initializeTrellisStorageSchema,
@@ -27,7 +23,7 @@ import {
 } from "../../storage/db.ts";
 import type { TrellisStorage } from "../../storage/db.ts";
 import {
-  SqlIdentityEnvelopeRepository,
+  SqlIdentityGrantRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
 
@@ -199,32 +195,32 @@ class InMemoryUserStorage {
 }
 
 class InMemoryApprovalStorage {
-  #store = new Map<string, IdentityEnvelopeRecord>();
+  #store = new Map<string, IdentityGrantRecord>();
 
-  seed(record: IdentityEnvelopeRecord): void {
-    this.#store.set(record.identityEnvelopeId, record);
+  seed(record: IdentityGrantRecord): void {
+    this.#store.set(record.identityGrantId, record);
   }
 
   async get(
-    identityEnvelopeId: string,
-  ): Promise<IdentityEnvelopeRecord | undefined> {
-    return this.#store.get(identityEnvelopeId);
+    identityGrantId: string,
+  ): Promise<IdentityGrantRecord | undefined> {
+    return this.#store.get(identityGrantId);
   }
 
-  async delete(identityEnvelopeId: string): Promise<void> {
-    this.#store.delete(identityEnvelopeId);
+  async delete(identityGrantId: string): Promise<void> {
+    this.#store.delete(identityGrantId);
   }
 }
 
 const emptyApprovalStorage = {
-  get: (_identityEnvelopeId: string) => Promise.resolve(undefined),
-  delete: (_identityEnvelopeId: string) => Promise.resolve(),
+  get: (_identityGrantId: string) => Promise.resolve(undefined),
+  delete: (_identityGrantId: string) => Promise.resolve(),
 };
 
 async function withSqlAuthRepositories(
   test: (repos: {
     users: SqlUserProjectionRepository;
-    approvals: SqlIdentityEnvelopeRepository;
+    approvals: SqlIdentityGrantRepository;
   }, storage: TrellisStorage) => Promise<void>,
 ): Promise<void> {
   const dbPath = await Deno.makeTempFile({
@@ -238,7 +234,7 @@ async function withSqlAuthRepositories(
     await initializeTrellisStorageSchema(storage);
     await test({
       users: new SqlUserProjectionRepository(storage.db),
-      approvals: new SqlIdentityEnvelopeRepository(storage.db),
+      approvals: new SqlIdentityGrantRepository(storage.db),
     }, storage);
   } finally {
     storage.client.close();
@@ -1469,7 +1465,8 @@ Deno.test("Auth.Sessions.Revoke cascades agent revocation to the grant and sibli
   > = [];
 
   contractApprovalStorage.seed({
-    identityEnvelopeId: "env-agent",
+    identityGrantId: "env-agent",
+    identityAuthorityId: `${userTrellisId}:github:123`,
     userTrellisId,
     origin: "github",
     id: "123",
@@ -1502,7 +1499,7 @@ Deno.test("Auth.Sessions.Revoke cascades agent revocation to the grant and sibli
     "sk_agent_1",
     testUserSession({
       participantKind: "agent",
-      identityEnvelopeId: "env-agent",
+      identityGrantId: "env-agent",
       contractDigest: "digest-agent",
       contractId: "trellis.agent@v1",
       contractDisplayName: "Trellis Agent",
@@ -1516,7 +1513,7 @@ Deno.test("Auth.Sessions.Revoke cascades agent revocation to the grant and sibli
     "sk_agent_2",
     testUserSession({
       participantKind: "agent",
-      identityEnvelopeId: "env-agent",
+      identityGrantId: "env-agent",
       contractDigest: "digest-agent",
       contractId: "trellis.agent@v1",
       contractDisplayName: "Trellis Agent",
@@ -1676,7 +1673,8 @@ Deno.test("Auth.Sessions.Revoke cascades app revocation to the grant and sibling
   > = [];
 
   contractApprovalStorage.seed({
-    identityEnvelopeId: "env-app",
+    identityGrantId: "env-app",
+    identityAuthorityId: `${userTrellisId}:github:123`,
     userTrellisId,
     origin: "github",
     id: "123",
@@ -1709,7 +1707,7 @@ Deno.test("Auth.Sessions.Revoke cascades app revocation to the grant and sibling
     "sk_app_1",
     testUserSession({
       participantKind: "app",
-      identityEnvelopeId: "env-app",
+      identityGrantId: "env-app",
       contractDigest: "digest-app",
       contractId: "trellis.console@v1",
       contractDisplayName: "Console",
@@ -1723,7 +1721,7 @@ Deno.test("Auth.Sessions.Revoke cascades app revocation to the grant and sibling
     "sk_app_2",
     testUserSession({
       participantKind: "app",
-      identityEnvelopeId: "env-app",
+      identityGrantId: "env-app",
       contractDigest: "digest-app",
       contractId: "trellis.console@v1",
       contractDisplayName: "Console",
@@ -1828,7 +1826,8 @@ Deno.test("Auth.Sessions.Revoke deletes app approvals from SQL", async () => {
   await withSqlAuthRepositories(async ({ approvals }) => {
     const userTrellisId = TEST_USER_ID;
     await approvals.put({
-      identityEnvelopeId: "env-app",
+      identityGrantId: "env-app",
+      identityAuthorityId: `${userTrellisId}:github:123`,
       userTrellisId,
       origin: "github",
       id: "123",
@@ -1865,7 +1864,7 @@ Deno.test("Auth.Sessions.Revoke deletes app approvals from SQL", async () => {
       "sk_app",
       testUserSession({
         participantKind: "app",
-        identityEnvelopeId: "env-app",
+        identityGrantId: "env-app",
         contractDigest: "digest-app",
         contractId: "trellis.console@v1",
         contractDisplayName: "Console",

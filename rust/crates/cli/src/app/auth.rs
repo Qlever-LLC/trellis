@@ -48,13 +48,16 @@ pub(super) async fn whoami(format: OutputFormat) -> miette::Result<()> {
     status_command(format).await
 }
 
-pub(super) async fn approvals(
-    format: OutputFormat,
-    command: ApprovalsCommand,
-) -> miette::Result<()> {
+pub(super) async fn identity(format: OutputFormat, command: IdentityCommand) -> miette::Result<()> {
     match command.command {
-        ApprovalsSubcommand::List(args) => approvals_list_command(format, &args).await,
-        ApprovalsSubcommand::Revoke(args) => approvals_revoke_command(format, &args).await,
+        IdentitySubcommand::Grants(command) => match command.command {
+            IdentityGrantsSubcommand::List(args) => {
+                identity_grants_list_command(format, &args).await
+            }
+            IdentityGrantsSubcommand::Revoke(args) => {
+                identity_grants_revoke_command(format, &args).await
+            }
+        },
     }
 }
 
@@ -544,14 +547,14 @@ async fn status_command(format: OutputFormat) -> miette::Result<()> {
     Ok(())
 }
 
-async fn approvals_list_command(
+async fn identity_grants_list_command(
     format: OutputFormat,
-    args: &ApprovalsListArgs,
+    args: &IdentityGrantsListArgs,
 ) -> miette::Result<()> {
     let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
-    let approvals = auth_client
-        .list_approvals(args.user.as_deref(), args.digest.as_deref())
+    let identity_grants = auth_client
+        .list_identity_grants(args.user.as_deref(), args.digest.as_deref())
         .await
         .into_diagnostic()?;
 
@@ -559,12 +562,15 @@ async fn approvals_list_command(
         output::print_json(&json!({
             "user": args.user,
             "digest": args.digest,
-            "approvals": approvals,
+            "identityGrants": identity_grants,
         }))?;
         return Ok(());
     }
 
-    output::print_info(&format!("matched approvals={}", approvals.len()));
+    output::print_info(&format!(
+        "matched identity grants={}",
+        identity_grants.len()
+    ));
     if let Some(user) = &args.user {
         output::print_info(&format!("user={user}"));
     }
@@ -572,14 +578,14 @@ async fn approvals_list_command(
         output::print_info(&format!("digest={digest}"));
     }
 
-    let rows = approvals
+    let rows = identity_grants
         .into_iter()
         .map(|entry| {
             vec![
-                entry.identity_envelope_id,
-                entry.user,
+                entry.identity_grant_id,
+                entry.participant_kind,
                 entry.display_name,
-                entry.answer,
+                entry.description,
                 entry.contract_evidence.contract_digest,
                 entry.updated_at,
             ]
@@ -589,10 +595,10 @@ async fn approvals_list_command(
         "{}",
         output::table(
             &[
-                "identityEnvelopeId",
-                "user",
+                "identityGrantId",
+                "participant",
                 "app",
-                "answer",
+                "description",
                 "digest",
                 "updated"
             ],
@@ -602,32 +608,32 @@ async fn approvals_list_command(
     Ok(())
 }
 
-async fn approvals_revoke_command(
+async fn identity_grants_revoke_command(
     format: OutputFormat,
-    args: &ApprovalsRevokeArgs,
+    args: &IdentityGrantsRevokeArgs,
 ) -> miette::Result<()> {
     let (_state, connected) = connect_authenticated_cli_client(format).await?;
     let auth_client = authlib::AuthClient::new(&connected);
     let success = auth_client
-        .revoke_approval(&args.identity_envelope_id, args.user.as_deref())
+        .revoke_identity_grant(&args.identity_grant_id, args.user.as_deref())
         .await
         .into_diagnostic()?;
 
     if output::is_json(format) {
         output::print_json(&json!({
             "success": success,
-            "identityEnvelopeId": args.identity_envelope_id,
+            "identityGrantId": args.identity_grant_id,
             "user": args.user,
         }))?;
         return Ok(());
     }
 
     if success {
-        output::print_success("revoked approval");
+        output::print_success("revoked identity grant");
     } else {
-        output::print_info("no matching approval found");
+        output::print_info("no matching identity grant found");
     }
-    output::print_info(&format!("identityEnvelopeId={}", args.identity_envelope_id));
+    output::print_info(&format!("identityGrantId={}", args.identity_grant_id));
     if let Some(user) = &args.user {
         output::print_info(&format!("user={user}"));
     }

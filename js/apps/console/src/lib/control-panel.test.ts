@@ -55,7 +55,6 @@ Deno.test("control panel keeps admin navigation focused on active sections", () 
   ok(!labels.includes("API Catalog"));
   ok(labels.includes("Account"));
   ok(!labels.includes("Settings"));
-  ok(!labels.includes("Envelopes"));
   ok(labels.includes("Grants"));
   ok(!labels.includes("Deployments"));
   ok(labels.includes("Devices"));
@@ -64,7 +63,6 @@ Deno.test("control panel keeps admin navigation focused on active sections", () 
   ok(hrefs.includes("/admin/devices"));
   ok(!hrefs.map(String).includes("/admin/authority"));
   ok(!hrefs.map(String).includes("/admin/deployments"));
-  ok(!hrefs.map(String).includes("/admin/envelopes"));
   ok(hrefs.includes("/admin/grants"));
   ok(!hrefs.map(String).includes("/admin/app-grants"));
   ok(!hrefs.map(String).includes("/admin/services/instances"));
@@ -77,10 +75,6 @@ Deno.test("control panel keeps admin navigation focused on active sections", () 
 
 Deno.test("control panel titles cover new admin routes", () => {
   deepEqual(getPageTitle("/admin/services"), "Services");
-  deepEqual(
-    getPageTitle("/admin/services/repair"),
-    "Forced Contract Update",
-  );
   deepEqual(getPageTitle("/admin/devices"), "Devices");
   deepEqual(getPageTitle("/admin/jobs"), "Jobs");
   deepEqual(getPageTitle("/admin/grants"), "Grants");

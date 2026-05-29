@@ -151,6 +151,12 @@ Rules:
   than generic repository abstractions
 - app-generated ULID row primary keys are used for SQL table identity; public
   and domain identifiers remain separate columns
+- when a service uses an outbox to couple event publication to local durable
+  state, commit the local state and outbox row in the same transaction, then
+  signal any process-local dispatcher only after the transaction commits
+- outbox dispatcher wakeups should be debounced and single-flight, but they are
+  not the source of durability; services should retain explicit dispatch or
+  recovery scans for missed signals and restarts
 
 ### Minimal installable service example
 
@@ -266,45 +272,53 @@ Behavior:
 - if Trellis does not know the requested digest, service bootstrap asks the
   runtime for the full manifest; the runtime retries with the canonical contract
   emitted by `defineServiceContract(...)` or the generated SDK module
-- service bootstrap validates and analyzes the presented manifest before any
-  envelope decision; invalid manifests fail immediately, while unknown required
-  `uses` dependencies produce targeted dependency blockers unless a latest
-  approved dependency fallback supplies the reviewed dependency shape. Bootstrap
-  does not derive authority from historical manifests.
+- service bootstrap validates and analyzes the presented manifest as a contract
+  proposal; invalid manifests fail immediately, while unknown required `uses`
+  dependencies produce targeted dependency blockers unless deployment authority
+  supplies an accepted dependency shape. Bootstrap does not derive authority
+  from historical manifests.
 - optional `uses` dependencies that are missing or whose requested surfaces are
   missing do not fail bootstrap planning and do not grant runtime authority;
-  when they later resolve as active, they require normal envelope expansion and
-  approval before a fresh reconnect receives that authority
-- if the deployment envelope does not cover the validated contract boundary,
-  bootstrap records the requested delta, creates a pending envelope expansion
-  request for that delta, and asks the service runtime to retry until an admin
-  approves or rejects the request
-- service-originated pending envelope expansion requests are deduplicated while
-  the requester stays connected and are removed if that requester disconnects
+  when they later resolve as active, they require an authority update or
+  authority migration before a fresh reconnect receives that authority
+- Trellis derives requested needs from the contract proposal and compares them
+  to deployment authority desired state
+- if desired authority is missing, bootstrap records an authority update or
+  authority migration proposal for the delta and asks the service runtime to
+  wait and retry until an admin accepts or rejects the proposal
+- service-originated pending authority proposals are durable and deduplicated by
+  the requested boundary so repeated starts with the same missing boundary
+  coalesce into one pending authority update or migration
 - if the service presents a different digest for the same `contractId` as the
-  deployment's latest accepted offer, Trellis validates same-lineage
-  compatibility in `strict` mode; incompatible replacement returns
-  `contract_compatibility_violation`. Development deployments may opt into
-  `mutable-dev` compatibility to skip this check for unreleased iteration.
-- compatibility mode is separate from envelope expansion and does not retain
-  expired offers or history rows as quarantine, repair input, or authority.
-- once the envelope fits, bootstrap verifies that required `uses` dependencies
-  resolve against effective active contracts or the latest approved dependency
-  fallback and the effective envelope. If a required dependency has neither,
+  deployment's latest accepted digest or offer, Trellis validates same-lineage
+  compatibility. Incompatible replacement is an authority migration. In `strict`
+  mode, bootstrap records a pending migration plan and asks the service runtime
+  to wait and retry until an admin accepts or rejects it. In `mutable-dev` mode,
+  Trellis records and auto-accepts the same migration plan for unreleased
+  iteration, then continues through normal desired-state and materialization
+  checks.
+- compatibility mode controls whether an incompatible same-contract migration
+  requires manual approval or is auto-approved for development; it does not make
+  contract history an authority source
+- once deployment authority desired state covers the requested needs, bootstrap
+  verifies that required `uses` dependencies resolve against effective active
+  contracts or accepted dependency shapes. If a required dependency has neither,
   bootstrap returns a dependency-not-active blocker and the runtime waits and
   retries.
-- if a service presents a contract that no longer fits the enabled deployment
-  envelope, bootstrap returns `contract_changed` rather than refreshing an old
+- if desired authority exists but materialization is incomplete, bootstrap
+  returns reconciliation pending and the runtime waits and retries; bootstrap
+  never provisions resources
+- if a service presents a contract that no longer fits enabled deployment
+  authority, bootstrap returns `contract_changed` rather than refreshing an old
   offer or issuing credentials for stale authority
-- after the dependency closure is active and all approved resource bindings are
-  present, bootstrap accepts or refreshes the implementation offer, persists
-  instance runtime state, and returns transport and binding details to the
-  service runtime
+- after the dependency closure is active or accepted and all required
+  materialized resource bindings are present, bootstrap accepts or refreshes the
+  implementation offer, persists instance runtime state, and returns transport
+  and binding details to the service runtime
 - all declared `resources.kv`, `resources.store`, top-level `jobs`, and
-  top-level `eventConsumers` bindings are approval-time resources. A service
-  must not become ready with a silently skipped declared resource;
-  `required:
-  false` only makes the generated service handle optional.
+  top-level `eventConsumers` bindings are materialized authority resources. A
+  service must not become ready with a silently skipped declared resource;
+  `required: false` only makes the generated service handle optional.
 - schema-backed KV handles such as `service.kv.<alias>` resolve during bootstrap
   as direct typed stores, while store handles such as `service.store.<alias>`
   are opened explicitly before use
@@ -314,8 +328,8 @@ Behavior:
   resolves a typed `service.jobs` facade for job creation, handler registration,
   and worker startup
 - when a contract declares `eventConsumers`, `TrellisService.connect(...)`
-  receives the Trellis-provisioned event-consumer bindings during bootstrap.
-  Register listeners during startup through
+  receives the reconciled event-consumer bindings during bootstrap. Register
+  listeners during startup through
   `service.event.<group>.<leaf>.listen(..., { group })`; handler-injected
   clients are outbound-only and cannot register long-lived listeners. Service
   code must not choose or create a JetStream `durableName` for contract event
@@ -323,10 +337,13 @@ Behavior:
 - grouped durable event consumers start only after every event in the group has
   a registered handler, preserving the contract-declared group as the unit of
   ordering and replay.
-- the shared jobs streams are Trellis-owned infrastructure; approval provisions
-  or adopts all declared job bindings before jobs-enabled services become ready.
-  Bootstrap resolves those approved bindings. Jobs admin projections are
-  internal to the Jobs admin runtime.
+- the shared jobs streams are Trellis-owned infrastructure; reconciliation
+  creates or adopts all declared job bindings before jobs-enabled services
+  become ready. Bootstrap resolves those materialized bindings. Jobs admin
+  projections are internal to the Jobs admin runtime.
+- the latest presented contract is not the ongoing source of truth for already
+  accepted resources; deployment authority owns desired state until an authority
+  update or authority migration changes it
 - when an RPC needs to start caller-visible follow-up work after a transfer,
   prefer a transfer-capable operation over an RPC-started workflow
 - the `trellis` control-plane service is the one bootstrap exception and may use

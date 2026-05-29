@@ -1,22 +1,25 @@
 import { assertEquals } from "@std/assert";
 
 import {
-  applyGrantOverrideCapabilities,
-  boundaryToDeploymentEnvelopeRows,
-  computeEnvelopeDelta,
-  evaluateEnvelopeFit,
-  previewEnvelopeShrinkImpact,
-} from "./envelope_decision.ts";
-import type { DeploymentGrantOverride, EnvelopeBoundary } from "./schemas.ts";
+  applyGrantOverrideAuthorityCapabilities,
+  authorityNeedsToDeploymentAuthorityRows,
+  computeAuthorityNeedsDelta,
+  evaluateProposalNeedsFit,
+  previewAuthorityReductionImpact,
+} from "./authority_needs_decision.ts";
+import type {
+  AuthorityNeedSet,
+  DeploymentAuthorityGrantOverride,
+} from "./schemas.ts";
 
-const EMPTY_BOUNDARY: EnvelopeBoundary = {
+const EMPTY_AUTHORITY_NEEDS: AuthorityNeedSet = {
   contracts: [],
   surfaces: [],
   capabilities: [],
   resources: [],
 };
 
-function boundary(overrides: Partial<EnvelopeBoundary>): EnvelopeBoundary {
+function needs(overrides: Partial<AuthorityNeedSet>): AuthorityNeedSet {
   return {
     contracts: [],
     surfaces: [],
@@ -26,7 +29,7 @@ function boundary(overrides: Partial<EnvelopeBoundary>): EnvelopeBoundary {
   };
 }
 
-const fullEnvelope = boundary({
+const fullAuthority = needs({
   contracts: [{ contractId: "core@v1", required: true }],
   surfaces: [{
     contractId: "core@v1",
@@ -39,8 +42,8 @@ const fullEnvelope = boundary({
   resources: [{ kind: "kv", alias: "sessions", required: true }],
 });
 
-Deno.test("evaluateEnvelopeFit separates missing availability from missing capabilities", () => {
-  const requested = boundary({
+Deno.test("evaluateProposalNeedsFit separates missing availability from missing capabilities", () => {
+  const requested = needs({
     contracts: [{ contractId: "core@v1", required: true }],
     surfaces: [
       {
@@ -62,9 +65,9 @@ Deno.test("evaluateEnvelopeFit separates missing availability from missing capab
     resources: [{ kind: "kv", alias: "sessions", required: true }],
   });
 
-  assertEquals(evaluateEnvelopeFit(fullEnvelope, requested), {
+  assertEquals(evaluateProposalNeedsFit(fullAuthority, requested), {
     fits: false,
-    missingAvailability: boundary({
+    missingAvailability: needs({
       surfaces: [{
         contractId: "billing@v1",
         kind: "operation",
@@ -77,8 +80,8 @@ Deno.test("evaluateEnvelopeFit separates missing availability from missing capab
   });
 });
 
-Deno.test("computeEnvelopeDelta returns only unavailable rows and missing capabilities", () => {
-  const requested = boundary({
+Deno.test("computeAuthorityNeedsDelta returns only unavailable rows and missing capabilities", () => {
+  const requested = needs({
     contracts: [
       { contractId: "core@v1", required: true },
       { contractId: "optional@v1", required: false },
@@ -98,8 +101,8 @@ Deno.test("computeEnvelopeDelta returns only unavailable rows and missing capabi
   });
 
   assertEquals(
-    computeEnvelopeDelta(fullEnvelope, requested),
-    boundary({
+    computeAuthorityNeedsDelta(fullAuthority, requested),
+    needs({
       contracts: [{ contractId: "optional@v1", required: false }],
       surfaces: [{
         contractId: "optional@v1",
@@ -115,7 +118,7 @@ Deno.test("computeEnvelopeDelta returns only unavailable rows and missing capabi
 });
 
 Deno.test("grant overrides add capabilities only for matching identities", async () => {
-  const grants: DeploymentGrantOverride[] = [
+  const grants: DeploymentAuthorityGrantOverride[] = [
     {
       deploymentId: "app-a",
       identityKind: "web",
@@ -139,36 +142,48 @@ Deno.test("grant overrides add capabilities only for matching identities", async
   ];
 
   assertEquals(
-    await applyGrantOverrideCapabilities(EMPTY_BOUNDARY, grants, {
-      kind: "web",
-      contractId: "core@v1",
-      origin: "https://app.example",
-    }),
-    boundary({ capabilities: ["users.write"] }),
+    await applyGrantOverrideAuthorityCapabilities(
+      EMPTY_AUTHORITY_NEEDS,
+      grants,
+      {
+        kind: "web",
+        contractId: "core@v1",
+        origin: "https://app.example",
+      },
+    ),
+    needs({ capabilities: ["users.write"] }),
   );
 
   assertEquals(
-    await applyGrantOverrideCapabilities(EMPTY_BOUNDARY, grants, {
-      kind: "cli",
-      contractId: "core@v1",
-      sessionPublicKey: "session-a",
-    }),
-    boundary({ capabilities: ["users.read"] }),
+    await applyGrantOverrideAuthorityCapabilities(
+      EMPTY_AUTHORITY_NEEDS,
+      grants,
+      {
+        kind: "cli",
+        contractId: "core@v1",
+        sessionPublicKey: "session-a",
+      },
+    ),
+    needs({ capabilities: ["users.read"] }),
   );
 
   assertEquals(
-    await applyGrantOverrideCapabilities(EMPTY_BOUNDARY, grants, {
-      kind: "web",
-      contractId: "core@v1",
-      origin: "https://other.example",
-    }),
-    EMPTY_BOUNDARY,
+    await applyGrantOverrideAuthorityCapabilities(
+      EMPTY_AUTHORITY_NEEDS,
+      grants,
+      {
+        kind: "web",
+        contractId: "core@v1",
+        origin: "https://other.example",
+      },
+    ),
+    EMPTY_AUTHORITY_NEEDS,
   );
 });
 
-Deno.test("grant overrides do not invent envelope availability", async () => {
-  const effective = await applyGrantOverrideCapabilities(
-    boundary({ capabilities: ["users.read"] }),
+Deno.test("grant overrides do not invent authority availability", async () => {
+  const effective = await applyGrantOverrideAuthorityCapabilities(
+    needs({ capabilities: ["users.read"] }),
     [{
       deploymentId: "app-a",
       identityKind: "session",
@@ -183,9 +198,9 @@ Deno.test("grant overrides do not invent envelope availability", async () => {
   );
 
   assertEquals(
-    evaluateEnvelopeFit(
+    evaluateProposalNeedsFit(
       effective,
-      boundary({
+      needs({
         surfaces: [{
           contractId: "billing@v1",
           kind: "operation",
@@ -198,7 +213,7 @@ Deno.test("grant overrides do not invent envelope availability", async () => {
     ),
     {
       fits: false,
-      missingAvailability: boundary({
+      missingAvailability: needs({
         surfaces: [{
           contractId: "billing@v1",
           kind: "operation",
@@ -214,8 +229,8 @@ Deno.test("grant overrides do not invent envelope availability", async () => {
 
 Deno.test("grant override matching requires every provided discriminator", async () => {
   assertEquals(
-    await applyGrantOverrideCapabilities(
-      EMPTY_BOUNDARY,
+    await applyGrantOverrideAuthorityCapabilities(
+      EMPTY_AUTHORITY_NEEDS,
       [{
         deploymentId: "app-a",
         identityKind: "session",
@@ -232,13 +247,13 @@ Deno.test("grant override matching requires every provided discriminator", async
         sessionPublicKey: "session-b",
       },
     ),
-    EMPTY_BOUNDARY,
+    EMPTY_AUTHORITY_NEEDS,
   );
 });
 
 Deno.test("capability-group grant overrides resolve current group capabilities", async () => {
-  const effective = await applyGrantOverrideCapabilities(
-    EMPTY_BOUNDARY,
+  const effective = await applyGrantOverrideAuthorityCapabilities(
+    EMPTY_AUTHORITY_NEEDS,
     [{
       deploymentId: "app-a",
       identityKind: "web",
@@ -268,37 +283,40 @@ Deno.test("capability-group grant overrides resolve current group capabilities",
 
   assertEquals(
     effective,
-    boundary({ capabilities: ["users.read", "users.write"] }),
+    needs({ capabilities: ["users.read", "users.write"] }),
   );
 });
 
-Deno.test("boundaryToDeploymentEnvelopeRows emits stable modeled child rows", () => {
-  assertEquals(boundaryToDeploymentEnvelopeRows("svc-a", fullEnvelope), {
-    contracts: [{
-      deploymentId: "svc-a",
-      contractId: "core@v1",
-      required: true,
-    }],
-    surfaces: [{
-      deploymentId: "svc-a",
-      contractId: "core@v1",
-      kind: "rpc",
-      name: "Users.Get",
-      action: "call",
-      required: true,
-    }],
-    capabilities: [{ deploymentId: "svc-a", capability: "users.read" }],
-    resources: [{
-      deploymentId: "svc-a",
-      kind: "kv",
-      alias: "sessions",
-      required: true,
-    }],
-  });
+Deno.test("authorityNeedsToDeploymentAuthorityRows emits stable modeled child rows", () => {
+  assertEquals(
+    authorityNeedsToDeploymentAuthorityRows("svc-a", fullAuthority),
+    {
+      contracts: [{
+        deploymentId: "svc-a",
+        contractId: "core@v1",
+        required: true,
+      }],
+      surfaces: [{
+        deploymentId: "svc-a",
+        contractId: "core@v1",
+        kind: "rpc",
+        name: "Users.Get",
+        action: "call",
+        required: true,
+      }],
+      capabilities: [{ deploymentId: "svc-a", capability: "users.read" }],
+      resources: [{
+        deploymentId: "svc-a",
+        kind: "kv",
+        alias: "sessions",
+        required: true,
+      }],
+    },
+  );
 });
 
-Deno.test("previewEnvelopeShrinkImpact reports boundaries and resources no longer covered", () => {
-  const proposed = boundary({
+Deno.test("previewAuthorityReductionImpact reports needs and resources no longer covered", () => {
+  const proposed = needs({
     contracts: [{ contractId: "core@v1", required: true }],
     surfaces: [],
     capabilities: [],
@@ -306,19 +324,19 @@ Deno.test("previewEnvelopeShrinkImpact reports boundaries and resources no longe
   });
 
   assertEquals(
-    previewEnvelopeShrinkImpact({
-      current: fullEnvelope,
+    previewAuthorityReductionImpact({
+      current: fullAuthority,
       proposed,
       dependents: [{
         kind: "service-instance",
         id: "instance-a",
-        boundary: fullEnvelope,
+        needs: fullAuthority,
       }],
       resourceBindings: [{ kind: "kv", alias: "sessions" }],
-      pendingRequests: [{ requestId: "req-a", delta: fullEnvelope }],
+      pendingRequests: [{ requestId: "req-a", delta: fullAuthority }],
     }),
     {
-      removed: boundary({
+      removed: needs({
         surfaces: [{
           contractId: "core@v1",
           kind: "rpc",
@@ -332,7 +350,7 @@ Deno.test("previewEnvelopeShrinkImpact reports boundaries and resources no longe
       impactedDependents: [{
         kind: "service-instance",
         id: "instance-a",
-        missing: boundary({
+        missing: needs({
           surfaces: [{
             contractId: "core@v1",
             kind: "rpc",
@@ -347,7 +365,7 @@ Deno.test("previewEnvelopeShrinkImpact reports boundaries and resources no longe
       orphanedResources: [{ kind: "kv", alias: "sessions" }],
       impactedPendingRequests: [{
         requestId: "req-a",
-        missing: boundary({
+        missing: needs({
           surfaces: [{
             contractId: "core@v1",
             kind: "rpc",

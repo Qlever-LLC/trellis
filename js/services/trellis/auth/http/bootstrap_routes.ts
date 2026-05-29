@@ -54,10 +54,11 @@ export function registerBootstrapRoutes(
       loadServiceDeployment: async (deploymentId) => {
         return await opts.serviceDeploymentStorage.get(deploymentId) ?? null;
       },
-      deploymentEnvelopeStorage: opts.deploymentEnvelopeStorage,
-      deploymentResourceBindingStorage: opts.deploymentResourceBindingStorage,
+      deploymentAuthorityStorage: opts.deploymentAuthorityStorage,
+      deploymentAuthorityPlanStorage: opts.deploymentAuthorityPlanStorage,
+      materializedAuthorityStorage: opts.materializedAuthorityStorage,
       implementationOfferStorage: opts.implementationOfferStorage,
-      envelopeExpansionRequestStorage: opts.envelopeExpansionRequestStorage,
+      authorityReconciler: opts.authorityReconciler,
       storePresentedContract: async ({ contract, digest, canonical }) => {
         if (await opts.contractStorage.has(digest)) return;
         await opts.contractStorage.put({

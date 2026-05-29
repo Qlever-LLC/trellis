@@ -1,22 +1,24 @@
 import { SqlContractStorageRepository } from "../catalog/storage.ts";
 import {
   SqlAccountFlowRepository,
+  SqlAuthorityReconciliationRepository,
   SqlCapabilityGroupRepository,
-  SqlDeploymentEnvelopeRepository,
-  SqlDeploymentGrantOverrideRepository,
+  SqlDeploymentAuthorityGrantOverrideRepository,
+  SqlDeploymentAuthorityPlanRepository,
+  SqlDeploymentAuthorityRepository,
   SqlDeploymentPortalRouteRepository,
-  SqlDeploymentResourceBindingRepository,
   SqlDeviceActivationRepository,
   SqlDeviceActivationReviewRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
   SqlDeviceProvisioningSecretRepository,
-  SqlEnvelopeExpansionRequestRepository,
-  SqlEnvelopeHistoryRepository,
-  SqlIdentityEnvelopeRepository,
+  SqlIdentityAuthorityRepository,
+  SqlIdentityGrantRepository,
   SqlImplementationOfferRepository,
   SqlLocalCredentialRepository,
   SqlLoginPortalRepository,
+  SqlMaterializedAuthorityRepository,
+  SqlMaterializedResourceBindingRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlSessionRepository,
@@ -38,24 +40,34 @@ export async function createStorage(config: Config) {
   return {
     storage,
     contractStorage: new SqlContractStorageRepository(storage.db),
-    deploymentEnvelopeStorage: new SqlDeploymentEnvelopeRepository(storage.db),
-    envelopeHistoryStorage: new SqlEnvelopeHistoryRepository(storage.db),
-    deploymentResourceBindingStorage:
-      new SqlDeploymentResourceBindingRepository(
-        storage.db,
-      ),
+    deploymentAuthorityStorage: new SqlDeploymentAuthorityRepository(
+      storage.db,
+    ),
+    deploymentAuthorityPlanStorage: new SqlDeploymentAuthorityPlanRepository(
+      storage.db,
+    ),
+    materializedAuthorityStorage: new SqlMaterializedAuthorityRepository(
+      storage.db,
+    ),
+    materializedResourceBindingStorage:
+      new SqlMaterializedResourceBindingRepository(storage.db),
+    authorityReconciliationStorage: new SqlAuthorityReconciliationRepository(
+      storage.db,
+    ),
     implementationOfferStorage: new SqlImplementationOfferRepository(
       storage.db,
     ),
     deploymentPortalRouteStorage: new SqlDeploymentPortalRouteRepository(
       storage.db,
     ),
-    deploymentGrantOverrideStorage: new SqlDeploymentGrantOverrideRepository(
+    deploymentAuthorityGrantOverrideStorage:
+      new SqlDeploymentAuthorityGrantOverrideRepository(
+        storage.db,
+      ),
+    identityAuthorityStorage: new SqlIdentityAuthorityRepository(
       storage.db,
     ),
-    envelopeExpansionRequestStorage: new SqlEnvelopeExpansionRequestRepository(
-      storage.db,
-    ),
+    identityGrantStorage: new SqlIdentityGrantRepository(storage.db),
     userStorage: new SqlUserProjectionRepository(storage.db),
     accountStorage: new SqlUserAccountRepository(storage.db),
     capabilityGroupStorage: new SqlCapabilityGroupRepository(storage.db),
@@ -63,7 +75,6 @@ export async function createStorage(config: Config) {
     localCredentialStorage: new SqlLocalCredentialRepository(storage.db),
     accountFlowStorage: new SqlAccountFlowRepository(storage.db),
     loginPortalStorage: new SqlLoginPortalRepository(storage.db),
-    contractApprovalStorage: new SqlIdentityEnvelopeRepository(storage.db),
     serviceDeploymentStorage: new SqlServiceDeploymentRepository(storage.db),
     serviceInstanceStorage: new SqlServiceInstanceRepository(storage.db),
     deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),

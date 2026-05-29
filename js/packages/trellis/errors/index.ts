@@ -14,6 +14,19 @@ import { RemoteError } from "./RemoteError.ts";
 import { KVError } from "./KVError.ts";
 import type { KVErrorData } from "./KVError.ts";
 import { KVErrorDataSchema } from "./KVError.ts";
+import {
+  OperationAlreadyTerminalError,
+  OperationAlreadyTerminalErrorDataSchema,
+  OperationMismatchError,
+  OperationMismatchErrorDataSchema,
+  OperationNotFoundError,
+  OperationNotFoundErrorDataSchema,
+} from "./OperationLifecycleError.ts";
+import type {
+  OperationAlreadyTerminalErrorData,
+  OperationMismatchErrorData,
+  OperationNotFoundErrorData,
+} from "./OperationLifecycleError.ts";
 import { StoreError } from "./StoreError.ts";
 import type { StoreErrorData } from "./StoreError.ts";
 import { StoreErrorDataSchema } from "./StoreError.ts";
@@ -36,6 +49,11 @@ export { AuthError } from "./AuthError.ts";
 export { ValidationError } from "./ValidationError.ts";
 export { RemoteError } from "./RemoteError.ts";
 export { KVError } from "./KVError.ts";
+export {
+  OperationAlreadyTerminalError,
+  OperationMismatchError,
+  OperationNotFoundError,
+} from "./OperationLifecycleError.ts";
 export { StoreError } from "./StoreError.ts";
 export { TransportError } from "./TransportError.ts";
 export { TransferError } from "./TransferError.ts";
@@ -49,6 +67,14 @@ export {
 } from "./ValidationError.ts";
 export { type RemoteErrorData, RemoteErrorDataSchema } from "./RemoteError.ts";
 export { type KVErrorData, KVErrorDataSchema } from "./KVError.ts";
+export {
+  type OperationAlreadyTerminalErrorData,
+  OperationAlreadyTerminalErrorDataSchema,
+  type OperationMismatchErrorData,
+  OperationMismatchErrorDataSchema,
+  type OperationNotFoundErrorData,
+  OperationNotFoundErrorDataSchema,
+} from "./OperationLifecycleError.ts";
 export { type StoreErrorData, StoreErrorDataSchema } from "./StoreError.ts";
 export {
   type TransportErrorData,
@@ -69,6 +95,9 @@ const TRANSPORTABLE_TRELLIS_ERRORS = {
   AuthError,
   ValidationError,
   KVError,
+  OperationNotFoundError,
+  OperationAlreadyTerminalError,
+  OperationMismatchError,
   StoreError,
   TransferError,
 } as const;
@@ -160,6 +189,58 @@ export const BUILTIN_RPC_ERRORS = {
         operation: data.operation,
         id: data.id,
         context: data.context,
+      });
+    },
+  },
+  OperationNotFoundError: {
+    type: "OperationNotFoundError",
+    schema: schema<OperationNotFoundErrorData>(
+      OperationNotFoundErrorDataSchema,
+    ),
+    fromSerializable(data: OperationNotFoundErrorData) {
+      return new OperationNotFoundError({
+        operationId: data.operationId,
+        message: data.message,
+        id: data.id,
+        context: data.context,
+        traceId: data.traceId,
+      });
+    },
+  },
+  OperationAlreadyTerminalError: {
+    type: "OperationAlreadyTerminalError",
+    schema: schema<OperationAlreadyTerminalErrorData>(
+      OperationAlreadyTerminalErrorDataSchema,
+    ),
+    fromSerializable(data: OperationAlreadyTerminalErrorData) {
+      return new OperationAlreadyTerminalError({
+        operationId: data.operationId,
+        state: data.state,
+        operation: data.operation,
+        service: data.service,
+        message: data.message,
+        id: data.id,
+        context: data.context,
+        traceId: data.traceId,
+      });
+    },
+  },
+  OperationMismatchError: {
+    type: "OperationMismatchError",
+    schema: schema<OperationMismatchErrorData>(
+      OperationMismatchErrorDataSchema,
+    ),
+    fromSerializable(data: OperationMismatchErrorData) {
+      return new OperationMismatchError({
+        operationId: data.operationId,
+        expectedService: data.expectedService,
+        expectedOperation: data.expectedOperation,
+        actualService: data.actualService,
+        actualOperation: data.actualOperation,
+        message: data.message,
+        id: data.id,
+        context: data.context,
+        traceId: data.traceId,
       });
     },
   },

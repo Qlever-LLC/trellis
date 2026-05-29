@@ -12,7 +12,7 @@ use trellis::service::{
     BootstrapBindingInfo, ConnectServiceError, ConnectedService, ConnectedServiceHostWithValidator,
     ConnectedServiceParts, CoreBootstrapAdapter, CoreBootstrapBinding, CoreBootstrapClientPort,
     DefaultRequestValidator, DefaultRequestValidatorClientPort, Router, ServerError,
-    DEFAULT_APPROVAL_TIMEOUT_MS, DEFAULT_RETRY_DELAY_MS,
+    DEFAULT_AUTHORITY_PENDING_TIMEOUT_MS, DEFAULT_RETRY_DELAY_MS,
 };
 
 use crate::advisory::{start_advisory_loop, AdvisoryHandle};
@@ -504,7 +504,7 @@ pub async fn connect_service(
         session_key_seed_base64url: opts.session_key_seed_base64url,
         timeout_ms: opts.timeout_ms,
         retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
-        approval_timeout_ms: DEFAULT_APPROVAL_TIMEOUT_MS,
+        authority_pending_timeout_ms: DEFAULT_AUTHORITY_PENDING_TIMEOUT_MS,
     })
     .await?;
     let binding = service_bootstrap_binding(&client)?;

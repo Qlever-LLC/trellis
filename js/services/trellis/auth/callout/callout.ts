@@ -25,11 +25,11 @@ import {
 import type { ContractsModule } from "../../catalog/runtime.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
-import { analyzeContractEnvelopeBoundary } from "../boundary_analysis.ts";
+import { analyzeContractProposal } from "../contract_proposal_analysis.ts";
 import {
-  computeEnvelopeDelta,
-  evaluateEnvelopeFit,
-} from "../envelope_decision.ts";
+  computeAuthorityNeedsDelta,
+  evaluateProposalNeedsFit,
+} from "../authority_needs_decision.ts";
 import { resolveUserReconnectSession } from "./user_reconnect.ts";
 import {
   getServicePublishSubjectsForContracts,
@@ -48,6 +48,10 @@ import {
   type DeviceRuntimeAccessDenialReason,
 } from "../device_activation/runtime_access.ts";
 import type {
+  AuthorityNeedSetSurface,
+  DeploymentAuthority,
+  DeploymentAuthorityMaterialization,
+  DeploymentResourceBinding,
   DeviceActivationRecordSchema,
   DeviceDeploymentSchema,
   DeviceSchema,
@@ -59,7 +63,7 @@ import type {
   NatsAuthRequest,
   NatsConnectOpts,
 } from "../nats_schemas.ts";
-import type { EnvelopeBoundary } from "../schemas.ts";
+import type { AuthorityNeedSet } from "../schemas.ts";
 import {
   AuthCalloutClaimsSchema,
   NatsDisconnectEventSchema,
@@ -76,12 +80,8 @@ import type {
   ServiceInstance as AdminServiceInstance,
 } from "../admin/shared.ts";
 import type {
-  SqlDeploymentEnvelopeRepository,
-  SqlDeploymentResourceBindingRepository,
   SqlDeviceActivationRepository,
   SqlDeviceDeploymentRepository,
-  SqlEnvelopeExpansionRequestRepository,
-  SqlIdentityEnvelopeRepository,
   SqlImplementationOfferRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
@@ -114,13 +114,13 @@ type AuthCalloutDenialCode =
   | "invalid_signature"
   | "unknown_service"
   | "service_disabled"
-  | "service_envelope_miss"
+  | "service_authority_miss"
   | "unknown_device"
   | "device_activation_revoked"
   | "device_deployment_not_found"
   | "device_deployment_disabled"
   | "device_contract_not_found"
-  | "device_envelope_miss"
+  | "device_authority_miss"
   | DeviceRuntimeAccessDenialReason
   | "session_not_found"
   | "contract_changed"
@@ -132,6 +132,17 @@ type AuthCalloutDenialCode =
 type AuthCalloutStageResult<T> =
   | { ok: true; value: T }
   | { ok: false; denial: AuthCalloutDenialCode };
+
+export type DeploymentAuthorityStorage = {
+  get(deploymentId: string): Promise<DeploymentAuthority | undefined>;
+};
+
+export type MaterializedResourceBindingStorage = {
+  get(
+    deploymentId: string,
+  ): Promise<DeploymentAuthorityMaterialization | undefined>;
+  listByDeployment(deploymentId: string): Promise<DeploymentResourceBinding[]>;
+};
 
 type SerializedErrorDetails = {
   err?: Error;
@@ -338,14 +349,12 @@ function resourceBindingsForPermissions(
 }
 
 function serviceCapabilitiesForPermissions(
-  staleCapabilities: string[],
-  envelope: EnvelopeBoundary | undefined,
+  authorityNeeds: AuthorityNeedSet | undefined,
 ): string[] {
   return [
     ...new Set([
-      ...staleCapabilities,
       "service",
-      ...(envelope?.capabilities ?? []),
+      ...(authorityNeeds?.capabilities ?? []),
     ]),
   ].sort((left, right) => left.localeCompare(right));
 }
@@ -356,22 +365,82 @@ type DeviceRuntimeGrantDeps = {
   };
   deviceActivationStorage: Pick<SqlDeviceActivationRepository, "get" | "put">;
   deviceDeploymentStorage: Pick<SqlDeviceDeploymentRepository, "get">;
-  deploymentEnvelopeStorage: Pick<SqlDeploymentEnvelopeRepository, "get">;
+  deploymentAuthorityStorage: DeploymentAuthorityStorage;
 };
 
-const EMPTY_BOUNDARY: EnvelopeBoundary = {
+const EMPTY_AUTHORITY_NEEDS: AuthorityNeedSet = {
   contracts: [],
   surfaces: [],
   capabilities: [],
   resources: [],
 };
 
-function mergeBoundaries(...boundaries: EnvelopeBoundary[]): EnvelopeBoundary {
-  return computeEnvelopeDelta(EMPTY_BOUNDARY, {
-    contracts: boundaries.flatMap((boundary) => boundary.contracts),
-    surfaces: boundaries.flatMap((boundary) => boundary.surfaces),
-    capabilities: boundaries.flatMap((boundary) => boundary.capabilities),
-    resources: boundaries.flatMap((boundary) => boundary.resources),
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isAuthorityNeedSetSurface(
+  value: unknown,
+): value is AuthorityNeedSetSurface {
+  if (!isRecord(value)) return false;
+  return typeof value.contractId === "string" &&
+    typeof value.kind === "string" &&
+    typeof value.name === "string" &&
+    (value.action === undefined || typeof value.action === "string") &&
+    typeof value.required === "boolean";
+}
+
+function coerceAuthorityNeedSet(value: unknown): AuthorityNeedSet {
+  if (!isRecord(value)) return EMPTY_AUTHORITY_NEEDS;
+  const { contracts, surfaces, capabilities, resources } = value;
+  if (
+    !Array.isArray(contracts) || !Array.isArray(surfaces) ||
+    !Array.isArray(capabilities) || !Array.isArray(resources)
+  ) {
+    return EMPTY_AUTHORITY_NEEDS;
+  }
+  if (
+    !contracts.every((contract) =>
+      isRecord(contract) && typeof contract.contractId === "string" &&
+      typeof contract.required === "boolean"
+    ) || !surfaces.every(isAuthorityNeedSetSurface) ||
+    !capabilities.every((capability) => typeof capability === "string") ||
+    !resources.every((resource) =>
+      isRecord(resource) && typeof resource.kind === "string" &&
+      typeof resource.alias === "string" &&
+      typeof resource.required === "boolean"
+    )
+  ) {
+    return EMPTY_AUTHORITY_NEEDS;
+  }
+  return { contracts, surfaces, capabilities, resources };
+}
+
+function authorityNeedSetFromDesiredState(
+  authority: DeploymentAuthority,
+): AuthorityNeedSet {
+  return {
+    contracts: authority.desiredState.needs.flatMap((need) =>
+      need.kind === "contract"
+        ? [{ contractId: need.contractId, required: need.required }]
+        : []
+    ),
+    surfaces: authority.desiredState.needs.flatMap((need) =>
+      need.kind === "surface"
+        ? [{ ...need.surface, required: need.required }]
+        : []
+    ),
+    capabilities: authority.desiredState.capabilities,
+    resources: authority.desiredState.resources,
+  };
+}
+
+function mergeAuthorityNeedSets(...sets: AuthorityNeedSet[]): AuthorityNeedSet {
+  return computeAuthorityNeedsDelta(EMPTY_AUTHORITY_NEEDS, {
+    contracts: sets.flatMap((set) => set.contracts),
+    surfaces: sets.flatMap((set) => set.surfaces),
+    capabilities: sets.flatMap((set) => set.capabilities),
+    resources: sets.flatMap((set) => set.resources),
   });
 }
 
@@ -482,12 +551,12 @@ async function withKnownDependencyEntries(
   );
 }
 
-function contractWithEnvelopeGrantedOptionalUses(
+function contractWithAuthorityGrantedOptionalUses(
   contract: TrellisContractV1,
-  envelopeBoundary: EnvelopeBoundary | undefined,
+  authorityNeeds: AuthorityNeedSet | undefined,
 ): TrellisContractV1 {
   const uses = (contract as ContractWithUses).uses;
-  if (!uses?.optional || !envelopeBoundary) return contract;
+  if (!uses?.optional || !authorityNeeds) return contract;
 
   const grantedSurfaceNames = (
     use: ContractUseRef,
@@ -496,7 +565,7 @@ function contractWithEnvelopeGrantedOptionalUses(
     names: string[] | undefined,
   ): string[] | undefined => {
     const granted = names?.filter((name) =>
-      envelopeBoundary.surfaces.some((surface) =>
+      authorityNeeds.surfaces.some((surface) =>
         surface.contractId === use.contract &&
         surface.kind === kind &&
         surface.name === name &&
@@ -509,7 +578,7 @@ function contractWithEnvelopeGrantedOptionalUses(
   const grantedOperationNames = (use: ContractUseRef): string[] | undefined => {
     const names = use.operations?.call;
     const granted = names?.filter((name) =>
-      envelopeBoundary.surfaces.some((surface) =>
+      authorityNeeds.surfaces.some((surface) =>
         surface.contractId === use.contract &&
         surface.kind === "operation" &&
         surface.name === name &&
@@ -587,7 +656,7 @@ async function serviceContractEntriesForPermissions(args: {
   activeContractEntries: RuntimeContractEntry[];
   contracts: CalloutContractDeps;
   contractDigest: string | undefined;
-  envelopeBoundary: EnvelopeBoundary | undefined;
+  authorityNeeds: AuthorityNeedSet | undefined;
 }): Promise<AuthCalloutStageResult<RuntimeContractEntry[]>> {
   const digest = args.contractDigest;
   if (!digest) return stageOk(args.activeContractEntries);
@@ -595,9 +664,9 @@ async function serviceContractEntriesForPermissions(args: {
   const contract = await args.contracts.getKnownContract(digest);
   if (!contract) return stageOk(args.activeContractEntries);
 
-  const permissionContract = contractWithEnvelopeGrantedOptionalUses(
+  const permissionContract = contractWithAuthorityGrantedOptionalUses(
     contract,
-    args.envelopeBoundary,
+    args.authorityNeeds,
   );
   const entries = await withKnownDependencyEntries(args.contracts, [
     ...args.activeContractEntries.filter((entry) => entry.digest !== digest),
@@ -694,28 +763,29 @@ async function resolveDeviceRuntimeGrant(
 
   const contractRecord = await contractStorage.get(contractDigest);
   if (!contractRecord) return stageDeny("device_contract_not_found");
-  const envelope = await deps.deploymentEnvelopeStorage.get(
+  const authority = await deps.deploymentAuthorityStorage.get(
     deployment.deploymentId,
   );
-  if (!envelope || envelope.disabled) {
+  if (!authority || authority.disabled) {
     return stageDeny("device_deployment_disabled");
   }
+  const authorityNeeds = authorityNeedSetFromDesiredState(authority);
   const contract = JSON.parse(contractRecord.contract);
-  const analysis = await analyzeContractEnvelopeBoundary(
+  const analysis = await analyzeContractProposal(
     contracts,
     contract,
     { dependencyResolution: "known" },
   );
-  const requestedBoundary = mergeBoundaries(
+  const requestedNeeds = mergeAuthorityNeedSets(
     analysis.required,
     analysis.contributedAvailability,
   );
-  const fit = evaluateEnvelopeFit(envelope.boundary, requestedBoundary);
-  if (!fit.fits) return stageDeny("device_envelope_miss");
+  const fit = evaluateProposalNeedsFit(authorityNeeds, requestedNeeds);
+  if (!fit.fits) return stageDeny("device_authority_miss");
   const accessResult = await deriveDeviceRuntimeAccess(
     contractRecord,
     contracts,
-    envelope.boundary,
+    authorityNeeds,
   );
   if (!accessResult.ok) return stageDeny(accessResult.reason);
   return stageOk({
@@ -773,7 +843,7 @@ async function validateServiceRuntimeDigest(args: {
     "listActiveByDigests" | "put"
   >;
   contracts: CalloutContractDeps;
-  deploymentEnvelopeStorage: Pick<SqlDeploymentEnvelopeRepository, "get">;
+  deploymentAuthorityStorage: DeploymentAuthorityStorage;
   now: Date;
 }): Promise<AuthCalloutStageResult<ServiceRuntimeContract>> {
   const presentedContractDigest = args.presentedContractDigest;
@@ -823,12 +893,13 @@ async function validateServiceRuntimeDigest(args: {
     }
     contract = knownContract;
   }
-  const envelope = await args.deploymentEnvelopeStorage.get(
+  const authority = await args.deploymentAuthorityStorage.get(
     args.deployment.deploymentId,
   );
-  if (!envelope || envelope.disabled) {
-    return stageDeny("service_envelope_miss");
+  if (!authority || authority.disabled) {
+    return stageDeny("service_authority_miss");
   }
+  const authorityNeeds = authorityNeedSetFromDesiredState(authority);
 
   const activeContractEntries = await args.contracts.getActiveEntries();
   const runtimeContractEntries = await withKnownDependencyEntries(
@@ -842,9 +913,9 @@ async function validateServiceRuntimeDigest(args: {
   );
   if (!runtimeContractEntries.ok) return runtimeContractEntries;
 
-  let analysis: Awaited<ReturnType<typeof analyzeContractEnvelopeBoundary>>;
+  let analysis: Awaited<ReturnType<typeof analyzeContractProposal>>;
   try {
-    analysis = await analyzeContractEnvelopeBoundary(
+    analysis = await analyzeContractProposal(
       {
         ...args.contracts,
         getActiveEntries: () => Promise.resolve(runtimeContractEntries.value),
@@ -854,16 +925,16 @@ async function validateServiceRuntimeDigest(args: {
     );
   } catch (error) {
     if (error instanceof ContractUseDependencyError) {
-      return stageDeny("service_envelope_miss");
+      return stageDeny("service_authority_miss");
     }
     throw error;
   }
-  const requestedBoundary = mergeBoundaries(
+  const requestedNeeds = mergeAuthorityNeedSets(
     analysis.required,
     analysis.contributedAvailability,
   );
-  const fit = evaluateEnvelopeFit(envelope.boundary, requestedBoundary);
-  if (!fit.fits) return stageDeny("service_envelope_miss");
+  const fit = evaluateProposalNeedsFit(authorityNeeds, requestedNeeds);
+  if (!fit.fits) return stageDeny("service_authority_miss");
   await args.implementationOfferStorage.put({
     ...matchingOffer,
     lineageKey: serviceOfferLineageKey(
@@ -903,10 +974,6 @@ function refreshServiceSessionFromInstance(args: {
 
 export function startDisconnectCleanup(deps: {
   connectionsKV: AuthRuntimeDeps["connectionsKV"];
-  envelopeExpansionRequestStorage: Pick<
-    SqlEnvelopeExpansionRequestRepository,
-    "deletePendingServiceRequestsByRequesterInstanceId"
-  >;
   logger: AuthRuntimeDeps["logger"];
   natsSystem: AuthRuntimeDeps["natsSystem"];
   sessionStorage: AuthRuntimeDeps["sessionStorage"];
@@ -919,7 +986,6 @@ export function startDisconnectCleanup(deps: {
 }): BackgroundTaskHandle {
   const {
     connectionsKV,
-    envelopeExpansionRequestStorage,
     logger,
     implementationOfferStorage,
     natsSystem,
@@ -934,7 +1000,6 @@ export function startDisconnectCleanup(deps: {
       for await (const message of disconnectSub) {
         await processDisconnectMessage({
           connectionsKV,
-          envelopeExpansionRequestStorage,
           logger,
           implementationOfferStorage,
           message,
@@ -964,10 +1029,6 @@ export function startDisconnectCleanup(deps: {
 
 async function processDisconnectMessage(deps: {
   connectionsKV: Pick<AuthRuntimeDeps["connectionsKV"], "delete" | "keys">;
-  envelopeExpansionRequestStorage: Pick<
-    SqlEnvelopeExpansionRequestRepository,
-    "deletePendingServiceRequestsByRequesterInstanceId"
-  >;
   logger: AuthRuntimeDeps["logger"];
   implementationOfferStorage: Pick<
     SqlImplementationOfferRepository,
@@ -984,7 +1045,6 @@ async function processDisconnectMessage(deps: {
 }): Promise<void> {
   const {
     connectionsKV,
-    envelopeExpansionRequestStorage,
     implementationOfferStorage,
     logger,
     message,
@@ -1050,10 +1110,6 @@ async function processDisconnectMessage(deps: {
       }
 
       if (sessionValue.type === "service") {
-        await envelopeExpansionRequestStorage
-          .deletePendingServiceRequestsByRequesterInstanceId(
-            sessionValue.instanceId,
-          );
         const now = deps.now ?? new Date();
         const staleAt = new Date(now.getTime() + offerStaleGraceMs)
           .toISOString();
@@ -1087,9 +1143,8 @@ export function startAuthCallout(
     contractStorage: SqlContractStorageRepository;
     capabilityGroupStorage?: AuthRuntimeDeps["capabilityGroupStorage"];
     userStorage: SqlUserProjectionRepository;
-    contractApprovalStorage: SqlIdentityEnvelopeRepository;
-    deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
-    deploymentResourceBindingStorage?: SqlDeploymentResourceBindingRepository;
+    deploymentAuthorityStorage: DeploymentAuthorityStorage;
+    materializedResourceBindingStorage: MaterializedResourceBindingStorage;
     implementationOfferStorage: SqlImplementationOfferRepository;
     connectionsKV: AuthRuntimeDeps["connectionsKV"];
     deviceActivationStorage: AuthRuntimeDeps["deviceActivationStorage"];
@@ -1108,8 +1163,8 @@ export function startAuthCallout(
   const {
     config,
     connectionsKV,
-    deploymentEnvelopeStorage,
-    deploymentResourceBindingStorage,
+    deploymentAuthorityStorage,
+    materializedResourceBindingStorage,
     implementationOfferStorage,
     deviceActivationStorage,
     deviceDeploymentStorage,
@@ -1252,7 +1307,7 @@ export function startAuthCallout(
         deployment: serviceDeployment,
         contractStorage: opts.contractStorage,
         contracts: opts.contracts,
-        deploymentEnvelopeStorage,
+        deploymentAuthorityStorage,
         implementationOfferStorage,
         now,
       });
@@ -1287,7 +1342,7 @@ export function startAuthCallout(
             deviceActivationStorage,
             deviceDeploymentStorage,
             deviceInstanceStorage,
-            deploymentEnvelopeStorage,
+            deploymentAuthorityStorage,
           },
           sessionKey,
           opts.contractStorage,
@@ -1329,7 +1384,7 @@ export function startAuthCallout(
           deviceActivationStorage,
           deviceDeploymentStorage,
           deviceInstanceStorage,
-          deploymentEnvelopeStorage,
+          deploymentAuthorityStorage,
         },
         sessionKey,
         opts.contractStorage,
@@ -1431,31 +1486,35 @@ export function startAuthCallout(
     }
 
     const isService = session.type === "service";
-    const serviceEnvelope = principal.value.serviceState
-      ? await deploymentEnvelopeStorage.get(
+    const serviceAuthority = principal.value.serviceState
+      ? await deploymentAuthorityStorage.get(
         principal.value.serviceState.deploymentId,
       )
       : undefined;
-    if (isService && (!serviceEnvelope || serviceEnvelope.disabled)) {
-      return stageDeny("service_envelope_miss");
+    if (isService && (!serviceAuthority || serviceAuthority.disabled)) {
+      return stageDeny("service_authority_miss");
     }
+    const serviceAuthorityNeeds = serviceAuthority
+      ? authorityNeedSetFromDesiredState(serviceAuthority)
+      : undefined;
     if (principal.value.serviceState) {
-      const deploymentBindings = deploymentResourceBindingStorage
-        ? resourceBindingsForPermissions(
-          await deploymentResourceBindingStorage.listByDeployment(
-            principal.value.serviceState.deploymentId,
-          ),
-        )
-        : principal.value.serviceState.resourceBindings as
-          | ContractResourceBindings
-          | undefined;
+      const materializedAuthority = await materializedResourceBindingStorage
+        .get(
+          principal.value.serviceState.deploymentId,
+        );
+      if (
+        !materializedAuthority || materializedAuthority.status !== "current" ||
+        materializedAuthority.desiredVersion !== serviceAuthority?.version
+      ) {
+        return stageDeny("service_authority_miss");
+      }
+      const deploymentBindings = resourceBindingsForPermissions(
+        materializedAuthority.resourceBindings,
+      );
       resourcePermissions = getResourcePermissionGrants(deploymentBindings);
     }
     const effectiveCapabilities = isService
-      ? serviceCapabilitiesForPermissions(
-        principal.value.capabilities,
-        serviceEnvelope?.boundary,
-      )
+      ? serviceCapabilitiesForPermissions(serviceAuthorityNeeds)
       : principal.value.capabilities;
 
     const inboxPrefix = `_INBOX.${sessionKey.slice(0, 16)}`;
@@ -1467,12 +1526,12 @@ export function startAuthCallout(
         contractDigest: session.type === "service"
           ? session.contractDigest ?? undefined
           : undefined,
-        envelopeBoundary: serviceEnvelope?.boundary,
+        authorityNeeds: serviceAuthorityNeeds,
       })
       : stageOk(activeContractEntries);
     if (!serviceContractEntries.ok) return serviceContractEntries;
     const userContractEntries =
-      session.type === "user" && session.identityEnvelope
+      session.type === "user" && session.identityAuthorityNeeds
         ? await (async () => {
           const contract = await opts.contracts.getKnownContract(
             session.contractDigest,
@@ -1489,28 +1548,33 @@ export function startAuthCallout(
         : [];
     if (!Array.isArray(userContractEntries)) return userContractEntries;
     const userAllowedPublishSubjects =
-      session.type === "user" && session.identityEnvelope
+      session.type === "user" && session.identityAuthorityNeeds
         ? getUserPublishSubjectsForContracts(
           session.delegatedCapabilities,
           {
             contractDigest: session.contractDigest,
-            identityEnvelope: session.identityEnvelope,
+            identityAuthority: coerceAuthorityNeedSet(
+              session.identityAuthorityNeeds,
+            ),
           },
           userContractEntries,
         )
         : [];
     const userAllowedSubscribeSubjects =
-      session.type === "user" && session.identityEnvelope
+      session.type === "user" && session.identityAuthorityNeeds
         ? getUserSubscribeSubjectsForContracts(
           session.delegatedCapabilities,
           {
             contractDigest: session.contractDigest,
-            identityEnvelope: session.identityEnvelope,
+            identityAuthority: coerceAuthorityNeedSet(
+              session.identityAuthorityNeeds,
+            ),
           },
           userContractEntries,
         )
         : [];
-    const delegatedPublish = session.type === "user" && session.identityEnvelope
+    const delegatedPublish = session.type === "user" &&
+        session.identityAuthorityNeeds
       ? session.delegatedPublishSubjects.filter((subject) =>
         userAllowedPublishSubjects.includes(subject)
       )
@@ -1518,7 +1582,7 @@ export function startAuthCallout(
       ? []
       : session.delegatedPublishSubjects!;
     const delegatedSubscribe =
-      session.type === "user" && session.identityEnvelope
+      session.type === "user" && session.identityAuthorityNeeds
         ? session.delegatedSubscribeSubjects.filter((subject) =>
           userAllowedSubscribeSubjects.includes(subject)
         )
@@ -1535,7 +1599,7 @@ export function startAuthCallout(
               contractDigest: session.type === "service"
                 ? session.contractDigest ?? undefined
                 : undefined,
-              envelopeBoundary: serviceEnvelope?.boundary,
+              authorityNeeds: serviceAuthorityNeeds,
             },
             serviceContractEntries.value,
           )
@@ -1551,7 +1615,7 @@ export function startAuthCallout(
               contractDigest: session.type === "service"
                 ? session.contractDigest ?? undefined
                 : undefined,
-              envelopeBoundary: serviceEnvelope?.boundary,
+              authorityNeeds: serviceAuthorityNeeds,
             },
             serviceContractEntries.value,
           ),

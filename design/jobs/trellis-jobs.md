@@ -59,8 +59,9 @@ Caller-visible asynchronous APIs are defined separately in
 Jobs remain service-private execution machinery.
 
 The shared streams used by jobs are Trellis-owned runtime infrastructure.
-Trellis provisions or binds those resources during service envelope expansion
-for jobs-enabled services. The Jobs admin runtime may host the built-in
+Accepted top-level job queues are deployment authority desired state, and
+reconciliation creates or binds the materialized job infrastructure and queue
+bindings for jobs-enabled services. The Jobs admin runtime may host the built-in
 `trellis.jobs@v1` RPCs, but it does not own or control the contract. Ordinary
 services and demos should not need an extra manual `trellis.jobs@v1` install
 step just to create or process jobs.
@@ -255,10 +256,11 @@ Ordinary services do not bind to or write any admin projection storage.
 
 ### Provisioning Model
 
-Shared jobs infrastructure is Trellis-owned runtime state. Trellis provisions or
-binds it during service envelope expansion for jobs-enabled environments rather
-than requiring a separate manual jobs install step or first-bootstrap side
-effect.
+Shared jobs infrastructure is Trellis-owned runtime state. Accepted job queues
+are deployment authority desired state. Trellis reconciles the shared streams,
+queue bindings, and per-service materialized authority for jobs-enabled
+environments rather than requiring a separate manual jobs install step or
+first-bootstrap side effect.
 
 - normal services declare top-level `jobs` to participate in jobs processing
   without owning the shared stream topology directly
@@ -267,8 +269,8 @@ effect.
   work, and SQL projections for the built-in Jobs API, but ordinary
   service-local workers do not depend on a manual jobs service deployment to
   start
-- the `trellis` service provisions or binds the shared jobs resources during
-  service envelope expansion before jobs-enabled services start
+- reconciliation creates or binds the shared jobs resources before jobs-enabled
+  services start
 - the `jobs` service and service-local workers create only dynamic per-job-type
   consumers at runtime
 - the runtime should consume those bindings, rather than hard-coding an
@@ -287,9 +289,20 @@ service-declared contract resources.
 
 Normal consuming service contracts should declare top-level `jobs`. The JSON
 examples below show the resolved JetStream configuration the jobs runtime
-expects after binding. Trellis should provision these shared resources during
-service envelope expansion so service-local workers can rely on the bindings
-without a separate infrastructure install step.
+expects after binding. Reconciliation materializes these shared resources so
+service-local workers can rely on the bindings without a separate infrastructure
+install step.
+
+Queue change classification:
+
+- adding a queue is an authority update
+- increasing `maxDeliver`, increasing `ackWaitMs`, extending backoff, enabling
+  progress/logs/DLQ, or increasing `concurrency` is usually an authority update
+- removing or renaming a queue, changing payload or result schema in a way that
+  may reject existing jobs, reducing `maxDeliver` or `ackWaitMs`, shortening
+  backoff, disabling DLQ for a queue with outstanding failures, or changing
+  delivery settings in a way that may skip or duplicate work is an authority
+  migration
 
 Trellis jobs require `nats-server` 2.10.0 or newer. This is the runtime floor
 for JetStream source subject transforms and filtered consumer create API
@@ -812,10 +825,10 @@ derivation. The system does **not** grant broad end-user capabilities for direct
 jobs access.
 
 As in `../auth/trellis-auth.md` and `../contracts/trellis-contracts-catalog.md`,
-runtime service ownership is derived from the service principal and the service
-deployment envelope that the presented contract must fit, not from contract
-metadata alone. The `<service>` subject segment used by Jobs must therefore be
-bound to the service identity used for routing and permission derivation.
+runtime service ownership is derived from the service principal and materialized
+authority for the presented contract, not from contract metadata alone. The
+`<service>` subject segment used by Jobs must therefore be bound to the service
+identity used for routing and permission derivation.
 
 | Capability / rule                         | Permissions                                                                                                                                        |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -17,7 +17,7 @@ import {
   deviceDeployments,
   deviceInstances,
   deviceProvisioningSecrets,
-  identityEnvelopes,
+  identityGrants,
   localCredentials,
   serviceDeployments,
   serviceInstances,
@@ -29,7 +29,7 @@ import type {
   AccountFlow,
   CapabilityGroup,
   DeviceSession,
-  IdentityEnvelopeRecord,
+  IdentityGrantRecord,
   LocalCredential,
   ServiceSession,
   Session,
@@ -55,7 +55,7 @@ import {
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
   SqlDeviceProvisioningSecretRepository,
-  SqlIdentityEnvelopeRepository,
+  SqlIdentityGrantRepository,
   SqlLocalCredentialRepository,
   SqlLoginPortalRepository,
   SqlServiceDeploymentRepository,
@@ -87,7 +87,7 @@ async function withRepositories(
       accountFlows: SqlAccountFlowRepository;
       capabilityGroups: SqlCapabilityGroupRepository;
       users: SqlUserProjectionRepository;
-      approvals: SqlIdentityEnvelopeRepository;
+      identityGrants: SqlIdentityGrantRepository;
       serviceDeployments: SqlServiceDeploymentRepository;
       serviceInstances: SqlServiceInstanceRepository;
       deviceDeployments: SqlDeviceDeploymentRepository;
@@ -117,7 +117,7 @@ async function withRepositories(
       accountFlows: new SqlAccountFlowRepository(storage.db),
       capabilityGroups: new SqlCapabilityGroupRepository(storage.db),
       users: new SqlUserProjectionRepository(storage.db),
-      approvals: new SqlIdentityEnvelopeRepository(storage.db),
+      identityGrants: new SqlIdentityGrantRepository(storage.db),
       serviceDeployments: new SqlServiceDeploymentRepository(storage.db),
       serviceInstances: new SqlServiceInstanceRepository(storage.db),
       deviceDeployments: new SqlDeviceDeploymentRepository(storage.db),
@@ -357,11 +357,12 @@ function makeAccountFlow(overrides: Partial<AccountFlow> = {}): AccountFlow {
   };
 }
 
-function makeApproval(
-  overrides: Partial<IdentityEnvelopeRecord> = {},
-): IdentityEnvelopeRecord {
+function makeIdentityGrant(
+  overrides: Partial<IdentityGrantRecord> = {},
+): IdentityGrantRecord {
   return {
-    identityEnvelopeId: "env-app-a",
+    identityGrantId: "grant-app-a",
+    identityAuthorityId: "auth-github-user-1",
     userTrellisId: "github.user-1",
     origin: "github",
     id: "user-1",
@@ -404,7 +405,7 @@ function makeUserSession(overrides: Partial<UserSession> = {}): UserSession {
     email: "ada@example.com",
     name: "Ada Lovelace",
     participantKind: "app",
-    identityEnvelopeId: "env-user-app",
+    identityGrantId: "grant-user-app",
     contractDigest: "sha256-user-contract",
     contractId: "app@v1",
     contractDisplayName: "Test App",
@@ -1360,94 +1361,94 @@ Deno.test("account flow atomic OAuth target completion rejects identity conflict
   );
 });
 
-Deno.test("identity envelope storage upserts, gets, and preserves Date fields", async () => {
-  await withRepositories(async ({ approvals }, storage) => {
-    const first = makeApproval();
-    await approvals.put(first);
+Deno.test("identity grant storage upserts, gets, and preserves Date fields", async () => {
+  await withRepositories(async ({ identityGrants: grants }, storage) => {
+    const first = makeIdentityGrant();
+    await grants.put(first);
 
-    const stored = await approvals.get(first.identityEnvelopeId);
+    const stored = await grants.get(first.identityGrantId);
     assertEquals(stored, first);
     assertInstanceOf(stored?.answeredAt, Date);
     assertInstanceOf(stored?.updatedAt, Date);
 
-    const [row] = await storage.db.select().from(identityEnvelopes);
+    const [row] = await storage.db.select().from(identityGrants);
     assertMatch(row.id, /^[0-9A-HJKMNP-TV-Z]{26}$/);
     assertEquals(row.externalId, first.id);
 
-    const updated = makeApproval({
+    const updated = makeIdentityGrant({
       answer: "denied",
       answeredAt: new Date("2026-04-26T01:00:00.000Z"),
       updatedAt: new Date("2026-04-26T01:00:01.000Z"),
       publishSubjects: [],
       subscribeSubjects: [],
     });
-    await approvals.put(updated);
+    await grants.put(updated);
 
     assertEquals(
-      await approvals.get(updated.identityEnvelopeId),
+      await grants.get(updated.identityGrantId),
       updated,
     );
   });
 });
 
-Deno.test("identity envelope storage lists by user and all envelopes", async () => {
-  await withRepositories(async ({ approvals }) => {
-    const first = makeApproval({
+Deno.test("identity grant storage lists by user and all grants", async () => {
+  await withRepositories(async ({ identityGrants: grants }) => {
+    const first = makeIdentityGrant({
       userTrellisId: "github.user-1",
-      identityEnvelopeId: "env-a",
+      identityGrantId: "grant-a",
       approvalEvidence: {
-        ...makeApproval().approvalEvidence,
+        ...makeIdentityGrant().approvalEvidence,
         contractDigest: "sha256-contract-a",
       },
     });
-    const second = makeApproval({
+    const second = makeIdentityGrant({
       userTrellisId: "github.user-1",
-      identityEnvelopeId: "env-b",
+      identityGrantId: "grant-b",
       identityAnchor: {
         kind: "cli",
         contractId: "agent@v1",
         sessionPublicKey: "session-agent",
       },
       approvalEvidence: {
-        ...makeApproval().approvalEvidence,
+        ...makeIdentityGrant().approvalEvidence,
         contractDigest: "sha256-contract-b",
         contractId: "agent@v1",
         participantKind: "agent",
       },
     });
-    const third = makeApproval({
+    const third = makeIdentityGrant({
       userTrellisId: "github.user-2",
-      identityEnvelopeId: "env-c",
+      identityGrantId: "grant-c",
       id: "user-2",
       approvalEvidence: {
-        ...makeApproval().approvalEvidence,
+        ...makeIdentityGrant().approvalEvidence,
         contractDigest: "sha256-contract-a",
       },
     });
 
-    await approvals.put(second);
-    await approvals.put(third);
-    await approvals.put(first);
+    await grants.put(second);
+    await grants.put(third);
+    await grants.put(first);
 
-    assertEquals(await approvals.listByUser("github.user-1"), [first, second]);
+    assertEquals(await grants.listByUser("github.user-1"), [first, second]);
     assertEquals(
-      await approvals.listPageByUser("github.user-1", { limit: 1 }),
+      await grants.listPageByUser("github.user-1", { limit: 1 }),
       [
         first,
       ],
     );
     assertEquals(
-      await approvals.listApprovedPageByUser("github.user-1", { limit: 10 }),
+      await grants.listApprovedPageByUser("github.user-1", { limit: 10 }),
       [first, second],
     );
-    assertEquals(await approvals.listPage({ limit: 10 }), [
+    assertEquals(await grants.listPage({ limit: 10 }), [
       first,
       second,
       third,
     ]);
-    assertEquals(await approvals.listApproved(), [first, second, third]);
+    assertEquals(await grants.listApproved(), [first, second, third]);
     assertEquals(
-      await approvals.listByApprovalEvidenceContractDigests([
+      await grants.listByApprovalEvidenceContractDigests([
         "sha256-contract-a",
       ]),
       [first, third],
@@ -1455,31 +1456,31 @@ Deno.test("identity envelope storage lists by user and all envelopes", async () 
   });
 });
 
-Deno.test("identity envelope storage deletes by envelope id", async () => {
-  await withRepositories(async ({ approvals }) => {
-    const first = makeApproval();
-    const second = makeApproval({
-      identityEnvelopeId: "env-b",
+Deno.test("identity grant storage deletes by grant id", async () => {
+  await withRepositories(async ({ identityGrants: grants }) => {
+    const first = makeIdentityGrant();
+    const second = makeIdentityGrant({
+      identityGrantId: "grant-b",
       identityAnchor: {
         kind: "cli",
         contractId: "agent@v1",
         sessionPublicKey: "session-agent",
       },
       approvalEvidence: {
-        ...makeApproval().approvalEvidence,
+        ...makeIdentityGrant().approvalEvidence,
         contractDigest: "sha256-contract-b",
       },
     });
-    await approvals.put(first);
-    await approvals.put(second);
+    await grants.put(first);
+    await grants.put(second);
 
-    await approvals.delete(first.identityEnvelopeId);
+    await grants.delete(first.identityGrantId);
 
     assertEquals(
-      await approvals.get(first.identityEnvelopeId),
+      await grants.get(first.identityGrantId),
       undefined,
     );
-    assertEquals(await approvals.listByUser(first.userTrellisId), [second]);
+    assertEquals(await grants.listByUser(first.userTrellisId), [second]);
   });
 });
 
@@ -1582,7 +1583,7 @@ Deno.test("session storage supports one-by-key and list filters", async () => {
       [device],
     );
     assertEquals(
-      await sessionRepo.listEntriesForDeploymentEnvelopePreview(
+      await sessionRepo.listEntriesForDeploymentAuthorityPreview(
         "svc-deployment-a",
       ),
       [

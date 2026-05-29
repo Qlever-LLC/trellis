@@ -115,6 +115,118 @@ impl<'a> AuthRpc<'a> {
             .call::<super::rpc::AuthConnectionsListRpc>(input)
             .await
     }
+    /// Call `Auth.DeploymentAuthority.AcceptMigration`.
+    pub async fn deployment_authority_accept_migration(
+        &self,
+        input: &super::types::AuthDeploymentAuthorityAcceptMigrationRequest,
+    ) -> Result<super::types::AuthDeploymentAuthorityAcceptMigrationResponse, TrellisClientError>
+    {
+        self.inner
+            .call::<super::rpc::AuthDeploymentAuthorityAcceptMigrationRpc>(input)
+            .await
+    }
+    /// Call `Auth.DeploymentAuthority.AcceptUpdate`.
+    pub async fn deployment_authority_accept_update(
+        &self,
+        input: &super::types::AuthDeploymentAuthorityAcceptUpdateRequest,
+    ) -> Result<super::types::AuthDeploymentAuthorityAcceptUpdateResponse, TrellisClientError> {
+        self.inner
+            .call::<super::rpc::AuthDeploymentAuthorityAcceptUpdateRpc>(input)
+            .await
+    }
+    /// Call `Auth.DeploymentAuthority.Get`.
+    pub async fn deployment_authority_get(
+        &self,
+        input: &super::types::AuthDeploymentAuthorityGetRequest,
+    ) -> Result<super::types::AuthDeploymentAuthorityGetResponse, TrellisClientError> {
+        self.inner
+            .call::<super::rpc::AuthDeploymentAuthorityGetRpc>(input)
+            .await
+    }
+    /// Call `Auth.DeploymentAuthority.GrantOverrides.List`.
+    pub async fn deployment_authority_grant_overrides_list(
+        &self,
+        input: &super::types::AuthDeploymentAuthorityGrantOverridesListRequest,
+    ) -> Result<super::types::AuthDeploymentAuthorityGrantOverridesListResponse, TrellisClientError>
+    {
+        self.inner
+            .call::<super::rpc::AuthDeploymentAuthorityGrantOverridesListRpc>(input)
+            .await
+    }
+    /// Call `Auth.DeploymentAuthority.GrantOverrides.Put`.
+    pub async fn deployment_authority_grant_overrides_put(
+        &self,
+        input: &super::types::AuthDeploymentAuthorityGrantOverridesPutRequest,
+    ) -> Result<super::types::AuthDeploymentAuthorityGrantOverridesPutResponse, TrellisClientError>
+    {
+        self.inner
+            .call::<super::rpc::AuthDeploymentAuthorityGrantOverridesPutRpc>(input)
+            .await
+    }
+    /// Call `Auth.DeploymentAuthority.GrantOverrides.Remove`.
+    pub async fn deployment_authority_grant_overrides_remove(
+        &self,
+        input: &super::types::AuthDeploymentAuthorityGrantOverridesRemoveRequest,
+    ) -> Result<super::types::AuthDeploymentAuthorityGrantOverridesRemoveResponse, TrellisClientError>
+    {
+        self.inner
+            .call::<super::rpc::AuthDeploymentAuthorityGrantOverridesRemoveRpc>(input)
+            .await
+    }
+    /// Call `Auth.DeploymentAuthority.List`.
+    pub async fn deployment_authority_list(
+        &self,
+        input: &super::types::AuthDeploymentAuthorityListRequest,
+    ) -> Result<super::types::AuthDeploymentAuthorityListResponse, TrellisClientError> {
+        self.inner
+            .call::<super::rpc::AuthDeploymentAuthorityListRpc>(input)
+            .await
+    }
+    /// Call `Auth.DeploymentAuthority.Plan`.
+    pub async fn deployment_authority_plan(
+        &self,
+        input: &super::types::AuthDeploymentAuthorityPlanRequest,
+    ) -> Result<super::types::AuthDeploymentAuthorityPlanResponse, TrellisClientError> {
+        self.inner
+            .call::<super::rpc::AuthDeploymentAuthorityPlanRpc>(input)
+            .await
+    }
+    /// Call `Auth.DeploymentAuthority.Plans.Get`.
+    pub async fn deployment_authority_plans_get(
+        &self,
+        input: &super::types::AuthDeploymentAuthorityPlansGetRequest,
+    ) -> Result<super::types::AuthDeploymentAuthorityPlansGetResponse, TrellisClientError> {
+        self.inner
+            .call::<super::rpc::AuthDeploymentAuthorityPlansGetRpc>(input)
+            .await
+    }
+    /// Call `Auth.DeploymentAuthority.Plans.List`.
+    pub async fn deployment_authority_plans_list(
+        &self,
+        input: &super::types::AuthDeploymentAuthorityPlansListRequest,
+    ) -> Result<super::types::AuthDeploymentAuthorityPlansListResponse, TrellisClientError> {
+        self.inner
+            .call::<super::rpc::AuthDeploymentAuthorityPlansListRpc>(input)
+            .await
+    }
+    /// Call `Auth.DeploymentAuthority.Reconcile`.
+    pub async fn deployment_authority_reconcile(
+        &self,
+        input: &super::types::AuthDeploymentAuthorityReconcileRequest,
+    ) -> Result<super::types::AuthDeploymentAuthorityReconcileResponse, TrellisClientError> {
+        self.inner
+            .call::<super::rpc::AuthDeploymentAuthorityReconcileRpc>(input)
+            .await
+    }
+    /// Call `Auth.DeploymentAuthority.Reject`.
+    pub async fn deployment_authority_reject(
+        &self,
+        input: &super::types::AuthDeploymentAuthorityRejectRequest,
+    ) -> Result<super::types::AuthDeploymentAuthorityRejectResponse, TrellisClientError> {
+        self.inner
+            .call::<super::rpc::AuthDeploymentAuthorityRejectRpc>(input)
+            .await
+    }
     /// Call `Auth.Deployments.Create`.
     pub async fn deployments_create(
         &self,
@@ -252,118 +364,10 @@ impl<'a> AuthRpc<'a> {
             .call::<super::rpc::AuthDevicesRemoveRpc>(input)
             .await
     }
-    /// Call `Auth.EnvelopeExpansions.Approve`.
-    pub async fn envelope_expansions_approve(
-        &self,
-        input: &super::types::AuthEnvelopeExpansionsApproveRequest,
-    ) -> Result<super::types::AuthEnvelopeExpansionsApproveResponse, TrellisClientError> {
-        self.inner
-            .call::<super::rpc::AuthEnvelopeExpansionsApproveRpc>(input)
-            .await
-    }
-    /// Call `Auth.EnvelopeExpansions.List`.
-    pub async fn envelope_expansions_list(
-        &self,
-        input: &super::types::AuthEnvelopeExpansionsListRequest,
-    ) -> Result<super::types::AuthEnvelopeExpansionsListResponse, TrellisClientError> {
-        self.inner
-            .call::<super::rpc::AuthEnvelopeExpansionsListRpc>(input)
-            .await
-    }
-    /// Call `Auth.EnvelopeExpansions.Reject`.
-    pub async fn envelope_expansions_reject(
-        &self,
-        input: &super::types::AuthEnvelopeExpansionsRejectRequest,
-    ) -> Result<super::types::AuthEnvelopeExpansionsRejectResponse, TrellisClientError> {
-        self.inner
-            .call::<super::rpc::AuthEnvelopeExpansionsRejectRpc>(input)
-            .await
-    }
-    /// Call `Auth.Envelopes.Changes.Preview`.
-    pub async fn envelopes_changes_preview(
-        &self,
-        input: &super::types::AuthEnvelopesChangesPreviewRequest,
-    ) -> Result<super::types::AuthEnvelopesChangesPreviewResponse, TrellisClientError> {
-        self.inner
-            .call::<super::rpc::AuthEnvelopesChangesPreviewRpc>(input)
-            .await
-    }
-    /// Call `Auth.Envelopes.Expand`.
-    pub async fn envelopes_expand(
-        &self,
-        input: &super::types::AuthEnvelopesExpandRequest,
-    ) -> Result<super::types::AuthEnvelopesExpandResponse, TrellisClientError> {
-        self.inner
-            .call::<super::rpc::AuthEnvelopesExpandRpc>(input)
-            .await
-    }
-    /// Call `Auth.Envelopes.Get`.
-    pub async fn envelopes_get(
-        &self,
-        input: &super::types::AuthEnvelopesGetRequest,
-    ) -> Result<super::types::AuthEnvelopesGetResponse, TrellisClientError> {
-        self.inner
-            .call::<super::rpc::AuthEnvelopesGetRpc>(input)
-            .await
-    }
-    /// Call `Auth.Envelopes.GrantOverrides.List`.
-    pub async fn envelopes_grant_overrides_list(
-        &self,
-        input: &super::types::AuthEnvelopesGrantOverridesListRequest,
-    ) -> Result<super::types::AuthEnvelopesGrantOverridesListResponse, TrellisClientError> {
-        self.inner
-            .call::<super::rpc::AuthEnvelopesGrantOverridesListRpc>(input)
-            .await
-    }
-    /// Call `Auth.Envelopes.GrantOverrides.Put`.
-    pub async fn envelopes_grant_overrides_put(
-        &self,
-        input: &super::types::AuthEnvelopesGrantOverridesPutRequest,
-    ) -> Result<super::types::AuthEnvelopesGrantOverridesPutResponse, TrellisClientError> {
-        self.inner
-            .call::<super::rpc::AuthEnvelopesGrantOverridesPutRpc>(input)
-            .await
-    }
-    /// Call `Auth.Envelopes.GrantOverrides.Remove`.
-    pub async fn envelopes_grant_overrides_remove(
-        &self,
-        input: &super::types::AuthEnvelopesGrantOverridesRemoveRequest,
-    ) -> Result<super::types::AuthEnvelopesGrantOverridesRemoveResponse, TrellisClientError> {
-        self.inner
-            .call::<super::rpc::AuthEnvelopesGrantOverridesRemoveRpc>(input)
-            .await
-    }
-    /// Call `Auth.Envelopes.List`.
-    pub async fn envelopes_list(
-        &self,
-        input: &super::types::AuthEnvelopesListRequest,
-    ) -> Result<super::types::AuthEnvelopesListResponse, TrellisClientError> {
-        self.inner
-            .call::<super::rpc::AuthEnvelopesListRpc>(input)
-            .await
-    }
-    /// Call `Auth.Envelopes.Shrink`.
-    pub async fn envelopes_shrink(
-        &self,
-        input: &super::types::AuthEnvelopesShrinkRequest,
-    ) -> Result<super::types::AuthEnvelopesShrinkResponse, TrellisClientError> {
-        self.inner
-            .call::<super::rpc::AuthEnvelopesShrinkRpc>(input)
-            .await
-    }
     /// Call `Auth.Health`.
     pub async fn health(&self) -> Result<super::types::AuthHealthResponse, TrellisClientError> {
         self.inner
             .call::<super::rpc::AuthHealthRpc>(&super::rpc::Empty {})
-            .await
-    }
-    /// Call `Auth.Identities.Grants.List`.
-    pub async fn identities_grants_list(
-        &self,
-        input: &super::types::AuthIdentitiesGrantsListRequest,
-    ) -> Result<super::types::AuthIdentitiesGrantsListResponse, TrellisClientError> {
-        self.inner
-            .call::<super::rpc::AuthIdentitiesGrantsListRpc>(input)
             .await
     }
     /// Call `Auth.Identities.List`.
@@ -375,13 +379,22 @@ impl<'a> AuthRpc<'a> {
             .call::<super::rpc::AuthIdentitiesListRpc>(input)
             .await
     }
-    /// Call `Auth.IdentityEnvelopes.Revoke`.
-    pub async fn identity_envelopes_revoke(
+    /// Call `Auth.IdentityGrants.List`.
+    pub async fn identity_grants_list(
         &self,
-        input: &super::types::AuthIdentityEnvelopesRevokeRequest,
-    ) -> Result<super::types::AuthIdentityEnvelopesRevokeResponse, TrellisClientError> {
+        input: &super::types::AuthIdentityGrantsListRequest,
+    ) -> Result<super::types::AuthIdentityGrantsListResponse, TrellisClientError> {
         self.inner
-            .call::<super::rpc::AuthIdentityEnvelopesRevokeRpc>(input)
+            .call::<super::rpc::AuthIdentityGrantsListRpc>(input)
+            .await
+    }
+    /// Call `Auth.IdentityGrants.Revoke`.
+    pub async fn identity_grants_revoke(
+        &self,
+        input: &super::types::AuthIdentityGrantsRevokeRequest,
+    ) -> Result<super::types::AuthIdentityGrantsRevokeResponse, TrellisClientError> {
+        self.inner
+            .call::<super::rpc::AuthIdentityGrantsRevokeRpc>(input)
             .await
     }
     /// Call `Auth.Portals.Get`.

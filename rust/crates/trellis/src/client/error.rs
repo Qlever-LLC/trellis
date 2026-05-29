@@ -307,11 +307,11 @@ mod tests {
 
     #[test]
     fn formats_bootstrap_http_failure_payload_human_readably() {
-        let raw = r#"{"contractDigest":"digest-new","contractId":"trellis.jobs@v1","deploymentId":"svc/jobs","instanceId":"svc_1","message":"Service deployment 'svc/jobs' envelope does not cover contract 'trellis.jobs@v1' digest 'digest-new'. An expansion request was created.","reason":"envelope_expansion_required","requestId":"req_1"}"#;
+        let raw = r#"{"contractDigest":"digest-new","contractId":"trellis.jobs@v1","deploymentId":"svc/jobs","instanceId":"svc_1","message":"Service deployment 'svc/jobs' authority does not cover contract 'trellis.jobs@v1' digest 'digest-new'. An authority plan was created.","planId":"plan_1","reason":"authority_update_required"}"#;
 
         assert_eq!(
             format_bootstrap_http_payload(raw),
-            "envelope_expansion_required: Service deployment 'svc/jobs' envelope does not cover contract 'trellis.jobs@v1' digest 'digest-new'. An expansion request was created. (contractDigest=digest-new, contractId=trellis.jobs@v1, deploymentId=svc/jobs, instanceId=svc_1, requestId=req_1)"
+            "authority_update_required: Service deployment 'svc/jobs' authority does not cover contract 'trellis.jobs@v1' digest 'digest-new'. An authority plan was created. (contractDigest=digest-new, contractId=trellis.jobs@v1, deploymentId=svc/jobs, instanceId=svc_1, planId=plan_1)"
         );
     }
 

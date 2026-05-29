@@ -21,9 +21,10 @@ stream-derived projections.
 
 ### Contract Declaration
 
-Service-owned KV resources are schema-backed contract declarations under
-`resources.kv`. They are service-requested runtime resources, not a general
-description of the Trellis control-plane's private storage choices.
+Service-owned KV resources are schema-backed requested needs under
+`resources.kv`. Accepted KV requests become deployment authority desired state.
+Reconciliation is the only path that creates, updates, removes, or adopts
+materialized KV buckets and bindings.
 
 Example:
 
@@ -47,16 +48,33 @@ Rules:
 - the referenced schema must exist in the contract's top-level `schemas` map
 - `required` defaults to `true`; it controls whether generated service code sees
   the alias as required or optional
-- all declared KV resources must be provisioned or adopted during approval;
-  Trellis does not silently omit `required: false` KV resources when
-  provisioning is unavailable or fails
-- Trellis validates KV declarations from the presented contract at the service
-  deployment envelope boundary, but physical bucket identity is scoped to the
+- all accepted KV resources must be materialized; Trellis does not silently omit
+  `required: false` KV resources when reconciliation is unavailable or fails
+- Trellis validates KV declarations from the presented contract proposal against
+  deployment authority, but physical bucket identity is scoped to the
   deployment/profile and contract lineage rather than the digest so compatible
   service updates preserve data
 - service bootstrap resolves `service.kv.<alias>` and injected handler
   `client.kv.<alias>` as direct typed KV stores; service code does not call
   `.open(schema)`
+
+### Authority Update And Migration Classification
+
+Safe KV authority updates include:
+
+- adding a new KV alias
+- increasing `history` or `maxValueBytes`
+- changing `purpose` without changing runtime behavior
+- changing `required` when it does not remove already materialized access
+
+Dangerous KV authority migrations include:
+
+- removing or renaming a KV alias
+- reducing `history`, `ttlMs`, or `maxValueBytes`
+- changing the schema in a way that may reject existing values or change their
+  meaning
+- adopting an existing bucket with incompatible ownership, retention, or schema
+  expectations
 
 ### Bucket Naming
 

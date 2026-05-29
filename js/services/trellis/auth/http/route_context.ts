@@ -13,8 +13,14 @@ import { createProviders } from "../providers/registry.ts";
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import type {
   AccountFlowKind,
+  AuthorityNeedSet,
+  DeploymentAuthority,
+  DeploymentAuthorityGrantOverride,
+  DeploymentAuthorityMaterialization,
+  DeploymentAuthorityPlan,
+  DeploymentResourceBinding,
   FlowRegistrationAvailability,
-  IdentityEnvelopeRecord,
+  IdentityGrantRecord,
   LoginPortalRecord,
   LoginPortalSettings,
   PendingAuth,
@@ -24,19 +30,16 @@ import type {
 import { ensureBoundUserSession } from "../session/bind.ts";
 import { upsertUserProjectionInSql } from "../session/projection.ts";
 import type {
+  BoundedListQuery,
+  ListPage,
   SqlAccountFlowRepository,
   SqlCapabilityGroupRepository,
-  SqlDeploymentEnvelopeRepository,
-  SqlDeploymentGrantOverrideRepository,
   SqlDeploymentPortalRouteRepository,
-  SqlDeploymentResourceBindingRepository,
   SqlDeviceActivationRepository,
   SqlDeviceActivationReviewRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
   SqlDeviceProvisioningSecretRepository,
-  SqlEnvelopeExpansionRequestRepository,
-  SqlIdentityEnvelopeRepository,
   SqlImplementationOfferRepository,
   SqlLocalCredentialRepository,
   SqlLoginPortalRepository,
@@ -60,7 +63,7 @@ import {
   getApprovalResolution,
   getApprovalResolutionBlocker,
   identityAnchorForApp,
-  identityEnvelopeIdForAnchor,
+  identityGrantIdForAnchor,
   type PendingAuthEntry,
   resolveLinkedActiveUserIdentity as resolveLinkedActiveUserIdentityRecord,
 } from "./support.ts";
@@ -108,8 +111,12 @@ type HttpUserProjectionStorage = Pick<
   "get" | "put"
 >;
 type HttpCapabilityGroupStorage = Pick<SqlCapabilityGroupRepository, "get">;
-type HttpIdentityEnvelopeStorage = Pick<
-  SqlIdentityEnvelopeRepository,
+type HttpIdentityGrantStorage = Pick<
+  {
+    listByUser(userTrellisId: string): Promise<IdentityGrantRecord[]>;
+    listPage(query: BoundedListQuery): Promise<IdentityGrantRecord[]>;
+    put(record: IdentityGrantRecord): Promise<void>;
+  },
   "listByUser" | "listPage" | "put"
 >;
 type HttpLoginPortalStorage = Pick<
@@ -128,7 +135,7 @@ export type AuthHttpRouteOptions = {
   localCredentialStorage: HttpLocalCredentialStorage;
   userStorage: HttpUserProjectionStorage;
   capabilityGroupStorage: HttpCapabilityGroupStorage;
-  contractApprovalStorage: HttpIdentityEnvelopeStorage;
+  contractApprovalStorage: HttpIdentityGrantStorage;
   loginPortalStorage?: HttpLoginPortalStorage;
   deploymentPortalRouteStorage: SqlDeploymentPortalRouteRepository;
   serviceDeploymentStorage: SqlServiceDeploymentRepository;
@@ -138,11 +145,54 @@ export type AuthHttpRouteOptions = {
   deviceActivationStorage: SqlDeviceActivationRepository;
   deviceActivationReviewStorage: SqlDeviceActivationReviewRepository;
   deviceProvisioningSecretStorage: SqlDeviceProvisioningSecretRepository;
-  deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
-  deploymentGrantOverrideStorage: SqlDeploymentGrantOverrideRepository;
-  deploymentResourceBindingStorage: SqlDeploymentResourceBindingRepository;
+  deploymentAuthorityStorage: {
+    get(deploymentId: string): Promise<DeploymentAuthority | undefined>;
+    listEnabled(): Promise<DeploymentAuthority[]>;
+    put(record: DeploymentAuthority): Promise<void>;
+    acceptAuthorityPlan?(
+      authority: DeploymentAuthority,
+      plan: DeploymentAuthorityPlan,
+      expectedCurrentAuthorityVersion: string,
+    ): Promise<boolean>;
+  };
+  deploymentAuthorityPlanStorage: {
+    put(record: DeploymentAuthorityPlan): Promise<void>;
+    listFiltered(
+      filters: { deploymentId?: string; state?: string },
+      query: BoundedListQuery,
+    ): Promise<DeploymentAuthorityPlan[]>;
+  };
+  materializedAuthorityStorage: {
+    get(
+      deploymentId: string,
+    ): Promise<DeploymentAuthorityMaterialization | undefined>;
+  };
+  deploymentAuthorityGrantOverrideStorage: {
+    listByDeployment(
+      deploymentId: string,
+    ): Promise<DeploymentAuthorityGrantOverride[]>;
+    listCountedPage?(
+      query: BoundedListQuery,
+    ): Promise<ListPage<DeploymentAuthorityGrantOverride>>;
+  };
+  deploymentResourceBindingStorage: {
+    get(
+      deploymentId: string,
+      kind: string,
+      alias: string,
+    ): Promise<DeploymentResourceBinding | undefined>;
+    put(record: DeploymentResourceBinding): Promise<void>;
+    listByDeployment(
+      deploymentId: string,
+    ): Promise<DeploymentResourceBinding[]>;
+  };
   implementationOfferStorage: SqlImplementationOfferRepository;
-  envelopeExpansionRequestStorage: SqlEnvelopeExpansionRequestRepository;
+  authorityReconciler: {
+    reconcileDeployment(
+      deploymentId: string,
+      opts?: { desiredVersion?: string },
+    ): Promise<unknown>;
+  };
   config: Config;
   kick: (serverId: string, clientId: number) => Promise<void>;
   contracts: Pick<
@@ -220,13 +270,35 @@ function builtinLoginPortal(config: Config): SelectedLoginPortal {
   };
 }
 
-function isIdentityEnvelopeRecord(
+function isIdentityGrantRecord(
   value: unknown,
-): value is IdentityEnvelopeRecord {
+): value is IdentityGrantRecord {
   return !!value && typeof value === "object" &&
-    "identityEnvelopeId" in value &&
-    typeof value.identityEnvelopeId === "string" &&
+    "identityGrantId" in value &&
+    typeof value.identityGrantId === "string" &&
+    "identityAuthorityId" in value &&
+    typeof value.identityAuthorityId === "string" &&
     "userTrellisId" in value && typeof value.userTrellisId === "string";
+}
+
+function isAuthorityNeedSet(value: unknown): value is AuthorityNeedSet {
+  return !!value && typeof value === "object" &&
+    "contracts" in value && Array.isArray(value.contracts) &&
+    "surfaces" in value && Array.isArray(value.surfaces) &&
+    "capabilities" in value && Array.isArray(value.capabilities) &&
+    "resources" in value && Array.isArray(value.resources);
+}
+
+function deploymentAuthorityIncludesContract(
+  authority: DeploymentAuthority,
+  contractId: string,
+): boolean {
+  return authority.desiredState.needs.some((need) =>
+    (need.kind === "contract" && need.contractId === contractId) ||
+    (need.kind === "surface" && need.surface.contractId === contractId)
+  ) || authority.desiredState.surfaces.some((surface) =>
+    surface.contractId === contractId
+  );
 }
 
 function requireUserParticipantKind(value: unknown): "app" | "agent" {
@@ -260,7 +332,7 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
   } = opts.runtimeDeps;
   const providers = opts.providers ?? createProviders(config);
   const contractApprovalStorage: {
-    listByUser?: (trellisId: string) => Promise<IdentityEnvelopeRecord[]>;
+    listByUser?: (trellisId: string) => Promise<IdentityGrantRecord[]>;
     listPage?: (
       query: { offset?: number; limit: number },
     ) => Promise<unknown[]>;
@@ -269,19 +341,20 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
     loadUserProjection: async (userId: string) => {
       return await opts.userStorage.get(userId) ?? null;
     },
-    loadDeploymentEnvelopes: async () =>
-      await opts.deploymentEnvelopeStorage.listEnabled(),
-    loadDeploymentGrantOverrides: async (deploymentId: string) =>
-      await opts.deploymentGrantOverrideStorage.listByDeployment(deploymentId),
-    loadIdentityEnvelopesByUser: async (userId: string) => {
+    loadDeploymentAuthorities: async () =>
+      await opts.deploymentAuthorityStorage.listEnabled(),
+    loadDeploymentAuthorityGrantOverrides: async (deploymentId: string) =>
+      await opts.deploymentAuthorityGrantOverrideStorage.listByDeployment(
+        deploymentId,
+      ),
+    loadIdentityGrantsByUser: async (userId: string) => {
       if (contractApprovalStorage.listByUser) {
         return await contractApprovalStorage.listByUser(userId);
       }
-      const envelopes =
-        await contractApprovalStorage.listPage?.({ limit: 100 }) ??
-          [];
-      return envelopes.filter(isIdentityEnvelopeRecord).filter((envelope) =>
-        envelope.userTrellisId === userId
+      const grants = await contractApprovalStorage.listPage?.({ limit: 100 }) ??
+        [];
+      return grants.filter(isIdentityGrantRecord).filter((grant) =>
+        grant.userTrellisId === userId
       );
     },
     capabilityGroupStorage: opts.capabilityGroupStorage,
@@ -462,11 +535,13 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
     if (selected.portal.entryUrl) return selected.portal.entryUrl;
     const contractId = typeof contract.id === "string" ? contract.id : null;
     if (contractId) {
-      const envelopes = await opts.deploymentEnvelopeStorage
-        .listEnabledByContractId(contractId);
+      const authorities = (await opts.deploymentAuthorityStorage.listEnabled())
+        .filter((authority) =>
+          deploymentAuthorityIncludesContract(authority, contractId)
+        );
       const route = await opts.deploymentPortalRouteStorage
         .getFirstEnabledForDeployments(
-          envelopes.map((envelope) => envelope.deploymentId),
+          authorities.map((authority) => authority.deploymentId),
         );
       if (route?.entryUrl) return route.entryUrl;
     }
@@ -509,8 +584,8 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
       delegatedCapabilities: session.delegatedCapabilities,
       delegatedPublishSubjects: session.delegatedPublishSubjects,
       delegatedSubscribeSubjects: session.delegatedSubscribeSubjects,
-      ...(session.identityEnvelope
-        ? { identityEnvelope: session.identityEnvelope }
+      ...(isAuthorityNeedSet(session.identityAuthorityNeeds)
+        ? { identityAuthorityNeeds: session.identityAuthorityNeeds }
         : {}),
       ...(session.approvalSource
         ? { approvalSource: session.approvalSource }
@@ -578,8 +653,8 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
     };
     const identityAnchor = storedApproval?.identityAnchor ??
       identityAnchorForApp(app, args.pendingValue.sessionKey);
-    const identityEnvelopeId = storedApproval?.identityEnvelopeId ??
-      identityEnvelopeIdForAnchor(args.resolution.userId, identityAnchor);
+    const identityGrantId = storedApproval?.identityGrantId ??
+      identityGrantIdForAnchor(args.resolution.userId, identityAnchor);
 
     const sessionEnsured = await ensureBoundUserSession({
       sessionStorage,
@@ -599,7 +674,7 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
       participantKind: requireUserParticipantKind(
         args.resolution.plan.approval,
       ),
-      identityEnvelopeId,
+      identityGrantId,
       contractDigest: args.resolution.plan.digest,
       contractId: args.resolution.plan.contract.id,
       contractDisplayName: args.resolution.plan.contract.displayName,
@@ -612,8 +687,8 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
         : args.resolution.effectiveApproval.kind === "deployment_grant"
         ? { approvalSource: "deployment_grant" as const }
         : {}),
-      ...(args.resolution.requestedBoundary
-        ? { identityEnvelope: args.resolution.requestedBoundary }
+      ...(args.resolution.requestedAuthority
+        ? { identityAuthorityNeeds: args.resolution.requestedAuthority }
         : {}),
       delegatedCapabilities: approvalCapabilityKeys(
         args.resolution.plan.approval,

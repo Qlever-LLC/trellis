@@ -2,11 +2,11 @@ import { approvalCapabilityKeys } from "@qlever-llc/trellis/auth";
 import type { AsyncResult, BaseError } from "@qlever-llc/result";
 
 import { planUserContractApproval } from "../approval/plan.ts";
-import { analyzeContractEnvelopeBoundary } from "../boundary_analysis.ts";
+import { analyzeContractProposal } from "../contract_proposal_analysis.ts";
 import {
-  applyGrantOverrideCapabilities,
-  evaluateEnvelopeFit,
-} from "../envelope_decision.ts";
+  applyGrantOverrideAuthorityCapabilities,
+  evaluateProposalNeedsFit,
+} from "../authority_needs_decision.ts";
 import type { CapabilityGroupLoader } from "../capability_groups.ts";
 import { resolveCapabilities } from "../capability_groups.ts";
 export { identityIdForProviderSubject } from "../identity.ts";
@@ -20,11 +20,13 @@ import type { Config } from "../../config.ts";
 import type { ContractsModule } from "../../catalog/runtime.ts";
 import type {
   AppIdentity,
-  DeploymentEnvelope,
-  DeploymentGrantOverride,
-  EnvelopeBoundary,
+  AuthorityNeedSet,
+  AuthorityNeedSetResource,
+  AuthorityNeedSetSurface,
+  DeploymentAuthority,
+  DeploymentAuthorityGrantOverride,
   IdentityAnchor,
-  IdentityEnvelopeRecord,
+  IdentityGrantRecord,
   OAuthState,
   PendingAuth,
   UserAccount,
@@ -32,7 +34,7 @@ import type {
   UserProjectionEntry,
 } from "../schemas.ts";
 
-const EMPTY_BOUNDARY: EnvelopeBoundary = {
+const EMPTY_AUTHORITY_NEEDS: AuthorityNeedSet = {
   contracts: [],
   surfaces: [],
   capabilities: [],
@@ -80,13 +82,13 @@ export type ApprovalResolution = {
   missingCapabilities: string[];
   matchedPolicies: [];
   effectiveApproval: EffectiveApproval;
-  storedApproval: IdentityEnvelopeRecord | null;
-  requestedBoundary?: EnvelopeBoundary;
-  systemAvailabilityEnvelope?: EnvelopeBoundary;
+  storedApproval: IdentityGrantRecord | null;
+  requestedAuthority?: AuthorityNeedSet;
+  systemAvailabilityAuthority?: AuthorityNeedSet;
 };
 
 export type ApprovalResolutionWithStoredApproval = ApprovalResolution & {
-  storedApproval: IdentityEnvelopeRecord;
+  storedApproval: IdentityGrantRecord;
 };
 
 type ApprovalContracts =
@@ -111,13 +113,13 @@ export function getApprovalResolutionBlocker(
 
 export type ApprovalResolutionDeps = {
   loadUserProjection: (userId: string) => Promise<UserProjectionEntry | null>;
-  loadDeploymentEnvelopes?: () => Promise<DeploymentEnvelope[]>;
-  loadDeploymentGrantOverrides?: (
+  loadDeploymentAuthorities?: () => Promise<DeploymentAuthority[]>;
+  loadDeploymentAuthorityGrantOverrides?: (
     deploymentId: string,
-  ) => Promise<DeploymentGrantOverride[]>;
-  loadIdentityEnvelopesByUser?: (
+  ) => Promise<DeploymentAuthorityGrantOverride[]>;
+  loadIdentityGrantsByUser?: (
     userId: string,
-  ) => Promise<IdentityEnvelopeRecord[]>;
+  ) => Promise<IdentityGrantRecord[]>;
   capabilityGroupStorage?: CapabilityGroupLoader;
 };
 
@@ -141,7 +143,7 @@ export function identityAnchorForApp(
     : { kind: "cli", contractId: app.contractId, sessionPublicKey };
 }
 
-export function identityEnvelopeIdForAnchor(
+export function identityGrantIdForAnchor(
   userId: string,
   anchor: IdentityAnchor,
 ): string {
@@ -180,11 +182,14 @@ export function applyApprovalDecision(args: {
     app,
     args.resolution.sessionPublicKey,
   );
-  const storedApproval: IdentityEnvelopeRecord = {
-    identityEnvelopeId: identityEnvelopeIdForAnchor(
-      args.resolution.userId,
-      identityAnchor,
-    ),
+  const identityGrantId = identityGrantIdForAnchor(
+    args.resolution.userId,
+    identityAnchor,
+  );
+  const storedApproval: IdentityGrantRecord = {
+    identityGrantId,
+    identityAuthorityId:
+      `${args.resolution.userId}:${args.resolution.identityProvider}:${args.resolution.identitySubject}`,
     userTrellisId: args.resolution.userId,
     origin: args.resolution.identityProvider,
     id: args.resolution.identitySubject,
@@ -269,23 +274,23 @@ export function buildAppIdentity(args: {
   };
 }
 
-function mergeEnvelopeBoundaries(
-  boundaries: EnvelopeBoundary[],
-): EnvelopeBoundary {
-  const contracts = new Map<string, EnvelopeBoundary["contracts"][number]>();
-  const surfaces = new Map<string, EnvelopeBoundary["surfaces"][number]>();
-  const resources = new Map<string, EnvelopeBoundary["resources"][number]>();
+function mergeAuthorityNeedSets(
+  needs: AuthorityNeedSet[],
+): AuthorityNeedSet {
+  const contracts = new Map<string, AuthorityNeedSet["contracts"][number]>();
+  const surfaces = new Map<string, AuthorityNeedSetSurface>();
+  const resources = new Map<string, AuthorityNeedSetResource>();
   const capabilities = new Set<string>();
 
-  for (const boundary of boundaries) {
-    for (const contract of boundary.contracts) {
+  for (const needSet of needs) {
+    for (const contract of needSet.contracts) {
       const existing = contracts.get(contract.contractId);
       contracts.set(contract.contractId, {
         ...contract,
         required: (existing?.required ?? false) || contract.required,
       });
     }
-    for (const surface of boundary.surfaces) {
+    for (const surface of needSet.surfaces) {
       const key = [
         surface.contractId,
         surface.kind,
@@ -298,7 +303,7 @@ function mergeEnvelopeBoundaries(
         required: (existing?.required ?? false) || surface.required,
       });
     }
-    for (const resource of boundary.resources) {
+    for (const resource of needSet.resources) {
       const key = [resource.kind, resource.alias].join("\u001f");
       const existing = resources.get(key);
       resources.set(key, {
@@ -306,7 +311,7 @@ function mergeEnvelopeBoundaries(
         required: (existing?.required ?? false) || resource.required,
       });
     }
-    for (const capability of boundary.capabilities) {
+    for (const capability of needSet.capabilities) {
       capabilities.add(capability);
     }
   }
@@ -319,7 +324,7 @@ function mergeEnvelopeBoundaries(
       left.contractId.localeCompare(right.contractId) ||
       left.kind.localeCompare(right.kind) ||
       left.name.localeCompare(right.name) ||
-      left.action.localeCompare(right.action)
+      (left.action ?? "").localeCompare(right.action ?? "")
     ),
     capabilities: [...capabilities].sort(),
     resources: [...resources.values()].sort((left, right) =>
@@ -331,15 +336,15 @@ function mergeEnvelopeBoundaries(
 
 async function builtinAvailabilityBoundaries(
   contracts: ApprovalContracts,
-): Promise<EnvelopeBoundary[]> {
+): Promise<AuthorityNeedSet[]> {
   const builtinDigests = new Set(contracts.getBuiltinDigests?.() ?? []);
   if (builtinDigests.size === 0) return [];
 
   const activeEntries = await contracts.getActiveEntries();
-  const boundaries: EnvelopeBoundary[] = [];
+  const boundaries: AuthorityNeedSet[] = [];
   for (const entry of activeEntries) {
     if (!builtinDigests.has(entry.digest)) continue;
-    const analysis = await analyzeContractEnvelopeBoundary(
+    const analysis = await analyzeContractProposal(
       contracts,
       entry.contract,
     );
@@ -369,12 +374,12 @@ function sameIdentityAnchor(
 }
 
 async function matchingGrantOverrideCapabilities(args: {
-  overrides: DeploymentGrantOverride[];
-  identity: Parameters<typeof applyGrantOverrideCapabilities>[2];
+  overrides: DeploymentAuthorityGrantOverride[];
+  identity: Parameters<typeof applyGrantOverrideAuthorityCapabilities>[2];
   capabilityGroupStorage?: CapabilityGroupLoader;
 }): Promise<string[]> {
-  return (await applyGrantOverrideCapabilities(
-    EMPTY_BOUNDARY,
+  return (await applyGrantOverrideAuthorityCapabilities(
+    EMPTY_AUTHORITY_NEEDS,
     args.overrides,
     args.identity,
     args.capabilityGroupStorage,
@@ -392,7 +397,7 @@ function escapeHtml(value: string): string {
 }
 
 function storedApprovalCoversPlan(
-  approval: IdentityEnvelopeRecord,
+  approval: IdentityGrantRecord,
   plan: ApprovalResolution["plan"],
 ): boolean {
   const approvedCapabilities = new Set(
@@ -411,13 +416,49 @@ function storedApprovalCoversPlan(
     );
 }
 
+function authorityNeedSetFromDesiredState(
+  authority: DeploymentAuthority,
+): AuthorityNeedSet {
+  return mergeAuthorityNeedSets([
+    {
+      contracts: authority.desiredState.needs.flatMap((need) =>
+        need.kind === "contract"
+          ? [{ contractId: need.contractId, required: need.required }]
+          : []
+      ),
+      surfaces: authority.desiredState.needs.flatMap((need) =>
+        need.kind === "surface"
+          ? [{ ...need.surface, required: need.required }]
+          : []
+      ),
+      capabilities: authority.desiredState.needs.flatMap((need) =>
+        need.kind === "capability" ? [need.capability] : []
+      ),
+      resources: authority.desiredState.needs.flatMap((need) =>
+        need.kind === "resource"
+          ? [{ ...need.resource, required: need.required }]
+          : []
+      ),
+    },
+    {
+      contracts: [],
+      surfaces: authority.desiredState.surfaces.map((surface) => ({
+        ...surface,
+        required: true,
+      })),
+      capabilities: authority.desiredState.capabilities,
+      resources: authority.desiredState.resources,
+    },
+  ]);
+}
+
 export async function getApprovalResolution(
   contracts: ApprovalContracts,
   pending: PendingAuth,
   deps: ApprovalResolutionDeps,
 ): Promise<ApprovalResolution> {
   const plan = await planUserContractApproval(contracts, pending.contract);
-  const requestedBoundary = (await analyzeContractEnvelopeBoundary(
+  const requestedAuthority = (await analyzeContractProposal(
     contracts,
     pending.contract,
     { dependencyResolution: "known" },
@@ -438,19 +479,20 @@ export async function getApprovalResolution(
       contractId: app.contractId,
       sessionPublicKey: pending.sessionKey,
     };
-  const enabledDeploymentEnvelopes =
-    (await deps.loadDeploymentEnvelopes?.() ?? [])
-      .filter((envelope) => !envelope.disabled);
-  const systemAvailabilityEnvelope = mergeEnvelopeBoundaries(
+  const enabledDeploymentAuthorities =
+    (await deps.loadDeploymentAuthorities?.() ?? [])
+      .filter((authority) => !authority.disabled);
+  const systemAvailabilityAuthority = mergeAuthorityNeedSets(
     [
-      ...enabledDeploymentEnvelopes.map((envelope) => envelope.boundary),
+      ...enabledDeploymentAuthorities.map(authorityNeedSetFromDesiredState),
       ...await builtinAvailabilityBoundaries(contracts),
     ],
   );
   const deploymentGrantOverrides = (
     await Promise.all(
-      enabledDeploymentEnvelopes.map((envelope) =>
-        deps.loadDeploymentGrantOverrides?.(envelope.deploymentId) ?? []
+      enabledDeploymentAuthorities.map((authority) =>
+        deps.loadDeploymentAuthorityGrantOverrides?.(authority.deploymentId) ??
+          []
       ),
     )
   ).flat();
@@ -461,7 +503,7 @@ export async function getApprovalResolution(
     : [];
   const requestedIdentityAnchor = identityAnchorForApp(app, pending.sessionKey);
   const matchingStoredApproval =
-    (await deps.loadIdentityEnvelopesByUser?.(userId) ?? [])
+    (await deps.loadIdentityGrantsByUser?.(userId) ?? [])
       .find((approval) =>
         approval.userTrellisId === userId &&
         sameIdentityAnchor(approval.identityAnchor, requestedIdentityAnchor)
@@ -494,9 +536,9 @@ export async function getApprovalResolution(
     storedApproval,
     deploymentGrantApproved: storedApproval === null &&
       unresolvedGrantCapabilities.length === 0 &&
-      enabledDeploymentEnvelopes.length > 0 &&
-      evaluateEnvelopeFit(systemAvailabilityEnvelope, {
-        ...requestedBoundary,
+      enabledDeploymentAuthorities.length > 0 &&
+      evaluateProposalNeedsFit(systemAvailabilityAuthority, {
+        ...requestedAuthority,
         capabilities: [],
       }).fits,
     matchedPolicies: [],
@@ -519,10 +561,10 @@ export async function getApprovalResolution(
     matchedPolicies,
     effectiveApproval: resolvedApproval,
     storedApproval,
-    requestedBoundary,
-    systemAvailabilityEnvelope: enabledDeploymentEnvelopes.length > 0
-      ? systemAvailabilityEnvelope
-      : EMPTY_BOUNDARY,
+    requestedAuthority,
+    systemAvailabilityAuthority: enabledDeploymentAuthorities.length > 0
+      ? systemAvailabilityAuthority
+      : EMPTY_AUTHORITY_NEEDS,
   };
 }
 

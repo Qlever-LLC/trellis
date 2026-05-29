@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AuthIdentitiesListOutput } from "@qlever-llc/trellis/sdk/auth";
+  import type { AuthIdentityGrantsListOutput } from "@qlever-llc/trellis/sdk/auth";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
   import ActionMenu from "$lib/components/ActionMenu.svelte";
@@ -18,22 +18,20 @@
 
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let filterUser = $state("");
-  let approvals = $state<AuthIdentitiesListOutput["entries"]>([]);
+  let identityGrants = $state<AuthIdentityGrantsListOutput["entries"]>([]);
 
   async function load() {
     loading = true;
     error = null;
 
-    const user = filterUser.trim();
-    const res = await trellis.request("Auth.Identities.List", { user, limit: 500, offset: 0 }).take();
+    const res = await trellis.request("Auth.IdentityGrants.List", { limit: 500, offset: 0 }).take();
     loading = false;
     if (isErr(res)) {
       error = errorMessage(res);
       return;
     }
 
-    approvals = res.entries;
+    identityGrants = res.entries;
   }
 
   onMount(load);
@@ -41,8 +39,8 @@
 
 <section class="space-y-4">
   <PageToolbar
-    title="App approvals"
-    description="Review and revoke per-user app approvals."
+    title="Delegated grants"
+    description="Review and revoke delegated app and agent grants."
   >
     {#snippet actions()}
       <div class="trellis-filterbar-actions">
@@ -54,72 +52,40 @@
             Actions <Icon name="chevronDown" size={14} />
           {/snippet}
           <li>
-            <a href={resolve("/admin/apps/revoke")}>Revoke an approval</a>
+            <a href={resolve("/admin/apps/revoke")}>Revoke delegated grant</a>
           </li>
         </ActionMenu>
       </div>
     {/snippet}
   </PageToolbar>
 
-  <form
-    class="trellis-filterbar"
-    onsubmit={(e) => {
-      e.preventDefault();
-      void load();
-    }}
-  >
-    <div class="trellis-filterbar-controls">
-      <label class="trellis-field w-full sm:w-72">
-        <span class="trellis-field-label">User</span>
-        <input
-          class="input input-bordered input-sm"
-          placeholder="Filter by user…"
-          bind:value={filterUser}
-        />
-      </label>
-    </div>
-    <div class="trellis-filterbar-actions">
-      <button type="submit" class="btn btn-outline btn-sm" disabled={loading}>Apply</button>
-      {#if filterUser.trim()}
-        <button
-          type="button"
-          class="btn btn-ghost btn-sm"
-          onclick={() => {
-            filterUser = "";
-            void load();
-          }}>Clear</button
-        >
-      {/if}
-    </div>
-  </form>
-
   {#if error}
     <Notice variant="error">{error}</Notice>
   {/if}
 
   {#if loading}
-    <Panel><LoadingState label="Loading app approvals" /></Panel>
-  {:else if approvals.length === 0}
+    <Panel><LoadingState label="Loading delegated grants" /></Panel>
+  {:else if identityGrants.length === 0}
     <EmptyState
-      title="No approvals"
-      description="No app approvals match the current filter."
+      title="No delegated grants"
+      description="No app or agent identity grants are currently available."
     />
   {:else}
-    <Panel title="Approvals" eyebrow="Primary table">
+    <Panel title="Delegated grants" eyebrow="Primary table">
       <DataTable>
           <thead>
             <tr>
-              <th>User</th>
-              <th>App</th>
+              <th>Principal</th>
+              <th>Client</th>
               <th>Contract Digest</th>
-              <th>Approved</th>
+              <th>Granted</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {#each approvals as entry (entry.identityEnvelopeId)}
+            {#each identityGrants as entry (entry.identityGrantId)}
               <tr>
-                <td class="font-medium">{entry.user ?? "—"}</td>
+                <td class="font-medium">{entry.participantKind}</td>
                 <td>
                   {entry.displayName ??
                     entry.contractEvidence.contractId ??
@@ -129,7 +95,7 @@
                   {entry.contractEvidence.contractDigest.slice(0, 12)}…
                 </td>
                 <td class="text-base-content/60">
-                  {formatDate(entry.answeredAt)}
+                  {formatDate(entry.grantedAt)}
                 </td>
                 <td class="text-right">
                   <ActionMenu>
@@ -137,7 +103,7 @@
                         <a
                           class="text-error"
                           href={resolve(
-                            `/admin/apps/revoke?grant=${encodeURIComponent(entry.identityEnvelopeId)}&user=${encodeURIComponent(entry.user)}`,
+                            `/admin/apps/revoke?grant=${encodeURIComponent(entry.identityGrantId)}`,
                           )}>Revoke</a
                         >
                       </li>
@@ -148,7 +114,7 @@
           </tbody>
       </DataTable>
       <p class="text-xs text-base-content/50">
-        {approvals.length} approval{approvals.length !== 1 ? "s" : ""}
+        {identityGrants.length} delegated grant{identityGrants.length !== 1 ? "s" : ""}
       </p>
     </Panel>
   {/if}

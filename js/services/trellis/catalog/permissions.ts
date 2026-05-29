@@ -12,26 +12,27 @@ import {
 import { getKvPermissionGrants } from "./resources.ts";
 import { CONTRACT_DIGEST as TRELLIS_JOBS_CONTRACT_DIGEST } from "#trellis-generated-sdk/jobs";
 import { CONTRACT as trellisAuthContract } from "../contracts/trellis_auth.ts";
-import type {
-  EnvelopeBoundary,
-  EnvelopeBoundarySurface,
-} from "../auth/schemas.ts";
+import type { DeploymentAuthoritySurface } from "../auth/schemas.ts";
+
+type AuthorityNeedSet = {
+  surfaces: DeploymentAuthoritySurface[];
+};
 
 type PermissionRule = {
   subject: string;
   requiredCapabilities: string[];
-  surface?: Omit<EnvelopeBoundarySurface, "required">;
+  surface?: DeploymentAuthoritySurface;
 };
 
 type ServiceDescriptor = {
   sessionKey: string;
   contractDigest?: string;
-  envelopeBoundary?: EnvelopeBoundary;
+  authorityNeeds?: AuthorityNeedSet;
 };
 
 type CallerContractDescriptor = {
   contractDigest: string;
-  identityEnvelope?: EnvelopeBoundary;
+  identityAuthority?: AuthorityNeedSet;
 };
 
 type PermissionState = {
@@ -75,12 +76,12 @@ function dedupe(subjects: Iterable<string>): string[] {
   return [...new Set(subjects)];
 }
 
-function envelopeHasSurface(
-  envelope: EnvelopeBoundary | undefined,
-  surface: Omit<EnvelopeBoundarySurface, "required"> | undefined,
+function authorityHasSurface(
+  authority: AuthorityNeedSet | undefined,
+  surface: DeploymentAuthoritySurface | undefined,
 ): boolean {
-  if (!envelope || !surface) return true;
-  return envelope.surfaces.some((allowed) =>
+  if (!authority || !surface) return true;
+  return authority.surfaces.some((allowed) =>
     allowed.contractId === surface.contractId &&
     allowed.kind === surface.kind &&
     allowed.name === surface.name &&
@@ -91,11 +92,11 @@ function envelopeHasSurface(
 function permittedRuleSubjects(
   rules: PermissionRule[],
   capabilities: string[],
-  envelope: EnvelopeBoundary | undefined,
+  authority: AuthorityNeedSet | undefined,
 ): string[] {
   return rules
     .filter((rule) =>
-      envelopeHasSurface(envelope, rule.surface) &&
+      authorityHasSurface(authority, rule.surface) &&
       hasRequiredCapabilities(capabilities, rule.requiredCapabilities)
     )
     .map((rule) => rule.subject);
@@ -172,7 +173,7 @@ function ownedPublishRules(entries: ContractEntry[]): PermissionRule[] {
   return entries.flatMap((entry) => [
     ...Object.entries(entry.contract.events ?? {}).map(([name, event]) => ({
       subject: templateToWildcard(event.subject),
-      requiredCapabilities: event.capabilities?.publish ?? [],
+      requiredCapabilities: [],
       surface: {
         contractId: entry.contract.id,
         kind: "event" as const,
@@ -497,7 +498,7 @@ export function getUserPublishSubjectsForContracts(
   const rules = usedPublishRules(entries, permissionState);
 
   return dedupe([
-    ...permittedRuleSubjects(rules, capabilities, caller.identityEnvelope),
+    ...permittedRuleSubjects(rules, capabilities, caller.identityAuthority),
   ]);
 }
 
@@ -514,7 +515,7 @@ export function getUserSubscribeSubjectsForContracts(
   const rules = usedSubscribeRules(entries, permissionState);
 
   return dedupe([
-    ...permittedRuleSubjects(rules, capabilities, caller.identityEnvelope),
+    ...permittedRuleSubjects(rules, capabilities, caller.identityAuthority),
   ]);
 }
 
@@ -534,7 +535,7 @@ export function getServicePublishSubjectsForContracts(
   ];
 
   return dedupe([
-    ...permittedRuleSubjects(rules, capabilities, service.envelopeBoundary),
+    ...permittedRuleSubjects(rules, capabilities, service.authorityNeeds),
     ...(hasRequiredCapabilities(capabilities, ["service"])
       ? getKvPermissionGrants(operationStoreBucket(service.sessionKey), {
         allowCreate: true,
@@ -569,28 +570,28 @@ export function getServiceSubscribeSubjectsForContracts(
     ? permittedRuleSubjects(
       handledRpcRules(service, permissionState),
       [],
-      service.envelopeBoundary,
+      service.authorityNeeds,
     )
     : [];
   const operationSubjects = hasRequiredCapabilities(capabilities, ["service"])
     ? permittedRuleSubjects(
       handledOperationRules(service, permissionState),
       [],
-      service.envelopeBoundary,
+      service.authorityNeeds,
     )
     : [];
   const feedSubjects = hasRequiredCapabilities(capabilities, ["service"])
     ? permittedRuleSubjects(
       handledFeedRules(service, permissionState),
       [],
-      service.envelopeBoundary,
+      service.authorityNeeds,
     )
     : [];
   const transferSubjects = hasRequiredCapabilities(capabilities, ["service"])
     ? permittedRuleSubjects(
       handledTransferRules(service, permissionState),
       [],
-      service.envelopeBoundary,
+      service.authorityNeeds,
     )
     : [];
 
@@ -599,6 +600,6 @@ export function getServiceSubscribeSubjectsForContracts(
     ...operationSubjects,
     ...feedSubjects,
     ...transferSubjects,
-    ...permittedRuleSubjects(rules, capabilities, service.envelopeBoundary),
+    ...permittedRuleSubjects(rules, capabilities, service.authorityNeeds),
   ]);
 }

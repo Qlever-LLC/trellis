@@ -6,7 +6,7 @@ Now that your service is live, how do other teams call it, and how do operators 
 
 The generated packages under `./generated/packages/` are publishable client modules for other services and apps to use through npm, JSR, Cargo, or whatever package targets your project supports. Those packages include typed request/response definitions, schema constants, a concrete client facade, and `use(...)` helpers that consumers drop into their own contracts.
 
-Operators also need a contract artifact they can attach to a service deployment envelope before, or during, rollout.
+Operators also need a contract artifact they can submit as a service deployment authority proposal before, or during, rollout.
 
 ## Generated artifact layout
 

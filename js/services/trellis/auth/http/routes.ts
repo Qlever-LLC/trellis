@@ -276,7 +276,9 @@ export function registerHttpRoutes(
   registerDeviceActivationHttpRoutes(app, {
     deploymentPortalRouteStorage: opts.deploymentPortalRouteStorage,
     contracts: opts.contracts,
-    deploymentEnvelopeStorage: opts.deploymentEnvelopeStorage,
+    deploymentAuthorityStorage: opts.deploymentAuthorityStorage,
+    deploymentAuthorityPlanStorage: opts.deploymentAuthorityPlanStorage,
+    materializedAuthorityStorage: opts.materializedAuthorityStorage,
     browserFlowsKV: opts.runtimeDeps.browserFlowsKV,
     deviceActivationReviewStorage: opts.deviceActivationReviewStorage,
     deviceActivationStorage: opts.deviceActivationStorage,

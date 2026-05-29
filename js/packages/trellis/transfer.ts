@@ -13,6 +13,7 @@ import {
   type Subscription,
 } from "@nats-io/nats-core";
 import Type, { type Static } from "typebox";
+import { ulid } from "ulid";
 import { buildProofInput, verifyProof } from "./auth/proof.ts";
 import { base64urlEncode, sha256 } from "./auth/utils.ts";
 import { TransferError } from "./errors/TransferError.ts";
@@ -90,7 +91,7 @@ async function createTransferProof(
 ): Promise<{ proof: string; iat: number; requestId: string }> {
   const payloadHash = await sha256(payload);
   const iat = auth.currentIat?.() ?? Math.floor(Date.now() / 1000);
-  const requestId = crypto.randomUUID();
+  const requestId = ulid();
   const proofOk = await auth.sign(
     await sha256(
       buildProofInput(auth.sessionKey, subject, payloadHash, iat, requestId),

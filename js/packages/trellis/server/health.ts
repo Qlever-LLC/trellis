@@ -11,6 +11,7 @@
 import { type Result } from "@qlever-llc/result";
 import type { JsonValue } from "@qlever-llc/trellis/contracts";
 import { type TrellisError } from "@qlever-llc/trellis";
+import { ulid } from "ulid";
 
 type MaybePromise<T> = T | Promise<T>;
 
@@ -319,7 +320,7 @@ export class ServiceHealth {
   }) {
     this.serviceName = args.serviceName;
     this.kind = args.kind ?? "service";
-    this.instanceId = args.instanceId ?? crypto.randomUUID();
+    this.instanceId = args.instanceId ?? ulid();
     this.contractId = args.contractId;
     this.contractDigest = args.contractDigest;
     this.startedAt = new Date().toISOString();

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { isErr, type AsyncResult, type BaseError } from "@qlever-llc/result";
-  import type { DeploymentEnvelope, DeploymentGrantOverride } from "@qlever-llc/trellis/auth";
+  import type { DeploymentAuthorityGrantOverride } from "@qlever-llc/trellis/auth";
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
@@ -14,6 +14,7 @@
   import { getTrellis } from "$lib/trellis";
 
   type GrantIdentityKind = "web" | "session";
+  type DeploymentAuthority = { deploymentId: string; disabled: boolean };
   type ListPageInput = {
     offset?: number;
     limit: number;
@@ -43,28 +44,28 @@
   type CapabilityGroupListOutput = {
     entries: CapabilityGroupView[];
   };
-  type EnvelopeListOutput = {
-    entries: DeploymentEnvelope[];
+  type AuthorityListOutput = {
+    entries: DeploymentAuthority[];
   };
-  type EnvelopeGetOutput = {
-    grantOverrides: DeploymentGrantOverride[];
+  type AuthorityGetOutput = {
+    grantOverrides: DeploymentAuthorityGrantOverride[];
   };
-  type EnvelopeGetInput = {
+  type AuthorityGetInput = {
     deploymentId: string;
   };
   type GrantOverrideMutationInput = {
     deploymentId: string;
-    overrides: DeploymentGrantOverride[];
+    overrides: DeploymentAuthorityGrantOverride[];
   };
   type GrantOverrideMutationOutput = {
-    grantOverrides: DeploymentGrantOverride[];
+    grantOverrides: DeploymentAuthorityGrantOverride[];
   };
   type AuthRpcClient = {
-    request(subject: "Auth.Envelopes.List", input: ListPageInput): AsyncResult<EnvelopeListOutput, BaseError>;
-    request(subject: "Auth.Envelopes.Get", input: EnvelopeGetInput): AsyncResult<EnvelopeGetOutput, BaseError>;
+    request(subject: "Auth.DeploymentAuthority.List", input: ListPageInput): AsyncResult<AuthorityListOutput, BaseError>;
+    request(subject: "Auth.DeploymentAuthority.Get", input: AuthorityGetInput): AsyncResult<AuthorityGetOutput, BaseError>;
     request(subject: "Auth.Capabilities.List", input: ListPageInput): AsyncResult<CapabilityListOutput, BaseError>;
     request(subject: "Auth.CapabilityGroups.List", input: ListPageInput): AsyncResult<CapabilityGroupListOutput, BaseError>;
-    request(subject: "Auth.Envelopes.GrantOverrides.Put", input: GrantOverrideMutationInput): AsyncResult<GrantOverrideMutationOutput, BaseError>;
+    request(subject: "Auth.DeploymentAuthority.GrantOverrides.Put", input: GrantOverrideMutationInput): AsyncResult<GrantOverrideMutationOutput, BaseError>;
   };
   type CapabilitySection = {
     key: string;
@@ -81,22 +82,23 @@
   let saving = $state(false);
   let error = $state<string | null>(null);
   let saved = $state<string | null>(null);
-  let deployments = $state.raw<DeploymentEnvelope[]>([]);
-  let existingOverrides = $state.raw<DeploymentGrantOverride[]>([]);
+  let deployments = $state.raw<DeploymentAuthority[]>([]);
+  let existingOverrides = $state.raw<DeploymentAuthorityGrantOverride[]>([]);
   let identityKind = $state<GrantIdentityKind>("web");
   let contractId = $state("");
   let origin = $state("");
   let sessionPublicKey = $state("");
   let selectedCapabilities = $state<string[]>([]);
   let selectedCapabilityGroups = $state<string[]>([]);
+  let selectedDeploymentId = $state("");
   let capabilities = $state.raw<CapabilityView[]>([]);
   let capabilityGroups = $state.raw<CapabilityGroupView[]>([]);
 
   const busy = $derived(loading || saving);
   const deploymentOptions = $derived(deployments.toSorted((left, right) => left.deploymentId.localeCompare(right.deploymentId)));
-  const storageDeployment = $derived(deploymentOptions.find((deployment) => !deployment.disabled) ?? null);
+  const storageDeployment = $derived(deploymentOptions.find((deployment) => deployment.deploymentId === selectedDeploymentId) ?? null);
   const storageDeploymentId = $derived(storageDeployment?.deploymentId ?? "");
-  const enabledDeploymentIds = $derived(new Set(deployments.filter((deployment) => !deployment.disabled).map((deployment) => deployment.deploymentId)));
+  const selectedEnabledDeployment = $derived(storageDeployment && !storageDeployment.disabled ? storageDeployment : null);
   const requiredIdentityValue = $derived(identityKind === "web" ? origin.trim() : sessionPublicKey.trim());
   const sortedCapabilityGroups = $derived(capabilityGroups.slice().sort((left, right) => {
     if ((left.groupKey === "admin") !== (right.groupKey === "admin")) return left.groupKey === "admin" ? -1 : 1;
@@ -163,11 +165,11 @@
     return Array.from(new Set(values.map((value) => value.trim()).filter((value) => value.length > 0)));
   }
 
-  function grantOverrideReference(override: DeploymentGrantOverride): string {
+  function grantOverrideReference(override: DeploymentAuthorityGrantOverride): string {
     return override.grantKind === "capability" ? override.capability : override.capabilityGroupKey;
   }
 
-  function grantIdentityKey(override: DeploymentGrantOverride): string {
+  function grantIdentityKey(override: DeploymentAuthorityGrantOverride): string {
     return [
       override.identityKind,
       override.grantKind,
@@ -178,11 +180,11 @@
     ].join("|");
   }
 
-  function sameGrantIdentity(left: DeploymentGrantOverride, right: DeploymentGrantOverride): boolean {
+  function sameGrantIdentity(left: DeploymentAuthorityGrantOverride, right: DeploymentAuthorityGrantOverride): boolean {
     return grantIdentityKey(left) === grantIdentityKey(right);
   }
 
-  function cleanGrantOverride(override: DeploymentGrantOverride): DeploymentGrantOverride {
+  function cleanGrantOverride(override: DeploymentAuthorityGrantOverride): DeploymentAuthorityGrantOverride {
     if (override.identityKind === "web") {
       if (override.grantKind === "capability") {
         return {
@@ -231,16 +233,16 @@
     };
   }
 
-  function buildOverrides(): DeploymentGrantOverride[] {
+  function buildOverrides(): DeploymentAuthorityGrantOverride[] {
     const grantContractId = trimmedRequired(contractId);
     const grantOrigin = trimmedRequired(origin);
     const grantSessionPublicKey = trimmedRequired(sessionPublicKey);
-    if (!storageDeploymentId || pendingGrantReferenceCount === 0 || !grantContractId) return [];
+    if (!selectedEnabledDeployment || pendingGrantReferenceCount === 0 || !grantContractId) return [];
     if (identityKind === "web") {
       if (!grantOrigin) return [];
       return [
-        ...pendingDirectCapabilityKeys.map((grantCapability): DeploymentGrantOverride => ({
-          deploymentId: storageDeploymentId,
+        ...pendingDirectCapabilityKeys.map((grantCapability): DeploymentAuthorityGrantOverride => ({
+          deploymentId: selectedEnabledDeployment.deploymentId,
           identityKind: "web",
           grantKind: "capability",
           contractId: grantContractId,
@@ -249,8 +251,8 @@
           capability: grantCapability,
           capabilityGroupKey: null,
         })),
-        ...pendingCapabilityGroupKeys.map((capabilityGroupKey): DeploymentGrantOverride => ({
-          deploymentId: storageDeploymentId,
+        ...pendingCapabilityGroupKeys.map((capabilityGroupKey): DeploymentAuthorityGrantOverride => ({
+          deploymentId: selectedEnabledDeployment.deploymentId,
           identityKind: "web",
           grantKind: "capability-group",
           contractId: grantContractId,
@@ -263,8 +265,8 @@
     }
     if (!grantSessionPublicKey) return [];
     return [
-      ...pendingDirectCapabilityKeys.map((grantCapability): DeploymentGrantOverride => ({
-        deploymentId: storageDeploymentId,
+      ...pendingDirectCapabilityKeys.map((grantCapability): DeploymentAuthorityGrantOverride => ({
+        deploymentId: selectedEnabledDeployment.deploymentId,
         identityKind: "session",
         grantKind: "capability",
         contractId: grantContractId,
@@ -273,8 +275,8 @@
         capability: grantCapability,
         capabilityGroupKey: null,
       })),
-      ...pendingCapabilityGroupKeys.map((capabilityGroupKey): DeploymentGrantOverride => ({
-        deploymentId: storageDeploymentId,
+      ...pendingCapabilityGroupKeys.map((capabilityGroupKey): DeploymentAuthorityGrantOverride => ({
+        deploymentId: selectedEnabledDeployment.deploymentId,
         identityKind: "session",
         grantKind: "capability-group",
         contractId: grantContractId,
@@ -292,7 +294,7 @@
     saved = null;
     try {
       const [listResponse, capabilitiesResponse, groupsResponse] = await Promise.all([
-        authRpc.request("Auth.Envelopes.List", { limit: 500, offset: 0 }).take(),
+        authRpc.request("Auth.DeploymentAuthority.List", { limit: 500, offset: 0 }).take(),
         authRpc.request("Auth.Capabilities.List", { limit: 500, offset: 0 }).take(),
         authRpc.request("Auth.CapabilityGroups.List", { limit: 500, offset: 0 }).take(),
       ]);
@@ -316,7 +318,7 @@
       deployments = listResponse.entries;
       capabilities = (capabilitiesResponse.entries ?? []).slice().sort((left, right) => left.key.localeCompare(right.key));
       capabilityGroups = groupsResponse.entries ?? [];
-      const details = await Promise.all(deployments.map((deployment) => loadDeploymentGrantOverrides(deployment)));
+      const details = await Promise.all(deployments.map((deployment) => loadDeploymentAuthorityGrantOverrides(deployment)));
       existingOverrides = details.flat().map(cleanGrantOverride);
     } catch (e) {
       error = errorMessage(e);
@@ -325,8 +327,8 @@
     }
   }
 
-  async function loadDeploymentGrantOverrides(deployment: DeploymentEnvelope): Promise<DeploymentGrantOverride[]> {
-    const response = await authRpc.request("Auth.Envelopes.Get", { deploymentId: deployment.deploymentId }).take();
+  async function loadDeploymentAuthorityGrantOverrides(deployment: DeploymentAuthority): Promise<DeploymentAuthorityGrantOverride[]> {
+    const response = await authRpc.request("Auth.DeploymentAuthority.Get", { deploymentId: deployment.deploymentId }).take();
     if (isErr(response)) throw new Error(`Failed to load ${deployment.deploymentId}: ${errorMessage(response)}`);
     return response.grantOverrides.map(cleanGrantOverride);
   }
@@ -336,14 +338,14 @@
     const newOverrides = buildOverrides();
     if (newOverrides.length === 0) {
       error = storageDeploymentId
-        ? "Enter a contract id, selected grant mode value, and at least one capability or capability group."
-        : "An enabled authority envelope is required before overrides can become effective.";
+        ? "Select an enabled deployment authority, enter a contract id and grant mode value, and choose at least one capability or capability group."
+        : "Choose the enabled deployment authority that should own this override.";
       saved = null;
       return;
     }
 
     const uniqueNewOverrides = newOverrides.filter((nextOverride) =>
-      !existingOverrides.some((override) => enabledDeploymentIds.has(override.deploymentId) && sameGrantIdentity(override, nextOverride))
+      !existingOverrides.some((override) => override.deploymentId === storageDeploymentId && sameGrantIdentity(override, nextOverride))
     );
     if (uniqueNewOverrides.length === 0) {
       saved = "Grant override already exists; no changes saved.";
@@ -358,7 +360,7 @@
     error = null;
     saved = null;
     try {
-      const response = await authRpc.request("Auth.Envelopes.GrantOverrides.Put", {
+      const response = await authRpc.request("Auth.DeploymentAuthority.GrantOverrides.Put", {
         deploymentId: storageDeploymentId,
         overrides: [...existingForStorageDeployment, ...uniqueNewOverrides.map(cleanGrantOverride)],
       }).take();
@@ -394,16 +396,25 @@
     <Panel><LoadingState label="Loading grant catalog" /></Panel>
   {:else}
     <form class="space-y-4" onsubmit={addGrantOverride}>
-      <Panel title="New grant override" eyebrow="Append to authority deployment override set">
+      <Panel title="New grant override" eyebrow="Append to deployment authority override set">
         {#snippet actions()}
           {#if storageDeployment}
-            <span class="trellis-metadata text-[0.65rem]">Storage envelope {storageDeployment.deploymentId}</span>
+            <span class="trellis-metadata text-[0.65rem]">Deployment authority {storageDeployment.deploymentId}</span>
           {:else}
-            <span class="badge badge-warning badge-sm">No enabled envelope</span>
+            <span class="badge badge-warning badge-sm">Select authority</span>
           {/if}
         {/snippet}
 
         <div class="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+          <label class="form-control">
+            <span class="label-text text-xs">Deployment authority</span>
+            <select class="select select-bordered select-sm trellis-identifier" bind:value={selectedDeploymentId} disabled={busy} required>
+              <option value="">Select authority…</option>
+              {#each deploymentOptions as deployment (deployment.deploymentId)}
+                <option value={deployment.deploymentId} disabled={deployment.disabled}>{deployment.deploymentId}{deployment.disabled ? " (disabled)" : ""}</option>
+              {/each}
+            </select>
+          </label>
           <label class="form-control">
             <span class="label-text text-xs">Identity kind</span>
             <select class="select select-bordered select-sm" bind:value={identityKind} disabled={busy}>
@@ -479,19 +490,18 @@
       <Panel title="Grant behavior" eyebrow="Persistence">
         <div class="flex items-center justify-between gap-3">
           <div class="space-y-1 text-xs text-base-content/55">
-            {#if storageDeployment}
+            {#if selectedEnabledDeployment}
               <p>Grants are keyed by contract+origin for web or contract+session key for session clients. Direct capabilities are stored as concrete capability grants; capability groups are stored by group key so future group membership changes apply.</p>
-              {#if storageDeployment.disabled}
-                <p class="text-warning">An enabled authority envelope is required before overrides can become effective.</p>
-              {/if}
+            {:else if storageDeployment?.disabled}
+              <p class="text-warning">Select an enabled deployment authority before saving overrides.</p>
             {:else}
-              <p class="text-warning">An enabled authority envelope is required before overrides can become effective.</p>
+              <p class="text-warning">Choose the enabled deployment authority that should own this override.</p>
             {/if}
             <p>Selection will store {pendingDirectCapabilityKeys.length} direct capability grant{pendingDirectCapabilityKeys.length === 1 ? "" : "s"} and {pendingCapabilityGroupKeys.length} capability group grant{pendingCapabilityGroupKeys.length === 1 ? "" : "s"}.</p>
           </div>
           <div class="flex shrink-0 gap-2">
             <a class="btn btn-ghost btn-sm" href={resolve("/admin/grants")}>Cancel</a>
-            <button class="btn btn-primary btn-sm" type="submit" disabled={busy || !storageDeploymentId || !contractId.trim() || !requiredIdentityValue || pendingGrantReferenceCount === 0}>{saving ? "Saving..." : "Add grant"}</button>
+            <button class="btn btn-primary btn-sm" type="submit" disabled={busy || !selectedEnabledDeployment || !contractId.trim() || !requiredIdentityValue || pendingGrantReferenceCount === 0}>{saving ? "Saving..." : "Add grant"}</button>
           </div>
         </div>
       </Panel>

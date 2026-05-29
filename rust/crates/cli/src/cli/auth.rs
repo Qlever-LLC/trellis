@@ -9,39 +9,53 @@ pub struct LoginArgs {
 }
 
 #[derive(Debug, Args)]
-/// Manage stored approval decisions for contract-bearing clients.
-pub struct ApprovalsCommand {
+/// Manage identity-owned authority and grants.
+pub struct IdentityCommand {
     #[command(subcommand)]
-    pub command: ApprovalsSubcommand,
+    pub command: IdentitySubcommand,
 }
 
 #[derive(Debug, Subcommand)]
-/// Approval list and revoke operations.
-pub enum ApprovalsSubcommand {
-    /// Filter approval entries by user or contract digest.
-    List(ApprovalsListArgs),
-    /// Revoke one stored approval decision by identity envelope ID.
-    Revoke(ApprovalsRevokeArgs),
+/// Identity authority and grant operations.
+pub enum IdentitySubcommand {
+    /// List or revoke delegated identity grants.
+    Grants(IdentityGrantsCommand),
 }
 
 #[derive(Debug, Args)]
-/// Filter approval entries by user or contract digest.
-pub struct ApprovalsListArgs {
+/// Manage delegated identity grants for contract-bearing clients.
+pub struct IdentityGrantsCommand {
+    #[command(subcommand)]
+    pub command: IdentityGrantsSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+/// Identity grant list and revoke operations.
+pub enum IdentityGrantsSubcommand {
+    /// Filter identity grants by user or contract digest.
+    List(IdentityGrantsListArgs),
+    /// Revoke one identity grant by identity grant ID.
+    Revoke(IdentityGrantsRevokeArgs),
+}
+
+#[derive(Debug, Args)]
+/// Filter identity grants by user or contract digest.
+pub struct IdentityGrantsListArgs {
     #[arg(long)]
-    /// Restrict results to approvals stored for one Trellis user ID.
+    /// Restrict results to grants stored for one Trellis user ID.
     pub user: Option<String>,
 
     #[arg(long, value_name = "CONTRACT_DIGEST")]
-    /// Restrict results to one approved contract digest.
+    /// Restrict results to one granted contract digest.
     pub digest: Option<String>,
 }
 
 #[derive(Debug, Args)]
-/// Revoke a stored approval decision by identity envelope ID.
-pub struct ApprovalsRevokeArgs {
-    #[arg(value_name = "IDENTITY_ENVELOPE_ID")]
-    /// The identity envelope ID whose stored approval should be removed.
-    pub identity_envelope_id: String,
+/// Revoke a delegated identity grant by identity grant ID.
+pub struct IdentityGrantsRevokeArgs {
+    #[arg(value_name = "IDENTITY_GRANT_ID")]
+    /// The identity grant ID to remove.
+    pub identity_grant_id: String,
 
     #[arg(long)]
     /// Limit revocation to one Trellis user ID.

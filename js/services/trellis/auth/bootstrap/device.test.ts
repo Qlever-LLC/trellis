@@ -7,9 +7,14 @@ import {
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 
 import { createTestContracts } from "../../catalog/test_contracts.ts";
-import { analyzeContractEnvelopeBoundary } from "../boundary_analysis.ts";
-import { computeEnvelopeDelta } from "../envelope_decision.ts";
-import type { DeploymentEnvelope, EnvelopeBoundary } from "../schemas.ts";
+import { analyzeContractProposal } from "../contract_proposal_analysis.ts";
+import { computeAuthorityNeedsDelta } from "../authority_needs_decision.ts";
+import type {
+  AuthorityNeedSet,
+  DeploymentAuthority,
+  DeploymentAuthorityMaterialization,
+  DeploymentAuthorityPlan,
+} from "../schemas.ts";
 import {
   createDeviceConnectInfoHandler,
   verifyDeviceConnectInfoIdentityProof,
@@ -20,15 +25,15 @@ const TEST_ROOT_SECRET = new Uint8Array(32).fill(7);
 const TEST_INVALID_PUBLIC_IDENTITY_KEY = "A".repeat(43);
 const TEST_NOW = "2026-01-01T00:00:00.000Z";
 
-const EMPTY_BOUNDARY: EnvelopeBoundary = {
+const EMPTY_BOUNDARY: AuthorityNeedSet = {
   contracts: [],
   surfaces: [],
   capabilities: [],
   resources: [],
 };
 
-function mergeBoundaries(...boundaries: EnvelopeBoundary[]): EnvelopeBoundary {
-  return computeEnvelopeDelta(EMPTY_BOUNDARY, {
+function mergeBoundaries(...boundaries: AuthorityNeedSet[]): AuthorityNeedSet {
+  return computeAuthorityNeedsDelta(EMPTY_BOUNDARY, {
     contracts: boundaries.flatMap((boundary) => boundary.contracts),
     surfaces: boundaries.flatMap((boundary) => boundary.surfaces),
     capabilities: boundaries.flatMap((boundary) => boundary.capabilities),
@@ -66,8 +71,8 @@ async function validatedDeviceContract() {
 async function contractBoundary(
   contracts: ReturnType<typeof createTestContracts>,
   contract: TrellisContractV1,
-): Promise<EnvelopeBoundary> {
-  const analysis = await analyzeContractEnvelopeBoundary(contracts, contract);
+): Promise<AuthorityNeedSet> {
+  const analysis = await analyzeContractProposal(contracts, contract);
   return mergeBoundaries(analysis.required, analysis.contributedAvailability);
 }
 
@@ -95,29 +100,40 @@ async function createApp(args: {
     reviewMode?: "none" | "required";
   } | null;
   contracts?: ReturnType<typeof createTestContracts>;
-  envelope?: DeploymentEnvelope | null;
+  authority?: DeploymentAuthority | null;
+  materializedAuthority?: DeploymentAuthorityMaterialization | null;
+  plans?: DeploymentAuthorityPlan[];
+  skipKnownContracts?: boolean;
   nowSeconds?: number;
 }) {
   const validated = await validatedDeviceContract();
   const contracts = args.contracts ?? createTestContracts();
-  contracts.addKnownTestContract({
-    digest: validated.digest,
-    contract: validated.contract,
-  });
-  contracts.addKnownTestContract({
-    digest: "digest-a",
-    contract: validated.contract,
-  });
-  const envelope = args.envelope === undefined
+  if (!args.skipKnownContracts) {
+    contracts.addKnownTestContract({
+      digest: validated.digest,
+      contract: validated.contract,
+    });
+    contracts.addKnownTestContract({
+      digest: "digest-a",
+      contract: validated.contract,
+    });
+  }
+  const authority = args.authority === undefined
     ? {
       deploymentId: "reader.default",
       kind: "device" as const,
       disabled: false,
       createdAt: TEST_NOW,
       updatedAt: TEST_NOW,
-      boundary: await contractBoundary(contracts, validated.contract),
+      desiredState: authorityDesiredState(
+        await contractBoundary(contracts, validated.contract),
+      ),
+      version: TEST_NOW,
     }
-    : args.envelope;
+    : args.authority;
+  const materializedAuthority = args.materializedAuthority === undefined
+    ? authority === null ? undefined : materializedAuthorityFor(authority)
+    : args.materializedAuthority ?? undefined;
   const app = new Hono();
   app.post(
     "/auth/devices/connect-info",
@@ -131,8 +147,19 @@ async function createApp(args: {
       loadDeviceActivation: async () => args.activation ?? null,
       loadDeviceDeployment: async () => args.deployment ?? null,
       contracts,
-      deploymentEnvelopeStorage: {
-        get: async () => envelope ?? undefined,
+      deploymentAuthorityStorage: {
+        get: async () => authority ?? undefined,
+      },
+      deploymentAuthorityPlanStorage: {
+        listFiltered: async (filters) =>
+          (args.plans ?? []).filter((plan) =>
+            (filters.deploymentId === undefined ||
+              plan.deploymentId === filters.deploymentId) &&
+            (filters.state === undefined || plan.state === filters.state)
+          ),
+      },
+      materializedAuthorityStorage: {
+        get: async () => materializedAuthority,
       },
       verifyIdentityProof: verifyDeviceConnectInfoIdentityProof,
       nowSeconds: () => args.nowSeconds ?? TEST_IAT,
@@ -141,14 +168,123 @@ async function createApp(args: {
   return app;
 }
 
-async function createEnvelopeMiss(): Promise<DeploymentEnvelope> {
+function materializedAuthorityFor(
+  authority: DeploymentAuthority,
+  options?: {
+    desiredVersion?: string;
+    status?: DeploymentAuthorityMaterialization["status"];
+    grants?: DeploymentAuthorityMaterialization["grants"];
+  },
+): DeploymentAuthorityMaterialization {
+  const needs = mergeBoundaries(desiredAuthorityNeeds(authority));
+  return {
+    deploymentId: authority.deploymentId,
+    desiredVersion: options?.desiredVersion ?? authority.version,
+    status: options?.status ?? "current",
+    resourceBindings: [],
+    grants: options?.grants ?? [
+      ...needs.capabilities.map((capability) => ({
+        kind: "capability",
+        capability,
+      })),
+      ...needs.surfaces.map((surface) => ({
+        kind: "surface",
+        contractId: surface.contractId,
+        surfaceKind: surface.kind,
+        name: surface.name,
+        ...(surface.action === undefined ? {} : { action: surface.action }),
+      })),
+      ...needs.resources.map((resource) => ({
+        kind: "resource",
+        resourceKind: resource.kind,
+        alias: resource.alias,
+      })),
+    ],
+    reconciledAt: options?.status === "pending" ? null : TEST_NOW,
+    ...(options?.status === "failed" ? { error: "reconciliation failed" } : {}),
+  };
+}
+
+function desiredAuthorityNeeds(
+  authority: DeploymentAuthority,
+): AuthorityNeedSet {
+  return mergeBoundaries({
+    contracts: authority.desiredState.needs.flatMap((need) =>
+      need.kind === "contract"
+        ? [{ contractId: need.contractId, required: need.required }]
+        : []
+    ),
+    surfaces: [
+      ...authority.desiredState.needs.flatMap((need) =>
+        need.kind === "surface"
+          ? [{ ...need.surface, required: need.required }]
+          : []
+      ),
+      ...authority.desiredState.surfaces.map((surface) => ({
+        ...surface,
+        required: true,
+      })),
+    ],
+    capabilities: [
+      ...authority.desiredState.capabilities,
+      ...authority.desiredState.needs.flatMap((need) =>
+        need.kind === "capability" ? [need.capability] : []
+      ),
+    ],
+    resources: [
+      ...authority.desiredState.resources,
+      ...authority.desiredState.needs.flatMap((need) =>
+        need.kind === "resource"
+          ? [{ ...need.resource, required: need.required }]
+          : []
+      ),
+    ],
+  });
+}
+
+function authorityDesiredState(
+  needs: AuthorityNeedSet,
+): DeploymentAuthority["desiredState"] {
+  return {
+    needs: [
+      ...needs.contracts.map((contract) => ({
+        kind: "contract" as const,
+        contractId: contract.contractId,
+        required: contract.required,
+      })),
+      ...needs.surfaces.map(({ required, ...surface }) => ({
+        kind: "surface" as const,
+        surface,
+        required,
+      })),
+      ...needs.capabilities.map((capability) => ({
+        kind: "capability" as const,
+        capability,
+        required: true,
+      })),
+      ...needs.resources.map((resource) => ({
+        kind: "resource" as const,
+        resource,
+        required: resource.required,
+      })),
+    ],
+    capabilities: needs.capabilities,
+    resources: needs.resources,
+    surfaces: needs.surfaces.map(({ required: _required, ...surface }) =>
+      surface
+    ),
+  };
+}
+
+async function createAuthorityMiss(): Promise<DeploymentAuthority> {
   return {
     deploymentId: "reader.default",
     kind: "device",
     disabled: false,
     createdAt: TEST_NOW,
     updatedAt: TEST_NOW,
-    boundary: EMPTY_BOUNDARY,
+    desiredState: authorityDesiredState(EMPTY_BOUNDARY),
+    version: TEST_NOW,
   };
 }
 
@@ -229,7 +365,72 @@ Deno.test("POST /auth/devices/connect-info returns runtime connect info when dev
   });
 });
 
-Deno.test("POST /auth/devices/connect-info returns device runtime connect info before activation when envelope fits", async () => {
+Deno.test("POST /auth/devices/connect-info resolves accepted proposal contract", async () => {
+  const validated = await validatedDeviceContract();
+  const request = await createSignedRequest(validated.digest);
+  const app = await createApp({
+    skipKnownContracts: true,
+    plans: [{
+      classification: "update",
+      planId: "plan-device",
+      deploymentId: "reader.default",
+      proposal: {
+        deploymentId: "reader.default",
+        contractId: validated.contract.id,
+        contractDigest: validated.digest,
+        contract: validated.contract,
+        requestedNeeds: [],
+        providedSurfaces: [],
+        summary: { desiredVersion: TEST_NOW },
+      },
+      desiredChange: EMPTY_BOUNDARY,
+      materializationPreview: {},
+      warnings: [],
+      createdAt: TEST_NOW,
+      state: "accepted",
+      decisionAt: TEST_NOW,
+      decisionBy: { type: "user" },
+      decisionReason: "accepted",
+    }],
+    instance: {
+      instanceId: "dev_1",
+      publicIdentityKey: request.publicIdentityKey,
+      deploymentId: "reader.default",
+      state: "activated",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      activatedAt: new Date("2026-01-01T00:01:00.000Z"),
+      revokedAt: null,
+    },
+    activation: {
+      instanceId: "dev_1",
+      publicIdentityKey: request.publicIdentityKey,
+      deploymentId: "reader.default",
+      state: "activated",
+      activatedAt: "2026-01-01T00:01:00.000Z",
+      revokedAt: null,
+    },
+    deployment: {
+      deploymentId: "reader.default",
+      disabled: false,
+    },
+  });
+
+  const response = await app.request(
+    "http://trellis/auth/devices/connect-info",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
+
+  assertEquals(response.status, 200);
+  const body = await response.json();
+  assertEquals(body.status, "ready");
+  assertEquals(body.connectInfo.contractDigest, validated.digest);
+});
+
+Deno.test("POST /auth/devices/connect-info returns device runtime connect info before activation when authority fits", async () => {
   const request = await createSignedRequest("digest-a");
   const app = await createApp({
     instance: {
@@ -263,7 +464,7 @@ Deno.test("POST /auth/devices/connect-info returns device runtime connect info b
   assertEquals(body.connectInfo.auth.authority, "admin_reviewed");
 });
 
-Deno.test("POST /auth/devices/connect-info uses envelope fit instead of legacy policies", async () => {
+Deno.test("POST /auth/devices/connect-info uses authority fit instead of legacy policies", async () => {
   const request = await createSignedRequest("digest-a");
   const app = await createApp({
     instance: {
@@ -295,6 +496,46 @@ Deno.test("POST /auth/devices/connect-info uses envelope fit instead of legacy p
   const body = await response.json();
   assertEquals(body.status, "ready");
   assertEquals(body.connectInfo.auth.authority, "admin_reviewed");
+});
+
+Deno.test("POST /auth/devices/connect-info does not require materialized contract grants", async () => {
+  const request = await createSignedRequest("digest-a");
+  const app = await createApp({
+    instance: {
+      instanceId: "dev_1",
+      publicIdentityKey: request.publicIdentityKey,
+      deploymentId: "reader.default",
+      state: "activated",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      activatedAt: new Date("2026-01-01T00:01:00.000Z"),
+      revokedAt: null,
+    },
+    activation: {
+      instanceId: "dev_1",
+      publicIdentityKey: request.publicIdentityKey,
+      deploymentId: "reader.default",
+      state: "activated",
+      activatedAt: "2026-01-01T00:01:00.000Z",
+      revokedAt: null,
+    },
+    deployment: {
+      deploymentId: "reader.default",
+      disabled: false,
+    },
+  });
+
+  const response = await app.request(
+    "http://trellis/auth/devices/connect-info",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
+
+  assertEquals(response.status, 200);
+  const body = await response.json();
+  assertEquals(body.status, "ready");
 });
 
 Deno.test("POST /auth/devices/connect-info waits for required review activation", async () => {
@@ -369,7 +610,7 @@ Deno.test("POST /auth/devices/connect-info rejects stale activation deployment",
   assertEquals(await response.json(), { reason: "unknown_device" });
 });
 
-Deno.test("POST /auth/devices/connect-info rejects registered device when envelope does not fit", async () => {
+Deno.test("POST /auth/devices/connect-info rejects registered device when authority does not fit", async () => {
   const request = await createSignedRequest("digest-a");
   const app = await createApp({
     instance: {
@@ -386,7 +627,7 @@ Deno.test("POST /auth/devices/connect-info rejects registered device when envelo
       deploymentId: "reader.default",
       disabled: false,
     },
-    envelope: await createEnvelopeMiss(),
+    authority: await createAuthorityMiss(),
   });
 
   const response = await app.request(
@@ -400,7 +641,170 @@ Deno.test("POST /auth/devices/connect-info rejects registered device when envelo
 
   assertEquals(response.status, 403);
   assertEquals(await response.json(), {
-    reason: "device_envelope_miss",
+    reason: "authority_needs_not_authorized",
+  });
+});
+
+Deno.test("POST /auth/devices/connect-info waits when authority materialization is absent stale or pending", async () => {
+  const request = await createSignedRequest("digest-a");
+  for (
+    const materializedAuthority of [
+      null,
+      {
+        deploymentId: "reader.default",
+        desiredVersion: "old-version",
+        status: "current" as const,
+        resourceBindings: [],
+        grants: [],
+        reconciledAt: TEST_NOW,
+      },
+      {
+        deploymentId: "reader.default",
+        desiredVersion: TEST_NOW,
+        status: "pending" as const,
+        resourceBindings: [],
+        grants: [],
+        reconciledAt: null,
+      },
+    ]
+  ) {
+    const app = await createApp({
+      instance: {
+        instanceId: "dev_1",
+        publicIdentityKey: request.publicIdentityKey,
+        deploymentId: "reader.default",
+        state: "activated",
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        activatedAt: new Date("2026-01-01T00:01:00.000Z"),
+        revokedAt: null,
+      },
+      activation: {
+        instanceId: "dev_1",
+        publicIdentityKey: request.publicIdentityKey,
+        deploymentId: "reader.default",
+        state: "activated",
+        activatedAt: "2026-01-01T00:01:00.000Z",
+        revokedAt: null,
+      },
+      deployment: {
+        deploymentId: "reader.default",
+        disabled: false,
+      },
+      materializedAuthority,
+    });
+
+    const response = await app.request(
+      "http://trellis/auth/devices/connect-info",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+      },
+    );
+
+    assertEquals(response.status, 202);
+    assertEquals(await response.json(), {
+      reason: "authority_reconciliation_pending",
+    });
+  }
+});
+
+Deno.test("POST /auth/devices/connect-info reports failed authority reconciliation", async () => {
+  const request = await createSignedRequest("digest-a");
+  const app = await createApp({
+    instance: {
+      instanceId: "dev_1",
+      publicIdentityKey: request.publicIdentityKey,
+      deploymentId: "reader.default",
+      state: "activated",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      activatedAt: new Date("2026-01-01T00:01:00.000Z"),
+      revokedAt: null,
+    },
+    activation: {
+      instanceId: "dev_1",
+      publicIdentityKey: request.publicIdentityKey,
+      deploymentId: "reader.default",
+      state: "activated",
+      activatedAt: "2026-01-01T00:01:00.000Z",
+      revokedAt: null,
+    },
+    deployment: {
+      deploymentId: "reader.default",
+      disabled: false,
+    },
+    materializedAuthority: {
+      deploymentId: "reader.default",
+      desiredVersion: TEST_NOW,
+      status: "failed",
+      resourceBindings: [],
+      grants: [],
+      reconciledAt: TEST_NOW,
+      error: "provisioning failed",
+    },
+  });
+
+  const response = await app.request(
+    "http://trellis/auth/devices/connect-info",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
+
+  assertEquals(response.status, 202);
+  assertEquals(await response.json(), {
+    reason: "authority_reconciliation_failed",
+  });
+});
+
+Deno.test("POST /auth/devices/connect-info rejects needs missing from current materialized authority", async () => {
+  const request = await createSignedRequest("digest-a");
+  const app = await createApp({
+    instance: {
+      instanceId: "dev_1",
+      publicIdentityKey: request.publicIdentityKey,
+      deploymentId: "reader.default",
+      state: "activated",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      activatedAt: new Date("2026-01-01T00:01:00.000Z"),
+      revokedAt: null,
+    },
+    activation: {
+      instanceId: "dev_1",
+      publicIdentityKey: request.publicIdentityKey,
+      deploymentId: "reader.default",
+      state: "activated",
+      activatedAt: "2026-01-01T00:01:00.000Z",
+      revokedAt: null,
+    },
+    deployment: {
+      deploymentId: "reader.default",
+      disabled: false,
+    },
+    materializedAuthority: {
+      deploymentId: "reader.default",
+      desiredVersion: TEST_NOW,
+      status: "current",
+      resourceBindings: [],
+      grants: [],
+      reconciledAt: TEST_NOW,
+    },
+  });
+
+  const response = await app.request(
+    "http://trellis/auth/devices/connect-info",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
+
+  assertEquals(response.status, 403);
+  assertEquals(await response.json(), {
+    reason: "authority_needs_not_materialized",
   });
 });
 

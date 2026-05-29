@@ -4,7 +4,7 @@ import type { ContractRecord } from "../../catalog/schemas.ts";
 import { createTestContracts } from "../../catalog/test_contracts.ts";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { deviceInstanceId } from "../admin/shared.ts";
-import type { DeploymentEnvelope } from "../schemas.ts";
+import type { AuthorityNeedSet, DeploymentAuthority } from "../schemas.ts";
 import { __testing__ } from "./callout.ts";
 
 const PUBLIC_IDENTITY_KEY = "A".repeat(43);
@@ -29,29 +29,50 @@ const DEVICE_CONTRACT: TrellisContractV1 = {
   },
 };
 
-const FITTING_ENVELOPE: DeploymentEnvelope = {
+const FITTING_NEEDS: AuthorityNeedSet = {
+  contracts: [{ contractId: "example.device@v1", required: true }],
+  surfaces: [{
+    contractId: "example.device@v1",
+    kind: "rpc",
+    name: "Example.Read",
+    action: "call",
+    required: true,
+  }],
+  capabilities: ["example.read"],
+  resources: [],
+};
+
+const FITTING_AUTHORITY: DeploymentAuthority = {
   deploymentId: "reader.default",
   kind: "device",
   disabled: false,
   createdAt: TEST_NOW,
   updatedAt: TEST_NOW,
-  boundary: {
-    contracts: [{ contractId: "example.device@v1", required: true }],
-    surfaces: [{
-      contractId: "example.device@v1",
-      kind: "rpc",
-      name: "Example.Read",
-      action: "call",
-      required: true,
-    }],
-    capabilities: ["example.read"],
-    resources: [],
+  version: TEST_NOW,
+  desiredState: {
+    needs: [
+      ...FITTING_NEEDS.contracts.map((need) => ({
+        kind: "contract" as const,
+        contractId: need.contractId,
+        required: need.required,
+      })),
+      ...FITTING_NEEDS.surfaces.map(({ required, ...surface }) => ({
+        kind: "surface" as const,
+        surface,
+        required,
+      })),
+    ],
+    capabilities: FITTING_NEEDS.capabilities,
+    resources: FITTING_NEEDS.resources,
+    surfaces: FITTING_NEEDS.surfaces.map((
+      { required: _required, ...surface },
+    ) => surface),
   },
 };
 
-const EMPTY_ENVELOPE: DeploymentEnvelope = {
-  ...FITTING_ENVELOPE,
-  boundary: { contracts: [], surfaces: [], capabilities: [], resources: [] },
+const EMPTY_AUTHORITY: DeploymentAuthority = {
+  ...FITTING_AUTHORITY,
+  desiredState: { needs: [], capabilities: [], resources: [], surfaces: [] },
 };
 
 function makeContractRecord(
@@ -108,7 +129,7 @@ function makeGrantDeps(args: {
   instanceDeploymentId?: string;
   activationDeploymentId?: string;
   deploymentDisabled?: boolean;
-  envelope?: DeploymentEnvelope;
+  authority?: DeploymentAuthority;
   activation?: "activated" | "revoked" | null;
 }) {
   const contractRecord = makeContractRecord();
@@ -157,13 +178,13 @@ function makeGrantDeps(args: {
         digest === "digest-a" ? contractRecord : undefined,
     },
     contracts,
-    deploymentEnvelopeStorage: {
-      get: async () => args.envelope ?? FITTING_ENVELOPE,
+    deploymentAuthorityStorage: {
+      get: async () => args.authority ?? FITTING_AUTHORITY,
     },
   };
 }
 
-Deno.test("resolveDeviceRuntimeGrant allows registered device runtime authority when envelope fits", async () => {
+Deno.test("resolveDeviceRuntimeGrant allows registered device runtime authority when desired state fits", async () => {
   const deps = makeGrantDeps({ activation: null });
   const result = await __testing__.resolveDeviceRuntimeGrant(
     deps,
@@ -179,7 +200,7 @@ Deno.test("resolveDeviceRuntimeGrant allows registered device runtime authority 
   assertEquals(result.value.instance.instanceId, INSTANCE_ID);
 });
 
-Deno.test("resolveDeviceRuntimeGrant uses envelope fit instead of legacy policies", async () => {
+Deno.test("resolveDeviceRuntimeGrant uses authority fit instead of legacy policies", async () => {
   const deps = makeGrantDeps({
     activation: null,
   });
@@ -229,7 +250,7 @@ Deno.test("resolveDeviceRuntimeGrant rejects stale activation deployment", async
   assertEquals(result, { ok: false, denial: "device_activation_revoked" });
 });
 
-Deno.test("resolveDeviceRuntimeGrant denies pre-activation disabled deployment and envelope miss", async () => {
+Deno.test("resolveDeviceRuntimeGrant denies pre-activation disabled deployment and authority miss", async () => {
   const disabled = makeGrantDeps({
     activation: null,
     deploymentDisabled: true,
@@ -247,7 +268,7 @@ Deno.test("resolveDeviceRuntimeGrant denies pre-activation disabled deployment a
 
   const disallowed = makeGrantDeps({
     activation: null,
-    envelope: EMPTY_ENVELOPE,
+    authority: EMPTY_AUTHORITY,
   });
   assertEquals(
     await __testing__.resolveDeviceRuntimeGrant(
@@ -257,7 +278,7 @@ Deno.test("resolveDeviceRuntimeGrant denies pre-activation disabled deployment a
       "digest-a",
       disallowed.contracts,
     ),
-    { ok: false, denial: "device_envelope_miss" },
+    { ok: false, denial: "device_authority_miss" },
   );
 });
 

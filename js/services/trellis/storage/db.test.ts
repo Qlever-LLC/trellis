@@ -3,27 +3,11 @@ import { eq, lt } from "drizzle-orm";
 
 import {
   contracts,
-  deploymentEnvelopeSurfaces,
-  envelopeExpansionRequestSurfaces,
+  deploymentAuthorityPlans,
+  deploymentAuthoritySurfaces,
   sessions,
 } from "./schema.ts";
 import { initializeTrellisStorageSchema, openTrellisStorageDb } from "./db.ts";
-
-async function runSqlMigration(
-  storage: Awaited<ReturnType<typeof openTrellisStorageDb>>,
-  fileName: string,
-): Promise<void> {
-  const sql = await Deno.readTextFile(
-    new URL(`./migrations/${fileName}`, import.meta.url),
-  );
-  for (
-    const statement of sql.split("--> statement-breakpoint").map((part) =>
-      part.trim()
-    ).filter(Boolean)
-  ) {
-    await storage.client.execute(statement);
-  }
-}
 
 Deno.test("trellis storage opens file-backed SQLite and persists contracts", async () => {
   const dbPath = await Deno.makeTempFile({
@@ -245,7 +229,7 @@ Deno.test("trellis storage serializes concurrent local SQLite transactions", asy
   }
 });
 
-Deno.test("observe/subscribe migration rewrites stale envelope surface actions", async () => {
+Deno.test("authority surfaces and pending plans persist observe/subscribe actions", async () => {
   const dbPath = await Deno.makeTempFile({
     dir: "/tmp",
     prefix: "trellis-storage-observe-subscribe-",
@@ -256,21 +240,13 @@ Deno.test("observe/subscribe migration rewrites stale envelope surface actions",
   try {
     await initializeTrellisStorageSchema(storage);
 
-    await storage.db.insert(deploymentEnvelopeSurfaces).values([
+    await storage.db.insert(deploymentAuthoritySurfaces).values([
       {
         deploymentId: "billing.default",
         contractId: "billing@v1",
         surfaceKind: "operation",
         surfaceName: "Billing.Start",
-        action: "read",
-        required: true,
-      },
-      {
-        deploymentId: "billing.default",
-        contractId: "billing@v1",
-        surfaceKind: "operation",
-        surfaceName: "Billing.AlreadyUpdated",
-        action: "read",
+        action: "observe",
         required: true,
       },
       {
@@ -286,28 +262,75 @@ Deno.test("observe/subscribe migration rewrites stale envelope surface actions",
         contractId: "billing@v1",
         surfaceKind: "feed",
         surfaceName: "Billing.Stream",
-        action: "read",
+        action: "subscribe",
         required: true,
       },
     ]);
-    await storage.db.insert(envelopeExpansionRequestSurfaces).values([
-      {
-        requestId: "request-1",
-        contractId: "billing@v1",
-        surfaceKind: "operation",
-        surfaceName: "Billing.Start",
-        action: "read",
-        required: true,
-      },
-      {
-        requestId: "request-1",
-        contractId: "billing@v1",
-        surfaceKind: "feed",
-        surfaceName: "Billing.Stream",
-        action: "read",
-        required: true,
-      },
-    ]);
+    await storage.db.insert(deploymentAuthorityPlans).values({
+      planId: "plan-1",
+      deploymentId: "billing.default",
+      classification: "update",
+      state: "pending",
+      proposalJson: JSON.stringify({
+        surfaces: [
+          {
+            contractId: "billing@v1",
+            kind: "operation",
+            name: "Billing.Start",
+            action: "observe",
+            required: true,
+          },
+          {
+            contractId: "billing@v1",
+            kind: "feed",
+            name: "Billing.Stream",
+            action: "subscribe",
+            required: true,
+          },
+        ],
+      }),
+      desiredChangeJson: JSON.stringify({
+        surfaces: [
+          {
+            contractId: "billing@v1",
+            kind: "operation",
+            name: "Billing.Start",
+            action: "observe",
+            required: true,
+          },
+          {
+            contractId: "billing@v1",
+            kind: "feed",
+            name: "Billing.Stream",
+            action: "subscribe",
+            required: true,
+          },
+        ],
+      }),
+      materializationPreviewJson: JSON.stringify({
+        grants: [
+          {
+            contractId: "billing@v1",
+            kind: "operation",
+            name: "Billing.Start",
+            action: "observe",
+          },
+          {
+            contractId: "billing@v1",
+            kind: "feed",
+            name: "Billing.Stream",
+            action: "subscribe",
+          },
+        ],
+      }),
+      warningsJson: JSON.stringify([]),
+      acknowledgementRequired: null,
+      decisionAt: null,
+      decisionByJson: null,
+      decisionReason: null,
+      createdAt: "2026-04-26T00:00:00.000Z",
+      expiresAt: null,
+    });
     await storage.db.insert(contracts).values({
       digest: "sha256-legacy-analysis",
       contractId: "billing@v1",
@@ -317,21 +340,19 @@ Deno.test("observe/subscribe migration rewrites stale envelope surface actions",
       contract: JSON.stringify({ id: "billing@v1" }),
       analysisSummary: null,
       analysis: JSON.stringify({
-        operations: { operations: [{ readCapabilities: ["billing.read"] }] },
+        operations: { operations: [{ observeCapabilities: ["billing.read"] }] },
       }),
       resources: null,
     });
 
-    await runSqlMigration(storage, "00001_observe_subscribe_actions.sql");
-
     const deploymentSurfaces = await storage.db.select().from(
-      deploymentEnvelopeSurfaces,
+      deploymentAuthoritySurfaces,
     ).where(
-      eq(deploymentEnvelopeSurfaces.deploymentId, "billing.default"),
+      eq(deploymentAuthoritySurfaces.deploymentId, "billing.default"),
     ).orderBy(
-      deploymentEnvelopeSurfaces.surfaceKind,
-      deploymentEnvelopeSurfaces.surfaceName,
-      deploymentEnvelopeSurfaces.action,
+      deploymentAuthoritySurfaces.surfaceKind,
+      deploymentAuthoritySurfaces.surfaceName,
+      deploymentAuthoritySurfaces.action,
     );
     assertEquals(
       deploymentSurfaces.map((surface) => ({
@@ -350,20 +371,24 @@ Deno.test("observe/subscribe migration rewrites stale envelope surface actions",
       ],
     );
 
-    const expansionSurfaces = await storage.db.select().from(
-      envelopeExpansionRequestSurfaces,
+    const [plan] = await storage.db.select().from(
+      deploymentAuthorityPlans,
     ).where(
-      eq(envelopeExpansionRequestSurfaces.requestId, "request-1"),
-    ).orderBy(
-      envelopeExpansionRequestSurfaces.surfaceKind,
-      envelopeExpansionRequestSurfaces.surfaceName,
+      eq(deploymentAuthorityPlans.planId, "plan-1"),
     );
+    const proposal = JSON.parse(plan?.proposalJson ?? "{}");
     assertEquals(
-      expansionSurfaces.map((surface) => ({
-        kind: surface.surfaceKind,
-        name: surface.surfaceName,
+      proposal.surfaces.map((surface: {
+        kind: string;
+        name: string;
+        action: string;
+      }) => ({
+        kind: surface.kind,
+        name: surface.name,
         action: surface.action,
-      })),
+      })).sort((left: { kind: string }, right: { kind: string }) =>
+        left.kind.localeCompare(right.kind)
+      ),
       [
         { kind: "feed", name: "Billing.Stream", action: "subscribe" },
         { kind: "operation", name: "Billing.Start", action: "observe" },

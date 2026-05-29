@@ -13,6 +13,32 @@ import {
   startControlPlaneBackgroundTasks,
 } from "./control_plane.ts";
 import type { RuntimeGlobals } from "./globals.ts";
+import type { DeploymentAuthoritySurface } from "../auth/schemas.ts";
+import type { SqlDeploymentAuthorityRepository } from "../auth/storage.ts";
+
+function createCatalogAuthorityStorage(
+  storage: SqlDeploymentAuthorityRepository,
+) {
+  return {
+    async get(deploymentId: string) {
+      return await storage.get(deploymentId);
+    },
+    async listEnabled() {
+      return await storage.listEnabled();
+    },
+    async listEnabledBySurface(surface: DeploymentAuthoritySurface) {
+      return (await storage.listEnabled())
+        .filter((authority) =>
+          authority.desiredState.surfaces.some((allowed) =>
+            allowed.contractId === surface.contractId &&
+            allowed.kind === surface.kind &&
+            allowed.name === surface.name &&
+            allowed.action === surface.action
+          )
+        );
+    },
+  };
+}
 
 /** Registers Trellis control-plane RPCs, HTTP routes, and background tasks. */
 export async function registerControlPlane(deps: {
@@ -24,15 +50,17 @@ export async function registerControlPlane(deps: {
   const {
     browserFlowsKV,
     connectionsKV,
-    contractApprovalStorage,
     contractStorage,
-    deploymentEnvelopeStorage,
-    deploymentGrantOverrideStorage,
+    deploymentAuthorityStorage,
+    deploymentAuthorityGrantOverrideStorage,
+    deploymentAuthorityPlanStorage,
     deploymentPortalRouteStorage,
-    envelopeExpansionRequestStorage,
-    envelopeHistoryStorage,
     implementationOfferStorage,
-    deploymentResourceBindingStorage,
+    materializedAuthorityStorage,
+    materializedResourceBindingStorage,
+    authorityReconciliationStorage,
+    identityAuthorityStorage,
+    identityGrantStorage,
     accountFlowStorage,
     accountStorage,
     capabilityGroupStorage,
@@ -58,12 +86,15 @@ export async function registerControlPlane(deps: {
     userIdentityStorage,
     userStorage,
   } = runtime;
+  const catalogAuthorityStorage = createCatalogAuthorityStorage(
+    deploymentAuthorityStorage,
+  );
 
   const contracts = createContractsModule({
     builtinContracts: resolveBuiltinContracts(),
     contractStorage,
     implementationOfferStorage,
-    deploymentEnvelopeStorage,
+    deploymentAuthorityStorage: catalogAuthorityStorage,
     deviceDeploymentStorage,
     deviceInstanceStorage,
     logger,
@@ -84,7 +115,8 @@ export async function registerControlPlane(deps: {
     serviceDeploymentStorage,
     deviceInstanceStorage,
     deviceDeploymentStorage,
-    deploymentEnvelopeStorage,
+    deploymentAuthorityStorage: catalogAuthorityStorage,
+    materializedAuthorityStorage,
     implementationOfferStorage,
     connectionsKV,
     logger,
@@ -98,13 +130,15 @@ export async function registerControlPlane(deps: {
     trellis,
     contracts,
     contractStorage,
-    deploymentEnvelopeStorage,
-    envelopeHistoryStorage,
-    deploymentResourceBindingStorage,
+    deploymentAuthorityStorage,
+    deploymentAuthorityPlanStorage,
+    materializedAuthorityStorage,
+    materializedResourceBindingStorage,
+    authorityReconciliationStorage,
     implementationOfferStorage,
     deploymentPortalRouteStorage,
-    deploymentGrantOverrideStorage,
-    envelopeExpansionRequestStorage,
+    deploymentAuthorityGrantOverrideStorage,
+    identityAuthorityStorage,
     accountFlowStorage,
     loginPortalStorage,
     accountStorage,
@@ -112,7 +146,7 @@ export async function registerControlPlane(deps: {
     userIdentityStorage,
     localCredentialStorage,
     userStorage,
-    contractApprovalStorage,
+    identityGrantStorage,
     deviceDeploymentStorage,
     deviceInstanceStorage,
     deviceActivationStorage,
@@ -146,11 +180,12 @@ export async function registerControlPlane(deps: {
     contractStorage,
     capabilityGroupStorage,
     userStorage,
-    contractApprovalStorage,
-    deploymentEnvelopeStorage,
-    deploymentResourceBindingStorage,
+    deploymentAuthorityStorage,
+    deploymentAuthorityGrantOverrideStorage,
+    materializedAuthorityStorage,
+    materializedResourceBindingStorage,
+    authorityReconciliationStorage,
     implementationOfferStorage,
-    envelopeExpansionRequestStorage,
     deviceActivationStorage,
     deviceDeploymentStorage,
     deviceInstanceStorage,
@@ -160,6 +195,7 @@ export async function registerControlPlane(deps: {
     logger,
     natsAuth,
     natsSystem,
+    natsTrellis,
     sessionStorage,
     trellis,
     contracts,

@@ -83,12 +83,12 @@ pub(crate) fn required_integration_coverage() -> Vec<RequiredCoverage> {
         RequiredCoverage {
             id: "primary-admin-public-api-flow",
             title: "Primary admin/public API setup flow",
-            expectation: "The suite must drive public/admin APIs for bootstrap, login/session setup, deployment creation, envelope expansion, service provisioning, and real authenticated calls without direct database seeding.",
+            expectation: "The suite must drive public/admin APIs for bootstrap, login/session setup, deployment creation, deployment authority planning, service provisioning, and real authenticated calls without direct database seeding.",
         },
         RequiredCoverage {
             id: "built-in-rpc-matrix",
             title: "Built-in Trellis RPC matrix",
-            expectation: "The suite must exercise built-in Trellis auth and core RPCs through generated SDK clients against the live runtime, including health, capabilities, users, identities, sessions, connections, portals, deployments, envelopes, provisioning, catalog, contract, and surface-status calls.",
+            expectation: "The suite must exercise built-in Trellis auth and core RPCs through generated SDK clients against the live runtime, including health, capabilities, users, identities, sessions, connections, portals, deployments, authority, provisioning, catalog, contract, and surface-status calls.",
         },
         RequiredCoverage {
             id: "auth-protocol-matrix",
@@ -101,19 +101,19 @@ pub(crate) fn required_integration_coverage() -> Vec<RequiredCoverage> {
             expectation: "The suite must provision a known device, resolve activation through public/admin APIs, wait for signed activation connect info, connect as the device, and prove undeclared access is denied.",
         },
         RequiredCoverage {
-            id: "service-envelope-approval-flow",
-            title: "Service startup envelope approval flow",
-            expectation: "The suite must start Rust and TypeScript services before envelope coverage exists, verify pending expansion requests through public/admin APIs, approve them, and then prove all four Rust/TypeScript RPC caller/provider combinations connect through the approved envelope.",
+            id: "service-authority-acceptance-flow",
+            title: "Service startup authority acceptance flow",
+            expectation: "The suite must start Rust and TypeScript services before deployment authority is accepted, approve authority plans through public/admin APIs, and then prove all four Rust/TypeScript RPC caller/provider combinations connect through accepted authority.",
         },
         RequiredCoverage {
-            id: "app-identity-envelope-approval",
-            title: "App identity-envelope approval flow",
+            id: "app-identity-grant-approval",
+            title: "App identity grant approval flow",
             expectation: "The suite must start an app-originated login flow with an app contract, approve access through the real portal, bind and connect as a user app, verify the approved surface works, verify an unapproved surface is denied, and prove bind remains approval_required before approval, for stale broader app evidence, and after revocation.",
         },
         RequiredCoverage {
             id: "optional-uses-dependency-closure",
             title: "Optional uses and dependency closure",
-            expectation: "The suite must prove optional uses grant no authority while missing, required dependencies fail closed while unknown, approved known required closures authenticate through active offers or latest approved dependency fallbacks, envelope-compatible old digests can reconnect after same-id updates, and cyclic required closures can activate after both sides are approved.",
+            expectation: "The suite must prove optional uses grant no authority while missing, required dependencies fail closed while unknown, approved known required closures authenticate through active offers or latest approved dependency fallbacks, authority-compatible old digests can reconnect after same-id updates, and cyclic required closures can activate after both sides are approved.",
         },
         RequiredCoverage {
             id: "capability-permission-matrix",
@@ -121,9 +121,9 @@ pub(crate) fn required_integration_coverage() -> Vec<RequiredCoverage> {
             expectation: "The suite must prove live auth-callout permission derivation for caller-visible capabilities, including operation call/read/cancel access and stale grant denial after capability changes.",
         },
         RequiredCoverage {
-            id: "active-catalog-repair",
-            title: "Envelope authority and strict replacement rejection",
-            expectation: "The suite must expand deployment envelopes through public bootstrap APIs, reject incompatible same-contract replacement for an existing strict service instance, prove the current envelope-authorized digest remains callable, and verify restart does not require active catalog issues for runtime authority.",
+            id: "active-catalog-authority",
+            title: "Deployment authority and strict replacement rejection",
+            expectation: "The suite must update deployment authority through public bootstrap APIs, reject incompatible same-contract replacement for an existing strict service instance, prove the current authority-authorized digest remains callable, and verify restart does not require active catalog issues for runtime authority.",
         },
         RequiredCoverage {
             id: "observability-trace-matrix",
@@ -184,11 +184,11 @@ mod tests {
         assert!(ids.contains(&"built-in-rpc-matrix"));
         assert!(ids.contains(&"auth-protocol-matrix"));
         assert!(ids.contains(&"device-activation-end-to-end"));
-        assert!(ids.contains(&"service-envelope-approval-flow"));
-        assert!(ids.contains(&"app-identity-envelope-approval"));
+        assert!(ids.contains(&"service-authority-acceptance-flow"));
+        assert!(ids.contains(&"app-identity-grant-approval"));
         assert!(ids.contains(&"optional-uses-dependency-closure"));
         assert!(ids.contains(&"capability-permission-matrix"));
-        assert!(ids.contains(&"active-catalog-repair"));
+        assert!(ids.contains(&"active-catalog-authority"));
         assert!(ids.contains(&"observability-trace-matrix"));
     }
 

@@ -23,8 +23,13 @@
   import { getAuthenticatedUser, getConnection, getTrellis } from "../../../lib/trellis";
 
   type IdentityRecord = AuthUserIdentitiesListOutput["entries"][number];
+  type RpcTakeable<T> = { take(): Promise<T> };
+  type IdentityGrantsRequest = {
+    (method: "Auth.IdentityGrants.List", input: { limit: number; offset: number }): RpcTakeable<{ entries?: UserGrantRecord[] }>;
+  };
 
   const trellis = getTrellis();
+  const identityGrantsRequest = trellis.request.bind(trellis) as IdentityGrantsRequest;
   const connection = getConnection();
   const notifications = getNotifications();
 
@@ -164,7 +169,7 @@
       }
 
       const [grantsResponse, identitiesResponse] = await Promise.all([
-        trellis.request("Auth.Identities.Grants.List", { limit: 100, offset: 0 }).take(),
+        identityGrantsRequest("Auth.IdentityGrants.List", { limit: 100, offset: 0 }).take(),
         trellis.request("Auth.UserIdentities.List", { userId: me.user.userId, limit: 100, offset: 0 }).take(),
       ]);
       if (isErr(grantsResponse)) {
@@ -295,7 +300,7 @@
                 </div>
               {:else}
                 <div class="divide-y divide-base-300 rounded-box border border-base-300">
-                  {#each grants as grant (grant.identityEnvelopeId)}
+                  {#each grants as grant (grant.identityGrantId)}
                     {@const summary = describeUserGrant(grant)}
                     <div class="p-3">
                       <div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_12rem_5rem] lg:items-start">
@@ -312,7 +317,7 @@
                           <div><dt class="font-semibold text-base-content/70">Updated</dt><dd>{formatDate(grant.updatedAt)}</dd></div>
                         </dl>
                         <div class="lg:text-right">
-                          <a class="link link-error text-sm" href={resolve(`/profile/grants/revoke?grant=${encodeURIComponent(grant.identityEnvelopeId)}`)}>Revoke</a>
+                          <a class="link link-error text-sm" href={resolve(`/profile/grants/revoke?grant=${encodeURIComponent(grant.identityGrantId)}`)}>Revoke</a>
                         </div>
                       </div>
                     </div>

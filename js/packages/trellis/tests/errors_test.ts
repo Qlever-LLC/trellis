@@ -1,5 +1,12 @@
 import { assert, assertEquals } from "@std/assert";
-import { AuthError, RemoteError, ValidationError } from "../errors/index.ts";
+import {
+  AuthError,
+  OperationAlreadyTerminalError,
+  OperationMismatchError,
+  OperationNotFoundError,
+  RemoteError,
+  ValidationError,
+} from "../errors/index.ts";
 import { Result } from "../../result/mod.ts";
 
 Deno.test("AuthError", async (t) => {
@@ -142,6 +149,66 @@ Deno.test("RemoteError", async (t) => {
     assertEquals(parsed.remoteError.type, "ValidationError");
     assertEquals(parsed.remoteError.issues[0].path, "/userId");
   });
+});
+
+Deno.test("Operation lifecycle errors", async (t) => {
+  await t.step(
+    "OperationNotFoundError serialization preserves operation id",
+    () => {
+      const error = new OperationNotFoundError({
+        operationId: "op-123",
+        context: { requestId: "req-123" },
+      });
+
+      const serialized = error.toSerializable();
+
+      assertEquals(serialized.id, error.id);
+      assertEquals(serialized.type, "OperationNotFoundError");
+      assertEquals(serialized.operationId, "op-123");
+      assertEquals(serialized.context, { requestId: "req-123" });
+    },
+  );
+
+  await t.step(
+    "OperationAlreadyTerminalError serialization preserves optional operation fields",
+    () => {
+      const error = new OperationAlreadyTerminalError({
+        operationId: "op-456",
+        state: "failed",
+        operation: "refund",
+        service: "billing",
+      });
+
+      const serialized = error.toSerializable();
+
+      assertEquals(serialized.type, "OperationAlreadyTerminalError");
+      assertEquals(serialized.operationId, "op-456");
+      assertEquals(serialized.state, "failed");
+      assertEquals(serialized.operation, "refund");
+      assertEquals(serialized.service, "billing");
+    },
+  );
+
+  await t.step(
+    "OperationMismatchError serialization preserves expected and actual identity",
+    () => {
+      const error = new OperationMismatchError({
+        operationId: "op-789",
+        expectedService: "billing",
+        expectedOperation: "refund",
+        actualService: "billing",
+      });
+
+      const serialized = error.toSerializable();
+
+      assertEquals(serialized.type, "OperationMismatchError");
+      assertEquals(serialized.operationId, "op-789");
+      assertEquals(serialized.expectedService, "billing");
+      assertEquals(serialized.expectedOperation, "refund");
+      assertEquals(serialized.actualService, "billing");
+      assertEquals(serialized.actualOperation, undefined);
+    },
+  );
 });
 
 Deno.test("Error - instance properties appear in serialization", () => {

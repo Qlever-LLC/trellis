@@ -427,10 +427,7 @@ type OperationControlFrame<TProgress, TOutput> =
   }
   | {
     kind: "error";
-    error: {
-      type: string;
-      message: string;
-    };
+    error: SerializableTrellisError;
   };
 ```
 
@@ -445,6 +442,10 @@ Rules:
 - `error` frames are expected control-request failures or runtime/internal
   protocol failures; domain failure outcomes remain normal terminal operation
   snapshots with state `failed`
+- `error` frame payloads MUST use the normal Trellis serializable error shape,
+  including stable `type`, `message`, `id`, optional `context`, and any
+  error-specific fields, so operation lifecycle failures remain typed across
+  client/server boundaries
 - runtimes MUST hide these internal frames behind `OperationRef` methods
 
 #### 7d) Internal method behavior

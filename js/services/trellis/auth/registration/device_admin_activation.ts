@@ -16,11 +16,47 @@ import type { AuthContractsRuntime, AuthRuntime } from "./types.ts";
 import type { Config } from "../../config.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
 import type {
-  SqlDeploymentEnvelopeRepository,
-  SqlDeploymentResourceBindingRepository,
+  BoundedListQuery,
+  SqlMaterializedAuthorityRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
 } from "../storage.ts";
+import type {
+  DeploymentAuthority,
+  DeploymentAuthorityPlan,
+  DeploymentResourceBinding,
+  IdentityGrantRecord,
+} from "../schemas.ts";
+
+type AuthorityReconciler = {
+  reconcileDeployment(
+    deploymentId: string,
+    opts?: { desiredVersion?: string },
+  ): Promise<unknown>;
+};
+
+type LegacyDeploymentResourceBindingStorage = {
+  get(
+    deploymentId: string,
+    kind: string,
+    alias: string,
+  ): Promise<DeploymentResourceBinding | undefined>;
+  put(record: DeploymentResourceBinding): Promise<void>;
+  listByDeployment(deploymentId: string): Promise<DeploymentResourceBinding[]>;
+};
+
+type LegacyIdentityGrantStorage = {
+  get(identityGrantId: string): Promise<IdentityGrantRecord | undefined>;
+  listPage(query: BoundedListQuery): Promise<IdentityGrantRecord[]>;
+  listByApprovalEvidenceContractDigests?(
+    contractDigests: Iterable<string>,
+  ): Promise<IdentityGrantRecord[]>;
+};
+
+type DeploymentAuthorityStorage = {
+  get(deploymentId: string): Promise<DeploymentAuthority | undefined>;
+  put(record: DeploymentAuthority): Promise<void>;
+};
 
 export async function registerDeviceAdminAndActivation(
   deps:
@@ -49,8 +85,17 @@ export async function registerDeviceAdminAndActivation(
         },
       ) => Promise<void>;
       contractStorage: SqlContractStorageRepository;
-      deploymentEnvelopeStorage: SqlDeploymentEnvelopeRepository;
-      deploymentResourceBindingStorage: SqlDeploymentResourceBindingRepository;
+      deploymentAuthorityStorage: DeploymentAuthorityStorage;
+      authorityReconciler: AuthorityReconciler;
+      deploymentAuthorityPlanStorage: {
+        listFiltered(
+          filters: { deploymentId?: string; state?: string },
+          query: BoundedListQuery,
+        ): Promise<DeploymentAuthorityPlan[]>;
+      };
+      materializedAuthorityStorage: SqlMaterializedAuthorityRepository;
+      deploymentResourceBindingStorage: LegacyDeploymentResourceBindingStorage;
+      contractApprovalStorage: LegacyIdentityGrantStorage;
       serviceDeploymentStorage: SqlServiceDeploymentRepository;
       serviceInstanceStorage: SqlServiceInstanceRepository;
     }
@@ -58,7 +103,6 @@ export async function registerDeviceAdminAndActivation(
       AuthRuntimeDeps,
       | "browserFlowsKV"
       | "connectionsKV"
-      | "contractApprovalStorage"
       | "deploymentPortalRouteStorage"
       | "deviceActivationReviewStorage"
       | "deviceActivationStorage"
@@ -85,13 +129,14 @@ export async function registerDeviceAdminAndActivation(
     validateActiveCatalog: deps.contracts.validateActiveCatalog,
     validateActiveCatalogForRemoval:
       deps.contracts.validateActiveCatalogForRemoval,
+    authorityReconciler: deps.authorityReconciler,
     getActiveCatalogIssues: deps.contracts.getActiveCatalogIssues,
     builtinContractDigests: deps.contracts.getBuiltinDigests(),
   });
   const kick = createKick(deps);
   const serviceAdminDeps = {
     logger: deps.logger,
-    deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
+    deploymentAuthorityStorage: deps.deploymentAuthorityStorage,
     serviceDeploymentStorage: deps.serviceDeploymentStorage,
     serviceInstanceStorage: deps.serviceInstanceStorage,
   };
@@ -107,22 +152,24 @@ export async function registerDeviceAdminAndActivation(
     validateActiveCatalog: deps.contracts.validateActiveCatalog,
     validateActiveCatalogForRemoval:
       deps.contracts.validateActiveCatalogForRemoval,
+    authorityReconciler: deps.authorityReconciler,
     connectionsKV: deps.connectionsKV,
     sessionStorage: deps.sessionStorage,
-    deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
+    deploymentAuthorityStorage: deps.deploymentAuthorityStorage,
     serviceDeploymentStorage: deps.serviceDeploymentStorage,
     serviceInstanceStorage: deps.serviceInstanceStorage,
   });
   const enableServiceDeployment = createAuthDeploymentsServiceEnableHandler({
     refreshActiveContracts: deps.contracts.refreshActiveContracts,
     validateActiveCatalog: deps.contracts.validateActiveCatalog,
-    deploymentEnvelopeStorage: deps.deploymentEnvelopeStorage,
+    deploymentAuthorityStorage: deps.deploymentAuthorityStorage,
     serviceDeploymentStorage: deps.serviceDeploymentStorage,
+    authorityReconciler: deps.authorityReconciler,
+    logger: deps.logger,
   });
   const removeServiceDeployment = createAuthDeploymentsServiceRemoveHandler({
     connectionsKV: deps.connectionsKV,
     kick,
-    nats: deps.natsTrellis,
     logger: deps.logger,
     refreshActiveContracts: deps.contracts.refreshActiveContracts,
     refreshActiveContractsForRemoval:
@@ -133,7 +180,8 @@ export async function registerDeviceAdminAndActivation(
       deps.contracts.validateActiveCatalogForRemoval,
     serviceDeploymentStorage: deps.serviceDeploymentStorage,
     serviceInstanceStorage: deps.serviceInstanceStorage,
-    deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
+    deploymentAuthorityStorage: deps.deploymentAuthorityStorage,
+    authorityReconciler: deps.authorityReconciler,
   });
   await deps.trellis.handle.rpc.auth.deploymentsCreate(async (args) => {
     if (args.input.kind === "service") {

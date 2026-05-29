@@ -1,5 +1,6 @@
 import type { BaseError } from "@qlever-llc/result";
 import type { AsyncResult } from "@qlever-llc/result";
+import { ulid } from "ulid";
 import type {
   AuthResolveDeviceUserAuthoritiesOutput,
   AuthResolveDeviceUserAuthoritiesProgress,
@@ -125,7 +126,7 @@ function defaultReplaceUrl(url: string): void {
 }
 
 function defaultCreateCallbackToken(): string {
-  return crypto.randomUUID();
+  return ulid();
 }
 
 export function createInitialDeviceActivationState(): DeviceActivationState {

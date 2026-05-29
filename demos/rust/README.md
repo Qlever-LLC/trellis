@@ -32,9 +32,9 @@ cargo run --manifest-path demos/rust/Cargo.toml -p trellis-rust-demo-service -- 
 ```
 
 Run with authenticated Trellis service bootstrap after the service deployment is
-created and provisioned. The deployment envelope can be expanded before startup,
-or the service can present its manifest during bootstrap and wait while the
-resulting expansion request is approved:
+created and provisioned. Deployment authority can be updated before startup, or
+the service can present its manifest during bootstrap and wait while the
+resulting authority update is approved:
 
 ```sh
 cargo run --manifest-path demos/rust/Cargo.toml -p trellis-rust-demo-service -- \

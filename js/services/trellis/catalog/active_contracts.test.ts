@@ -1,22 +1,24 @@
 import { assertEquals } from "@std/assert";
 
 import {
-  type ActiveDeploymentEnvelopeRecord,
+  type ActiveDeploymentAuthorityRecord,
   collectActiveContractDigests,
   overlayStagedRecords,
 } from "./active_contracts.ts";
 
-function envelope(
+function authority(
   deploymentId: string,
   contractIds: string[],
   disabled = false,
-): ActiveDeploymentEnvelopeRecord {
+): ActiveDeploymentAuthorityRecord {
   return {
     deploymentId,
     disabled,
-    boundary: {
-      contracts: contractIds.map((contractId) => ({ contractId })),
-      surfaces: [],
+    desiredState: {
+      needs: contractIds.map((contractId) => ({
+        kind: "contract",
+        contractId,
+      })),
     },
   };
 }
@@ -45,29 +47,31 @@ Deno.test("collectActiveContractDigests keeps builtins active", () => {
   const active = collectActiveContractDigests({
     builtinDigests: ["builtin"],
     builtinContractIds: ["trellis.core@v1"],
-    deploymentEnvelopes: [
-      envelope("service.enabled", ["service@v1"]),
-      envelope("service.disabled", ["disabled@v1"], true),
-      envelope("device.enabled", ["device@v1"]),
+    deploymentAuthorities: [
+      authority("service.enabled", ["service@v1"]),
+      authority("service.disabled", ["disabled@v1"], true),
+      authority("device.enabled", ["device@v1"]),
     ],
   });
 
   assertEquals([...active], ["builtin"]);
 });
 
-Deno.test("collectActiveContractDigests ignores enabled deployment envelopes", () => {
+Deno.test("collectActiveContractDigests ignores enabled deployment authorities", () => {
   const active = collectActiveContractDigests({
     builtinDigests: [],
-    deploymentEnvelopes: [envelope("service.enabled", ["service@v1"])],
+    deploymentAuthorities: [authority("service.enabled", ["service@v1"])],
   });
 
   assertEquals([...active], []);
 });
 
-Deno.test("collectActiveContractDigests excludes disabled service deployment envelopes", () => {
+Deno.test("collectActiveContractDigests excludes disabled service deployment authorities", () => {
   const active = collectActiveContractDigests({
     builtinDigests: [],
-    deploymentEnvelopes: [envelope("service.disabled", ["service@v1"], true)],
+    deploymentAuthorities: [
+      authority("service.disabled", ["service@v1"], true),
+    ],
   });
 
   assertEquals([...active], []);
@@ -77,8 +81,8 @@ Deno.test("collectActiveContractDigests preserves builtin digests", () => {
   const active = collectActiveContractDigests({
     builtinDigests: ["builtin-current"],
     builtinContractIds: ["trellis.jobs@v1"],
-    deploymentEnvelopes: [
-      envelope("service.jobs", ["trellis.jobs@v1", "app@v1"]),
+    deploymentAuthorities: [
+      authority("service.jobs", ["trellis.jobs@v1", "app@v1"]),
     ],
   });
 
@@ -88,7 +92,7 @@ Deno.test("collectActiveContractDigests preserves builtin digests", () => {
 Deno.test("collectActiveContractDigests includes accepted non-expired implementation offers", () => {
   const active = collectActiveContractDigests({
     builtinDigests: ["builtin-current"],
-    deploymentEnvelopes: [],
+    deploymentAuthorities: [],
     evaluationTime: "2026-01-01T00:00:00.000Z",
     implementationOffers: [{
       deploymentKind: "service",
@@ -111,7 +115,7 @@ Deno.test("collectActiveContractDigests includes accepted non-expired implementa
 Deno.test("collectActiveContractDigests excludes offered stale expired and withdrawn offers", () => {
   const active = collectActiveContractDigests({
     builtinDigests: [],
-    deploymentEnvelopes: [],
+    deploymentAuthorities: [],
     evaluationTime: "2026-01-01T00:00:00.000Z",
     implementationOffers: [
       {

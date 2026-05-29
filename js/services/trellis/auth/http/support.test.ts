@@ -3,7 +3,12 @@ import { assertEquals, assertThrows } from "@std/assert";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { ContractUseDependencyError } from "../../catalog/uses.ts";
 import { createTestContracts } from "../../catalog/test_contracts.ts";
-import type { IdentityEnvelopeRecord, PendingAuth } from "../schemas.ts";
+import type {
+  AuthorityNeedSet,
+  DeploymentAuthority,
+  IdentityGrantRecord,
+  PendingAuth,
+} from "../schemas.ts";
 import { getApprovalResolutionErrorMessage } from "./approval_errors.ts";
 import {
   applyApprovalDecision,
@@ -43,10 +48,11 @@ function storedAppApproval(args: {
   answer: "approved" | "denied";
   capabilities: string[];
   answeredAt?: Date;
-}): IdentityEnvelopeRecord {
+}): IdentityGrantRecord {
   const answeredAt = args.answeredAt ?? new Date();
   return {
-    identityEnvelopeId: "env-console",
+    identityGrantId: "env-console",
+    identityAuthorityId: "ida-github-123",
     userTrellisId: args.userTrellisId,
     origin: "github",
     id: "123",
@@ -68,6 +74,52 @@ function storedAppApproval(args: {
     },
     publishSubjects: [],
     subscribeSubjects: [],
+  };
+}
+
+function deploymentAuthority(args: {
+  deploymentId: string;
+  kind?: DeploymentAuthority["kind"];
+  disabled?: boolean;
+  needs: AuthorityNeedSet;
+  now: string;
+}): DeploymentAuthority {
+  return {
+    deploymentId: args.deploymentId,
+    kind: args.kind ?? "service",
+    disabled: args.disabled ?? false,
+    desiredState: {
+      needs: [
+        ...args.needs.contracts.map((contract) => ({
+          kind: "contract" as const,
+          contractId: contract.contractId,
+          required: contract.required,
+        })),
+        ...args.needs.surfaces.map(({ required, ...surface }) => ({
+          kind: "surface" as const,
+          surface,
+          required,
+        })),
+        ...args.needs.capabilities.map((capability) => ({
+          kind: "capability" as const,
+          capability,
+          required: true,
+        })),
+        ...args.needs.resources.map((resource) => ({
+          kind: "resource" as const,
+          resource,
+          required: resource.required,
+        })),
+      ],
+      capabilities: args.needs.capabilities,
+      resources: args.needs.resources,
+      surfaces: args.needs.surfaces.map(({ required: _required, ...surface }) =>
+        surface
+      ),
+    },
+    version: args.now,
+    createdAt: args.now,
+    updatedAt: args.now,
   };
 }
 
@@ -916,7 +968,7 @@ Deno.test("getApprovalResolution prefers persisted app identity over redirect-de
   assertEquals(resolution.matchedPolicies, []);
 });
 
-Deno.test("getApprovalResolution resolves system availability from enabled deployment envelopes", async () => {
+Deno.test("getApprovalResolution resolves system availability from enabled deployment authorities", async () => {
   const contracts = createTestContracts();
   const now = new Date().toISOString();
   const pending: PendingAuth = {
@@ -942,34 +994,32 @@ Deno.test("getApprovalResolution resolves system availability from enabled deplo
 
   const resolution = await getApprovalResolution(contracts, pending, {
     loadUserProjection: async () => null,
-    loadDeploymentEnvelopes: async () => [{
-      deploymentId: "billing.enabled",
-      kind: "service",
-      disabled: false,
-      createdAt: now,
-      updatedAt: now,
-      boundary: {
-        contracts: [{ contractId: "billing@v1", required: true }],
-        surfaces: [],
-        capabilities: [],
-        resources: [],
-      },
-    }, {
-      deploymentId: "billing.disabled",
-      kind: "service",
-      disabled: true,
-      createdAt: now,
-      updatedAt: now,
-      boundary: {
-        contracts: [{ contractId: "disabled@v1", required: true }],
-        surfaces: [],
-        capabilities: [],
-        resources: [],
-      },
-    }],
+    loadDeploymentAuthorities: async () => [
+      deploymentAuthority({
+        deploymentId: "billing.enabled",
+        now,
+        needs: {
+          contracts: [{ contractId: "billing@v1", required: true }],
+          surfaces: [],
+          capabilities: [],
+          resources: [],
+        },
+      }),
+      deploymentAuthority({
+        deploymentId: "billing.disabled",
+        disabled: true,
+        now,
+        needs: {
+          contracts: [{ contractId: "disabled@v1", required: true }],
+          surfaces: [],
+          capabilities: [],
+          resources: [],
+        },
+      }),
+    ],
   });
 
-  assertEquals(resolution.systemAvailabilityEnvelope, {
+  assertEquals(resolution.systemAvailabilityAuthority, {
     contracts: [{ contractId: "billing@v1", required: true }],
     surfaces: [],
     capabilities: [],
@@ -1021,20 +1071,18 @@ Deno.test("getApprovalResolution applies matching deployment grant overrides as 
       capabilities: [],
       capabilityGroups: [],
     }),
-    loadDeploymentEnvelopes: async () => [{
+    loadDeploymentAuthorities: async () => [deploymentAuthority({
       deploymentId: "app.enabled",
       kind: "app",
-      disabled: false,
-      createdAt: now,
-      updatedAt: now,
-      boundary: {
+      now,
+      needs: {
         contracts: [],
         surfaces: [],
         capabilities: [],
         resources: [],
       },
-    }],
-    loadDeploymentGrantOverrides: async (deploymentId) => [{
+    })],
+    loadDeploymentAuthorityGrantOverrides: async (deploymentId) => [{
       deploymentId,
       identityKind: "web",
       grantKind: "capability",
@@ -1052,7 +1100,7 @@ Deno.test("getApprovalResolution applies matching deployment grant overrides as 
     kind: "deployment_grant",
     answer: "approved",
   });
-  assertEquals(resolution.systemAvailabilityEnvelope, {
+  assertEquals(resolution.systemAvailabilityAuthority, {
     contracts: [],
     surfaces: [],
     capabilities: [],
@@ -1105,13 +1153,11 @@ Deno.test("getApprovalResolution treats group grant overrides as approved when a
       capabilities: [],
       capabilityGroups: [],
     }),
-    loadDeploymentEnvelopes: async () => [{
+    loadDeploymentAuthorities: async () => [deploymentAuthority({
       deploymentId: "app.enabled",
       kind: "app",
-      disabled: false,
-      createdAt: now,
-      updatedAt: now,
-      boundary: {
+      now,
+      needs: {
         contracts: [{ contractId: "trellis.console@v1", required: true }],
         surfaces: [{
           contractId: "trellis.console@v1",
@@ -1123,8 +1169,8 @@ Deno.test("getApprovalResolution treats group grant overrides as approved when a
         capabilities: [],
         resources: [],
       },
-    }],
-    loadDeploymentGrantOverrides: async (deploymentId) => [{
+    })],
+    loadDeploymentAuthorityGrantOverrides: async (deploymentId) => [{
       deploymentId,
       identityKind: "web",
       grantKind: "capability-group",
@@ -1259,13 +1305,10 @@ Deno.test("getApprovalResolution treats built-in auth surfaces as available for 
         capabilities: [],
         capabilityGroups: [],
       }),
-      loadDeploymentEnvelopes: async () => [{
+      loadDeploymentAuthorities: async () => [deploymentAuthority({
         deploymentId: "workspace",
-        kind: "service",
-        disabled: false,
-        createdAt: now,
-        updatedAt: now,
-        boundary: {
+        now,
+        needs: {
           contracts: [{ contractId: "krishi.workspace@v1", required: true }],
           surfaces: [{
             contractId: "krishi.workspace@v1",
@@ -1277,8 +1320,8 @@ Deno.test("getApprovalResolution treats built-in auth surfaces as available for 
           capabilities: [],
           resources: [],
         },
-      }],
-      loadDeploymentGrantOverrides: async (deploymentId) => [{
+      })],
+      loadDeploymentAuthorityGrantOverrides: async (deploymentId) => [{
         deploymentId,
         identityKind: "web",
         grantKind: "capability-group",
@@ -1355,13 +1398,11 @@ Deno.test("getApprovalResolution does not approve partial or unrelated grant ove
       capabilities: [],
       capabilityGroups: [],
     }),
-    loadDeploymentEnvelopes: async () => [{
+    loadDeploymentAuthorities: async () => [deploymentAuthority({
       deploymentId: "app.enabled",
       kind: "app",
-      disabled: false,
-      createdAt: now,
-      updatedAt: now,
-      boundary: {
+      now,
+      needs: {
         contracts: [{ contractId: "trellis.console@v1", required: true }],
         surfaces: [{
           contractId: "trellis.console@v1",
@@ -1373,8 +1414,8 @@ Deno.test("getApprovalResolution does not approve partial or unrelated grant ove
         capabilities: [],
         resources: [],
       },
-    }],
-    loadDeploymentGrantOverrides: async (deploymentId) => [
+    })],
+    loadDeploymentAuthorityGrantOverrides: async (deploymentId) => [
       {
         deploymentId,
         identityKind: "web",
@@ -1435,13 +1476,11 @@ Deno.test("getApprovalResolution does not treat user capabilities as deployment 
       capabilities: ["admin"],
       capabilityGroups: [],
     }),
-    loadDeploymentEnvelopes: async () => [{
+    loadDeploymentAuthorities: async () => [deploymentAuthority({
       deploymentId: "app.enabled",
       kind: "app",
-      disabled: false,
-      createdAt: now,
-      updatedAt: now,
-      boundary: {
+      now,
+      needs: {
         contracts: [{ contractId: "trellis.console@v1", required: true }],
         surfaces: [{
           contractId: "trellis.console@v1",
@@ -1453,15 +1492,15 @@ Deno.test("getApprovalResolution does not treat user capabilities as deployment 
         capabilities: [],
         resources: [],
       },
-    }],
-    loadDeploymentGrantOverrides: async () => [],
+    })],
+    loadDeploymentAuthorityGrantOverrides: async () => [],
   });
 
   assertEquals(resolution.missingCapabilities, []);
   assertEquals(resolution.effectiveApproval, { answer: "none", kind: "none" });
 });
 
-Deno.test("getApprovalResolution does not treat deployment envelope capabilities as user capabilities", async () => {
+Deno.test("getApprovalResolution does not treat deployment authority capabilities as user capabilities", async () => {
   const contracts = createTestContracts();
   const now = new Date().toISOString();
   const pending: PendingAuth = {
@@ -1505,27 +1544,24 @@ Deno.test("getApprovalResolution does not treat deployment envelope capabilities
       capabilities: [],
       capabilityGroups: [],
     }),
-    loadDeploymentEnvelopes: async () => [{
+    loadDeploymentAuthorities: async () => [deploymentAuthority({
       deploymentId: "system.enabled",
-      kind: "service",
-      disabled: false,
-      createdAt: now,
-      updatedAt: now,
-      boundary: {
+      now,
+      needs: {
         contracts: [],
         surfaces: [],
         capabilities: ["audit"],
         resources: [],
       },
-    }],
+    })],
   });
 
   assertEquals(resolution.effectiveCapabilities, []);
   assertEquals(resolution.missingCapabilities, ["audit"]);
-  assertEquals(resolution.systemAvailabilityEnvelope?.capabilities, ["audit"]);
+  assertEquals(resolution.systemAvailabilityAuthority?.capabilities, ["audit"]);
 });
 
-Deno.test("getApprovalResolution loads persisted identity envelope approvals", async () => {
+Deno.test("getApprovalResolution loads persisted identity grant approvals", async () => {
   const contracts = createTestContracts();
   const userTrellisId = linkedUserId;
   const pending: PendingAuth = {
@@ -1564,7 +1600,7 @@ Deno.test("getApprovalResolution loads persisted identity envelope approvals", a
       capabilities: [],
       capabilityGroups: [],
     }),
-    loadIdentityEnvelopesByUser: async (trellisId) => {
+    loadIdentityGrantsByUser: async (trellisId: string) => {
       assertEquals(trellisId, userTrellisId);
       return [storedApproval];
     },
@@ -1577,7 +1613,7 @@ Deno.test("getApprovalResolution loads persisted identity envelope approvals", a
   });
 });
 
-Deno.test("getApprovalResolution treats stale identity envelope approvals as missing", async () => {
+Deno.test("getApprovalResolution treats stale identity grant approvals as missing", async () => {
   const contracts = createTestContracts();
   const userTrellisId = linkedUserId;
   const pending: PendingAuth = {
@@ -1626,7 +1662,7 @@ Deno.test("getApprovalResolution treats stale identity envelope approvals as mis
       capabilities: [],
       capabilityGroups: [],
     }),
-    loadIdentityEnvelopesByUser: async (trellisId) => {
+    loadIdentityGrantsByUser: async (trellisId: string) => {
       assertEquals(trellisId, userTrellisId);
       return [storedApproval];
     },
@@ -1679,7 +1715,7 @@ Deno.test("getApprovalResolution reuses approval for another linked identity", a
       capabilities: [],
       capabilityGroups: [],
     }),
-    loadIdentityEnvelopesByUser: async (trellisId) => {
+    loadIdentityGrantsByUser: async (trellisId: string) => {
       assertEquals(trellisId, userTrellisId);
       return [storedApproval];
     },

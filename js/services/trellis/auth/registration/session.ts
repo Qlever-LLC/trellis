@@ -11,12 +11,12 @@ import {
 } from "../session/rpc.ts";
 import { createAuthSessionsRevokeHandler } from "../session/revoke.ts";
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
+import type { IdentityGrantRecord } from "../schemas.ts";
 import type {
   SqlCapabilityGroupRepository,
   SqlDeviceActivationRepository,
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,
-  SqlIdentityEnvelopeRepository,
   SqlServiceDeploymentRepository,
   SqlServiceInstanceRepository,
   SqlSessionRepository,
@@ -36,7 +36,12 @@ export async function registerSessionRpcs(deps: {
   sessionStorage: SqlSessionRepository;
   userStorage: SqlUserProjectionRepository;
   capabilityGroupStorage: SqlCapabilityGroupRepository;
-  contractApprovalStorage: SqlIdentityEnvelopeRepository;
+  contractApprovalStorage: {
+    get(
+      identityGrantId: string,
+    ): Promise<IdentityGrantRecord | undefined>;
+    delete(identityGrantId: string): Promise<void>;
+  };
   deviceActivationStorage: SqlDeviceActivationRepository;
   deviceDeploymentStorage: SqlDeviceDeploymentRepository;
   deviceInstanceStorage: SqlDeviceInstanceRepository;

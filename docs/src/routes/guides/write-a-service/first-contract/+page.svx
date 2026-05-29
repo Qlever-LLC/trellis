@@ -2,7 +2,7 @@
   import LanguageTabs from "$lib/components/LanguageTabs.svelte";
 </script>
 
-In Trellis, every service is defined by a **contract**. The contract is the authoritative description of what your service does: what databases it needs, what RPCs it handles, what events it emits or consumes, and who is allowed to call it. Trellis uses the contract boundary in the deployment envelope to provision resources and enforce access control automatically.
+In Trellis, every service is defined by a **contract**. The contract is the authoritative description of what your service does: what databases it needs, what RPCs it handles, what events it emits or consumes, and who is allowed to call it. Trellis compares the contract boundary with deployment authority, records any required authority plan, and reconciles accepted resource changes before granting runtime access.
 
 Start with the smallest possible service contract:
 
