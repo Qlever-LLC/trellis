@@ -231,7 +231,7 @@ jobs:
             js/packages/result \
             js/packages/trellis
           do
-            (cd "$pkg" && deno publish --dry-run --allow-slow-types --allow-dirty)
+            (cd "$pkg" && deno publish --dry-run --allow-slow-types)
           done
 
       - name: Upload npm package artifact
@@ -725,7 +725,7 @@ jobs:
           package_field() {
             local manifest="$1"
             local field="$2"
-            deno eval --allow-read 'const manifest = JSON.parse(await Deno.readTextFile(Deno.args[0])); console.log(manifest[Deno.args[1]]);' "$manifest" "$field"
+            deno eval 'const manifest = JSON.parse(await Deno.readTextFile(Deno.args[0])); console.log(manifest[Deno.args[1]]);' "$manifest" "$field"
           }
 
           jsr_package_exists() {
@@ -765,7 +765,7 @@ jobs:
               return 0
             fi
 
-            (cd "$package_dir" && deno publish --allow-slow-types --allow-dirty)
+            (cd "$package_dir" && deno publish --allow-slow-types)
             published+=("${package_name}@${package_version}")
             wait_for_jsr_package "$package_name" "$package_version"
           }

@@ -62,6 +62,22 @@ Deno.test("release workflows use generated package-manager targets", async () =>
   );
   assertStringIncludes(releaseWorkflow, "publish_or_skip js/packages/result");
   assertStringIncludes(releaseWorkflow, "publish_or_skip js/packages/trellis");
+  assertStringIncludes(
+    releaseWorkflow,
+    "deno publish --dry-run --allow-slow-types",
+  );
+  assertStringIncludes(releaseWorkflow, "deno publish --allow-slow-types");
+  assertEquals(releaseWorkflow.includes("deno eval --allow-read"), false);
+  assertEquals(
+    releaseWorkflow.includes(
+      "deno publish --dry-run --allow-slow-types --allow-dirty",
+    ),
+    false,
+  );
+  assertEquals(
+    releaseWorkflow.includes("deno publish --allow-slow-types --allow-dirty"),
+    false,
+  );
 });
 
 Deno.test("pages workflow cleans generator fallback temp dirs explicitly", async () => {
@@ -145,6 +161,16 @@ Deno.test("trellis npm build depends on the standalone result package name", asy
   );
 
   assertStringIncludes(source, '"@qlever-llc/result"');
+  assertStringIncludes(source, '"@qlever-llc/result": "^0.10.3"');
+});
+
+Deno.test("trellis-svelte npm build uses current Trellis package bases", async () => {
+  const source = await Deno.readTextFile(
+    new URL("../../trellis-svelte/scripts/build_npm.ts", import.meta.url),
+  );
+
+  assertStringIncludes(source, '"@qlever-llc/result": "^0.10.3"');
+  assertStringIncludes(source, '"@qlever-llc/trellis": "^0.10.3"');
 });
 
 Deno.test("trellis package exports the errors and health subpaths", async () => {
