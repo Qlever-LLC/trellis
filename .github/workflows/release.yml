@@ -231,7 +231,7 @@ jobs:
             js/packages/result \
             js/packages/trellis
           do
-            (cd "$pkg" && deno publish --dry-run --allow-slow-types)
+            (cd "$pkg" && deno publish --dry-run --allow-slow-types --allow-dirty)
           done
 
       - name: Upload npm package artifact
@@ -765,7 +765,7 @@ jobs:
               return 0
             fi
 
-            (cd "$package_dir" && deno publish --allow-slow-types)
+            (cd "$package_dir" && deno publish --allow-slow-types --allow-dirty)
             published+=("${package_name}@${package_version}")
             wait_for_jsr_package "$package_name" "$package_version"
           }

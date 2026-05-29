@@ -64,20 +64,13 @@ Deno.test("release workflows use generated package-manager targets", async () =>
   assertStringIncludes(releaseWorkflow, "publish_or_skip js/packages/trellis");
   assertStringIncludes(
     releaseWorkflow,
-    "deno publish --dry-run --allow-slow-types",
+    "deno publish --dry-run --allow-slow-types --allow-dirty",
   );
-  assertStringIncludes(releaseWorkflow, "deno publish --allow-slow-types");
+  assertStringIncludes(
+    releaseWorkflow,
+    "deno publish --allow-slow-types --allow-dirty",
+  );
   assertEquals(releaseWorkflow.includes("deno eval --allow-read"), false);
-  assertEquals(
-    releaseWorkflow.includes(
-      "deno publish --dry-run --allow-slow-types --allow-dirty",
-    ),
-    false,
-  );
-  assertEquals(
-    releaseWorkflow.includes("deno publish --allow-slow-types --allow-dirty"),
-    false,
-  );
 });
 
 Deno.test("pages workflow cleans generator fallback temp dirs explicitly", async () => {

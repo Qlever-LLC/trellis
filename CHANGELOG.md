@@ -8,6 +8,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.3-rc.2] - 2026-05-29
+
+### Fixed
+
+- Restored JSR `--allow-dirty` publishing for release-prepared workspaces, which
+  intentionally rewrite manifests and generated artifacts before package
+  dry-runs and publishing.
+
 ## [0.10.3-rc.1] - 2026-05-29
 
 ### Fixed
@@ -16,8 +24,7 @@ and this project adheres to
   `deno eval --allow-read` invocation while keeping slow-type publishing enabled
   for the current generated SDK surface.
 - Removed unnecessary dirty-worktree allowances from JSR release dry-runs and
-  publishing; release workspaces are expected to publish from clean prepared
-  artifacts.
+  publishing.
 
 ## [0.10.2] - 2026-05-29
 
@@ -679,7 +686,8 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.3-rc.1...HEAD
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.3-rc.2...HEAD
+[0.10.3-rc.2]: https://github.com/Qlever-LLC/trellis/compare/v0.10.3-rc.1...v0.10.3-rc.2
 [0.10.3-rc.1]: https://github.com/Qlever-LLC/trellis/compare/v0.10.2...v0.10.3-rc.1
 [0.10.2]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/Qlever-LLC/trellis/compare/v0.10.0...v0.10.1
