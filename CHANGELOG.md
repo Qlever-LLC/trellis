@@ -8,6 +8,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.1-rc.6] - 2026-05-29
+
+### Fixed
+
+- Fixed the generator auto-mode regression test to expect the `trellis-rs`
+  dependency key emitted by generated Rust SDK Cargo manifests.
+
 ## [0.10.1-rc.5] - 2026-05-29
 
 ### Fixed
@@ -671,7 +678,8 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.5...HEAD
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.6...HEAD
+[0.10.1-rc.6]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.5...v0.10.1-rc.6
 [0.10.1-rc.5]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.4...v0.10.1-rc.5
 [0.10.1-rc.4]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.3...v0.10.1-rc.4
 [0.10.1-rc.3]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.2...v0.10.1-rc.3

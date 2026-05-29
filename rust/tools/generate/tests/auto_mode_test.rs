@@ -1341,7 +1341,7 @@ fn local_mode_regenerates_when_rust_sdk_cargo_toml_is_invalid() {
     let repaired = fs::read_to_string(&cargo_toml).unwrap();
     assert!(repaired.contains("serde = { version = \"1.0\""));
     assert!(repaired.contains("serde_json = \"1.0\""));
-    assert!(repaired.contains("trellis = \"0.4.0\""));
+    assert!(repaired.contains("trellis-rs = \"0.4.0\""));
     assert!(repaired.contains("trellis-contracts = \"0.4.0\""));
     assert!(!repaired.contains("trellis-client"));
     assert!(!repaired.contains("trellis-service"));
