@@ -1,10 +1,10 @@
 pub mod bootstrap {
-    use trellis::client::TrellisClientError;
-    use trellis::sdk::core::types::{
+    use trellis_rs::client::TrellisClientError;
+    use trellis_rs::sdk::core::types::{
         TrellisBindingsGetRequest, TrellisBindingsGetResponse, TrellisCatalogResponse,
     };
-    use trellis::service::{BootstrapContractRef, ServerError};
-    pub use trellis::service::{
+    use trellis_rs::service::{BootstrapContractRef, ServerError};
+    pub use trellis_rs::service::{
         CoreBootstrapAdapter, CoreBootstrapBinding, CoreBootstrapClientPort,
     };
 
@@ -40,4 +40,6 @@ pub mod bootstrap {
     }
 }
 
-pub use trellis::service::{CoreBootstrapAdapter, CoreBootstrapBinding, CoreBootstrapClientPort};
+pub use trellis_rs::service::{
+    CoreBootstrapAdapter, CoreBootstrapBinding, CoreBootstrapClientPort,
+};

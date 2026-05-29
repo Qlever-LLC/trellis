@@ -9,15 +9,15 @@ use futures_util::StreamExt;
 use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use trellis::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
-use trellis::client::{
+use trellis_rs::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
+use trellis_rs::client::{
     dispatch_outbox_once, EventDescriptor, InboxReceipt, InboxStore, NatsKvInboxStore,
     NatsKvOutboxStore, OutboxDispatchResult, OutboxStore, ServiceConnectOptions, TrellisClient,
 };
-use trellis::contracts::{
+use trellis_rs::contracts::{
     digest_contract_json, event, rpc, use_contract, ContractKind, ContractManifestBuilder,
 };
-use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
+use trellis_rs::sdk::auth::client::AuthClient as SdkAuthClient;
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
@@ -198,7 +198,7 @@ fn harness_service_consumer_contract_json() -> Result<String> {
             }
         }),
     );
-    let manifest = trellis::contracts::parse_manifest(value)
+    let manifest = trellis_rs::contracts::parse_manifest(value)
         .map_err(|error| miette!("failed to validate service consumer manifest: {error}"))?;
     serde_json::to_string(&manifest)
         .map_err(|error| miette!("failed to serialize events consumer service contract: {error}"))
@@ -293,7 +293,7 @@ struct HarnessEventPayload {
 
 struct HarnessRustEvent;
 
-impl trellis::client::EventDescriptor for HarnessRustEvent {
+impl trellis_rs::client::EventDescriptor for HarnessRustEvent {
     type Event = HarnessEventPayload;
 
     const KEY: &'static str = "Harness.Rust.Event";
@@ -304,7 +304,7 @@ impl trellis::client::EventDescriptor for HarnessRustEvent {
 
 struct HarnessTsEvent;
 
-impl trellis::client::EventDescriptor for HarnessTsEvent {
+impl trellis_rs::client::EventDescriptor for HarnessTsEvent {
     type Event = HarnessEventPayload;
 
     const KEY: &'static str = "Harness.Ts.Event";
@@ -324,7 +324,7 @@ pub(crate) async fn run_events_fixture(
     let admin_client = connect_admin_client_async(&setup_login.state)
         .await
         .into_diagnostic()?;
-    let auth_client = trellis::auth::AuthClient::new(&admin_client);
+    let auth_client = trellis_rs::auth::AuthClient::new(&admin_client);
     auth_client
         .create_service_deployment(HARNESS_DEPLOYMENT_ID, vec!["harness".to_string()])
         .await
@@ -344,10 +344,12 @@ pub(crate) async fn run_events_fixture(
 
     let (provider_service_seed, provider_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-            deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
-            instance_key: provider_service_key,
-        })
+        .provision_service_instance(
+            &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
+                instance_key: provider_service_key,
+            },
+        )
         .await
         .into_diagnostic()?;
     let _provider_service_client = TrellisClient::connect_service(ServiceConnectOptions {
@@ -374,21 +376,23 @@ pub(crate) async fn run_events_fixture(
 
     let (consumer_service_seed, consumer_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-            deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
-            instance_key: consumer_service_key,
-        })
+        .provision_service_instance(
+            &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
+                instance_key: consumer_service_key,
+            },
+        )
         .await
         .into_diagnostic()?;
 
     let caller_contract_json = harness_caller_contract_json()?;
     let caller_login =
-        match trellis::auth::start_admin_reauth(&setup_login.state, &caller_contract_json)
+        match trellis_rs::auth::start_admin_reauth(&setup_login.state, &caller_contract_json)
             .await
             .into_diagnostic()?
         {
-            trellis::auth::AdminReauthOutcome::Bound(outcome) => outcome,
-            trellis::auth::AdminReauthOutcome::Flow(challenge) => {
+            trellis_rs::auth::AdminReauthOutcome::Bound(outcome) => outcome,
+            trellis_rs::auth::AdminReauthOutcome::Flow(challenge) => {
                 let login_url = challenge.login_url().to_string();
                 let driver = browser.driver().await?;
                 let login_result =
@@ -559,7 +563,7 @@ pub(crate) async fn run_events_fixture(
 
 async fn assert_ts_service_event_consumer(
     trellis_url: &str,
-    state: &trellis::auth::AdminSessionState,
+    state: &trellis_rs::auth::AdminSessionState,
     browser: &BrowserContainer,
     consumer_contract_digest: &str,
     consumer_service_seed: &str,
@@ -589,12 +593,12 @@ async fn reauth_admin_setup(
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
     let contract_json = admin_setup_contract_json()?;
-    match trellis::auth::start_admin_reauth(&admin_login.state, &contract_json)
+    match trellis_rs::auth::start_admin_reauth(&admin_login.state, &contract_json)
         .await
         .into_diagnostic()?
     {
-        trellis::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
-        trellis::auth::AdminReauthOutcome::Flow(challenge) => {
+        trellis_rs::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
+        trellis_rs::auth::AdminReauthOutcome::Flow(challenge) => {
             let login_url = challenge.login_url().to_string();
             let driver = browser.driver().await?;
             let login_result =
@@ -614,17 +618,17 @@ async fn reauth_admin_setup(
 }
 
 async fn reauth_contract(
-    state: &trellis::auth::AdminSessionState,
+    state: &trellis_rs::auth::AdminSessionState,
     contract_json: &str,
     trellis_url: &str,
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
-    match trellis::auth::start_admin_reauth(state, contract_json)
+    match trellis_rs::auth::start_admin_reauth(state, contract_json)
         .await
         .into_diagnostic()?
     {
-        trellis::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
-        trellis::auth::AdminReauthOutcome::Flow(challenge) => {
+        trellis_rs::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
+        trellis_rs::auth::AdminReauthOutcome::Flow(challenge) => {
             let login_url = challenge.login_url().to_string();
             let driver = browser.driver().await?;
             let login_result =
@@ -951,12 +955,12 @@ async fn assert_rust_denied_publish(client: &TrellisClient) -> Result<()> {
 async fn expect_event_with_header<D>(
     events: &mut futures_util::stream::BoxStream<
         'static,
-        Result<HarnessEventPayload, trellis::client::TrellisClientError>,
+        Result<HarnessEventPayload, trellis_rs::client::TrellisClientError>,
     >,
     expected_message: &str,
 ) -> Result<()>
 where
-    D: trellis::client::EventDescriptor<Event = HarnessEventPayload>,
+    D: trellis_rs::client::EventDescriptor<Event = HarnessEventPayload>,
 {
     let event = tokio::time::timeout(Duration::from_secs(10), events.next())
         .await
@@ -1009,7 +1013,7 @@ async fn assert_rust_denied_subscribe(client: &TrellisClient) -> Result<()> {
 
 async fn subscribe_live_messages<D>(client: &TrellisClient) -> Result<async_nats::Subscriber>
 where
-    D: trellis::client::EventDescriptor<Event = HarnessEventPayload>,
+    D: trellis_rs::client::EventDescriptor<Event = HarnessEventPayload>,
 {
     client
         .nats()
@@ -1054,7 +1058,7 @@ async fn open_harness_durable_consumer(
 
 async fn expect_live_message<D>(events: &mut async_nats::Subscriber) -> Result<async_nats::Message>
 where
-    D: trellis::client::EventDescriptor<Event = HarnessEventPayload>,
+    D: trellis_rs::client::EventDescriptor<Event = HarnessEventPayload>,
 {
     tokio::time::timeout(Duration::from_secs(10), events.next())
         .await
@@ -1064,7 +1068,7 @@ where
 
 fn decode_live_message<D>(message: &async_nats::Message) -> Result<HarnessEventPayload>
 where
-    D: trellis::client::EventDescriptor<Event = HarnessEventPayload>,
+    D: trellis_rs::client::EventDescriptor<Event = HarnessEventPayload>,
 {
     serde_json::from_slice(&message.payload).into_diagnostic()
 }
@@ -1073,7 +1077,7 @@ async fn expect_jetstream_message<D>(
     events: &mut consumer::pull::Stream,
 ) -> Result<async_nats::jetstream::Message>
 where
-    D: trellis::client::EventDescriptor<Event = HarnessEventPayload>,
+    D: trellis_rs::client::EventDescriptor<Event = HarnessEventPayload>,
 {
     tokio::time::timeout(Duration::from_secs(10), events.next())
         .await
@@ -1086,7 +1090,7 @@ fn decode_jetstream_message<D>(
     message: &async_nats::jetstream::Message,
 ) -> Result<HarnessEventPayload>
 where
-    D: trellis::client::EventDescriptor<Event = HarnessEventPayload>,
+    D: trellis_rs::client::EventDescriptor<Event = HarnessEventPayload>,
 {
     serde_json::from_slice(&message.payload).into_diagnostic()
 }
@@ -1112,7 +1116,7 @@ fn live_event_header_value<'a>(event: &'a async_nats::Message, name: &str) -> Re
 
 async fn expect_no_live_message<D>(events: &mut async_nats::Subscriber) -> Result<()>
 where
-    D: trellis::client::EventDescriptor<Event = HarnessEventPayload>,
+    D: trellis_rs::client::EventDescriptor<Event = HarnessEventPayload>,
 {
     match tokio::time::timeout(Duration::from_millis(500), events.next()).await {
         Ok(Some(message)) => Err(miette!(
@@ -1126,7 +1130,7 @@ where
 
 async fn expect_no_jetstream_message<D>(events: &mut consumer::pull::Stream) -> Result<()>
 where
-    D: trellis::client::EventDescriptor<Event = HarnessEventPayload>,
+    D: trellis_rs::client::EventDescriptor<Event = HarnessEventPayload>,
 {
     match tokio::time::timeout(Duration::from_millis(500), events.next()).await {
         Ok(Some(Ok(message))) => {

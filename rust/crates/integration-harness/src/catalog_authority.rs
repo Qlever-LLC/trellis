@@ -4,15 +4,17 @@ use std::time::Duration;
 use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use trellis::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
-use trellis::client::{ServiceConnectWithContractOptions, TrellisClient};
-use trellis::contracts::{
+use trellis_rs::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
+use trellis_rs::client::{ServiceConnectWithContractOptions, TrellisClient};
+use trellis_rs::contracts::{
     digest_contract_json, rpc, use_contract, ContractKind, ContractManifestBuilder,
 };
-use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
-use trellis::sdk::auth::types::AuthServiceInstancesProvisionRequest;
-use trellis::sdk::core::client::CoreClient;
-use trellis::service::{ConnectedServiceRuntime, HandlerResult, ServerError, ServiceRuntimeError};
+use trellis_rs::sdk::auth::client::AuthClient as SdkAuthClient;
+use trellis_rs::sdk::auth::types::AuthServiceInstancesProvisionRequest;
+use trellis_rs::sdk::core::client::CoreClient;
+use trellis_rs::service::{
+    ConnectedServiceRuntime, HandlerResult, ServerError, ServiceRuntimeError,
+};
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
@@ -44,7 +46,7 @@ struct AuthorityPingResponse {
 
 struct AuthorityPingRpc;
 
-impl trellis::client::RpcDescriptor for AuthorityPingRpc {
+impl trellis_rs::client::RpcDescriptor for AuthorityPingRpc {
     type Input = AuthorityPingRequest;
     type Output = AuthorityPingResponse;
 
@@ -70,7 +72,7 @@ pub(crate) async fn run_catalog_authority_fixture(
     let admin_client = connect_admin_client_async(&setup_login.state)
         .await
         .into_diagnostic()?;
-    let auth_client = trellis::auth::AuthClient::new(&admin_client);
+    let auth_client = trellis_rs::auth::AuthClient::new(&admin_client);
     let sdk_auth_client = SdkAuthClient::new(&admin_client);
     let core_client = CoreClient::new(&admin_client);
 
@@ -177,7 +179,7 @@ pub(crate) async fn verify_catalog_authority_persistence_after_restart(
 
 async fn create_no_active_issue_check(
     trellis_url: &str,
-    auth_client: &trellis::auth::AuthClient<'_>,
+    auth_client: &trellis_rs::auth::AuthClient<'_>,
     sdk_auth_client: &SdkAuthClient<'_>,
     core_client: &CoreClient<'_>,
     deployment_id: &str,
@@ -230,7 +232,7 @@ async fn login_contract(
     browser: &BrowserContainer,
     contract_json: &str,
 ) -> Result<AdminLoginOutcome> {
-    let challenge = trellis::auth::start_agent_login(&trellis::auth::StartAgentLoginOpts {
+    let challenge = trellis_rs::auth::start_agent_login(&trellis_rs::auth::StartAgentLoginOpts {
         trellis_url,
         contract_json,
     })
@@ -301,7 +303,7 @@ async fn wait_for_authority_ping(client: &TrellisClient, message: &str) -> Resul
 }
 
 async fn provision_service_instance(
-    auth_client: &trellis::auth::AuthClient<'_>,
+    auth_client: &trellis_rs::auth::AuthClient<'_>,
     deployment_id: &str,
 ) -> Result<String> {
     let (seed, key) = generate_session_keypair();

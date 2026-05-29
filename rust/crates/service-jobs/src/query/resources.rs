@@ -1,5 +1,5 @@
-use trellis::sdk::core::types::{TrellisBindingsGetRequest, TrellisBindingsGetResponseBinding};
-use trellis::service::{BootstrapContractRef, CoreBootstrapClientPort};
+use trellis_rs::sdk::core::types::{TrellisBindingsGetRequest, TrellisBindingsGetResponseBinding};
+use trellis_rs::service::{BootstrapContractRef, CoreBootstrapClientPort};
 
 use super::JobsQueryError;
 

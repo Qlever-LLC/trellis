@@ -1,12 +1,12 @@
 use bytes::Bytes;
 use miette::{miette, IntoDiagnostic, Result};
 use serde_json::{json, to_string, Value};
-use trellis::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
-use trellis::client::{ServiceConnectWithContractOptions, TrellisClient};
-use trellis::contracts::{
+use trellis_rs::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
+use trellis_rs::client::{ServiceConnectWithContractOptions, TrellisClient};
+use trellis_rs::contracts::{
     digest_contract_json, rpc, use_contract, ContractKind, ContractManifestBuilder,
 };
-use trellis::sdk::auth::{
+use trellis_rs::sdk::auth::{
     AuthCapabilitiesListRequest, AuthCapabilityGroupsDeleteRequest, AuthCapabilityGroupsGetRequest,
     AuthCapabilityGroupsListRequest, AuthCapabilityGroupsPutRequest, AuthClient as SdkAuthClient,
     AuthConnectionsListRequest, AuthDeploymentAuthorityGetRequest,
@@ -19,7 +19,7 @@ use trellis::sdk::auth::{
     AuthUsersGetRequest, AuthUsersListRequest, AuthUsersPasswordChangeRequest,
     AuthUsersUpdateRequest,
 };
-use trellis::sdk::core::{
+use trellis_rs::sdk::core::{
     rpc::TrellisBindingsGetRpc, CoreClient, TrellisBindingsGetRequest, TrellisContractGetRequest,
     TrellisSurfaceStatusRequest,
 };
@@ -582,7 +582,7 @@ pub(crate) async fn run_password_change_fixture(admin_login: &AdminLoginOutcome)
                 "Auth.Users.Password.Change accepted the wrong password"
             ))
         }
-        Err(trellis::client::TrellisClientError::RpcError(payload)) => {
+        Err(trellis_rs::client::TrellisClientError::RpcError(payload)) => {
             assert_password_change_error(
                 &payload,
                 "invalid_request",
@@ -628,7 +628,7 @@ pub(crate) async fn run_password_change_fixture(admin_login: &AdminLoginOutcome)
 }
 
 fn assert_password_change_error(
-    payload: &trellis::client::RpcErrorPayload,
+    payload: &trellis_rs::client::RpcErrorPayload,
     expected_reason: &str,
     expected_message: &str,
 ) -> Result<()> {
@@ -715,7 +715,7 @@ async fn assert_external_portal_origin_hardening(
 
 async fn assert_live_flow_origin(trellis_url: &str, allowed_origin: &str) -> Result<()> {
     let contract_json = admin_setup_contract_json()?;
-    let challenge = trellis::auth::start_agent_login(&trellis::auth::StartAgentLoginOpts {
+    let challenge = trellis_rs::auth::start_agent_login(&trellis_rs::auth::StartAgentLoginOpts {
         trellis_url,
         contract_json: &contract_json,
     })
@@ -784,12 +784,12 @@ async fn reauth_admin_setup(
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
     let contract_json = admin_setup_contract_json()?;
-    match trellis::auth::start_admin_reauth(&admin_login.state, &contract_json)
+    match trellis_rs::auth::start_admin_reauth(&admin_login.state, &contract_json)
         .await
         .into_diagnostic()?
     {
-        trellis::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
-        trellis::auth::AdminReauthOutcome::Flow(challenge) => {
+        trellis_rs::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
+        trellis_rs::auth::AdminReauthOutcome::Flow(challenge) => {
             let login_url = challenge.login_url().to_string();
             let driver = browser.driver().await?;
             let login_result =
@@ -943,7 +943,7 @@ fn value_string(value: &Value, key: &str) -> Result<String> {
 }
 
 async fn assert_traced_auth_sessions_me(
-    client: &trellis::client::TrellisClient,
+    client: &trellis_rs::client::TrellisClient,
     expected_user_id: &str,
 ) -> Result<()> {
     let response = raw_traced_admin_rpc(client, "rpc.v1.Auth.Sessions.Me", json!({})).await?;
@@ -974,7 +974,7 @@ async fn assert_traced_auth_sessions_me(
 }
 
 async fn assert_traced_auth_users_get_error(
-    client: &trellis::client::TrellisClient,
+    client: &trellis_rs::client::TrellisClient,
     missing_user_id: &str,
 ) -> Result<()> {
     let response = raw_traced_admin_rpc(
@@ -1010,7 +1010,7 @@ async fn assert_traced_auth_users_get_error(
 }
 
 async fn raw_traced_admin_rpc(
-    client: &trellis::client::TrellisClient,
+    client: &trellis_rs::client::TrellisClient,
     subject: &str,
     body: Value,
 ) -> Result<async_nats::Message> {

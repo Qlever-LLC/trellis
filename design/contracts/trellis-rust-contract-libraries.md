@@ -29,7 +29,7 @@ The underlying implementation still contains these layers:
 - `trellis-contracts` owns canonical manifest loading, validation, and digest
   logic
 - `trellis` exposes the public runtime facade, including Trellis-owned SDK
-  modules under `trellis::sdk::{auth, core, health, jobs, state}`
+  modules under `trellis_rs::sdk::{auth, core, health, jobs, state}`
 - internal runtime crates expose generic request, publish, service routing,
   operation registration, and event publishing primitives used by the facade and
   generated code
@@ -135,7 +135,7 @@ The public, stable Cargo authoring packages are:
 
 - `trellis` - curated runtime facade for Rust clients, services, devices, and
   apps, including Trellis-owned generated SDK modules under
-  `trellis::sdk::{auth, core, health, jobs, state}`
+  `trellis_rs::sdk::{auth, core, health, jobs, state}`
 - `trellis-contracts` - canonical manifest, catalog, digest, and contract
   metadata model, including capability metadata and global capability key
   helpers
@@ -167,14 +167,14 @@ Rules:
   helpers, manifest loading and validation, and shared contract metadata traits
   and types used by generated Rust crates; it does not own NATS transport
   connection behavior
-- `trellis::client` owns authenticated outbound Trellis session/client
+- `trellis_rs::client` owns authenticated outbound Trellis session/client
   primitives; generic operation, RPC, event, and derived runtime-subject client
   primitives; operation-native transfer execution helpers; and descriptor traits
   required by generated outbound code
-- `trellis::service` owns authenticated service-side runtime primitives, handler
-  registration for owned operations and RPCs, owned event publish helpers,
-  operation control/reply and transfer subject helpers derived from owned
-  surfaces, and descriptor traits required by generated inbound code
+- `trellis_rs::service` owns authenticated service-side runtime primitives,
+  handler registration for owned operations and RPCs, owned event publish
+  helpers, operation control/reply and transfer subject helpers derived from
+  owned surfaces, and descriptor traits required by generated inbound code
 - low-level runtime crates such as `trellis-client`, `trellis-service`,
   `trellis-service-runtime`, `trellis-auth`, `trellis-auth-adapters`, and
   `trellis-jobs` are internal implementation/generator targets marked
@@ -323,7 +323,7 @@ Rustdoc linked from `/api`; narrative usage belongs in `/guides/libraries/rust`.
   local participant facades are owner artifacts rather than Trellis platform
   authoring packages
 - Trellis-owned generated SDK surfaces are exposed from the public facade under
-  `trellis::sdk::{auth, core, health, jobs, state}` rather than as separate
+  `trellis_rs::sdk::{auth, core, health, jobs, state}` rather than as separate
   public SDK crates
 - generated SDK crates describe only the owned surface of one contract and
   remain valid dependency vocabulary for participant-facade generation

@@ -1,9 +1,9 @@
 use async_nats::jetstream::{self, consumer};
 use futures_util::StreamExt;
 use serde::Deserialize;
-use trellis::jobs::types::{Job, JobEvent};
-use trellis::jobs::{dead_event, is_terminal, job_event_subject, job_from_work_event};
-use trellis::service::ServerError;
+use trellis_rs::jobs::types::{Job, JobEvent};
+use trellis_rs::jobs::{dead_event, is_terminal, job_event_subject, job_from_work_event};
+use trellis_rs::service::ServerError;
 
 use crate::storage::SqliteJobsStore;
 
@@ -239,7 +239,7 @@ fn map_dead_event_from_store(
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use trellis::jobs::types::{JobContext, JobState};
+    use trellis_rs::jobs::types::{JobContext, JobState};
 
     use super::*;
 

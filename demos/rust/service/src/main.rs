@@ -10,9 +10,9 @@ use clap::Parser;
 use futures_util::{stream, Stream, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
-use trellis::client::TrellisClient;
-use trellis::jobs;
-use trellis::service::{
+use trellis_rs::client::TrellisClient;
+use trellis_rs::jobs;
+use trellis_rs::service::{
     plan_download_transfer_grant, plan_upload_transfer_grant, spawn_download_transfer_endpoint,
     spawn_upload_transfer_endpoint_with_progress, AcceptedOperation, DefaultRequestValidator,
     DefaultRequestValidatorClientPort, DownloadTransferGrant, DownloadTransferGrantPlan,
@@ -2386,7 +2386,7 @@ fn demo_resources() -> ServiceResourceBindings {
     let mut store = BTreeMap::new();
     store.insert(
         UPLOADS_STORE.to_string(),
-        trellis::service::StoreResourceBinding {
+        trellis_rs::service::StoreResourceBinding {
             name: "demo-uploads".to_string(),
             max_object_bytes: Some(MAX_UPLOAD_BYTES),
             max_total_bytes: None,
@@ -2662,9 +2662,9 @@ fn sites_refreshed_event_from_output(output: &SitesRefreshOutput) -> SitesRefres
 mod tests {
     use bytes::Bytes;
     use futures_util::StreamExt;
-    use trellis::auth::{AuthRequestsValidateRequest, AuthRequestsValidateResponse};
-    use trellis::client::TrellisClientError;
-    use trellis::service::UploadTransferChunk;
+    use trellis_rs::auth::{AuthRequestsValidateRequest, AuthRequestsValidateResponse};
+    use trellis_rs::client::TrellisClientError;
+    use trellis_rs::service::UploadTransferChunk;
 
     use super::*;
 

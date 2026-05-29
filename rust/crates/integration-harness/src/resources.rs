@@ -9,18 +9,18 @@ use futures_util::StreamExt;
 use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use trellis::auth::{
+use trellis_rs::auth::{
     connect_admin_client_async, generate_session_keypair, AdminLoginOutcome, AdminSessionState,
 };
-use trellis::client::{
+use trellis_rs::client::{
     ServiceConnectOptions, ServiceConnectWithContractOptions, TrellisClient, TrellisClientError,
 };
-use trellis::contracts::{
+use trellis_rs::contracts::{
     digest_contract_json, kv, rpc, store, use_contract, ContractKind, ContractManifestBuilder,
 };
-use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
-use trellis::sdk::core::types::TrellisBindingsGetResponseBinding;
-use trellis::service::{
+use trellis_rs::sdk::auth::client::AuthClient as SdkAuthClient;
+use trellis_rs::sdk::core::types::TrellisBindingsGetResponseBinding;
+use trellis_rs::service::{
     ConnectedServiceRuntime, CoreBootstrapBinding, KvResourceEntry, KvResourceHandle,
     KvResourceOperation, NatsKvResourceClient, NatsStoreResourceClient, ServerError,
     StoreResourceHandle, StoreWaitOptions,
@@ -192,7 +192,7 @@ struct ResourceRecord {
 
 struct HarnessRustResourcesRpc;
 
-impl trellis::client::RpcDescriptor for HarnessRustResourcesRpc {
+impl trellis_rs::client::RpcDescriptor for HarnessRustResourcesRpc {
     type Input = ResourceExerciseInput;
     type Output = ResourceExerciseOutput;
 
@@ -204,7 +204,7 @@ impl trellis::client::RpcDescriptor for HarnessRustResourcesRpc {
 
 struct HarnessTsResourcesRpc;
 
-impl trellis::client::RpcDescriptor for HarnessTsResourcesRpc {
+impl trellis_rs::client::RpcDescriptor for HarnessTsResourcesRpc {
     type Input = ResourceExerciseInput;
     type Output = ResourceExerciseOutput;
 
@@ -224,7 +224,7 @@ pub(crate) async fn run_resources_fixture(
         let admin_client = connect_admin_client_async(&setup_login.state)
             .await
             .into_diagnostic()?;
-        let auth_client = trellis::auth::AuthClient::new(&admin_client);
+        let auth_client = trellis_rs::auth::AuthClient::new(&admin_client);
         auth_client
             .create_service_deployment(HARNESS_DEPLOYMENT_ID, vec!["harness".to_string()])
             .await
@@ -252,18 +252,22 @@ pub(crate) async fn run_resources_fixture(
 
         let (rust_service_seed, rust_service_key) = generate_session_keypair();
         auth_client
-            .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-                deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
-                instance_key: rust_service_key,
-            })
+            .provision_service_instance(
+                &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                    deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
+                    instance_key: rust_service_key,
+                },
+            )
             .await
             .into_diagnostic()?;
         let (ts_service_seed, ts_service_key) = generate_session_keypair();
         auth_client
-            .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-                deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
-                instance_key: ts_service_key,
-            })
+            .provision_service_instance(
+                &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                    deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
+                    instance_key: ts_service_key,
+                },
+            )
             .await
             .into_diagnostic()?;
 
@@ -358,7 +362,7 @@ pub(crate) async fn run_resources_fixture(
 
 async fn assert_pending_resource_service_approval(
     trellis_url: &str,
-    auth_client: &trellis::auth::AuthClient<'_>,
+    auth_client: &trellis_rs::auth::AuthClient<'_>,
     sdk_auth_client: &SdkAuthClient<'_>,
     contract_json: &str,
     contract_digest: &str,
@@ -369,10 +373,12 @@ async fn assert_pending_resource_service_approval(
         .into_diagnostic()?;
     let (service_seed, service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-            deployment_id: HARNESS_PENDING_DEPLOYMENT_ID.to_string(),
-            instance_key: service_key,
-        })
+        .provision_service_instance(
+            &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                deployment_id: HARNESS_PENDING_DEPLOYMENT_ID.to_string(),
+                instance_key: service_key,
+            },
+        )
         .await
         .into_diagnostic()?;
 
@@ -687,7 +693,7 @@ async fn assert_rust_resource_rpc<R>(
     provider: &str,
 ) -> Result<()>
 where
-    R: trellis::client::RpcDescriptor<
+    R: trellis_rs::client::RpcDescriptor<
         Input = ResourceExerciseInput,
         Output = ResourceExerciseOutput,
     >,
@@ -855,12 +861,12 @@ async fn reauth_admin_setup(
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
     let contract_json = admin_setup_contract_json()?;
-    match trellis::auth::start_admin_reauth(&admin_login.state, &contract_json)
+    match trellis_rs::auth::start_admin_reauth(&admin_login.state, &contract_json)
         .await
         .into_diagnostic()?
     {
-        trellis::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
-        trellis::auth::AdminReauthOutcome::Flow(challenge) => {
+        trellis_rs::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
+        trellis_rs::auth::AdminReauthOutcome::Flow(challenge) => {
             let login_url = challenge.login_url().to_string();
             let driver = browser.driver().await?;
             let login_result =
@@ -885,12 +891,12 @@ async fn reauth_contract(
     trellis_url: &str,
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
-    match trellis::auth::start_admin_reauth(state, contract_json)
+    match trellis_rs::auth::start_admin_reauth(state, contract_json)
         .await
         .into_diagnostic()?
     {
-        trellis::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
-        trellis::auth::AdminReauthOutcome::Flow(challenge) => {
+        trellis_rs::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
+        trellis_rs::auth::AdminReauthOutcome::Flow(challenge) => {
             let login_url = challenge.login_url().to_string();
             let driver = browser.driver().await?;
             let login_result =

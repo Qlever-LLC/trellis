@@ -3,17 +3,19 @@ use std::sync::Arc;
 use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use trellis::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
-use trellis::client::{ServiceConnectOptions, ServiceConnectWithContractOptions, TrellisClient};
-use trellis::contracts::{
+use trellis_rs::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
+use trellis_rs::client::{ServiceConnectOptions, ServiceConnectWithContractOptions, TrellisClient};
+use trellis_rs::contracts::{
     digest_contract_json, rpc, use_contract, ContractCapabilityMetadata, ContractKind,
     ContractManifestBuilder,
 };
-use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
-use trellis::sdk::auth::types::{
+use trellis_rs::sdk::auth::client::AuthClient as SdkAuthClient;
+use trellis_rs::sdk::auth::types::{
     AuthDeploymentAuthorityGetRequest, AuthDeploymentAuthorityReconcileRequest,
 };
-use trellis::service::{ConnectedServiceRuntime, HandlerResult, ServerError, ServiceRuntimeError};
+use trellis_rs::service::{
+    ConnectedServiceRuntime, HandlerResult, ServerError, ServiceRuntimeError,
+};
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::BrowserContainer;
@@ -72,7 +74,7 @@ pub(crate) async fn run_optional_uses_fixture(
     let admin_client = connect_admin_client_async(&setup_login.state)
         .await
         .into_diagnostic()?;
-    let auth_client = trellis::auth::AuthClient::new(&admin_client);
+    let auth_client = trellis_rs::auth::AuthClient::new(&admin_client);
     let sdk_auth_client = SdkAuthClient::new(&admin_client);
 
     auth_client
@@ -88,10 +90,12 @@ pub(crate) async fn run_optional_uses_fixture(
     let consumer_digest = digest_contract_json(&consumer_contract_json).into_diagnostic()?;
     let (consumer_seed, consumer_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-            deployment_id: CONSUMER_DEPLOYMENT_ID.to_string(),
-            instance_key: consumer_key,
-        })
+        .provision_service_instance(
+            &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                deployment_id: CONSUMER_DEPLOYMENT_ID.to_string(),
+                instance_key: consumer_key,
+            },
+        )
         .await
         .into_diagnostic()?;
 
@@ -129,10 +133,12 @@ pub(crate) async fn run_optional_uses_fixture(
 
     let (dependency_seed, dependency_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-            deployment_id: DEPENDENCY_DEPLOYMENT_ID.to_string(),
-            instance_key: dependency_key,
-        })
+        .provision_service_instance(
+            &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                deployment_id: DEPENDENCY_DEPLOYMENT_ID.to_string(),
+                instance_key: dependency_key,
+            },
+        )
         .await
         .into_diagnostic()?;
     let dependency_client = TrellisClient::connect_service(ServiceConnectOptions {
@@ -207,7 +213,7 @@ pub(crate) async fn run_optional_uses_fixture(
 
 async fn run_required_dependency_closure_fixture(
     trellis_url: &str,
-    auth_client: &trellis::auth::AuthClient<'_>,
+    auth_client: &trellis_rs::auth::AuthClient<'_>,
     sdk_auth_client: &SdkAuthClient<'_>,
 ) -> Result<()> {
     auth_client
@@ -237,10 +243,12 @@ async fn run_required_dependency_closure_fixture(
         digest_contract_json(&unknown_consumer_contract_json).into_diagnostic()?;
     let (unknown_consumer_seed, unknown_consumer_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-            deployment_id: UNKNOWN_REQUIRED_CONSUMER_DEPLOYMENT_ID.to_string(),
-            instance_key: unknown_consumer_key,
-        })
+        .provision_service_instance(
+            &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                deployment_id: UNKNOWN_REQUIRED_CONSUMER_DEPLOYMENT_ID.to_string(),
+                instance_key: unknown_consumer_key,
+            },
+        )
         .await
         .map_err(|error| {
             miette!("failed to provision unknown required consumer instance: {error}")
@@ -264,10 +272,12 @@ async fn run_required_dependency_closure_fixture(
 
     let (consumer_seed, consumer_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-            deployment_id: REQUIRED_CONSUMER_DEPLOYMENT_ID.to_string(),
-            instance_key: consumer_key,
-        })
+        .provision_service_instance(
+            &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                deployment_id: REQUIRED_CONSUMER_DEPLOYMENT_ID.to_string(),
+                instance_key: consumer_key,
+            },
+        )
         .await
         .map_err(|error| miette!("failed to provision required consumer instance: {error}"))?;
 
@@ -275,10 +285,12 @@ async fn run_required_dependency_closure_fixture(
     let dependency_digest = digest_contract_json(&dependency_contract_json).into_diagnostic()?;
     let (dependency_seed, dependency_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-            deployment_id: REQUIRED_DEPLOYMENT_ID.to_string(),
-            instance_key: dependency_key,
-        })
+        .provision_service_instance(
+            &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                deployment_id: REQUIRED_DEPLOYMENT_ID.to_string(),
+                instance_key: dependency_key,
+            },
+        )
         .await
         .map_err(|error| miette!("failed to provision required dependency instance: {error}"))?;
     plan_accept_reconcile_deployment_authority(
@@ -458,7 +470,7 @@ async fn run_required_dependency_closure_fixture(
 
 async fn run_cyclic_required_dependency_fixture(
     trellis_url: &str,
-    auth_client: &trellis::auth::AuthClient<'_>,
+    auth_client: &trellis_rs::auth::AuthClient<'_>,
     sdk_auth_client: &SdkAuthClient<'_>,
 ) -> Result<()> {
     auth_client
@@ -488,17 +500,21 @@ async fn run_cyclic_required_dependency_fixture(
     let (cycle_b_seed, cycle_b_key) = generate_session_keypair();
 
     auth_client
-        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-            deployment_id: CYCLE_A_DEPLOYMENT_ID.to_string(),
-            instance_key: cycle_a_key,
-        })
+        .provision_service_instance(
+            &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                deployment_id: CYCLE_A_DEPLOYMENT_ID.to_string(),
+                instance_key: cycle_a_key,
+            },
+        )
         .await
         .map_err(|error| miette!("failed to provision required cycle A instance: {error}"))?;
     auth_client
-        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-            deployment_id: CYCLE_B_DEPLOYMENT_ID.to_string(),
-            instance_key: cycle_b_key,
-        })
+        .provision_service_instance(
+            &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                deployment_id: CYCLE_B_DEPLOYMENT_ID.to_string(),
+                instance_key: cycle_b_key,
+            },
+        )
         .await
         .map_err(|error| miette!("failed to provision required cycle B instance: {error}"))?;
 
@@ -1226,7 +1242,7 @@ struct OptionalPingResponse {
 
 struct OptionalDepPingRpc;
 
-impl trellis::client::RpcDescriptor for OptionalDepPingRpc {
+impl trellis_rs::client::RpcDescriptor for OptionalDepPingRpc {
     type Input = OptionalPingRequest;
     type Output = OptionalPingResponse;
 
@@ -1238,7 +1254,7 @@ impl trellis::client::RpcDescriptor for OptionalDepPingRpc {
 
 struct RequiredDepPingRpc;
 
-impl trellis::client::RpcDescriptor for RequiredDepPingRpc {
+impl trellis_rs::client::RpcDescriptor for RequiredDepPingRpc {
     type Input = OptionalPingRequest;
     type Output = OptionalPingResponse;
 
@@ -1250,7 +1266,7 @@ impl trellis::client::RpcDescriptor for RequiredDepPingRpc {
 
 struct RequiredDepPongRpc;
 
-impl trellis::client::RpcDescriptor for RequiredDepPongRpc {
+impl trellis_rs::client::RpcDescriptor for RequiredDepPongRpc {
     type Input = OptionalPingRequest;
     type Output = OptionalPingResponse;
 

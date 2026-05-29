@@ -118,7 +118,7 @@ use trellis_sdk_orders_service::types::{OrdersLiveEvent, OrdersLiveRequest};
 fn orders_live_stream(
     context: Arc<AppContext>,
     input: OrdersLiveRequest,
-) -> impl Stream<Item = Result<OrdersLiveEvent, trellis::service::ServerError>> + Send + 'static {
+) -> impl Stream<Item = Result<OrdersLiveEvent, trellis_rs::service::ServerError>> + Send + 'static {
     stream::try_unfold((context, input), |(context, input)| async move {
         let mut updates = context.orders.watch(">").await?;
 

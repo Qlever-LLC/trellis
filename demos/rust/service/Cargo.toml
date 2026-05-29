@@ -16,5 +16,5 @@ time.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-trellis.workspace = true
+trellis-rs.workspace = true
 trellis-sdk-demo-service.workspace = true

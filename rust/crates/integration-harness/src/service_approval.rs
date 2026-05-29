@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use miette::{miette, IntoDiagnostic, Result};
 use serde_json::json;
-use trellis::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
-use trellis::client::{ServiceConnectWithContractOptions, TrellisClient};
-use trellis::contracts::digest_contract_json;
-use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
-use trellis::service::{ConnectedServiceRuntime, HandlerResult, ServerError};
+use trellis_rs::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
+use trellis_rs::client::{ServiceConnectWithContractOptions, TrellisClient};
+use trellis_rs::contracts::digest_contract_json;
+use trellis_rs::sdk::auth::client::AuthClient as SdkAuthClient;
+use trellis_rs::service::{ConnectedServiceRuntime, HandlerResult, ServerError};
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::BrowserContainer;
@@ -39,7 +39,7 @@ pub(crate) async fn run_service_approval_fixture(
     let admin_client = connect_admin_client_async(&setup_login.state)
         .await
         .into_diagnostic()?;
-    let auth_client = trellis::auth::AuthClient::new(&admin_client);
+    let auth_client = trellis_rs::auth::AuthClient::new(&admin_client);
     auth_client
         .create_service_deployment(APPROVAL_DEPLOYMENT_ID, vec!["harness".to_string()])
         .await
@@ -49,26 +49,32 @@ pub(crate) async fn run_service_approval_fixture(
     let contract_digest = digest_contract_json(&service_contract_json).into_diagnostic()?;
     let (rust_service_seed, rust_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-            deployment_id: APPROVAL_DEPLOYMENT_ID.to_string(),
-            instance_key: rust_service_key,
-        })
+        .provision_service_instance(
+            &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                deployment_id: APPROVAL_DEPLOYMENT_ID.to_string(),
+                instance_key: rust_service_key,
+            },
+        )
         .await
         .into_diagnostic()?;
     let (ts_service_seed, ts_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-            deployment_id: APPROVAL_DEPLOYMENT_ID.to_string(),
-            instance_key: ts_service_key,
-        })
+        .provision_service_instance(
+            &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                deployment_id: APPROVAL_DEPLOYMENT_ID.to_string(),
+                instance_key: ts_service_key,
+            },
+        )
         .await
         .into_diagnostic()?;
     let (ts_stop_service_seed, ts_stop_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-            deployment_id: APPROVAL_DEPLOYMENT_ID.to_string(),
-            instance_key: ts_stop_service_key,
-        })
+        .provision_service_instance(
+            &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                deployment_id: APPROVAL_DEPLOYMENT_ID.to_string(),
+                instance_key: ts_stop_service_key,
+            },
+        )
         .await
         .into_diagnostic()?;
 
@@ -103,7 +109,7 @@ pub(crate) async fn run_service_approval_fixture(
         }
         if input.message == "not-found" {
             return Err(ServerError::DeclaredRpc(
-                trellis::service::DeclaredRpcError::new(
+                trellis_rs::service::DeclaredRpcError::new(
                     "NotFoundError",
                     "Workspace not found",
                     [("resource", json!("Workspace"))],

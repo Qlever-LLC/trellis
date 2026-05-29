@@ -1,16 +1,16 @@
 //! Router construction for the Jobs admin service.
 
 use serde_json::Value;
-use trellis::sdk::jobs::rpc::{
+use trellis_rs::sdk::jobs::rpc::{
     Empty, JobsCancelRpc, JobsDismissDLQRpc, JobsGetRpc, JobsHealthRpc, JobsListDLQRpc,
     JobsListRpc, JobsListServicesRpc, JobsReplayDLQRpc, JobsRetryRpc,
 };
-use trellis::sdk::jobs::types::{
+use trellis_rs::sdk::jobs::types::{
     JobsCancelRequest, JobsDismissDLQRequest, JobsGetRequest, JobsHealthResponse,
     JobsListDLQRequest, JobsListRequest, JobsListServicesRequest, JobsReplayDLQRequest,
     JobsRetryRequest,
 };
-use trellis::service::{DeclaredRpcError, Router, ServerError};
+use trellis_rs::service::{DeclaredRpcError, Router, ServerError};
 
 use crate::contract::SERVICE_NAME;
 use crate::query::{JobsQuery, JobsQueryError};

@@ -1,3 +1,3 @@
-//! Internal compatibility crate for the public `trellis::jobs` module.
+//! Internal compatibility crate for the public `trellis_rs::jobs` module.
 
-pub use trellis::jobs::*;
+pub use trellis_rs::jobs::*;

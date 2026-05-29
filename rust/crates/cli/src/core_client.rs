@@ -1,6 +1,6 @@
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
-use trellis::client::{TrellisClient, TrellisClientError};
+use trellis_rs::client::{TrellisClient, TrellisClientError};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TrellisCatalogContract {

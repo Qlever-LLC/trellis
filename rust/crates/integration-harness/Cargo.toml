@@ -17,7 +17,7 @@ reqwest = { version = "0.13.2", default-features = false, features = ["json", "r
 serde_json.workspace = true
 thirtyfour = "0.36.1"
 tokio.workspace = true
-trellis = { package = "trellis-rs", path = "../trellis" }
+trellis-rs = { path = "../trellis" }
 trellis-local-bootstrap = { path = "../local-bootstrap" }
 time.workspace = true
 serde.workspace = true

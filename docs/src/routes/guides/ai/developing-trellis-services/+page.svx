@@ -183,7 +183,7 @@ Use `prepare_event::<Descriptor>(...)` and an outbox only when event enqueue mus
 commit with local durable state:
 
 ```rust
-use trellis::client::{dispatch_outbox_once, OutboxStore, SqliteOutboxStore};
+use trellis_rs::client::{dispatch_outbox_once, OutboxStore, SqliteOutboxStore};
 
 let prepared = trellis_client.prepare_event::<
     orders_sdk::events::OrdersShippedEventDescriptor,

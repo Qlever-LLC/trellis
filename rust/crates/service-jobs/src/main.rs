@@ -1,6 +1,6 @@
 use std::env;
 
-use trellis::client::ServiceConnectOptions;
+use trellis_rs::client::ServiceConnectOptions;
 use trellis_service_jobs::{connect_service, JobsServiceMode, CONTRACT_DIGEST, CONTRACT_ID};
 
 fn required_env(name: &str) -> Result<String, String> {

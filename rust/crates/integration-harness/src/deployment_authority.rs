@@ -1,7 +1,7 @@
 use miette::{miette, IntoDiagnostic, Result};
 use serde_json::Value;
-use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
-use trellis::sdk::auth::types::{
+use trellis_rs::sdk::auth::client::AuthClient as SdkAuthClient;
+use trellis_rs::sdk::auth::types::{
     AuthDeploymentAuthorityAcceptMigrationRequest, AuthDeploymentAuthorityAcceptUpdateRequest,
     AuthDeploymentAuthorityPlanRequest, AuthDeploymentAuthorityReconcileRequest,
 };

@@ -417,7 +417,7 @@ internal workspace crates:
 - `trellis-codegen-ts`
 - `trellis-codegen-rust`
 - Trellis-owned generated SDK modules exposed under
-  `trellis::sdk::{auth, core, health, jobs, state}`
+  `trellis_rs::sdk::{auth, core, health, jobs, state}`
 
 The current CLI implementation uses the Trellis-owned SDK modules plus local
 helper modules for command parsing, auth session storage, contract resolution,

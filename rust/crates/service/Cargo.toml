@@ -8,7 +8,7 @@ description = "Server-side transport and handler primitives for Trellis services
 publish = false
 
 [dependencies]
-trellis = { package = "trellis-rs", path = "../trellis", version = "0.10.1" }
+trellis-rs = { path = "../trellis", version = "0.10.1" }
 
 [dev-dependencies]
 async-nats.workspace = true

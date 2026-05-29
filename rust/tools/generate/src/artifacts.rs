@@ -1058,7 +1058,7 @@ fn rewrite_embedded_rust_sdk_source(contents: &str, is_root: bool) -> String {
         contents.replace("crate::", "super::")
     };
     rewritten
-        .replace("trellis::client::", "crate::client::")
+        .replace("trellis_rs::client::", "crate::client::")
         .replace("trellis_client::", "crate::client::")
         .replace("trellis_contracts::", "crate::contracts::")
 }

@@ -10,13 +10,13 @@ use futures_util::{stream, StreamExt};
 use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use trellis::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
-use trellis::client::{ServiceConnectOptions, TrellisClient};
-use trellis::contracts::{
+use trellis_rs::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
+use trellis_rs::client::{ServiceConnectOptions, TrellisClient};
+use trellis_rs::contracts::{
     digest_contract_json, feed, use_contract, ContractKind, ContractManifestBuilder,
 };
-use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
-use trellis::service::{ConnectedServiceRuntime, ServerError};
+use trellis_rs::sdk::auth::client::AuthClient as SdkAuthClient;
+use trellis_rs::service::{ConnectedServiceRuntime, ServerError};
 
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
@@ -115,7 +115,7 @@ struct HarnessFeedEvent {
 
 struct HarnessRustFeed;
 
-impl trellis::client::FeedDescriptor for HarnessRustFeed {
+impl trellis_rs::client::FeedDescriptor for HarnessRustFeed {
     type Input = HarnessFeedInput;
     type Event = HarnessFeedEvent;
 
@@ -126,7 +126,7 @@ impl trellis::client::FeedDescriptor for HarnessRustFeed {
 
 struct HarnessTsFeed;
 
-impl trellis::client::FeedDescriptor for HarnessTsFeed {
+impl trellis_rs::client::FeedDescriptor for HarnessTsFeed {
     type Input = HarnessFeedInput;
     type Event = HarnessFeedEvent;
 
@@ -144,7 +144,7 @@ pub(crate) async fn run_feeds_fixture(
     let admin_client = connect_admin_client_async(&setup_login.state)
         .await
         .into_diagnostic()?;
-    let auth_client = trellis::auth::AuthClient::new(&admin_client);
+    let auth_client = trellis_rs::auth::AuthClient::new(&admin_client);
     auth_client
         .create_service_deployment(HARNESS_DEPLOYMENT_ID, vec!["harness".to_string()])
         .await
@@ -163,18 +163,22 @@ pub(crate) async fn run_feeds_fixture(
 
     let (rust_service_seed, rust_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-            deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
-            instance_key: rust_service_key,
-        })
+        .provision_service_instance(
+            &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
+                instance_key: rust_service_key,
+            },
+        )
         .await
         .into_diagnostic()?;
     let (ts_service_seed, ts_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-            deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
-            instance_key: ts_service_key,
-        })
+        .provision_service_instance(
+            &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
+                instance_key: ts_service_key,
+            },
+        )
         .await
         .into_diagnostic()?;
 
@@ -279,7 +283,7 @@ async fn assert_concurrent_rust_feeds<F>(
     expected_prefix: &str,
 ) -> Result<()>
 where
-    F: trellis::client::FeedDescriptor<Input = HarnessFeedInput, Event = HarnessFeedEvent>,
+    F: trellis_rs::client::FeedDescriptor<Input = HarnessFeedInput, Event = HarnessFeedEvent>,
 {
     let started = tokio::time::Instant::now();
     let topic_a = format!("slow-{topic_prefix}-a");
@@ -305,7 +309,7 @@ async fn assert_rust_feed<F>(
     expected_message: &str,
 ) -> Result<()>
 where
-    F: trellis::client::FeedDescriptor<Input = HarnessFeedInput, Event = HarnessFeedEvent>,
+    F: trellis_rs::client::FeedDescriptor<Input = HarnessFeedInput, Event = HarnessFeedEvent>,
 {
     let input = HarnessFeedInput {
         topic: topic.to_string(),
@@ -334,7 +338,7 @@ async fn assert_ready_frame_then_event<F>(
     expected_message: &str,
 ) -> Result<()>
 where
-    F: trellis::client::FeedDescriptor<Input = HarnessFeedInput, Event = HarnessFeedEvent>,
+    F: trellis_rs::client::FeedDescriptor<Input = HarnessFeedInput, Event = HarnessFeedEvent>,
 {
     let input = HarnessFeedInput {
         topic: topic.to_string(),
@@ -463,12 +467,12 @@ async fn reauth_admin_setup(
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
     let contract_json = admin_setup_contract_json()?;
-    match trellis::auth::start_admin_reauth(&admin_login.state, &contract_json)
+    match trellis_rs::auth::start_admin_reauth(&admin_login.state, &contract_json)
         .await
         .into_diagnostic()?
     {
-        trellis::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
-        trellis::auth::AdminReauthOutcome::Flow(challenge) => {
+        trellis_rs::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
+        trellis_rs::auth::AdminReauthOutcome::Flow(challenge) => {
             let login_url = challenge.login_url().to_string();
             let driver = browser.driver().await?;
             let login_result =
@@ -488,17 +492,17 @@ async fn reauth_admin_setup(
 }
 
 async fn reauth_contract(
-    state: &trellis::auth::AdminSessionState,
+    state: &trellis_rs::auth::AdminSessionState,
     contract_json: &str,
     trellis_url: &str,
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
-    match trellis::auth::start_admin_reauth(state, contract_json)
+    match trellis_rs::auth::start_admin_reauth(state, contract_json)
         .await
         .into_diagnostic()?
     {
-        trellis::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
-        trellis::auth::AdminReauthOutcome::Flow(challenge) => {
+        trellis_rs::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
+        trellis_rs::auth::AdminReauthOutcome::Flow(challenge) => {
             let login_url = challenge.login_url().to_string();
             let driver = browser.driver().await?;
             let login_result =
@@ -653,7 +657,7 @@ async fn connect_service_with_retry(
     trellis_url: &str,
     contract_digest: &str,
     service_seed: &str,
-) -> Result<TrellisClient, trellis::client::TrellisClientError> {
+) -> Result<TrellisClient, trellis_rs::client::TrellisClientError> {
     let mut last_error = None;
     for _ in 0..10 {
         match TrellisClient::connect_service(ServiceConnectOptions {

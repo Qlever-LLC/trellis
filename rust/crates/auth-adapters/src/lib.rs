@@ -1,14 +1,14 @@
-pub use trellis::service::DefaultRequestValidator as AuthRequestValidatorAdapter;
-pub use trellis::service::DefaultRequestValidatorClientPort as AuthRequestValidatorClientPort;
+pub use trellis_rs::service::DefaultRequestValidator as AuthRequestValidatorAdapter;
+pub use trellis_rs::service::DefaultRequestValidatorClientPort as AuthRequestValidatorClientPort;
 
 /// Compatibility exports for the unpublished auth-adapters crate.
 pub mod request_validator {
-    use trellis::sdk::auth::types::AuthRequestsValidateRequest;
-    use trellis::service::{RequestContext, ServerError};
+    use trellis_rs::sdk::auth::types::AuthRequestsValidateRequest;
+    use trellis_rs::service::{RequestContext, ServerError};
 
-    pub use trellis::service::payload_hash_base64url;
-    pub use trellis::service::DefaultRequestValidator as AuthRequestValidatorAdapter;
-    pub use trellis::service::DefaultRequestValidatorClientPort as AuthRequestValidatorClientPort;
+    pub use trellis_rs::service::payload_hash_base64url;
+    pub use trellis_rs::service::DefaultRequestValidator as AuthRequestValidatorAdapter;
+    pub use trellis_rs::service::DefaultRequestValidatorClientPort as AuthRequestValidatorClientPort;
 
     /// Builds the auth request-validation payload from an inbound request context.
     pub fn make_validate_request(

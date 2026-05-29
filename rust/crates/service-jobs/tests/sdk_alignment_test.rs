@@ -1,5 +1,5 @@
-use trellis::sdk::jobs::contract as generated_contract;
-use trellis::sdk::jobs::rpc as generated_rpc;
+use trellis_rs::sdk::jobs::contract as generated_contract;
+use trellis_rs::sdk::jobs::rpc as generated_rpc;
 use trellis_service_jobs as service_contract;
 
 #[path = "../contracts/trellis_jobs.rs"]

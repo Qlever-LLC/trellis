@@ -1,5 +1,5 @@
 use time::OffsetDateTime;
-use trellis::jobs::types::WorkerHeartbeat;
+use trellis_rs::jobs::types::WorkerHeartbeat;
 use trellis_service_jobs::worker_presence::{
     reduce_worker_presence, worker_presence_from_heartbeat, worker_presence_is_fresh,
     WorkerPresenceRecord,

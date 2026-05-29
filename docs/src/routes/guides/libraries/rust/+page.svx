@@ -8,16 +8,17 @@ the Rustdoc links on the [API Reference](/api).
 
 ## Crates
 
-The normal Rust entrypoint is the `trellis` crate. It re-exports the public
-runtime modules you usually need:
+The normal Rust entrypoint is the `trellis-rs` Cargo package, imported as the
+`trellis_rs` Rust crate. It re-exports the public runtime modules you usually
+need:
 
-- `trellis::client`: outbound connection, RPC, events, feeds, operations,
+- `trellis_rs::client`: outbound connection, RPC, events, feeds, operations,
   transfers, state, and auth helpers.
-- `trellis::service`: service runtime, handler registration, event publishing,
+- `trellis_rs::service`: service runtime, handler registration, event publishing,
   service resources, operation providers, and service errors.
-- `trellis::contracts`: contract manifest and schema helper types.
-- `trellis::jobs`: service-local jobs types.
-- `trellis::sdk::*`: Trellis-owned generated SDK surfaces embedded in the
+- `trellis_rs::contracts`: contract manifest and schema helper types.
+- `trellis_rs::jobs`: service-local jobs types.
+- `trellis_rs::sdk::*`: Trellis-owned generated SDK surfaces embedded in the
   runtime crate.
 
 Project contracts generate Cargo SDK crates under `generated/packages/cargo/`.
@@ -64,7 +65,7 @@ when available, then call through the typed `client()` facade.
 
 ```rust
 use orders_console_participant::connect_user;
-use trellis::client::UserConnectOptions;
+use trellis_rs::client::UserConnectOptions;
 
 let connected = connect_user(UserConnectOptions {
     servers: "nats://127.0.0.1:4222",
@@ -98,7 +99,7 @@ Activation establishes the device identity and deployment approval; the connecte
 client then exposes only the selected surfaces from the device participant
 contract.
 
-If you need the lower-level connection primitives, use `trellis::client` types
+If you need the lower-level connection primitives, use `trellis_rs::client` types
 such as `DeviceConnectOptions` and `TrellisClient`. Prefer generated participant
 facades when your project has them.
 
@@ -182,7 +183,7 @@ therefore do not depend on the publisher's current deployment metadata.
 ```rust
 use orders_sdk::events::OrdersShippedEventDescriptor;
 use orders_sdk::OrdersShippedEvent;
-use trellis::client::{dispatch_outbox_once, OutboxStore, SqliteOutboxStore};
+use trellis_rs::client::{dispatch_outbox_once, OutboxStore, SqliteOutboxStore};
 
 let prepared = trellis_client.prepare_event::<OrdersShippedEventDescriptor>(
     &OrdersShippedEvent {
@@ -222,7 +223,7 @@ message would be harmless because the handler writes by a stable business key, n
 inbox is needed.
 
 ```rust
-use trellis::client::{InboxReceipt, InboxStore, SqliteInboxStore};
+use trellis_rs::client::{InboxReceipt, InboxStore, SqliteInboxStore};
 
 let mut inbox = SqliteInboxStore::new(&sqlite);
 match inbox.record_received(event.header.id.as_str()).await? {
@@ -266,7 +267,7 @@ operation descriptor, then wait or watch progress.
 use futures_util::StreamExt;
 use orders_sdk::operations::OrdersProcessOperation;
 use orders_sdk::OrdersProcessInput;
-use trellis::client::OperationEvent;
+use trellis_rs::client::OperationEvent;
 
 let op = trellis_client
     .operation::<OrdersProcessOperation>()
@@ -312,7 +313,7 @@ Register handlers before `service.run().await?`.
 
 ```rust
 use orders_sdk::{OrdersCreateRequest, OrdersCreateResponse};
-use trellis::service::{HandlerResult, ServiceHandlerContext};
+use trellis_rs::service::{HandlerResult, ServiceHandlerContext};
 
 async fn create_order(
     _ctx: ServiceHandlerContext,
@@ -336,7 +337,7 @@ service.handle().feed().orders().live(move |_ctx, input| {
 ```
 
 Operation providers implement the generated operation descriptor through the
-`trellis::service::ServiceOperationProvider` trait, or use lower-level operation
+`trellis_rs::service::ServiceOperationProvider` trait, or use lower-level operation
 runtime types when you need explicit control over accept, get, wait, watch, and
 cancel paths.
 
@@ -364,8 +365,8 @@ service
 
 Rust Trellis APIs use ordinary `Result<T, E>` and async functions.
 
-- Outbound client calls usually return `Result<T, trellis::client::TrellisClientError>`.
-- Service handlers return `trellis::service::HandlerResult<T>`, an alias for a
+- Outbound client calls usually return `Result<T, trellis_rs::client::TrellisClientError>`.
+- Service handlers return `trellis_rs::service::HandlerResult<T>`, an alias for a
   service result type.
 - Event subscriptions and feeds use `futures_util::Stream` values whose items are
   also `Result`s.

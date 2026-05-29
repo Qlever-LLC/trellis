@@ -10,17 +10,17 @@ use futures_util::{StreamExt, TryStreamExt};
 use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use trellis::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
-use trellis::client::{
+use trellis_rs::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
+use trellis_rs::client::{
     OperationEvent, OperationSnapshot, OperationState, ServiceConnectOptions, TrellisClient,
 };
-use trellis::contracts::{
+use trellis_rs::contracts::{
     digest_contract_json, operation, use_contract, ContractCapabilityMetadata, ContractKind,
     ContractManifestBuilder,
 };
-use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
-use trellis::sdk::auth::types::AuthUsersUpdateRequest;
-use trellis::service::{
+use trellis_rs::sdk::auth::client::AuthClient as SdkAuthClient;
+use trellis_rs::sdk::auth::types::AuthUsersUpdateRequest;
+use trellis_rs::service::{
     ConnectedServiceRuntime, InMemoryOperationRuntime, ServerError, ServiceRuntimeError,
 };
 
@@ -249,7 +249,7 @@ struct HarnessOperationPayload {
 
 struct HarnessRustOperation;
 
-impl trellis::client::OperationDescriptor for HarnessRustOperation {
+impl trellis_rs::client::OperationDescriptor for HarnessRustOperation {
     type Input = HarnessOperationPayload;
     type Progress = HarnessOperationPayload;
     type Output = HarnessOperationPayload;
@@ -264,7 +264,7 @@ impl trellis::client::OperationDescriptor for HarnessRustOperation {
 
 struct HarnessRustStatus;
 
-impl trellis::client::OperationDescriptor for HarnessRustStatus {
+impl trellis_rs::client::OperationDescriptor for HarnessRustStatus {
     type Input = HarnessOperationPayload;
     type Progress = HarnessOperationPayload;
     type Output = HarnessOperationPayload;
@@ -279,7 +279,7 @@ impl trellis::client::OperationDescriptor for HarnessRustStatus {
 
 struct HarnessRustCapability;
 
-impl trellis::client::OperationDescriptor for HarnessRustCapability {
+impl trellis_rs::client::OperationDescriptor for HarnessRustCapability {
     type Input = HarnessOperationPayload;
     type Progress = HarnessOperationPayload;
     type Output = HarnessOperationPayload;
@@ -294,7 +294,7 @@ impl trellis::client::OperationDescriptor for HarnessRustCapability {
 
 struct HarnessRustTraceOperation;
 
-impl trellis::client::OperationDescriptor for HarnessRustTraceOperation {
+impl trellis_rs::client::OperationDescriptor for HarnessRustTraceOperation {
     type Input = HarnessOperationPayload;
     type Progress = HarnessTraceContextResponse;
     type Output = HarnessTraceContextResponse;
@@ -309,7 +309,7 @@ impl trellis::client::OperationDescriptor for HarnessRustTraceOperation {
 
 struct HarnessTsOperation;
 
-impl trellis::client::OperationDescriptor for HarnessTsOperation {
+impl trellis_rs::client::OperationDescriptor for HarnessTsOperation {
     type Input = HarnessOperationPayload;
     type Progress = HarnessOperationPayload;
     type Output = HarnessOperationPayload;
@@ -324,7 +324,7 @@ impl trellis::client::OperationDescriptor for HarnessTsOperation {
 
 struct HarnessTsStatus;
 
-impl trellis::client::OperationDescriptor for HarnessTsStatus {
+impl trellis_rs::client::OperationDescriptor for HarnessTsStatus {
     type Input = HarnessOperationPayload;
     type Progress = HarnessOperationPayload;
     type Output = HarnessOperationPayload;
@@ -367,7 +367,7 @@ impl RustOperationDurableStore {
 
     async fn save_snapshot(
         &self,
-        snapshot: &trellis::service::OperationSnapshot<
+        snapshot: &trellis_rs::service::OperationSnapshot<
             HarnessOperationPayload,
             HarnessOperationPayload,
         >,
@@ -390,7 +390,7 @@ impl RustOperationDurableStore {
     async fn load_snapshot(
         &self,
         operation_id: &str,
-    ) -> Result<Option<trellis::service::OperationSnapshot<Value, Value>>, ServerError> {
+    ) -> Result<Option<trellis_rs::service::OperationSnapshot<Value, Value>>, ServerError> {
         let Some(value) = self
             .store
             .get(operation_id.to_string())
@@ -414,7 +414,7 @@ pub(crate) async fn run_operations_fixture(
     let admin_client = connect_admin_client_async(&setup_login.state)
         .await
         .into_diagnostic()?;
-    let auth_client = trellis::auth::AuthClient::new(&admin_client);
+    let auth_client = trellis_rs::auth::AuthClient::new(&admin_client);
     auth_client
         .create_service_deployment(HARNESS_DEPLOYMENT_ID, vec!["harness".to_string()])
         .await
@@ -434,18 +434,22 @@ pub(crate) async fn run_operations_fixture(
 
     let (rust_service_seed, rust_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-            deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
-            instance_key: rust_service_key.clone(),
-        })
+        .provision_service_instance(
+            &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
+                instance_key: rust_service_key.clone(),
+            },
+        )
         .await
         .into_diagnostic()?;
     let (ts_service_seed, ts_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-            deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
-            instance_key: ts_service_key,
-        })
+        .provision_service_instance(
+            &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                deployment_id: HARNESS_DEPLOYMENT_ID.to_string(),
+                instance_key: ts_service_key,
+            },
+        )
         .await
         .into_diagnostic()?;
 
@@ -490,12 +494,12 @@ pub(crate) async fn run_operations_fixture(
         )
         .await?;
         let caller_login =
-            match trellis::auth::start_admin_reauth(&setup_login.state, &caller_contract_json)
+            match trellis_rs::auth::start_admin_reauth(&setup_login.state, &caller_contract_json)
                 .await
                 .into_diagnostic()?
             {
-                trellis::auth::AdminReauthOutcome::Bound(outcome) => outcome,
-                trellis::auth::AdminReauthOutcome::Flow(challenge) => {
+                trellis_rs::auth::AdminReauthOutcome::Bound(outcome) => outcome,
+                trellis_rs::auth::AdminReauthOutcome::Flow(challenge) => {
                     let login_url = challenge.login_url().to_string();
                     let driver = browser.driver().await?;
                     let login_result = complete_local_login(
@@ -521,7 +525,7 @@ pub(crate) async fn run_operations_fixture(
         let capability_admin_client = connect_admin_client_async(&capability_admin_login.state)
             .await
             .into_diagnostic()?;
-        let capability_auth_client = trellis::auth::AuthClient::new(&capability_admin_client);
+        let capability_auth_client = trellis_rs::auth::AuthClient::new(&capability_admin_client);
         assert_operation_capability_derivation(
             &capability_auth_client,
             &caller_login.user.user_id,
@@ -862,7 +866,7 @@ async fn login_admin_setup(
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
     let contract_json = admin_setup_contract_json()?;
-    let challenge = trellis::auth::start_agent_login(&trellis::auth::StartAgentLoginOpts {
+    let challenge = trellis_rs::auth::start_agent_login(&trellis_rs::auth::StartAgentLoginOpts {
         trellis_url,
         contract_json: &contract_json,
     })
@@ -1167,12 +1171,12 @@ async fn reauth_admin_setup(
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
     let contract_json = admin_setup_contract_json()?;
-    match trellis::auth::start_admin_reauth(&admin_login.state, &contract_json)
+    match trellis_rs::auth::start_admin_reauth(&admin_login.state, &contract_json)
         .await
         .into_diagnostic()?
     {
-        trellis::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
-        trellis::auth::AdminReauthOutcome::Flow(challenge) => {
+        trellis_rs::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
+        trellis_rs::auth::AdminReauthOutcome::Flow(challenge) => {
             let login_url = challenge.login_url().to_string();
             let driver = browser.driver().await?;
             let login_result =
@@ -1192,7 +1196,7 @@ async fn reauth_admin_setup(
 }
 
 async fn update_rust_operation(
-    control: trellis::service::OperationControl<HarnessRustOperation>,
+    control: trellis_rs::service::OperationControl<HarnessRustOperation>,
     store: RustOperationDurableStore,
     input: HarnessOperationPayload,
 ) -> Result<(), ServerError> {
@@ -1269,7 +1273,7 @@ async fn update_rust_operation(
 }
 
 async fn update_rust_status(
-    control: trellis::service::OperationControl<HarnessRustStatus>,
+    control: trellis_rs::service::OperationControl<HarnessRustStatus>,
     input: HarnessOperationPayload,
 ) -> Result<(), ServerError> {
     control.started().await?;
@@ -1282,7 +1286,7 @@ async fn update_rust_status(
 }
 
 async fn update_rust_capability(
-    control: trellis::service::OperationControl<HarnessRustCapability>,
+    control: trellis_rs::service::OperationControl<HarnessRustCapability>,
     input: HarnessOperationPayload,
 ) -> Result<(), ServerError> {
     control.started().await?;
@@ -1441,7 +1445,7 @@ fn validate_rust_signal(signal: &str, input: Option<&Value>) -> Result<(), Serve
 
 async fn assert_rust_client_normal<O>(client: &TrellisClient, message: &str) -> Result<()>
 where
-    O: trellis::client::OperationDescriptor<
+    O: trellis_rs::client::OperationDescriptor<
         Input = HarnessOperationPayload,
         Progress = HarnessOperationPayload,
         Output = HarnessOperationPayload,
@@ -1468,9 +1472,9 @@ where
 }
 
 async fn assert_operation_capability_derivation(
-    auth_client: &trellis::auth::AuthClient<'_>,
+    auth_client: &trellis_rs::auth::AuthClient<'_>,
     user_id: &str,
-    caller_state: &trellis::auth::AdminSessionState,
+    caller_state: &trellis_rs::auth::AdminSessionState,
 ) -> Result<()> {
     set_user_capabilities(
         auth_client,
@@ -1538,7 +1542,7 @@ async fn assert_operation_capability_derivation(
 }
 
 async fn set_user_capabilities(
-    auth_client: &trellis::auth::AuthClient<'_>,
+    auth_client: &trellis_rs::auth::AuthClient<'_>,
     user_id: &str,
     capabilities: &[&str],
 ) -> Result<()> {
@@ -1564,7 +1568,7 @@ async fn set_user_capabilities(
 
 async fn assert_rust_client_watch<O>(client: &TrellisClient, message: &str) -> Result<()>
 where
-    O: trellis::client::OperationDescriptor<
+    O: trellis_rs::client::OperationDescriptor<
         Input = HarnessOperationPayload,
         Progress = HarnessOperationPayload,
         Output = HarnessOperationPayload,
@@ -1618,7 +1622,7 @@ where
 
 async fn assert_rust_client_cancel<O>(client: &TrellisClient, message: &str) -> Result<()>
 where
-    O: trellis::client::OperationDescriptor<
+    O: trellis_rs::client::OperationDescriptor<
         Input = HarnessOperationPayload,
         Progress = HarnessOperationPayload,
         Output = HarnessOperationPayload,
@@ -1642,7 +1646,7 @@ where
 
 async fn assert_rust_client_deferred<O>(client: &TrellisClient, message: &str) -> Result<()>
 where
-    O: trellis::client::OperationDescriptor<
+    O: trellis_rs::client::OperationDescriptor<
         Input = HarnessOperationPayload,
         Progress = HarnessOperationPayload,
         Output = HarnessOperationPayload,
@@ -1663,7 +1667,7 @@ where
 
 async fn assert_rust_client_attach<O>(client: &TrellisClient, message: &str) -> Result<()>
 where
-    O: trellis::client::OperationDescriptor<
+    O: trellis_rs::client::OperationDescriptor<
         Input = HarnessOperationPayload,
         Progress = HarnessOperationPayload,
         Output = HarnessOperationPayload,
@@ -1713,7 +1717,7 @@ async fn start_rust_client_completed<O>(
     message: &str,
 ) -> Result<(String, HarnessOperationPayload)>
 where
-    O: trellis::client::OperationDescriptor<
+    O: trellis_rs::client::OperationDescriptor<
         Input = HarnessOperationPayload,
         Progress = HarnessOperationPayload,
         Output = HarnessOperationPayload,
@@ -1740,7 +1744,7 @@ async fn assert_rust_client_resumed_completed<O>(
     input: &HarnessOperationPayload,
 ) -> Result<()>
 where
-    O: trellis::client::OperationDescriptor<
+    O: trellis_rs::client::OperationDescriptor<
         Input = HarnessOperationPayload,
         Progress = HarnessOperationPayload,
         Output = HarnessOperationPayload,
@@ -1761,7 +1765,7 @@ async fn assert_rust_client_resumed_running_completed<O>(
     signal_completion: bool,
 ) -> Result<()>
 where
-    O: trellis::client::OperationDescriptor<
+    O: trellis_rs::client::OperationDescriptor<
         Input = HarnessOperationPayload,
         Progress = HarnessOperationPayload,
         Output = HarnessOperationPayload,
@@ -1791,9 +1795,9 @@ where
 
 fn rust_operation_ref_json<O>(operation_id: &str, service: &str) -> Result<String>
 where
-    O: trellis::client::OperationDescriptor,
+    O: trellis_rs::client::OperationDescriptor,
 {
-    serde_json::to_string(&trellis::client::OperationRefData {
+    serde_json::to_string(&trellis_rs::client::OperationRefData {
         id: operation_id.to_string(),
         service: service.to_string(),
         operation: O::KEY.to_string(),
@@ -1803,7 +1807,7 @@ where
 
 async fn assert_rust_client_signal<O>(client: &TrellisClient, message: &str) -> Result<()>
 where
-    O: trellis::client::OperationDescriptor<
+    O: trellis_rs::client::OperationDescriptor<
         Input = HarnessOperationPayload,
         Progress = HarnessOperationPayload,
         Output = HarnessOperationPayload,
@@ -1858,7 +1862,7 @@ where
 
 async fn assert_rust_client_invalid_signal<O>(client: &TrellisClient, message: &str) -> Result<()>
 where
-    O: trellis::client::OperationDescriptor<
+    O: trellis_rs::client::OperationDescriptor<
         Input = HarnessOperationPayload,
         Progress = HarnessOperationPayload,
         Output = HarnessOperationPayload,
@@ -1897,12 +1901,12 @@ async fn assert_rust_client_invalid_control<O, S>(
     message: &str,
 ) -> Result<()>
 where
-    O: trellis::client::OperationDescriptor<
+    O: trellis_rs::client::OperationDescriptor<
         Input = HarnessOperationPayload,
         Progress = HarnessOperationPayload,
         Output = HarnessOperationPayload,
     >,
-    S: trellis::client::OperationDescriptor<
+    S: trellis_rs::client::OperationDescriptor<
         Input = HarnessOperationPayload,
         Progress = HarnessOperationPayload,
         Output = HarnessOperationPayload,
@@ -1964,10 +1968,10 @@ where
 }
 
 async fn wait_until_running<O>(
-    reference: &trellis::client::OperationRef<'_, TrellisClient, O>,
+    reference: &trellis_rs::client::OperationRef<'_, TrellisClient, O>,
 ) -> Result<()>
 where
-    O: trellis::client::OperationDescriptor<
+    O: trellis_rs::client::OperationDescriptor<
         Input = HarnessOperationPayload,
         Progress = HarnessOperationPayload,
         Output = HarnessOperationPayload,
@@ -1994,7 +1998,7 @@ fn assert_completed_output<O>(
     input: &HarnessOperationPayload,
 ) -> Result<()>
 where
-    O: trellis::client::OperationDescriptor,
+    O: trellis_rs::client::OperationDescriptor,
 {
     if terminal.state != OperationState::Completed {
         return Err(miette!("{} wait returned {:?}", O::KEY, terminal.state));
@@ -2226,8 +2230,9 @@ fn parse_ts_durable_ref(stdout: &str) -> Result<String> {
 }
 
 fn parse_ts_operation_ref_id(operation_ref: &str) -> Result<String> {
-    let operation_ref: trellis::client::OperationRefData = serde_json::from_str(operation_ref)
-        .map_err(|error| miette!("failed to parse TS operation ref: {error}"))?;
+    let operation_ref: trellis_rs::client::OperationRefData =
+        serde_json::from_str(operation_ref)
+            .map_err(|error| miette!("failed to parse TS operation ref: {error}"))?;
     Ok(operation_ref.id)
 }
 
@@ -2277,7 +2282,7 @@ async fn connect_service_with_retry(
     trellis_url: &str,
     contract_digest: &str,
     service_seed: &str,
-) -> Result<TrellisClient, trellis::client::TrellisClientError> {
+) -> Result<TrellisClient, trellis_rs::client::TrellisClientError> {
     let mut last_error = None;
     for _ in 0..10 {
         match TrellisClient::connect_service(ServiceConnectOptions {

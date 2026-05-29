@@ -132,7 +132,7 @@ Trellis resolves bindings during service bootstrap and exposes resource clients
 through the connected service object.
 
 ```rust
-use trellis::service::NatsKvResourceClient;
+use trellis_rs::service::NatsKvResourceClient;
 
 async fn open_orders_kv(
     service: &trellis_sdk_orders_service::ConnectedService,

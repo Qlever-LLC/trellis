@@ -4,13 +4,13 @@ use std::sync::{Arc, Mutex};
 use bytes::Bytes;
 use futures_util::future::{ready, BoxFuture, FutureExt};
 use serde_json::json;
-use trellis::client::{RpcErrorPayload, TrellisClientError};
-use trellis::sdk::auth::types::{AuthRequestsValidateRequest, AuthRequestsValidateResponse};
-use trellis::service::{RequestContext, RequestValidator, ServerError};
 use trellis_auth_adapters::request_validator::{
     make_validate_request, payload_hash_base64url, AuthRequestValidatorAdapter,
     AuthRequestValidatorClientPort,
 };
+use trellis_rs::client::{RpcErrorPayload, TrellisClientError};
+use trellis_rs::sdk::auth::types::{AuthRequestsValidateRequest, AuthRequestsValidateResponse};
+use trellis_rs::service::{RequestContext, RequestValidator, ServerError};
 
 #[test]
 fn payload_hash_base64url_hashes_payload_bytes() {

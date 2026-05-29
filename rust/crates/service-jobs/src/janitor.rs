@@ -1,8 +1,8 @@
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
-use trellis::jobs::types::{Job, JobEvent};
-use trellis::jobs::{expired_event, is_terminal, job_event_subject, job_key};
-use trellis::service::ServerError;
+use trellis_rs::jobs::types::{Job, JobEvent};
+use trellis_rs::jobs::{expired_event, is_terminal, job_event_subject, job_key};
+use trellis_rs::service::ServerError;
 
 use crate::storage::{SqliteJobsStore, SqliteJobsStoreError};
 
@@ -166,7 +166,7 @@ fn parse_timestamp(timestamp: &str) -> OffsetDateTime {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use trellis::jobs::types::{JobContext, JobState};
+    use trellis_rs::jobs::types::{JobContext, JobState};
 
     use super::*;
 

@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 use clap::Parser;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use trellis::{
+use trellis_participant_demo_device::contract as device_contract;
+use trellis_participant_demo_device::state::{DraftInspectionState, SelectedSiteState};
+use trellis_rs::{
     auth::{
         derive_device_identity, start_device_activation_request, DeviceActivationLocalState,
         DeviceActivationSession, DeviceActivationSessionBuilder, DeviceActivationStatus,
@@ -15,8 +17,6 @@ use trellis::{
         TrellisClient,
     },
 };
-use trellis_participant_demo_device::contract as device_contract;
-use trellis_participant_demo_device::state::{DraftInspectionState, SelectedSiteState};
 use trellis_sdk_demo_service::types::{
     AssignmentsListRequest, EvidenceDownloadRequest, EvidenceListRequest, EvidenceUploadInput,
     ReportsGenerateInput, SitesListRequest, SitesListResponseEntriesItem,

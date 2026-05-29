@@ -98,19 +98,14 @@ Deno.test("release workflow publishes only public Rust crates", async () => {
       "trellis-codegen-ts",
       "trellis-generate-runner",
       "trellis-local-bootstrap",
+      "trellis-sdk-auth",
+      "trellis-sdk-core",
       "trellis-service",
     ]
   ) {
     assertEquals(source.includes(`publish_workspace_crate ${crate}`), false);
+    assertEquals(source.includes(`publish_generated_crate`), false);
   }
-  assertStringIncludes(
-    source,
-    "publish_generated_crate ../generated/packages/cargo/auth/Cargo.toml trellis-sdk-auth",
-  );
-  assertStringIncludes(
-    source,
-    "publish_generated_crate ../generated/packages/cargo/trellis-core/Cargo.toml trellis-sdk-core",
-  );
 });
 
 Deno.test("trellis package exports the first-party SDK subpaths", async () => {

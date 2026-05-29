@@ -567,30 +567,8 @@ jobs:
             run_publish "$crate" -p "$crate"
           }
 
-          publish_generated_crate() {
-            local manifest="$1"
-            local crate="$2"
-
-            if crate_exists "$crate" "$workspace_version"; then
-              record_skip "$crate"
-              return 0
-            fi
-
-            run_publish "$crate" --manifest-path "$manifest"
-          }
-
-          generate_publishable_sdk_crates() {
-            cargo run --manifest-path tools/generate/Cargo.toml --bin trellis-generate -- generate cargo --source ../js/services/trellis/contracts/trellis_auth.ts --out ../generated/packages/cargo/auth --crate-name trellis-sdk-auth --runtime-source registry
-            cargo run --manifest-path tools/generate/Cargo.toml --bin trellis-generate -- generate cargo --source ../js/services/trellis/contracts/trellis_core.ts --out ../generated/packages/cargo/trellis-core --crate-name trellis-sdk-core --runtime-source registry
-          }
-
           publish_workspace_crate trellis-contracts
           publish_workspace_crate trellis-rs
-
-          generate_publishable_sdk_crates
-
-          publish_generated_crate ../generated/packages/cargo/auth/Cargo.toml trellis-sdk-auth
-          publish_generated_crate ../generated/packages/cargo/trellis-core/Cargo.toml trellis-sdk-core
 
           echo "Published ${#published[@]} crate(s)"
           for item in "${published[@]}"; do

@@ -203,7 +203,7 @@ Add the handler:
 ```rust
 use serde_json::json;
 use trellis_sdk_orders_service::types::GetOrderRequest;
-use trellis::service::{DeclaredRpcError, ServerError};
+use trellis_rs::service::{DeclaredRpcError, ServerError};
 
 pub async fn get_order(
     context: Arc<AppContext>,

@@ -68,10 +68,10 @@ Then subscribe with the auth SDK descriptor:
 
 ```rust
 use futures_util::StreamExt;
-use trellis::client::{
+use trellis_rs::client::{
     EventReplayPolicy, EventSubscribeOptions, EventSubscriptionMode, TrellisClientError,
 };
-use trellis::sdk::auth::events::AuthConnectionsOpenedEventDescriptor;
+use trellis_rs::sdk::auth::events::AuthConnectionsOpenedEventDescriptor;
 
 let mut auth_events = client
     .subscribe_messages::<AuthConnectionsOpenedEventDescriptor>(EventSubscribeOptions {

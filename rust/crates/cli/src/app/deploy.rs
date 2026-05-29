@@ -6,8 +6,8 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use miette::IntoDiagnostic;
 use serde_json::{json, Value};
-use trellis::auth as authlib;
-use trellis::client::{SessionAuth, TrellisClient};
+use trellis_rs::auth as authlib;
+use trellis_rs::client::{SessionAuth, TrellisClient};
 
 use crate::app::{connect_authenticated_cli_client, generate_session_keypair, json_value_label};
 use crate::cli::*;

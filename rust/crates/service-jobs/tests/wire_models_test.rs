@@ -1,5 +1,5 @@
 use serde_json::json;
-use trellis::jobs::{Job, JobContext, JobState};
+use trellis_rs::jobs::{Job, JobContext, JobState};
 
 #[test]
 fn job_model_serializes_expected_wire_keys() {

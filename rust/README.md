@@ -17,16 +17,16 @@ behind modules of the public `trellis` facade.
 | `trellis-auth-adapters`       | Unpublished compatibility/test package for auth adapters      |
 | `trellis`                     | Curated public Rust facade for clients and services           |
 | `trellis-cli`                 | Operator CLI crate for the `trellis` binary                   |
-| `trellis-client`              | Unpublished compatibility package for `trellis::client`       |
+| `trellis-client`              | Unpublished compatibility package for `trellis_rs::client`    |
 | `trellis-codegen-rust`        | Internal Rust SDK code generation                             |
 | `trellis-codegen-ts`          | Internal TypeScript SDK code generation                       |
 | `trellis-contracts`           | Contract manifest model and validation                        |
 | `trellis-core-bootstrap`      | Internal bootstrap helpers for infrastructure state           |
 | `trellis-generate-runner`     | Internal helper for invoking the bootstrap-safe generator     |
 | `trellis-integration-harness` | End-to-end integration harness used by release verification   |
-| `trellis-jobs`                | Unpublished compatibility/test package for `trellis::jobs`    |
+| `trellis-jobs`                | Unpublished compatibility/test package for `trellis_rs::jobs` |
 | `trellis-local-bootstrap`     | Internal local Trellis/NATS bootstrap bundle generation       |
-| `trellis-service`             | Unpublished compatibility/test package for `trellis::service` |
+| `trellis-service`             | Unpublished compatibility/test package for `trellis_rs::service` |
 | `trellis-service-jobs`        | Internal service-side jobs integration helpers                |
 
 See `../design/tooling/trellis-cli.md` and

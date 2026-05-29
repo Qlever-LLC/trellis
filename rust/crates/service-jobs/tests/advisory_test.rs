@@ -1,5 +1,5 @@
 use serde_json::json;
-use trellis::jobs::{Job, JobContext, JobEventType, JobState};
+use trellis_rs::jobs::{Job, JobContext, JobEventType, JobState};
 use trellis_service_jobs::{map_dead_event_from_advisory_job, MaxDeliveriesAdvisory};
 
 fn sample_job(id: &str, state: JobState, tries: u64) -> Job {

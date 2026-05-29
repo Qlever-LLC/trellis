@@ -1,3 +1,3 @@
-//! Internal compatibility crate for the public `trellis::service` module.
+//! Internal compatibility crate for the public `trellis_rs::service` module.
 
-pub use trellis::service::*;
+pub use trellis_rs::service::*;

@@ -82,7 +82,7 @@ fn order_shipped_event_schema() -> Value {
 After prepare, the generated SDK exposes an event type and descriptor. Add a publisher to `AppContext` so handler code can publish through shared context:
 
 ```rust
-use trellis::service::EventPublisher;
+use trellis_rs::service::EventPublisher;
 
 #[derive(Debug, Clone)]
 pub struct AppContext {

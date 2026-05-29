@@ -12,25 +12,25 @@ use miette::{miette, IntoDiagnostic, Result};
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
-use trellis::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
-use trellis::client::{ServiceConnectOptions, TrellisClient};
-use trellis::contracts::{
+use trellis_rs::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
+use trellis_rs::client::{ServiceConnectOptions, TrellisClient};
+use trellis_rs::contracts::{
     digest_contract_json, job_queue, schema_ref, use_contract, ContractKind,
     ContractManifestBuilder,
 };
-use trellis::jobs::{
+use trellis_rs::jobs::{
     completed_event, created_event, dead_event, failed_event, start_worker_host_from_binding,
     started_event, JobCancellationToken, JobManager, JobMetaSource, JobProcessError,
     JobProcessOutcome, JobsRuntimeBinding, NatsJobEventPublisher, WorkerHostOptions,
 };
-use trellis::jobs::{
+use trellis_rs::jobs::{
     job_event_subject, worker_heartbeat_subject, Job, JobContext, JobEvent, JobLogLevel,
     WorkerHeartbeat,
 };
-use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
-use trellis::sdk::core::types::TrellisBindingsGetResponseBinding;
-use trellis::sdk::jobs::client::JobsClient;
-use trellis::sdk::jobs::types::{
+use trellis_rs::sdk::auth::client::AuthClient as SdkAuthClient;
+use trellis_rs::sdk::core::types::TrellisBindingsGetResponseBinding;
+use trellis_rs::sdk::jobs::client::JobsClient;
+use trellis_rs::sdk::jobs::types::{
     JobsCancelRequest, JobsDismissDLQRequest, JobsGetRequest, JobsListDLQRequest, JobsListRequest,
     JobsListServicesRequest, JobsListServicesResponseEntriesItemWorkersItem, JobsReplayDLQRequest,
     JobsRetryRequest,
@@ -129,13 +129,13 @@ pub(crate) async fn run_jobs_fixture(
     let admin_client = connect_admin_client_async(&setup_login.state)
         .await
         .into_diagnostic()?;
-    let auth_client = trellis::auth::AuthClient::new(&admin_client);
+    let auth_client = trellis_rs::auth::AuthClient::new(&admin_client);
     auth_client
         .create_service_deployment(JOBS_DEPLOYMENT_ID, vec!["trellis".to_string()])
         .await
         .into_diagnostic()?;
 
-    let jobs_contract_json = trellis::sdk::jobs::contract::CONTRACT_JSON;
+    let jobs_contract_json = trellis_rs::sdk::jobs::contract::CONTRACT_JSON;
     let jobs_contract_digest = digest_contract_json(jobs_contract_json).into_diagnostic()?;
     plan_accept_reconcile_deployment_authority(
         &SdkAuthClient::new(&admin_client),
@@ -148,10 +148,12 @@ pub(crate) async fn run_jobs_fixture(
 
     let (jobs_service_seed, jobs_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-            deployment_id: JOBS_DEPLOYMENT_ID.to_string(),
-            instance_key: jobs_service_key,
-        })
+        .provision_service_instance(
+            &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                deployment_id: JOBS_DEPLOYMENT_ID.to_string(),
+                instance_key: jobs_service_key,
+            },
+        )
         .await
         .into_diagnostic()?;
 
@@ -388,7 +390,7 @@ fn jobs_caller_contract_json(read: bool, mutate: bool) -> Result<String> {
     )
     .use_ref(
         "jobs",
-        use_contract(trellis::sdk::jobs::CONTRACT_ID).with_rpc_call(calls),
+        use_contract(trellis_rs::sdk::jobs::CONTRACT_ID).with_rpc_call(calls),
     )
     .build()
     .map_err(|error| miette!("failed to build Jobs caller contract: {error}"))?;
@@ -404,7 +406,7 @@ struct LocalJobsServices {
 
 async fn setup_service_local_jobs(
     trellis_url: &str,
-    auth_client: &trellis::auth::AuthClient<'_>,
+    auth_client: &trellis_rs::auth::AuthClient<'_>,
     admin_client: &TrellisClient,
 ) -> Result<LocalJobsServices> {
     auth_client
@@ -425,18 +427,22 @@ async fn setup_service_local_jobs(
 
     let (rust_service_seed, rust_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-            deployment_id: LOCAL_JOBS_DEPLOYMENT_ID.to_string(),
-            instance_key: rust_service_key,
-        })
+        .provision_service_instance(
+            &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                deployment_id: LOCAL_JOBS_DEPLOYMENT_ID.to_string(),
+                instance_key: rust_service_key,
+            },
+        )
         .await
         .into_diagnostic()?;
     let (ts_service_seed, ts_service_key) = generate_session_keypair();
     auth_client
-        .provision_service_instance(&trellis::sdk::auth::AuthServiceInstancesProvisionRequest {
-            deployment_id: LOCAL_JOBS_DEPLOYMENT_ID.to_string(),
-            instance_key: ts_service_key,
-        })
+        .provision_service_instance(
+            &trellis_rs::sdk::auth::AuthServiceInstancesProvisionRequest {
+                deployment_id: LOCAL_JOBS_DEPLOYMENT_ID.to_string(),
+                instance_key: ts_service_key,
+            },
+        )
         .await
         .into_diagnostic()?;
 
@@ -591,7 +597,7 @@ async fn run_rust_service_local_jobs(
         .map_err(|error| miette!("Rust JobManager cancellable create failed: {error}"))?;
     let cancel_job_id = cancel_job.id.clone();
     let mut cancel_job_for_cancel = cancel_job.clone();
-    cancel_job_for_cancel.state = trellis::jobs::JobState::Active;
+    cancel_job_for_cancel.state = trellis_rs::jobs::JobState::Active;
     cancel_job_for_cancel.tries = 1;
     let cancellation = JobCancellationToken::new();
     let process_cancellation = cancellation.clone();
@@ -721,7 +727,7 @@ async fn create_rust_created_ts_job(rust_client: &TrellisClient) -> Result<Strin
 }
 
 fn assert_job_result(
-    job: &trellis::sdk::jobs::types::JobsGetResponseJob,
+    job: &trellis_rs::sdk::jobs::types::JobsGetResponseJob,
     document_id: &str,
     processed_by: &str,
     context: &str,
@@ -742,7 +748,7 @@ fn assert_job_result(
 }
 
 fn assert_job_result_echoed_context(
-    job: &trellis::sdk::jobs::types::JobsGetResponseJob,
+    job: &trellis_rs::sdk::jobs::types::JobsGetResponseJob,
     context: &str,
 ) -> Result<()> {
     let result = job
@@ -831,8 +837,8 @@ async fn connect_jobs_service_client_with_retry(
     for _ in 0..10 {
         match TrellisClient::connect_service(ServiceConnectOptions {
             trellis_url,
-            contract_id: trellis::sdk::jobs::CONTRACT_ID,
-            contract_digest: trellis::sdk::jobs::CONTRACT_DIGEST,
+            contract_id: trellis_rs::sdk::jobs::CONTRACT_ID,
+            contract_digest: trellis_rs::sdk::jobs::CONTRACT_DIGEST,
             session_key_seed_base64url: service_seed,
             timeout_ms: 5_000,
         })
@@ -857,7 +863,7 @@ async fn connect_jobs_service_client_with_retry(
 async fn assert_owner_restart_rpc_only(
     trellis_url: &str,
     service_seed: &str,
-    caller_state: &trellis::auth::AdminSessionState,
+    caller_state: &trellis_rs::auth::AdminSessionState,
     browser: &BrowserContainer,
     jobs_db_path: &Path,
 ) -> Result<()> {
@@ -931,7 +937,7 @@ async fn assert_owner_rpc_only_coexist(
 
 async fn assert_jobs_read_denied(
     trellis_url: &str,
-    caller_state: &trellis::auth::AdminSessionState,
+    caller_state: &trellis_rs::auth::AdminSessionState,
     browser: &BrowserContainer,
 ) -> Result<()> {
     let read_denied_login = reauth_contract(
@@ -1026,7 +1032,7 @@ async fn seed_jobs_projection(nats: &async_nats::Client) -> Result<()> {
             HARNESS_JOBS_QUEUE,
             "job-failed-1",
             &job_context("job-failed-1"),
-            trellis::jobs::JobState::Active,
+            trellis_rs::jobs::JobState::Active,
             1,
             "2026-03-28T12:00:11.000Z",
             "integration failure",
@@ -1075,7 +1081,7 @@ async fn seed_jobs_projection(nats: &async_nats::Client) -> Result<()> {
                 HARNESS_JOBS_QUEUE,
                 &job_id,
                 &job_context(&job_id),
-                trellis::jobs::JobState::Active,
+                trellis_rs::jobs::JobState::Active,
                 5,
                 failed_at,
                 "integration dead letter",
@@ -1526,7 +1532,7 @@ async fn publish_started_job_event(
             HARNESS_JOBS_QUEUE,
             job_id,
             &job_context(job_id),
-            trellis::jobs::JobState::Pending,
+            trellis_rs::jobs::JobState::Pending,
             1,
             timestamp,
         ),
@@ -1718,7 +1724,7 @@ async fn await_job_state(
     jobs_client: &JobsClient<'_>,
     id: &str,
     expected_state: &str,
-) -> Result<trellis::sdk::jobs::types::JobsGetResponseJob> {
+) -> Result<trellis_rs::sdk::jobs::types::JobsGetResponseJob> {
     for _ in 0..400 {
         let response = jobs_client
             .rpc()
@@ -1763,17 +1769,17 @@ async fn reauth_admin_setup(
 }
 
 async fn reauth_contract(
-    state: &trellis::auth::AdminSessionState,
+    state: &trellis_rs::auth::AdminSessionState,
     contract_json: &str,
     trellis_url: &str,
     browser: &BrowserContainer,
 ) -> Result<AdminLoginOutcome> {
-    match trellis::auth::start_admin_reauth(state, contract_json)
+    match trellis_rs::auth::start_admin_reauth(state, contract_json)
         .await
         .into_diagnostic()?
     {
-        trellis::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
-        trellis::auth::AdminReauthOutcome::Flow(challenge) => {
+        trellis_rs::auth::AdminReauthOutcome::Bound(outcome) => Ok(outcome),
+        trellis_rs::auth::AdminReauthOutcome::Flow(challenge) => {
             let login_url = challenge.login_url().to_string();
             let driver = browser.driver().await?;
             let login_result =

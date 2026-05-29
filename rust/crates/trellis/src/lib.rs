@@ -131,7 +131,7 @@ mod tests {
         ] {
             assert!(
                 !manifest.contains(package),
-                "{package} must be embedded as trellis::sdk, not a trellis dependency"
+                "{package} must be embedded as trellis_rs::sdk, not a trellis dependency"
             );
         }
     }

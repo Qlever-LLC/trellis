@@ -4,8 +4,8 @@ use async_nats::jetstream::{self, consumer};
 use futures_util::StreamExt;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
-use trellis::jobs::{WorkerHeartbeat, WORKER_HEARTBEATS_WILDCARD};
-use trellis::service::ServerError;
+use trellis_rs::jobs::{WorkerHeartbeat, WORKER_HEARTBEATS_WILDCARD};
+use trellis_rs::service::ServerError;
 
 use crate::storage::{SqliteJobsStore, SqliteJobsStoreError};
 
@@ -213,13 +213,13 @@ fn parse_worker_heartbeat_subject(subject: &str) -> Option<(String, String, Stri
 #[cfg(test)]
 mod tests {
     use time::OffsetDateTime;
-    use trellis::jobs::WorkerHeartbeat;
+    use trellis_rs::jobs::WorkerHeartbeat;
 
     use super::{
         parse_worker_heartbeat_subject, project_worker_heartbeat, WORKER_PRESENCE_FRESH_FOR,
     };
     use crate::storage::SqliteJobsStore;
-    use trellis::jobs::worker_heartbeat_subject;
+    use trellis_rs::jobs::worker_heartbeat_subject;
 
     #[test]
     fn parse_worker_heartbeat_subject_extracts_components() {

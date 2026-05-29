@@ -4,19 +4,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use miette::{miette, IntoDiagnostic, Result};
 use serde_json::{json, to_string, Value};
 use time::OffsetDateTime;
-use trellis::auth::{
+use trellis_rs::auth::{
     connect_admin_client_async, get_device_connect_info, sign_device_wait_request,
     start_device_activation_request, wait_for_device_activation_response, AdminLoginOutcome,
     AuthClient as AdminAuthClient, DeviceActivationPayload, DeviceActivationSessionBuilder,
     GetDeviceConnectInfoOpts, WaitForDeviceActivationResponse,
 };
-use trellis::client::{DeviceConnectOptions, OperationState, TrellisClient};
-use trellis::contracts::{
+use trellis_rs::client::{DeviceConnectOptions, OperationState, TrellisClient};
+use trellis_rs::contracts::{
     digest_contract_json, use_contract, ContractKind, ContractManifestBuilder,
 };
-use trellis::sdk::auth::client::AuthClient as SdkAuthClient;
-use trellis::sdk::auth::operations::AuthDeviceUserAuthoritiesResolveOperation;
-use trellis::sdk::auth::types::AuthDeviceUserAuthoritiesResolveInput;
+use trellis_rs::sdk::auth::client::AuthClient as SdkAuthClient;
+use trellis_rs::sdk::auth::operations::AuthDeviceUserAuthoritiesResolveOperation;
+use trellis_rs::sdk::auth::types::AuthDeviceUserAuthoritiesResolveInput;
 
 use crate::browser::BrowserContainer;
 use crate::deployment_authority::plan_accept_reconcile_deployment_authority;
@@ -61,7 +61,8 @@ pub(crate) async fn run_device_activation_fixture(
     let root_secret = device_root_secret();
     let activation = DeviceActivationSessionBuilder::new(&root_secret, format!("nonce-{suffix}"))
         .into_diagnostic()?;
-    let device_identity = trellis::auth::derive_device_identity(&root_secret).into_diagnostic()?;
+    let device_identity =
+        trellis_rs::auth::derive_device_identity(&root_secret).into_diagnostic()?;
 
     let provisioned = admin_auth
         .provision_device_instance(
@@ -132,7 +133,7 @@ pub(crate) async fn run_device_activation_fixture(
     assert_activation_wait_rejected(trellis_url, &tampered_nonce_wait, "tampered wait nonce")
         .await?;
     let wrong_device_identity =
-        trellis::auth::derive_device_identity(&device_root_secret()).into_diagnostic()?;
+        trellis_rs::auth::derive_device_identity(&device_root_secret()).into_diagnostic()?;
     assert_activation_wait_rejected(
         trellis_url,
         &sign_device_wait_request(
@@ -343,7 +344,7 @@ async fn assert_activation_start_rejected(
 
 async fn assert_activation_wait_rejected(
     trellis_url: &str,
-    request: &trellis::auth::DeviceActivationWaitRequest,
+    request: &trellis_rs::auth::DeviceActivationWaitRequest,
     label: &str,
 ) -> Result<()> {
     if wait_for_device_activation_response(trellis_url, request)
@@ -360,7 +361,7 @@ async fn assert_activation_wait_rejected(
 
 async fn assert_activation_wait_status_rejected(
     trellis_url: &str,
-    request: &trellis::auth::DeviceActivationWaitRequest,
+    request: &trellis_rs::auth::DeviceActivationWaitRequest,
     label: &str,
 ) -> Result<()> {
     let response = wait_for_device_activation_response(trellis_url, request)
@@ -441,7 +442,7 @@ async fn run_review_required_activation(
         DeviceActivationSessionBuilder::new(&device_root_secret, format!("nonce-{suffix}"))
             .into_diagnostic()?;
     let device_identity =
-        trellis::auth::derive_device_identity(&device_root_secret).into_diagnostic()?;
+        trellis_rs::auth::derive_device_identity(&device_root_secret).into_diagnostic()?;
     let provisioned = admin_auth
         .provision_device_instance(
             &deployment_id,
@@ -627,7 +628,7 @@ async fn run_review_required_activation(
 }
 
 async fn wait_for_pending_review(
-    operation_ref: &trellis::client::OperationRef<
+    operation_ref: &trellis_rs::client::OperationRef<
         '_,
         TrellisClient,
         AuthDeviceUserAuthoritiesResolveOperation,

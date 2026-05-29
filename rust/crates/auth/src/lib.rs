@@ -1,3 +1,3 @@
-//! Internal compatibility crate for the public `trellis::auth` module.
+//! Internal compatibility crate for the public `trellis_rs::auth` module.
 
-pub use trellis::auth::*;
+pub use trellis_rs::auth::*;
