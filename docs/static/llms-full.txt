@@ -1,5 +1,7 @@
 # Trellis AI guidance for out-of-tree services
 
+Last verified against Trellis v0.10.1 (2026-05-29).
+
 This file is for AI coding agents working in a service repository that consumes
 Trellis. The canonical URL is:
 

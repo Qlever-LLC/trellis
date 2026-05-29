@@ -45,7 +45,7 @@ CLI sessions use the same contract-bearing flow. If the Trellis CLI contract bou
 
 Provider scopes like `openid`, `profile`, and `email` stay in the external identity-provider layer. The approval screen inside Trellis is about the app's requested Trellis capabilities and contract-derived access, not about minting an OAuth access token for a Trellis API.
 
-App approvals are reusable across linked identities on the same Trellis account. If you approve an app while signed in with one linked OIDC identity, signing in later with another linked OIDC identity or the account's local identity can reuse that approval for the same app identity. Provider details are kept as audit evidence, but they are not the approval matching key.
+App approvals are reusable across linked identities on the same Trellis account. After a user approves an app while signed in with one linked OIDC identity, signing in later with another linked OIDC identity or the account's local identity can reuse that approval for the same app identity. Provider details are kept as audit evidence, but they are not the approval matching key.
 
 Users can start account linking from the Console profile. The profile action opens the account-link flow directly, so users should not need to copy a generated link. A Trellis account can have many OIDC login identities but only one local username/password identity. Password setup and reset links target that existing local identity; they do not choose or change the local username.
 

@@ -89,7 +89,7 @@ service
         .await?;
 
         if job.is_cancelled() {
-            return Err(JobsError::cancelled());
+            return Err(Err(JobsError::Message { message: "cancelled".to_string() }));
         }
 
         // reserve inventory...
@@ -120,7 +120,7 @@ service
         .await?;
 
         if job.is_cancelled() {
-            return Err(JobsError::cancelled());
+            return Err(Err(JobsError::Message { message: "cancelled".to_string() }));
         }
 
         let charge_id = format!("ch_{}", ulid::Ulid::new());
@@ -150,7 +150,7 @@ service
         .await?;
 
         if job.is_cancelled() {
-            return Err(JobsError::cancelled());
+            return Err(Err(JobsError::Message { message: "cancelled".to_string() }));
         }
 
         service

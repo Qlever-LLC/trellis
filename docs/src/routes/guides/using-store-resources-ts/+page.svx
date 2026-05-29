@@ -79,13 +79,7 @@ if (isErr(opened)) throw opened.error;
 const uploads = opened.value;
 ```
 
-This mirrors the KV open pattern:
-
-```ts
-const opened = await service.kv.orders.open(OrderSchema);
-```
-
-`open()` is failable and therefore returns `Result`.
+Unlike KV bindings, which are pre-opened during `TrellisService.connect()`, store handles need a failable `open()` call that returns `Result`.
 
 ## 3. Create and replace objects
 

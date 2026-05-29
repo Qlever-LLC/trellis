@@ -4,7 +4,38 @@ Trellis uses contract-owned schemas and explicit expected-failure modeling so se
 
 Contract source defines input, output, event, job, state, resource, and error payload schemas. The emitted `trellis.contract.v1` manifest is the canonical cross-language artifact.
 
-In TypeScript, services typically use schema helpers and `ref.schema(...)` references inside contract builders. In generated artifacts, those references become language-neutral schema names and embedded JSON Schema values.
+In TypeScript, services use TypeBox schemas and `ref.schema(...)` references inside contract builders:
+
+```ts
+import { Type } from "@sinclair/typebox";
+
+const schemas = {
+  CreateOrderRequest: Type.Object({
+    customerId: Type.String(),
+    items: Type.Array(Type.Object({
+      productId: Type.String(),
+      quantity: Type.Number({ minimum: 1 }),
+    })),
+  }),
+  CreateOrderResponse: Type.Object({
+    orderId: Type.String(),
+    status: Type.String(),
+  }),
+};
+
+export const ordersService = defineServiceContract({ schemas }, (ref) => ({
+  // ...
+  rpc: {
+    "Orders.Create": {
+      version: "v1",
+      input: ref.schema("CreateOrderRequest"),
+      output: ref.schema("CreateOrderResponse"),
+    },
+  },
+}));
+```
+
+In generated artifacts, those references become language-neutral schema names and embedded JSON Schema values.
 
 Schemas are not just TypeScript type hints. They are used for manifest validation, runtime validation, generated DTOs, generated docs, and cross-contract compatibility checks.
 

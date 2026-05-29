@@ -305,9 +305,7 @@ the connected runtime from context.
 
     void (async () => {
       try {
-        const stream = await trellis.feed("Device.Events")
-          .input({ scope: "owned" })
-          .subscribe({ signal: controller.signal })
+        const stream = await trellis.feed.device.events({ scope: "owned" })
           .orThrow();
 
         for await (const event of stream) {

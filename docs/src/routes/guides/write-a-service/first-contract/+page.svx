@@ -4,6 +4,8 @@
 
 In Trellis, every service is defined by a **contract**. The contract is the authoritative description of what your service does: what databases it needs, what RPCs it handles, what events it emits or consumes, and who is allowed to call it. Trellis compares the contract boundary with deployment authority, records any required authority plan, and reconciles accepted resource changes before granting runtime access.
 
+Before writing a contract, you may want to read [Contracts](/guides/concepts/contracts) for the contract model and identity rules, and [Architecture](/guides/concepts/architecture) for the platform vs domain boundary.
+
 Start with the smallest possible service contract:
 
 <LanguageTabs>
@@ -36,14 +38,14 @@ import type {
   EventHandler,
   EventName,
   RpcArgs,
-  RpcName,
+  RpcMethodNameOf,
   RpcResult,
 } from "@qlever-llc/trellis";
 
-export type RpcHandlerArgs<T extends RpcName<typeof ordersService>> =
+export type RpcHandlerArgs<T extends RpcMethodNameOf<typeof ordersService>> =
   RpcArgs<typeof ordersService, T>;
 
-export type RpcHandlerResult<T extends RpcName<typeof ordersService>> =
+export type RpcHandlerResult<T extends RpcMethodNameOf<typeof ordersService>> =
   RpcResult<typeof ordersService, T>;
 
 export type Event<T extends EventName<typeof ordersService>> =

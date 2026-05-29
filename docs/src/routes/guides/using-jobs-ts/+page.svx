@@ -38,6 +38,7 @@ resources: {
   kv: {
     orders: {
       purpose: "Store order records",
+      schema: ref.schema("Order"),
       history: 1,
       ttlMs: 0,
     },

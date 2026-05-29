@@ -25,7 +25,9 @@ console.log("Connected to Trellis!");
 
 > **Node.js users:** Import from `@qlever-llc/trellis/service/node` and replace `Deno.env.get(...)` with `process.env`.
 
-`TrellisService.connect(...)` does a lot of heavy lifting. It authenticates your service session, verifies that the presented contract evidence fits the enabled deployment authority, fetches transport details, and hands back a `service` object with the deployment's persisted resource bindings already resolved. Catalog activation comes from enabled service deployment authority and its active required dependency closure, so the contract can be active before this instance connects. If deployment authority does not cover the contract boundary yet, bootstrap creates or reuses a pending authority update and waits while retrying. Required dependencies with only stale incompatible inactive manifests are recorded as unresolved blockers until current dependency evidence is uploaded.
+`TrellisService.connect(...)` does a lot of heavy lifting. It authenticates your service session, verifies that the presented contract evidence fits the enabled deployment authority, fetches transport details, and hands back a `service` object with the deployment's persisted resource bindings already resolved.
+
+The contract can be active before this instance connects. If deployment authority does not cover the contract boundary yet, bootstrap creates or reuses a pending authority update and waits while retrying. Required dependencies whose only known manifests are stale and incompatible are tracked as blockers until current evidence is uploaded.
 
 Those resolved bindings are Trellis runtime internals. Use the returned
 `service.kv`, `service.store`, and `service.jobs` handles; do not call

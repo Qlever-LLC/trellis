@@ -1,4 +1,4 @@
-Trellis is split into platform-owned runtime capabilities and domain-owned services. Services communicate over NATS, but public boundaries stay contract-owned instead of becoming raw subject strings or central registry entries.
+Trellis separates platform-owned runtime capabilities from domain-owned services. Services communicate over NATS, but the boundary a service exposes to callers is declared in a contract, not in raw NATS subject names or a central service registry.
 
 ## Service categories
 

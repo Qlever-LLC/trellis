@@ -141,8 +141,8 @@ println!("{:?}", terminal.output);
 let mut stream = op_ref.watch();
 while let Some(event) = stream.next().await {
     match event {
-        OperationEvent::Progress(snapshot) => println!("{:?}", snapshot.progress),
-        OperationEvent::Completed(terminal) => { println!("{:?}", terminal.output); break; }
+        OperationEvent::Progress { snapshot } => println!("{:?}", snapshot.progress),
+        OperationEvent::Completed { snapshot } => { println!("{:?}", snapshot.output); break; }
         _ => {}
     }
 }

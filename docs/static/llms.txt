@@ -1,5 +1,7 @@
 # Trellis AI guide
 
+Last verified against Trellis v0.10.1 (2026-05-29).
+
 Canonical full guide:
 https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt
 

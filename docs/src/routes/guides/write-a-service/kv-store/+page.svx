@@ -31,37 +31,46 @@ export const Order = Type.Object({
 export type Order = Static<typeof Order>;
 ```
 
-Next, open `contracts/orders_service.ts` and update the `resources` section to request a bucket named `orders`. This uses the default `required: true`, so deploy fails if Trellis cannot provision or bind the bucket:
+Next, open `contracts/orders_service.ts` and update two things:
+
+1. Pass the `Order` schema into the contract registry so `ref.schema("Order")` can reference it.
+2. Add the KV resource with the required `schema` field referencing that name.
 
 ```ts
-  resources: {
-    kv: {
-      orders: {
-        purpose: "Store order records",
-        history: 1,
-        ttlMs: 0,
+import * as schemas from "../schemas.ts";
+
+export const ordersService = defineServiceContract(
+  { schemas },
+  (ref) => ({
+    // ...
+    resources: {
+      kv: {
+        orders: {
+          purpose: "Store order records",
+          schema: ref.schema("Order"),
+          history: 1,
+          ttlMs: 0,
+        },
       },
     },
-  },
+  }),
+);
 ```
 
-Finally, back in `main.ts`, open the KV store right after `TrellisService.connect(...)`. The `service.kv.orders` handle was already resolved when we connected. We just need to bind a typed client to it:
+The default `required: true` means deploy fails if Trellis cannot provision or bind the bucket.
+
+Finally, back in `main.ts`, the KV store is ready to use after `TrellisService.connect(...)`. The `service.kv.orders` handle was already resolved and opened during connection. You can use it directly without any extra setup:
+
+```ts
+// After TrellisService.connect(...)
+// service.kv.orders is already a fully typed TypedKV<Order>
+const startupEntry = await service.kv.orders.get("some-key").take();
+```
 
 Do not fetch or pass binding data yourself. Service resource bindings are
 resolved by the Trellis runtime and exposed through the connected `service`
-object.
-
-```ts
-import { isErr } from "@qlever-llc/trellis";
-import { Order } from "./schemas.ts";
-
-// After TrellisService.connect(...)
-const kvResult = await service.kv.orders.open(Order).take();
-if (isErr(kvResult)) throw kvResult.error;
-const startupOrdersKV = kvResult;
-```
-
-`startupOrdersKV` is now a fully typed `TypedKV<Order>` for any startup work such as seeding or health checks. Handler code does not need this variable; typed handlers receive `client.kv.orders` in their method parameters.
+object. Handler code accesses the same bindings through `client.kv.orders`
+in their method parameters.
 
 > The `.take()` / `isErr(...)` pattern shows up throughout Trellis. Rather than throwing exceptions, Trellis returns `Result<T, E>` values. Call `.take()` to get either the success value or error value, then use `isErr(value)` before using the value.
 

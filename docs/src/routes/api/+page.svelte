@@ -111,8 +111,10 @@
         {/each}
       </ul>
     </div>
-    <p class="docs-metadata">
-      Pending published Rustdoc links: {pendingRustdocCrates.join(", ")}.
-    </p>
+    {#if pendingRustdocCrates.length > 0}
+      <p class="docs-metadata">
+        Pending published Rustdoc links: {pendingRustdocCrates.join(", ")}.
+      </p>
+    {/if}
   </section>
 </div>

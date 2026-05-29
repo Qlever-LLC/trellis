@@ -233,8 +233,7 @@ mod handlers;
 
 use handlers::AppContext;
 
-let resources = service.resources().clone();
-let orders = open_orders_kv(service.client().as_ref(), &resources).await?;
+let orders = open_orders_kv(&service).await?;
 let context = Arc::new(AppContext { orders });
 
 service.handle().rpc().orders().create({

@@ -17,7 +17,11 @@ Operations are caller-visible async workflows. Unlike RPCs, they accept a reques
 - Callers receive an `OperationRef` and can call `watch()` for a progress stream or `wait()` to block until completion
 - Operation state is durable; a caller reconnecting after a disconnect can resume watching an in-flight operation
 - Callers see only their own operations; subject permissions prevent cross-caller access
-- Starting an operation is controlled by its `call` capabilities, while `observe` gates `get`/`wait`/`watch`, `cancel` gates cancellation, and `control` gates named signals. If `observe` is omitted, Trellis defaults it to `call`; an explicit empty `observe`, `cancel`, or `control` list means no extra capability beyond authentication is required for that action.
+- Starting an operation is controlled by its `call` capabilities.
+- The `observe` capability gates `get`, `wait`, and `watch` access to an operation's progress and terminal result. When `observe` is omitted, Trellis defaults it to the same set as `call`.
+- The `cancel` capability gates operation cancellation.
+- The `control` capability gates named signals.
+- An explicit empty `observe`, `cancel`, or `control` list means no extra capability beyond authentication is required for that action.
 
 Operations are distinct from jobs. An operation is the public async surface that a caller starts and observes. A job is service-private background work, invisible to callers.
 

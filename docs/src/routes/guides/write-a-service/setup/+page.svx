@@ -54,8 +54,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ulid = "1.2"
 
-trellis-contracts = "0.9"
-trellis = "0.9"
+trellis-contracts = "0.10"
+trellis-rs = "0.10"
 
 # Add this after the first prepare run creates the generated SDK crate.
 trellis-sdk-orders-service = { path = "generated/packages/cargo/orders-service" }

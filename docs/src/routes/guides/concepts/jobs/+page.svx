@@ -6,4 +6,4 @@ Job states: `pending` → `active` → `completed` / `failed` / `retry` / `cance
 
 Services process their own jobs via their own JetStream consumer. A central Jobs admin runtime handles global queries, janitor cleanup, and the SQL projection for the built-in Jobs API.
 
-Jobs are not visible to callers. If you need a caller-observable async workflow, use an operation instead.
+Jobs are not visible to callers. Caller-observable async work should use an operation instead.
