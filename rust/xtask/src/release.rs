@@ -689,7 +689,7 @@ fn quoted_value_after_equals(value: &str) -> Option<String> {
 }
 
 fn is_internal_rust_crate(name: &str) -> bool {
-    name.starts_with("trellis-")
+    name == "trellis" || name.starts_with("trellis-")
 }
 
 fn check_changelog(repo_root: &Path, version: &str, since: Option<&str>) -> Result<()> {
@@ -984,7 +984,7 @@ mod tests {
 
     #[test]
     fn rewrite_cargo_manifest_updates_workspace_and_internal_dependencies() {
-        let original = "[workspace.package]\nversion = \"0.8.2\"\n\n[dependencies]\ntrellis-client = { path = \"../client\", version = \"0.8.2\" }\nserde = { version = \"1.0\" }\n";
+        let original = "[workspace.package]\nversion = \"0.8.2\"\n\n[dependencies]\ntrellis = { path = \"../trellis\", version = \"0.8.2\" }\ntrellis-client = { path = \"../client\", version = \"0.8.2\" }\nserde = { version = \"1.0\" }\n";
         let updated = rewrite_cargo_manifest_versions(
             original,
             "0.8.2",
@@ -994,13 +994,13 @@ mod tests {
         .expect("rewrite cargo versions");
         assert_eq!(
             updated,
-            "[workspace.package]\nversion = \"0.9.0\"\n\n[dependencies]\ntrellis-client = { path = \"../client\", version = \"0.9.0\" }\nserde = { version = \"1.0\" }\n"
+            "[workspace.package]\nversion = \"0.9.0\"\n\n[dependencies]\ntrellis = { path = \"../trellis\", version = \"0.9.0\" }\ntrellis-client = { path = \"../client\", version = \"0.9.0\" }\nserde = { version = \"1.0\" }\n"
         );
     }
 
     #[test]
     fn rewrite_cargo_manifest_for_release_updates_generated_sdk_dependencies() {
-        let original = "[workspace.package]\nversion = \"0.8.2\"\n\n[dependencies]\ntrellis-local-bootstrap = { path = \"../local-bootstrap\", version = \"0.8.2\" }\ntrellis-sdk-health = { path = \"../generated/packages/cargo/health\", version = \"0.8.2\" }\ntrellis-sdk-state = { path = \"../generated/packages/cargo/state\", version = \"0.8.2\" }\nserde = { version = \"1.0\" }\n";
+        let original = "[workspace.package]\nversion = \"0.8.2\"\n\n[dependencies]\ntrellis = { path = \"../trellis\", version = \"0.8.2\" }\ntrellis-local-bootstrap = { path = \"../local-bootstrap\", version = \"0.8.2\" }\ntrellis-sdk-health = { path = \"../generated/packages/cargo/health\", version = \"0.8.2\" }\ntrellis-sdk-state = { path = \"../generated/packages/cargo/state\", version = \"0.8.2\" }\nserde = { version = \"1.0\" }\n";
         let updated = rewrite_cargo_manifest_versions_for_release(
             original,
             "0.8.2-rc.1",
@@ -1010,7 +1010,7 @@ mod tests {
         .expect("rewrite cargo release versions");
         assert_eq!(
             updated,
-            "[workspace.package]\nversion = \"0.8.2-rc.1\"\n\n[dependencies]\ntrellis-local-bootstrap = { path = \"../local-bootstrap\", version = \"0.8.2-rc.1\" }\ntrellis-sdk-health = { path = \"../generated/packages/cargo/health\", version = \"0.8.2-rc.1\" }\ntrellis-sdk-state = { path = \"../generated/packages/cargo/state\", version = \"0.8.2-rc.1\" }\nserde = { version = \"1.0\" }\n"
+            "[workspace.package]\nversion = \"0.8.2-rc.1\"\n\n[dependencies]\ntrellis = { path = \"../trellis\", version = \"0.8.2-rc.1\" }\ntrellis-local-bootstrap = { path = \"../local-bootstrap\", version = \"0.8.2-rc.1\" }\ntrellis-sdk-health = { path = \"../generated/packages/cargo/health\", version = \"0.8.2-rc.1\" }\ntrellis-sdk-state = { path = \"../generated/packages/cargo/state\", version = \"0.8.2-rc.1\" }\nserde = { version = \"1.0\" }\n"
         );
     }
 

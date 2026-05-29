@@ -18,7 +18,7 @@ serde.workspace = true
 serde_json.workspace = true
 json5 = "1.3.1"
 tokio.workspace = true
-trellis = { path = "../trellis", version = "0.10.0" }
+trellis = { path = "../trellis", version = "0.10.1" }
 trellis-codegen-rust = { path = "../codegen-rust", version = "0.10.1" }
 trellis-codegen-ts = { path = "../codegen-ts", version = "0.10.1" }
 trellis-contracts = { path = "../contracts", version = "0.10.1" }
