@@ -86,7 +86,7 @@ Deno.test("release workflow publishes only public Rust crates", async () => {
     new URL("../../../../.github/workflows/release.yml", import.meta.url),
   );
 
-  for (const crate of ["trellis-contracts", "trellis"]) {
+  for (const crate of ["trellis-contracts", "trellis-rs"]) {
     assertStringIncludes(source, `publish_workspace_crate ${crate}`);
   }
   for (

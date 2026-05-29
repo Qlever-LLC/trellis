@@ -585,7 +585,7 @@ jobs:
           }
 
           publish_workspace_crate trellis-contracts
-          publish_workspace_crate trellis
+          publish_workspace_crate trellis-rs
 
           generate_publishable_sdk_crates
 

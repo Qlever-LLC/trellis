@@ -689,7 +689,7 @@ fn quoted_value_after_equals(value: &str) -> Option<String> {
 }
 
 fn is_internal_rust_crate(name: &str) -> bool {
-    name == "trellis" || name.starts_with("trellis-")
+    name == "trellis" || name == "trellis-rs" || name.starts_with("trellis-")
 }
 
 fn check_changelog(repo_root: &Path, version: &str, since: Option<&str>) -> Result<()> {

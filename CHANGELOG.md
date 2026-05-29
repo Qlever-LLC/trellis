@@ -8,6 +8,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.1-rc.4] - 2026-05-29
+
+### Fixed
+
+- Renamed the public Rust facade package to `trellis-rs` for crates.io while
+  preserving the `trellis` Rust crate import name for consumers.
+
 ## [0.10.1-rc.3] - 2026-05-29
 
 ### Fixed
@@ -655,7 +662,8 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.3...HEAD
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.4...HEAD
+[0.10.1-rc.4]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.3...v0.10.1-rc.4
 [0.10.1-rc.3]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.2...v0.10.1-rc.3
 [0.10.1-rc.2]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.1...v0.10.1-rc.2
 [0.10.1-rc.1]: https://github.com/Qlever-LLC/trellis/compare/v0.10.0...v0.10.1-rc.1

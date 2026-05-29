@@ -436,7 +436,10 @@ fn runtime_dependency_lines(
 ) -> Result<Vec<String>, CodegenRustError> {
     match runtime_deps.source {
         RustRuntimeSource::Registry => Ok(vec![
-            format!("trellis = \"{}\"", runtime_deps.version),
+            format!(
+                "trellis = {{ package = \"trellis-rs\", version = \"{}\" }}",
+                runtime_deps.version
+            ),
             format!("trellis-contracts = \"{}\"", runtime_deps.version),
         ]),
         RustRuntimeSource::Local => {
@@ -445,16 +448,18 @@ fn runtime_dependency_lines(
                 .as_ref()
                 .ok_or(CodegenRustError::MissingRuntimeRepoRoot)?;
             let repo_root = fs::canonicalize(repo_root).unwrap_or_else(|_| repo_root.clone());
-            ["trellis", "trellis-contracts"]
-                .into_iter()
-                .map(|crate_name| {
-                    let crate_path = workspace_package_dir(&repo_root, crate_name)?;
-                    Ok(format!(
-                        "{crate_name} = {{ path = {} }}",
-                        string_literal(&crate_path.display().to_string())
-                    ))
-                })
-                .collect()
+            let trellis_path = workspace_package_dir(&repo_root, "trellis-rs")?;
+            let contracts_path = workspace_package_dir(&repo_root, "trellis-contracts")?;
+            Ok(vec![
+                format!(
+                    "trellis = {{ package = \"trellis-rs\", path = {} }}",
+                    string_literal(&trellis_path.display().to_string())
+                ),
+                format!(
+                    "trellis-contracts = {{ path = {} }}",
+                    string_literal(&contracts_path.display().to_string())
+                ),
+            ])
         }
     }
 }
@@ -1627,8 +1632,8 @@ fn write_runtime_patch_config(opts: &GenerateRustSdkOpts) -> Result<(), CodegenR
                 .ok_or(CodegenRustError::MissingRuntimeRepoRoot)?;
             let repo_root = repo_root.canonicalize()?;
             let config = format!(
-                "[patch.crates-io]\ntrellis = {{ path = \"{}\" }}\ntrellis-contracts = {{ path = \"{}\" }}\n",
-                workspace_package_dir(&repo_root, "trellis")?.display(),
+                "[patch.crates-io]\ntrellis-rs = {{ path = \"{}\" }}\ntrellis-contracts = {{ path = \"{}\" }}\n",
+                workspace_package_dir(&repo_root, "trellis-rs")?.display(),
                 workspace_package_dir(&repo_root, "trellis-contracts")?.display(),
             );
             write_if_changed(&config_path, &config)
@@ -3239,7 +3244,7 @@ mod tests {
 
         assert!(cargo.contains("description = \"Generated Rust SDK crate for trellis-sdk-core.\""));
         assert!(cargo.contains("repository = \"https://github.com/qlever-llc/trellis\""));
-        assert!(cargo.contains("trellis = \"0.1.0\""));
+        assert!(cargo.contains("trellis = { package = \"trellis-rs\", version = \"0.1.0\" }"));
         assert!(cargo.contains("trellis-contracts = \"0.1.0\""));
         assert!(cargo.contains("publish = false"));
         assert!(!cargo.contains("trellis-service"));
@@ -3268,7 +3273,7 @@ mod tests {
         .unwrap();
         fs::write(
             repo_root.join("rust/crates/runtime-client/Cargo.toml"),
-            "[package]\nname = \"trellis\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+            "[package]\nname = \"trellis-rs\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
         )
         .unwrap();
         fs::write(
@@ -3985,7 +3990,7 @@ mod tests {
         .unwrap();
 
         let cargo_toml = fs::read_to_string(out_dir.join("facade/Cargo.toml")).unwrap();
-        assert!(cargo_toml.contains("trellis = \"0.1.0\""));
+        assert!(cargo_toml.contains("trellis = { package = \"trellis-rs\", version = \"0.1.0\" }"));
         assert!(!out_dir.join("facade/contracts/health.json").exists());
 
         fs::remove_dir_all(out_dir).unwrap();
@@ -4175,10 +4180,9 @@ mod tests {
 
         assert!(cargo_toml.contains("build = \"build.rs\""));
         assert!(cargo_toml.contains("serde = { version = \"1.0\", features = [\"derive\"] }"));
-        assert!(cargo_toml.contains("trellis = { path = "));
+        assert!(cargo_toml.contains("trellis = { package = \"trellis-rs\", path = "));
         assert!(cargo_toml.contains("trellis-contracts = { path = "));
         assert!(!cargo_toml.contains("trellis-service"));
-        assert!(cargo_toml.contains("trellis = { path = "));
         assert!(cargo_toml.contains("futures-util = \"0.3\""));
         assert!(build_rs.contains("generate_rust_participant_generated_sources"));
         assert!(trellis_md.contains("# Trellis Participant Guide: audit@v1"));
