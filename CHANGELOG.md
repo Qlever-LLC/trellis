@@ -8,47 +8,26 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.10.1-rc.6] - 2026-05-29
+## [0.10.1] - 2026-05-29
 
-### Fixed
+### Changed
 
-- Fixed the generator auto-mode regression test to expect the `trellis-rs`
-  dependency key emitted by generated Rust SDK Cargo manifests.
-
-## [0.10.1-rc.5] - 2026-05-29
-
-### Fixed
-
-- Switched the public Rust facade to use `trellis-rs` consistently as the Cargo
-  package and `trellis_rs` as the Rust crate name.
-- Removed generated Trellis-owned SDK crates from crates.io release publishing;
-  they remain embedded in the public Rust facade.
-
-## [0.10.1-rc.4] - 2026-05-29
-
-### Fixed
-
-- Renamed the public Rust facade package to `trellis-rs` for crates.io while
-  preserving the `trellis` Rust crate import name for consumers.
-
-## [0.10.1-rc.3] - 2026-05-29
+- Renamed the public Rust facade package to `trellis-rs` (crate name
+  `trellis_rs`) for crates.io, replacing the previous `trellis` package name
+  which conflicted with an unrelated crate.
+- Removed generated Trellis-owned SDK crates (`trellis-sdk-auth`,
+  `trellis-sdk-core`) from crates.io release publishing; they remain embedded in
+  the public Rust facade.
+- Updated all Rust code generation to emit the `trellis-rs` dependency key and
+  `trellis_rs` import paths consistently across generated SDKs and participant
+  facades.
 
 ### Fixed
 
 - Fixed crates.io release publishing to publish only public Rust crates and skip
   private workspace crates marked `publish = false`.
-
-## [0.10.1-rc.2] - 2026-05-29
-
-### Fixed
-
-- Fixed release preparation for prerelease Rust builds by rewriting internal
-  dependencies on the root `trellis` crate to the exact prerelease version.
-
-## [0.10.1-rc.1] - 2026-05-29
-
-### Fixed
-
+- Fixed release preparation for Rust builds by rewriting internal dependencies
+  on the root `trellis` crate to the correct version.
 - Fixed release npm smoke checks by installing Node type definitions in the
   generated consumer project.
 - Fixed release generator tests for current TypeScript client method output and
@@ -57,6 +36,7 @@ and this project adheres to
   contract.
 - Fixed GitHub Pages release-site builds to tolerate unavailable or incomplete
   release worktrees and fall back to current docs or console sources.
+- Updated docs examples and guide snippets to use `trellis_rs` import paths.
 
 ## [0.10.0] - 2026-05-29
 
@@ -678,13 +658,8 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.6...HEAD
-[0.10.1-rc.6]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.5...v0.10.1-rc.6
-[0.10.1-rc.5]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.4...v0.10.1-rc.5
-[0.10.1-rc.4]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.3...v0.10.1-rc.4
-[0.10.1-rc.3]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.2...v0.10.1-rc.3
-[0.10.1-rc.2]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.1...v0.10.1-rc.2
-[0.10.1-rc.1]: https://github.com/Qlever-LLC/trellis/compare/v0.10.0...v0.10.1-rc.1
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/Qlever-LLC/trellis/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/Qlever-LLC/trellis/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/Qlever-LLC/trellis/compare/v0.8.4...v0.9.0
 [0.8.4]: https://github.com/Qlever-LLC/trellis/compare/v0.8.3...v0.8.4
