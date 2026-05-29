@@ -4,7 +4,7 @@ import { assertEquals } from "@std/assert";
 
 import { __testing__ } from "./callout.ts";
 import { connectionKey } from "../session/connections.ts";
-import type { ServiceSession } from "../schemas.ts";
+import type { ImplementationOffer, ServiceSession } from "../schemas.ts";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -137,12 +137,27 @@ Deno.test("auth callout error responder sends blank response without complete co
   assertEquals(sealCalled, false);
 });
 
-Deno.test("disconnect cleanup deletes pending expansion requests for service sessions", async () => {
+Deno.test("disconnect cleanup marks accepted service offers stale", async () => {
   const sessionKey = "session-a";
   const key = connectionKey(sessionKey, "scope-a", TEST_USER_NKEY);
   const deletedConnections: string[] = [];
-  const cancelledInstances: string[] = [];
   const publishedEvents: unknown[] = [];
+  const offers: ImplementationOffer[] = [{
+    offerId: "offer-a",
+    deploymentKind: "service",
+    deploymentId: "svc-a",
+    instanceId: "svc-instance-a",
+    contractId: "svc.contract@v1",
+    contractDigest: "sha256-a",
+    lineageKey: "service:svc-a:svc.contract@v1",
+    status: "accepted",
+    liveness: "healthy",
+    firstOfferedAt: "2026-01-01T00:00:00.000Z",
+    acceptedAt: "2026-01-01T00:00:00.000Z",
+    lastRefreshedAt: "2026-01-01T00:00:00.000Z",
+    staleAt: null,
+    expiresAt: null,
+  }];
   const noopEventPublisher = {
     publish: (_payload: Record<string, unknown>) => AsyncResult.ok(undefined),
   };
@@ -158,15 +173,19 @@ Deno.test("disconnect cleanup deletes pending expansion requests for service ses
           yield key;
         })()),
     },
-    envelopeExpansionRequestStorage: {
-      async deletePendingServiceRequestsByRequesterInstanceId(instanceId) {
-        cancelledInstances.push(instanceId);
-        return 1;
-      },
-    },
     implementationOfferStorage: {
-      listByInstance: () => Promise.resolve([]),
-      put: () => Promise.resolve(),
+      listByInstance: (instanceId: string) =>
+        Promise.resolve(
+          offers.filter((offer) => offer.instanceId === instanceId),
+        ),
+      put: (offer: ImplementationOffer) => {
+        const index = offers.findIndex((stored) =>
+          stored.offerId === offer.offerId
+        );
+        if (index >= 0) offers[index] = offer;
+        else offers.push(offer);
+        return Promise.resolve();
+      },
     },
     logger: {
       trace: () => undefined,
@@ -179,6 +198,7 @@ Deno.test("disconnect cleanup deletes pending expansion requests for service ses
       subject: "$SYS.ACCOUNT.T.DISCONNECT",
       string: () => JSON.stringify({ client: { user_nkey: TEST_USER_NKEY } }),
     },
+    now: new Date("2026-01-01T00:05:00.000Z"),
     offerStaleGraceMs: 30_000,
     sessionStorage: {
       getOneBySessionKey: async () => createServiceSession(),
@@ -204,7 +224,9 @@ Deno.test("disconnect cleanup deletes pending expansion requests for service ses
     },
   });
 
-  assertEquals(cancelledInstances, ["svc-instance-a"]);
+  assertEquals(offers[0]?.liveness, "disconnected");
+  assertEquals(offers[0]?.lastRefreshedAt, "2026-01-01T00:05:00.000Z");
+  assertEquals(offers[0]?.staleAt, "2026-01-01T00:05:30.000Z");
   assertEquals(deletedConnections, [key]);
   assertEquals(publishedEvents, [{
     origin: "trellis.service",

@@ -488,7 +488,7 @@ Deno.test("device activation client wrappers hide method strings", async () => {
         return {
           start(): AsyncResult<
             AuthResolveDeviceUserAuthoritiesOperation,
-            never
+            UnexpectedError
           > {
             return AsyncResult.ok({
               id: "op_123",
@@ -600,21 +600,21 @@ Deno.test("device activation client wrappers hide method strings", async () => {
     method: "Auth.DeviceUserAuthorities.List",
     input: AuthDeviceUserAuthoritiesListInput,
     _opts?: unknown,
-  ): AsyncResult<AuthDeviceUserAuthoritiesListOutput, never>;
+  ): AsyncResult<AuthDeviceUserAuthoritiesListOutput, UnexpectedError>;
   function request(
     method: "Auth.DeviceUserAuthorities.Revoke",
     input: AuthDeviceUserAuthoritiesRevokeInput,
     _opts?: unknown,
-  ): AsyncResult<AuthDeviceUserAuthoritiesRevokeResponse, never>;
+  ): AsyncResult<AuthDeviceUserAuthoritiesRevokeResponse, UnexpectedError>;
   function request(
     method: "Auth.Devices.ConnectInfo.Get",
     input: Record<string, unknown>,
     _opts?: unknown,
-  ): AsyncResult<GetDeviceConnectInfoOutput, never>;
+  ): AsyncResult<GetDeviceConnectInfoOutput, UnexpectedError>;
   function request(
     method: string,
     input: unknown,
-  ): AsyncResult<unknown, never> {
+  ): AsyncResult<unknown, UnexpectedError> {
     calls.push({ kind: "request", method, input });
     switch (method) {
       case "Auth.DeviceUserAuthorities.List":
@@ -653,8 +653,23 @@ Deno.test("device activation client wrappers hide method strings", async () => {
   }
 
   const transport: DeviceActivationTransport = {
-    operation,
-    request,
+    operation: {
+      auth: {
+        deviceUserAuthoritiesResolve: operation(
+          "Auth.DeviceUserAuthorities.Resolve",
+        ),
+      },
+    },
+    rpc: {
+      auth: {
+        deviceUserAuthoritiesList: (input) =>
+          request("Auth.DeviceUserAuthorities.List", input),
+        deviceUserAuthoritiesRevoke: (input) =>
+          request("Auth.DeviceUserAuthorities.Revoke", input),
+        devicesConnectInfoGet: (input) =>
+          request("Auth.Devices.ConnectInfo.Get", input),
+      },
+    },
   };
   const client = createDeviceActivationClient(transport);
 

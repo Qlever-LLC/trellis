@@ -73,6 +73,7 @@ export function registerAuthHttpRoutes(
       deploymentAuthorityStorage: {
         get(deploymentId: string): Promise<DeploymentAuthority | undefined>;
         listEnabled(): Promise<DeploymentAuthority[]>;
+        put(record: DeploymentAuthority): Promise<void>;
       };
       deploymentAuthorityPlanStorage: {
         put(record: DeploymentAuthorityPlan): Promise<void>;
@@ -106,6 +107,12 @@ export function registerAuthHttpRoutes(
         ): Promise<DeploymentResourceBinding[]>;
       };
       implementationOfferStorage: SqlImplementationOfferRepository;
+      authorityReconciler: {
+        reconcileDeployment(
+          deploymentId: string,
+          opts?: { desiredVersion?: string },
+        ): Promise<unknown>;
+      };
       accountFlowStorage: SqlAccountFlowRepository;
       loginPortalStorage: SqlLoginPortalRepository;
       capabilityGroupStorage: SqlCapabilityGroupRepository;
@@ -151,6 +158,7 @@ export function registerAuthHttpRoutes(
       deps.deploymentAuthorityGrantOverrideStorage,
     deploymentResourceBindingStorage: deps.deploymentResourceBindingStorage,
     implementationOfferStorage: deps.implementationOfferStorage,
+    authorityReconciler: deps.authorityReconciler,
     serviceDeploymentStorage: deps.serviceDeploymentStorage,
     serviceInstanceStorage: deps.serviceInstanceStorage,
     config: deps.config,

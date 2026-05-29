@@ -8,6 +8,54 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-05-29
+
+### Added
+
+- Added deployment authority planning, acceptance, rejection, reconciliation,
+  storage, admin RPCs, CLI flows, and Console review pages for service and
+  device contract authority changes.
+- Added implementation-offer backed service authority, so non-builtin service
+  runtime availability is derived from accepted offers instead of repair-state
+  catalog evidence.
+- Added prepared event outbox/inbox support, event consumer groups, and expanded
+  runtime and integration coverage for event publish/subscribe behavior.
+- Added first-class Rust `trellis` facade modules for auth, client, service,
+  jobs, generated SDKs, events, transfer, resources, and service runtime APIs.
+- Added richer generated TypeScript and Rust contract support for digest-stable
+  manifests, schema pointers, resource declarations, and generated SDK metadata.
+- Added integration-harness fixtures and scenarios for authority, events, feeds,
+  jobs, operations, resources, RPC, state, transfer, and public API guards.
+
+### Changed
+
+- Replaced deployment envelopes and envelope-expansion admin surfaces with the
+  deployment authority model. Existing envelope RPCs, Console pages, design docs,
+  migrations, and helper names were removed or renamed to authority terminology.
+- Changed service bootstrap, runtime auth, auth-callout, catalog runtime, and
+  reconnect checks to use materialized deployment authority and accepted
+  implementation offers.
+- Changed service APIs to prefer `TrellisService.connect(...)` and
+  returned resource handles instead of constructing lower-level runtime objects
+  or passing raw binding payloads through service bootstrap code.
+- Renamed operation observation/control surfaces and simplified capability key
+  handling across contracts, SDKs, tests, and docs.
+- Reworked the documentation site under `docs/`, split and expanded the guides,
+  added deployment-authority concepts, Rust and TypeScript library pages, and
+  refreshed `llms.txt` / `llms-full.txt`.
+- Consolidated Rust runtime APIs under the top-level `trellis` crate facade and
+  updated demos to use current authority, event, and resource flows.
+
+### Fixed
+
+- Fixed service bootstrap dependency polling, dependency repair handling, and
+  default workspace build behavior for clean clone prepare flows.
+- Fixed jobs service bootstrap by provisioning jobs consumers before runtime use.
+- Fixed legacy service-session pruning during storage upgrades and refreshed the
+  Trellis service SQLite baseline around deployment authority history.
+- Fixed Console contract dependency displays and service contract authority
+  summaries for the new authority model.
+
 ## [0.9.0-rc.10] - 2026-05-22
 
 ### Fixed

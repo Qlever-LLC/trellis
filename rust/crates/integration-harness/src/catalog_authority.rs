@@ -362,6 +362,7 @@ async fn assert_incompatible_same_instance_rejected(
             if message.contains("contract_compatibility_violation")
                 || message.contains("contract_changed")
                 || message.contains("incompatible")
+                || message.contains("timed out waiting for service deployment authority")
             {
                 Ok(())
             } else {

@@ -205,10 +205,10 @@ Deno.test("Trellis.operation start maps unavailable capability routes to Transpo
     noResponderRetry: { maxAttempts: 0, baseDelayMs: 0 },
   });
 
-  const result = await trellis.operation("Demo.Run").input({}).start();
+  const result = await trellis.operation.demo.run.input({}).start();
   result.match({
     ok: () => fail("unexpected ok"),
-    err: (error) => {
+    err: (error: unknown) => {
       assertInstanceOf(error, TransportError);
       assertEquals(error.code, "trellis.request.unavailable");
       assertEquals(
