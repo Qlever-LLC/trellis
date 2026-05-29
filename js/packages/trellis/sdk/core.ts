@@ -1,1 +1,1 @@
-export * from "#trellis-generated-sdk/core";
+export * from "./_generated/core/mod.ts";

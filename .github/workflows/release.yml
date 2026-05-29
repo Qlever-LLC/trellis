@@ -690,9 +690,7 @@ jobs:
 
   publish-jsr:
     name: Publish JSR packages
-    # Keep JSR release wiring in place, but do not publish until the packages are
-    # linked to this repository in JSR settings.
-    if: ${{ false && needs.prepare-release.outputs.should-publish == 'true' }}
+    if: needs.prepare-release.outputs.should-publish == 'true'
     needs:
       - prepare-release
       - github-release

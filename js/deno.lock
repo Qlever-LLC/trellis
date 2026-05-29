@@ -2351,6 +2351,12 @@
           "npm:vite@*"
         ]
       },
+      "packages/result": {
+        "dependencies": [
+          "npm:typebox@^1.1.33",
+          "npm:ulid@^3.0.2"
+        ]
+      },
       "portals/login": {
         "dependencies": [
           "npm:vite@*"

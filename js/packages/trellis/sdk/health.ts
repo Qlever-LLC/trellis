@@ -1,1 +1,1 @@
-export * from "#trellis-generated-sdk/health";
+export * from "./_generated/health/mod.ts";

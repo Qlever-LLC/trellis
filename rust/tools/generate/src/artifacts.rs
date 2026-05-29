@@ -130,6 +130,12 @@ pub fn write_contract_outputs(
             ),
         })
         .into_diagnostic()?;
+        copy_embedded_trellis_owned_ts_sdk(
+            &resolved.loaded.manifest.id,
+            ts_out,
+            runtime_source,
+            runtime_repo_root.as_deref(),
+        )?;
     }
 
     if let Some(npm_out) = npm_out {
@@ -924,6 +930,7 @@ pub fn generated_artifacts_are_fresh(
     existing == *expected
         && out_manifest.exists()
         && ts_key_outputs_exist(ts_out)
+        && embedded_trellis_owned_ts_sdk_key_outputs_exist(expected, out_manifest)
         && npm_key_outputs_exist(npm_out)
         && rust_key_outputs_exist(rust_out, expected, out_manifest)
 }
@@ -968,6 +975,23 @@ fn npm_key_outputs_exist(npm_out: Option<&Path>) -> bool {
     npm_out.join("package.json").exists()
         && npm_out.join("esm/mod.js").exists()
         && npm_out.join("esm/mod.d.ts").exists()
+}
+
+fn embedded_trellis_owned_ts_sdk_key_outputs_exist(
+    expected: &GeneratedArtifactsMetadata,
+    out_manifest: &Path,
+) -> bool {
+    if !matches!(expected.runtime_source, RuntimeSource::Local) {
+        return true;
+    }
+    let Some(module) = embedded_trellis_owned_rust_sdk_module(&expected.contract_id) else {
+        return true;
+    };
+    let repo_root = detect_output_root(out_manifest.parent().unwrap_or(out_manifest));
+    let embedded_dir = repo_root
+        .join("js/packages/trellis/sdk/_generated")
+        .join(module);
+    embedded_dir.join("mod.ts").exists() && embedded_dir.join("contract.ts").exists()
 }
 
 fn rust_key_outputs_exist(
@@ -1047,6 +1071,47 @@ fn copy_embedded_trellis_owned_rust_sdk(
             file_name.to_os_string()
         };
         write_if_changed(&dest_dir.join(dest_name), &rewritten)?;
+    }
+    Ok(())
+}
+
+fn copy_embedded_trellis_owned_ts_sdk(
+    contract_id: &str,
+    ts_out: &Path,
+    runtime_source: RuntimeSource,
+    runtime_repo_root: Option<&Path>,
+) -> miette::Result<()> {
+    if !matches!(runtime_source, RuntimeSource::Local) {
+        return Ok(());
+    }
+    let Some(module) = embedded_trellis_owned_rust_sdk_module(contract_id) else {
+        return Ok(());
+    };
+    let Some(repo_root) = runtime_repo_root else {
+        return Ok(());
+    };
+    let dest_dir = repo_root
+        .join("js/packages/trellis/sdk/_generated")
+        .join(module);
+    if dest_dir.exists() {
+        fs::remove_dir_all(&dest_dir).into_diagnostic()?;
+    }
+    fs::create_dir_all(&dest_dir).into_diagnostic()?;
+
+    for entry in fs::read_dir(ts_out).into_diagnostic()? {
+        let entry = entry.into_diagnostic()?;
+        let path = entry.path();
+        if !path.is_file() || path.extension().is_none_or(|extension| extension != "ts") {
+            continue;
+        }
+        let file_name = path.file_name().ok_or_else(|| {
+            miette::miette!(
+                "generated TypeScript SDK source path has no file name: {}",
+                path.display()
+            )
+        })?;
+        let contents = fs::read_to_string(&path).into_diagnostic()?;
+        write_if_changed(&dest_dir.join(file_name), &contents)?;
     }
     Ok(())
 }

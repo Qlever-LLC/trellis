@@ -64,7 +64,7 @@ That single tag drives:
 - Rust crate publication
 - OCI image publication
 
-JSR publication is wired into the workflow but currently disabled while the JSR packages are being set up.
+JSR publication is enabled for the staged package set.
 
 Release-managed JS packages and Rust crates use one checked-in base version. Stable releases usually bump that checked-in base version. Prerelease tags use a suffix such as `-rc.1`; they normally keep the checked-in base version unchanged.
 
@@ -83,7 +83,7 @@ The staged JSR publish set is:
 - `@qlever-llc/result`
 - `@qlever-llc/trellis`
 
-The workflow still runs JSR dry-runs for those packages so package shape issues are caught early. The `publish-jsr` job is disabled until those packages are linked to this repository in JSR settings.
+The workflow runs JSR dry-runs for those packages so package shape issues are caught early, then publishes them after the release gate passes.
 
 `@qlever-llc/trellis-svelte` is published to npm, but is not staged for JSR because the current source package exports `.svelte` components that `deno publish` cannot analyze directly.
 

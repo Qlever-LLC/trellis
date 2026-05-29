@@ -1,1 +1,1 @@
-export * from "#trellis-generated-sdk/auth";
+export * from "./_generated/auth/mod.ts";

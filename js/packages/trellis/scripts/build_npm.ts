@@ -78,6 +78,18 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
+async function urlExists(url: URL): Promise<boolean> {
+  try {
+    await Deno.stat(url);
+    return true;
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) {
+      return false;
+    }
+    throw error;
+  }
+}
+
 async function removeFileDntPolyfills(fileUrl: URL) {
   const original = await Deno.readTextFile(fileUrl);
   const updated = original
@@ -203,18 +215,49 @@ async function normalizeModuleSpecifiers() {
 
 async function stageCanonicalGeneratedSdkArtifacts() {
   for (const format of ["esm", "script"]) {
-    const source = new URL(
+    const legacySourceRoot = new URL(
       `../npm/${format}/npm/src/.build/generated-sdk/`,
       import.meta.url,
     );
-    const target = new URL(`../npm/${format}/generated-sdk/`, import.meta.url);
-    await Deno.remove(target, { recursive: true }).catch((error) => {
+    const packageSourceRoot = new URL(
+      `../npm/${format}/npm/src/sdk/_generated/`,
+      import.meta.url,
+    );
+    const targetRoot = new URL(
+      `../npm/${format}/generated-sdk/`,
+      import.meta.url,
+    );
+    await Deno.remove(targetRoot, { recursive: true }).catch((error) => {
       if (!(error instanceof Deno.errors.NotFound)) {
         throw error;
       }
     });
-    await copyDir(source, target);
-    await Deno.remove(source, { recursive: true });
+    await Deno.mkdir(targetRoot, { recursive: true });
+
+    for (const [sdkName, sdkDir] of Object.entries(sdkExportDirs)) {
+      const legacySource = new URL(`${sdkDir}/`, legacySourceRoot);
+      const packageSource = new URL(`${sdkName}/`, packageSourceRoot);
+      const source = await urlExists(legacySource)
+        ? legacySource
+        : packageSource;
+      if (!await urlExists(source)) {
+        throw new Error(
+          `missing generated SDK source for ${sdkName} in ${format} npm build`,
+        );
+      }
+      await copyDir(source, new URL(`${sdkDir}/`, targetRoot));
+    }
+
+    await Deno.remove(legacySourceRoot, { recursive: true }).catch((error) => {
+      if (!(error instanceof Deno.errors.NotFound)) {
+        throw error;
+      }
+    });
+    await Deno.remove(packageSourceRoot, { recursive: true }).catch((error) => {
+      if (!(error instanceof Deno.errors.NotFound)) {
+        throw error;
+      }
+    });
   }
 }
 
@@ -268,6 +311,10 @@ async function rewriteCanonicalGeneratedSdkSelfImports() {
       for (const sdkName of Object.keys(sdkExportDirs)) {
         updated = updated
           .replaceAll(
+            `../../${sdkName}.js`,
+            `@qlever-llc/trellis/sdk/${sdkName}`,
+          )
+          .replaceAll(
             `../../../sdk/${sdkName}.js`,
             `@qlever-llc/trellis/sdk/${sdkName}`,
           )
@@ -319,6 +366,9 @@ async function rewriteSdkWrapperTargets() {
 
         const updated = original.replaceAll(
           `../.build/generated-sdk/${sdkDir}/mod.js`,
+          `../../../generated-sdk/${sdkDir}/mod.js`,
+        ).replaceAll(
+          `./_generated/${sdkName}/mod.js`,
           `../../../generated-sdk/${sdkDir}/mod.js`,
         );
         if (updated !== original) {
@@ -555,7 +605,7 @@ await buildDntPackage({
     "@nats-io/obj": "^3.3.1",
     "@nats-io/nats-core": "^3.3.1",
     "@nats-io/transport-node": "^3.3.1",
-    "@qlever-llc/result": "^0.10.1",
+    "@qlever-llc/result": "^0.10.2",
     "js-sha256": "^0.11.1",
     pino: "^9.11.0",
     tweetnacl: "^1.0.3",

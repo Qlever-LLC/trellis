@@ -1,1 +1,1 @@
-export * from "#trellis-generated-sdk/jobs";
+export * from "./_generated/jobs/mod.ts";

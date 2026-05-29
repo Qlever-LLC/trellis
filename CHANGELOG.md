@@ -8,6 +8,16 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-05-29
+
+### Fixed
+
+- Enabled GitHub Actions JSR publishing for the staged `@qlever-llc/result` and
+  `@qlever-llc/trellis` packages.
+- Fixed the `@qlever-llc/trellis` JSR package layout so first-party generated
+  SDK exports publish from package-local generated files instead of private
+  workspace aliases.
+
 ## [0.10.1] - 2026-05-29
 
 ### Changed
@@ -658,7 +668,8 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.2...HEAD
+[0.10.2]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/Qlever-LLC/trellis/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/Qlever-LLC/trellis/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/Qlever-LLC/trellis/compare/v0.8.4...v0.9.0

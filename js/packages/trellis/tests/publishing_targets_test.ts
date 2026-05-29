@@ -54,6 +54,14 @@ Deno.test("release workflows use generated package-manager targets", async () =>
     releaseWorkflow,
     "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true",
   );
+  assertEquals(
+    releaseWorkflow.includes(
+      "false && needs.prepare-release.outputs.should-publish",
+    ),
+    false,
+  );
+  assertStringIncludes(releaseWorkflow, "publish_or_skip js/packages/result");
+  assertStringIncludes(releaseWorkflow, "publish_or_skip js/packages/trellis");
 });
 
 Deno.test("pages workflow cleans generator fallback temp dirs explicitly", async () => {
@@ -120,19 +128,15 @@ Deno.test("trellis package exports the first-party SDK subpaths", async () => {
   assertStringIncludes(source, '"./sdk/state": "./sdk/state.ts"');
 });
 
-Deno.test("workspace config exposes the trellis sdk subpath aliases", async () => {
+Deno.test("workspace config does not shadow publishable package members", async () => {
   const source = await Deno.readTextFile(
     new URL("../../../deno.json", import.meta.url),
   );
 
-  assertStringIncludes(
-    source,
-    '"@qlever-llc/trellis/sdk/jobs": "./packages/trellis/sdk/jobs.ts"',
-  );
-  assertStringIncludes(
-    source,
-    '"@qlever-llc/trellis/sdk/auth": "./packages/trellis/sdk/auth.ts"',
-  );
+  assertEquals(source.includes('"@qlever-llc/result":'), false);
+  assertEquals(source.includes('"@qlever-llc/trellis":'), false);
+  assertEquals(source.includes('"@qlever-llc/trellis/sdk/jobs":'), false);
+  assertEquals(source.includes('"@qlever-llc/trellis-svelte":'), false);
 });
 
 Deno.test("trellis npm build depends on the standalone result package name", async () => {
@@ -150,4 +154,6 @@ Deno.test("trellis package exports the errors and health subpaths", async () => 
 
   assertStringIncludes(source, '"./errors": "./errors/index.ts"');
   assertStringIncludes(source, '"./health": "./health.ts"');
+  assertStringIncludes(source, '"./host": "./host/mod.ts"');
+  assertStringIncludes(source, '"./jobs": "./jobs.ts"');
 });
