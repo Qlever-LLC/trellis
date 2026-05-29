@@ -274,7 +274,7 @@ async function writeConsumerProject(projectDir: string) {
           skipLibCheck: false,
           allowArbitraryExtensions: true,
           allowImportingTsExtensions: true,
-          types: ["svelte"],
+          types: ["node", "svelte"],
         },
         include: ["index.ts"],
       },
@@ -346,6 +346,7 @@ await run("npm", [
   "--no-package-lock",
   "--ignore-scripts",
   ...tarballs,
+  "@types/node",
   "typescript",
   "svelte",
 ], { cwd: projectDir });

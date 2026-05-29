@@ -302,7 +302,7 @@ export default contract;
     )
     .unwrap();
     assert!(client.contains(
-        "request(method: \"Orders.Get\", input: OrdersSdk.OrdersGetInput, opts?: RequestOpts): AsyncResult<OrdersSdk.OrdersGetOutput, BaseError>;"
+        "get(input: OrdersSdk.OrdersGetInput, opts?: RequestOpts): AsyncResult<OrdersSdk.OrdersGetOutput, BaseError>;"
     ));
     let api =
         fs::read_to_string(temp.path().join("generated/packages/jsr/dashboard/api.ts")).unwrap();
@@ -1341,8 +1341,9 @@ fn local_mode_regenerates_when_rust_sdk_cargo_toml_is_invalid() {
     let repaired = fs::read_to_string(&cargo_toml).unwrap();
     assert!(repaired.contains("serde = { version = \"1.0\""));
     assert!(repaired.contains("serde_json = \"1.0\""));
-    assert!(repaired.contains("trellis-client = \"0.4.0\""));
+    assert!(repaired.contains("trellis = \"0.4.0\""));
     assert!(repaired.contains("trellis-contracts = \"0.4.0\""));
+    assert!(!repaired.contains("trellis-client"));
     assert!(!repaired.contains("trellis-service"));
 }
 

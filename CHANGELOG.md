@@ -8,6 +8,19 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.1-rc.1] - 2026-05-29
+
+### Fixed
+
+- Fixed release npm smoke checks by installing Node type definitions in the
+  generated consumer project.
+- Fixed release generator tests for current TypeScript client method output and
+  Rust SDK dependency names.
+- Fixed Rust-authored demo service contract parity with the TypeScript source
+  contract.
+- Fixed GitHub Pages release-site builds to tolerate unavailable or incomplete
+  release worktrees and fall back to current docs or console sources.
+
 ## [0.10.0] - 2026-05-29
 
 ### Added
@@ -30,14 +43,15 @@ and this project adheres to
 ### Changed
 
 - Replaced deployment envelopes and envelope-expansion admin surfaces with the
-  deployment authority model. Existing envelope RPCs, Console pages, design docs,
-  migrations, and helper names were removed or renamed to authority terminology.
+  deployment authority model. Existing envelope RPCs, Console pages, design
+  docs, migrations, and helper names were removed or renamed to authority
+  terminology.
 - Changed service bootstrap, runtime auth, auth-callout, catalog runtime, and
   reconnect checks to use materialized deployment authority and accepted
   implementation offers.
-- Changed service APIs to prefer `TrellisService.connect(...)` and
-  returned resource handles instead of constructing lower-level runtime objects
-  or passing raw binding payloads through service bootstrap code.
+- Changed service APIs to prefer `TrellisService.connect(...)` and returned
+  resource handles instead of constructing lower-level runtime objects or
+  passing raw binding payloads through service bootstrap code.
 - Renamed operation observation/control surfaces and simplified capability key
   handling across contracts, SDKs, tests, and docs.
 - Reworked the documentation site under `docs/`, split and expanded the guides,
@@ -50,7 +64,8 @@ and this project adheres to
 
 - Fixed service bootstrap dependency polling, dependency repair handling, and
   default workspace build behavior for clean clone prepare flows.
-- Fixed jobs service bootstrap by provisioning jobs consumers before runtime use.
+- Fixed jobs service bootstrap by provisioning jobs consumers before runtime
+  use.
 - Fixed legacy service-session pruning during storage upgrades and refreshed the
   Trellis service SQLite baseline around deployment authority history.
 - Fixed Console contract dependency displays and service contract authority
@@ -626,7 +641,9 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.1...HEAD
+[0.10.1-rc.1]: https://github.com/Qlever-LLC/trellis/compare/v0.10.0...v0.10.1-rc.1
+[0.10.0]: https://github.com/Qlever-LLC/trellis/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/Qlever-LLC/trellis/compare/v0.8.4...v0.9.0
 [0.8.4]: https://github.com/Qlever-LLC/trellis/compare/v0.8.3...v0.8.4
 [0.8.3]: https://github.com/Qlever-LLC/trellis/compare/v0.8.2...v0.8.3

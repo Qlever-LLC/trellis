@@ -57,20 +57,23 @@ jobs:
           generator_cache="${HOME}/.cache/trellis/pages-generator"
           generator_target="x86_64-unknown-linux-gnu"
           pages_root="/tmp/trellis-pages-site"
-          release_worktree="/tmp/trellis-release-worktree"
+          release_worktree_path="/tmp/trellis-release-worktree"
+          release_worktree="${release_worktree_path}"
+          release_worktree_created="false"
 
-          rm -rf "${release_root}" "${pages_root}" "${release_worktree}"
+          rm -rf "${release_root}" "${pages_root}" "${release_worktree_path}"
           mkdir -p "${release_root}" "${pages_root}"
 
           if [ "${latest_tag}" = "HEAD" ]; then
             release_worktree="${current_root}"
           else
-            git worktree add --detach "${release_worktree}" "${latest_tag}"
+            git worktree add --detach "${release_worktree_path}" "${latest_tag}"
+            release_worktree_created="true"
           fi
 
           cleanup() {
-            if [ "${release_worktree}" != "${current_root}" ]; then
-              git worktree remove --force "${release_worktree}"
+            if [ "${release_worktree_created}" = "true" ]; then
+              git worktree remove --force "${release_worktree_path}"
             fi
           }
           trap cleanup EXIT
@@ -201,8 +204,17 @@ jobs:
             )
           }
 
+          release_docs_root="${release_worktree}"
+          if [ ! -d "${release_docs_root}/docs" ]; then
+            echo "Latest release tag worktree is missing docs; using current main docs until the next release tag"
+            release_docs_root="${current_root}"
+          fi
+
           release_console_root="${release_worktree}"
-          if ! grep -q 'SITE_BASE_PATH' "${release_worktree}/js/apps/console/svelte.config.js"; then
+          if [ ! -f "${release_worktree}/js/apps/console/svelte.config.js" ]; then
+            echo "Latest release tag worktree is missing console sources; using current main console until the next release tag"
+            release_console_root="${current_root}"
+          elif ! grep -q 'SITE_BASE_PATH' "${release_worktree}/js/apps/console/svelte.config.js"; then
             echo "Latest release tag predates Pages console base-path support; using current main console until the next release tag"
             release_console_root="${current_root}"
           fi
@@ -212,7 +224,7 @@ jobs:
           prepare_once "${release_worktree}" "${latest_tag}"
           prepare_once "${current_root}" "${current_tag}"
 
-          build_docs "${release_worktree}" "${site_root}" "${release_root}/docs"
+          build_docs "${release_docs_root}" "${site_root}" "${release_root}/docs"
           build_docs "${current_root}" "${site_root}/current" "${pages_root}/current"
 
           build_console "${release_console_root}" "${site_root}/console" "${release_root}/console"

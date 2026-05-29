@@ -63,6 +63,8 @@ Deno.test("pages workflow cleans generator fallback temp dirs explicitly", async
 
   assertEquals(source.includes("trap cleanup_temp RETURN"), false);
   assertStringIncludes(source, "cleanup_temp");
+  assertStringIncludes(source, "release_worktree_path");
+  assertStringIncludes(source, "release_worktree_created");
   assertStringIncludes(
     source,
     "Published trellis-generate archive is not available",
@@ -70,6 +72,11 @@ Deno.test("pages workflow cleans generator fallback temp dirs explicitly", async
   assertStringIncludes(
     source,
     "Published trellis-generate checksum is not available",
+  );
+  assertStringIncludes(source, "Latest release tag worktree is missing docs");
+  assertStringIncludes(
+    source,
+    "Latest release tag worktree is missing console sources",
   );
   assertStringIncludes(source, "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true");
 });

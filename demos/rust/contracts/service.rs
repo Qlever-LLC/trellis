@@ -611,10 +611,6 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
                 "EvidenceDownloadResponse",
                 ["TransferError", "UnexpectedError"],
             )
-            .docs_with_summary(
-                "Download evidence.",
-                "Creates a receive transfer grant for one evidence object.",
-            )
             .with_receive_transfer(),
         )
         .rpc(
