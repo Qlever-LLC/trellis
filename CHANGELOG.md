@@ -8,6 +8,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.1-rc.3] - 2026-05-29
+
+### Fixed
+
+- Fixed crates.io release publishing to publish only public Rust crates and skip
+  private workspace crates marked `publish = false`.
+
 ## [0.10.1-rc.2] - 2026-05-29
 
 ### Fixed
@@ -648,7 +655,8 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.2...HEAD
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.3...HEAD
+[0.10.1-rc.3]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.2...v0.10.1-rc.3
 [0.10.1-rc.2]: https://github.com/Qlever-LLC/trellis/compare/v0.10.1-rc.1...v0.10.1-rc.2
 [0.10.1-rc.1]: https://github.com/Qlever-LLC/trellis/compare/v0.10.0...v0.10.1-rc.1
 [0.10.0]: https://github.com/Qlever-LLC/trellis/compare/v0.9.0...v0.10.0

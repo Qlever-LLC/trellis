@@ -585,21 +585,12 @@ jobs:
           }
 
           publish_workspace_crate trellis-contracts
-          publish_workspace_crate trellis-client
-          publish_workspace_crate trellis-service
-          publish_workspace_crate trellis-local-bootstrap
-
-          publish_workspace_crate trellis-codegen-rust
-          publish_workspace_crate trellis-codegen-ts
-          publish_workspace_crate trellis-generate-runner
+          publish_workspace_crate trellis
 
           generate_publishable_sdk_crates
 
           publish_generated_crate ../generated/packages/cargo/auth/Cargo.toml trellis-sdk-auth
           publish_generated_crate ../generated/packages/cargo/trellis-core/Cargo.toml trellis-sdk-core
-
-          publish_workspace_crate trellis-auth
-          publish_workspace_crate trellis-cli
 
           echo "Published ${#published[@]} crate(s)"
           for item in "${published[@]}"; do

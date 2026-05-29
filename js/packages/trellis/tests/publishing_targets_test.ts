@@ -81,6 +81,38 @@ Deno.test("pages workflow cleans generator fallback temp dirs explicitly", async
   assertStringIncludes(source, "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true");
 });
 
+Deno.test("release workflow publishes only public Rust crates", async () => {
+  const source = await Deno.readTextFile(
+    new URL("../../../../.github/workflows/release.yml", import.meta.url),
+  );
+
+  for (const crate of ["trellis-contracts", "trellis"]) {
+    assertStringIncludes(source, `publish_workspace_crate ${crate}`);
+  }
+  for (
+    const crate of [
+      "trellis-auth",
+      "trellis-cli",
+      "trellis-client",
+      "trellis-codegen-rust",
+      "trellis-codegen-ts",
+      "trellis-generate-runner",
+      "trellis-local-bootstrap",
+      "trellis-service",
+    ]
+  ) {
+    assertEquals(source.includes(`publish_workspace_crate ${crate}`), false);
+  }
+  assertStringIncludes(
+    source,
+    "publish_generated_crate ../generated/packages/cargo/auth/Cargo.toml trellis-sdk-auth",
+  );
+  assertStringIncludes(
+    source,
+    "publish_generated_crate ../generated/packages/cargo/trellis-core/Cargo.toml trellis-sdk-core",
+  );
+});
+
 Deno.test("trellis package exports the first-party SDK subpaths", async () => {
   const source = await Deno.readTextFile(
     new URL("../deno.json", import.meta.url),
