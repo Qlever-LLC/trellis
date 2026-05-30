@@ -8,6 +8,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-05-30
+
+### Fixed
+
+- Promoted the `0.10.3` release after fixing staged JSR publishing and npm
+  artifact smoke failures for the public Trellis packages.
+
 ## [0.10.3-rc.4] - 2026-05-29
 
 ### Fixed
@@ -703,7 +710,8 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.3-rc.4...HEAD
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.3...HEAD
+[0.10.3]: https://github.com/Qlever-LLC/trellis/compare/v0.10.3-rc.4...v0.10.3
 [0.10.3-rc.4]: https://github.com/Qlever-LLC/trellis/compare/v0.10.3-rc.3...v0.10.3-rc.4
 [0.10.3-rc.3]: https://github.com/Qlever-LLC/trellis/compare/v0.10.3-rc.2...v0.10.3-rc.3
 [0.10.3-rc.2]: https://github.com/Qlever-LLC/trellis/compare/v0.10.3-rc.1...v0.10.3-rc.2
