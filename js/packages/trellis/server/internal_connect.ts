@@ -3,13 +3,14 @@ import {
   API as TRELLIS_CORE_API,
   type TrellisBindingsGetOutput,
   type TrellisCatalogOutput,
-} from "@qlever-llc/trellis/sdk/core";
-import { createAuth } from "@qlever-llc/trellis/auth";
-import { isErr, Trellis as RootTrellis } from "@qlever-llc/trellis";
+} from "../sdk/core.ts";
+import { createAuth } from "../auth.ts";
+import { isErr } from "@qlever-llc/result";
+import { Trellis as RootTrellis } from "../trellis.ts";
 
 import { logger as noopLogger, type LoggerLike } from "../globals.ts";
 import { serverLogger } from "../server_logger.ts";
-import type { TrellisAPI } from "@qlever-llc/trellis/contracts";
+import type { TrellisAPI } from "../contracts.ts";
 import type { ContractKvMetadata } from "../contract_support/mod.ts";
 import {
   DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS,

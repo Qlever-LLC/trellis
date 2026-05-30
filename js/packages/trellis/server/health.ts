@@ -9,8 +9,8 @@
  */
 
 import { type Result } from "@qlever-llc/result";
-import type { JsonValue } from "@qlever-llc/trellis/contracts";
-import { type TrellisError } from "@qlever-llc/trellis";
+import type { JsonValue } from "../contracts.ts";
+import { type TrellisError } from "../errors/index.ts";
 import { ulid } from "ulid";
 
 type MaybePromise<T> = T | Promise<T>;

@@ -1,4 +1,4 @@
-import type { TrellisAPI } from "@qlever-llc/trellis/contracts";
+import type { TrellisAPI } from "../contracts.ts";
 
 import { Result } from "@qlever-llc/result";
 import {

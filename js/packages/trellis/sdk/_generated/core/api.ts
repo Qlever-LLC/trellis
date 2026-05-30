@@ -1,6 +1,6 @@
 // Generated from ./generated/contracts/manifests/trellis.core@v1.json
 import { OWNED_API } from "./owned_api.ts";
-import { OWNED_API as HealthApi } from "@qlever-llc/trellis/sdk/health";
+import { OWNED_API as HealthApi } from "../health/mod.ts";
 
 export { OWNED_API };
 

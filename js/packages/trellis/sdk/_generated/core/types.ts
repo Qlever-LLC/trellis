@@ -1,5 +1,5 @@
 // Generated from ./generated/contracts/manifests/trellis.core@v1.json
-import type { RpcHandlerFn } from "@qlever-llc/trellis";
+import type { RpcHandlerFn } from "../../../index.ts";
 import type { API } from "./api.ts";
 
 export const CONTRACT_ID = "trellis.core@v1" as const;

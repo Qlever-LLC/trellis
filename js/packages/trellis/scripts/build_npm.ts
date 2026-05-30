@@ -115,11 +115,21 @@ async function normalizeExportTargets(
       return {};
     }
 
-    const importPath = `./esm/npm/src/sdk/${sdkName}.js`;
-    const requirePath = `./script/npm/src/sdk/${sdkName}.js`;
+    const importPath = `./esm/sdk/${sdkName}.js`;
+    const requirePath = `./script/sdk/${sdkName}.js`;
+    const legacyImportPath = `./esm/npm/src/sdk/${sdkName}.js`;
+    const legacyRequirePath = `./script/npm/src/sdk/${sdkName}.js`;
     return {
-      ...(await pathExists(importPath) ? { import: importPath } : {}),
-      ...(await pathExists(requirePath) ? { require: requirePath } : {}),
+      ...(await pathExists(importPath)
+        ? { import: importPath }
+        : await pathExists(legacyImportPath)
+        ? { import: legacyImportPath }
+        : {}),
+      ...(await pathExists(requirePath)
+        ? { require: requirePath }
+        : await pathExists(legacyRequirePath)
+        ? { require: legacyRequirePath }
+        : {}),
     };
   }
 
@@ -223,6 +233,10 @@ async function stageCanonicalGeneratedSdkArtifacts() {
       `../npm/${format}/npm/src/sdk/_generated/`,
       import.meta.url,
     );
+    const directSourceRoot = new URL(
+      `../npm/${format}/sdk/_generated/`,
+      import.meta.url,
+    );
     const targetRoot = new URL(
       `../npm/${format}/generated-sdk/`,
       import.meta.url,
@@ -237,9 +251,12 @@ async function stageCanonicalGeneratedSdkArtifacts() {
     for (const [sdkName, sdkDir] of Object.entries(sdkExportDirs)) {
       const legacySource = new URL(`${sdkDir}/`, legacySourceRoot);
       const packageSource = new URL(`${sdkName}/`, packageSourceRoot);
+      const directSource = new URL(`${sdkName}/`, directSourceRoot);
       const source = await urlExists(legacySource)
         ? legacySource
-        : packageSource;
+        : await urlExists(packageSource)
+        ? packageSource
+        : directSource;
       if (!await urlExists(source)) {
         throw new Error(
           `missing generated SDK source for ${sdkName} in ${format} npm build`,
@@ -254,6 +271,11 @@ async function stageCanonicalGeneratedSdkArtifacts() {
       }
     });
     await Deno.remove(packageSourceRoot, { recursive: true }).catch((error) => {
+      if (!(error instanceof Deno.errors.NotFound)) {
+        throw error;
+      }
+    });
+    await Deno.remove(directSourceRoot, { recursive: true }).catch((error) => {
       if (!(error instanceof Deno.errors.NotFound)) {
         throw error;
       }
@@ -334,15 +356,24 @@ async function removeSdkWrapperPolyfills() {
   for (const sdkName of Object.keys(sdkExportDirs)) {
     for (const format of ["esm", "script"]) {
       for (const extension of ["js", "d.ts"]) {
-        const fileUrl = new URL(
-          `../npm/${format}/npm/src/sdk/${sdkName}.${extension}`,
-          import.meta.url,
-        );
-        await removeFileDntPolyfills(fileUrl).catch((error) => {
-          if (!(error instanceof Deno.errors.NotFound)) {
-            throw error;
-          }
-        });
+        for (
+          const fileUrl of [
+            new URL(
+              `../npm/${format}/sdk/${sdkName}.${extension}`,
+              import.meta.url,
+            ),
+            new URL(
+              `../npm/${format}/npm/src/sdk/${sdkName}.${extension}`,
+              import.meta.url,
+            ),
+          ]
+        ) {
+          await removeFileDntPolyfills(fileUrl).catch((error) => {
+            if (!(error instanceof Deno.errors.NotFound)) {
+              throw error;
+            }
+          });
+        }
       }
     }
   }
@@ -352,27 +383,42 @@ async function rewriteSdkWrapperTargets() {
   for (const [sdkName, sdkDir] of Object.entries(sdkExportDirs)) {
     for (const format of ["esm", "script"]) {
       for (const extension of ["js", "d.ts"]) {
-        const fileUrl = new URL(
-          `../npm/${format}/npm/src/sdk/${sdkName}.${extension}`,
-          import.meta.url,
-        );
-        const original = await Deno.readTextFile(fileUrl).catch((error) => {
-          if (error instanceof Deno.errors.NotFound) return undefined;
-          throw error;
-        });
-        if (original === undefined) {
-          continue;
-        }
+        for (
+          const [fileUrl, canonicalTarget] of [
+            [
+              new URL(
+                `../npm/${format}/sdk/${sdkName}.${extension}`,
+                import.meta.url,
+              ),
+              `../generated-sdk/${sdkDir}/mod.js`,
+            ],
+            [
+              new URL(
+                `../npm/${format}/npm/src/sdk/${sdkName}.${extension}`,
+                import.meta.url,
+              ),
+              `../../../generated-sdk/${sdkDir}/mod.js`,
+            ],
+          ] as const
+        ) {
+          const original = await Deno.readTextFile(fileUrl).catch((error) => {
+            if (error instanceof Deno.errors.NotFound) return undefined;
+            throw error;
+          });
+          if (original === undefined) {
+            continue;
+          }
 
-        const updated = original.replaceAll(
-          `../.build/generated-sdk/${sdkDir}/mod.js`,
-          `../../../generated-sdk/${sdkDir}/mod.js`,
-        ).replaceAll(
-          `./_generated/${sdkName}/mod.js`,
-          `../../../generated-sdk/${sdkDir}/mod.js`,
-        );
-        if (updated !== original) {
-          await Deno.writeTextFile(fileUrl, updated);
+          const updated = original.replaceAll(
+            `../.build/generated-sdk/${sdkDir}/mod.js`,
+            canonicalTarget,
+          ).replaceAll(
+            `./_generated/${sdkName}/mod.js`,
+            canonicalTarget,
+          );
+          if (updated !== original) {
+            await Deno.writeTextFile(fileUrl, updated);
+          }
         }
       }
     }

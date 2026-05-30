@@ -2,6 +2,34 @@ import { assertEquals, assertStringIncludes } from "@std/assert";
 import { parse } from "jsonc-parser";
 
 const decoder = new TextDecoder();
+const trellisSelfImportPattern =
+  /(?:from\s+|import\()\s*["']@qlever-llc\/trellis(?:\/[^"']*)?["']/;
+
+async function* walkPublishableSources(
+  dir: URL,
+): AsyncGenerator<URL> {
+  for await (const entry of Deno.readDir(dir)) {
+    const url = new URL(`${entry.name}${entry.isDirectory ? "/" : ""}`, dir);
+    if (entry.isDirectory) {
+      if ([".build", "npm", "scripts", "tests"].includes(entry.name)) {
+        continue;
+      }
+      yield* walkPublishableSources(url);
+      continue;
+    }
+
+    if (
+      !entry.name.endsWith(".ts") ||
+      entry.name.endsWith("_test.ts") ||
+      entry.name.endsWith(".test.ts") ||
+      entry.name.endsWith(".api_check.ts")
+    ) {
+      continue;
+    }
+
+    yield url;
+  }
+}
 
 Deno.test("workspace npm build task only builds the supported published packages", async () => {
   const source = await Deno.readFile(
@@ -135,6 +163,20 @@ Deno.test("trellis package exports the first-party SDK subpaths", async () => {
   assertStringIncludes(source, '"./sdk/health": "./sdk/health.ts"');
   assertStringIncludes(source, '"./sdk/jobs": "./sdk/jobs.ts"');
   assertStringIncludes(source, '"./sdk/state": "./sdk/state.ts"');
+});
+
+Deno.test("published trellis sources do not self-import package subpaths", async () => {
+  const offenders: string[] = [];
+  const packageRoot = new URL("../", import.meta.url);
+
+  for await (const sourceUrl of walkPublishableSources(packageRoot)) {
+    const source = await Deno.readTextFile(sourceUrl);
+    if (trellisSelfImportPattern.test(source)) {
+      offenders.push(sourceUrl.pathname.replace(packageRoot.pathname, ""));
+    }
+  }
+
+  assertEquals(offenders, []);
 });
 
 Deno.test("workspace config does not shadow publishable package members", async () => {

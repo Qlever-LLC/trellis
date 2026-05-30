@@ -28,12 +28,12 @@ import type {
   UnexpectedError,
   ValidationError,
   ValueStateStoreClient,
-} from "@qlever-llc/trellis";
+} from "../../../index.ts";
 import type { API, Api } from "./api.ts";
 import type * as Types from "./types.ts";
-import type * as AuthSdk from "@qlever-llc/trellis/sdk/auth";
-import type * as CoreSdk from "@qlever-llc/trellis/sdk/core";
-import type * as HealthSdk from "@qlever-llc/trellis/sdk/health";
+import type * as AuthSdk from "../auth/mod.ts";
+import type * as CoreSdk from "../core/mod.ts";
+import type * as HealthSdk from "../health/mod.ts";
 
 type EventCallback<TMessage> = {
   bivarianceHack(message: TMessage): MaybeAsync<void, BaseError>;

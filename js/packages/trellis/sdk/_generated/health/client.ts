@@ -28,7 +28,7 @@ import type {
   UnexpectedError,
   ValidationError,
   ValueStateStoreClient,
-} from "@qlever-llc/trellis";
+} from "../../../index.ts";
 import type { API, Api } from "./api.ts";
 import type * as Types from "./types.ts";
 

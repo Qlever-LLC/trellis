@@ -1,8 +1,8 @@
 // Generated from ./generated/contracts/manifests/trellis.jobs@v1.json
 import { OWNED_API } from "./owned_api.ts";
-import { OWNED_API as AuthApi } from "@qlever-llc/trellis/sdk/auth";
-import { OWNED_API as CoreApi } from "@qlever-llc/trellis/sdk/core";
-import { OWNED_API as HealthApi } from "@qlever-llc/trellis/sdk/health";
+import { OWNED_API as AuthApi } from "../auth/mod.ts";
+import { OWNED_API as CoreApi } from "../core/mod.ts";
+import { OWNED_API as HealthApi } from "../health/mod.ts";
 
 export { OWNED_API };
 

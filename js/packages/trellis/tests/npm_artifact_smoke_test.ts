@@ -74,28 +74,28 @@ Deno.test("trellis npm SDK exports resolve through public wrapper modules", asyn
 
   const packageJson = JSON.parse(await Deno.readTextFile(packageJsonUrl));
   assertEquals(packageJson.exports["./sdk/auth"], {
-    import: "./esm/npm/src/sdk/auth.js",
-    require: "./script/npm/src/sdk/auth.js",
+    import: "./esm/sdk/auth.js",
+    require: "./script/sdk/auth.js",
   });
   assertEquals(packageJson.exports["./sdk/core"], {
-    import: "./esm/npm/src/sdk/core.js",
-    require: "./script/npm/src/sdk/core.js",
+    import: "./esm/sdk/core.js",
+    require: "./script/sdk/core.js",
   });
   assertEquals(packageJson.exports["./sdk/health"], {
-    import: "./esm/npm/src/sdk/health.js",
-    require: "./script/npm/src/sdk/health.js",
+    import: "./esm/sdk/health.js",
+    require: "./script/sdk/health.js",
   });
   assertEquals(packageJson.exports["./sdk/jobs"], {
-    import: "./esm/npm/src/sdk/jobs.js",
-    require: "./script/npm/src/sdk/jobs.js",
+    import: "./esm/sdk/jobs.js",
+    require: "./script/sdk/jobs.js",
   });
   assertEquals(packageJson.exports["./sdk/state"], {
-    import: "./esm/npm/src/sdk/state.js",
-    require: "./script/npm/src/sdk/state.js",
+    import: "./esm/sdk/state.js",
+    require: "./script/sdk/state.js",
   });
 
   const authWrapper = await Deno.readTextFile(
-    new URL("../npm/esm/npm/src/sdk/auth.js", import.meta.url),
+    new URL("../npm/esm/sdk/auth.js", import.meta.url),
   );
   assertEquals(authWrapper.includes("useDefaults"), false);
   const authGeneratedMod = await Deno.readTextFile(
@@ -107,18 +107,18 @@ Deno.test("trellis npm SDK exports resolve through public wrapper modules", asyn
   );
   assertEquals(coreGeneratedMod.includes(" use,"), true);
   const healthWrapper = await Deno.readTextFile(
-    new URL("../npm/esm/npm/src/sdk/health.js", import.meta.url),
+    new URL("../npm/esm/sdk/health.js", import.meta.url),
   );
   assertEquals(healthWrapper.includes("useDefaults"), false);
   const stateWrapper = await Deno.readTextFile(
-    new URL("../npm/esm/npm/src/sdk/state.js", import.meta.url),
+    new URL("../npm/esm/sdk/state.js", import.meta.url),
   );
   assertEquals(stateWrapper.includes("useDefaults"), false);
 
   const authClientTypes = await Deno.readTextFile(
     new URL("../npm/esm/generated-sdk/auth/client.d.ts", import.meta.url),
   );
-  assertEquals(authClientTypes.includes('from "@qlever-llc/trellis"'), true);
+  assertEquals(authClientTypes.includes('from "../../../index.js"'), true);
   assertEquals(authClientTypes.includes("npm/src/errors"), false);
   assertEquals(authClientTypes.includes("../errors"), false);
 
@@ -127,7 +127,7 @@ Deno.test("trellis npm SDK exports resolve through public wrapper modules", asyn
   );
   assertEquals(
     authApiTypes.includes(
-      'import type { TrellisAPI } from "@qlever-llc/trellis/contracts";',
+      'import("../../../contracts.js").Schema',
     ),
     true,
   );
@@ -137,7 +137,7 @@ Deno.test("trellis npm SDK exports resolve through public wrapper modules", asyn
   );
   assertEquals(
     healthApiTypes.includes(
-      'import type { TrellisAPI } from "@qlever-llc/trellis/contracts";',
+      'import("../../../contracts.js").Schema',
     ),
     true,
   );
@@ -146,27 +146,27 @@ Deno.test("trellis npm SDK exports resolve through public wrapper modules", asyn
   );
   assertEquals(
     stateApiTypes.includes(
-      'import type { TrellisAPI } from "@qlever-llc/trellis/contracts";',
+      'import("../../../contracts.js").Schema',
     ),
     true,
   );
 
   await assertNotExists(
-    new URL("../npm/esm/npm/src/.build/generated-sdk", import.meta.url),
+    new URL("../npm/esm/sdk/_generated", import.meta.url),
   );
   await assertNotExists(
-    new URL("../npm/script/npm/src/.build/generated-sdk", import.meta.url),
+    new URL("../npm/script/sdk/_generated", import.meta.url),
   );
 });
 
 Deno.test("trellis npm runtime transport falls back to npm native transport in Deno", async () => {
   const packageJsonUrl = new URL("../npm/package.json", import.meta.url);
   const esmRuntimeTransport = new URL(
-    "../npm/esm/npm/src/runtime_transport.js",
+    "../npm/esm/runtime_transport.js",
     import.meta.url,
   );
   const scriptRuntimeTransport = new URL(
-    "../npm/script/npm/src/runtime_transport.js",
+    "../npm/script/runtime_transport.js",
     import.meta.url,
   );
 

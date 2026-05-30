@@ -12,8 +12,8 @@ import {
   TypedKV,
   TypedStore,
   TypedStoreEntry,
-} from "@qlever-llc/trellis";
-import { sdk as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
+} from "../index.ts";
+import { sdk as trellisAuth } from "../sdk/auth.ts";
 import {
   TrellisServiceRuntime,
   type TrellisServiceRuntimeFor,
@@ -24,12 +24,12 @@ import {
   type SentinelCreds,
   SentinelCredsSchema,
   type TrellisAuth as SessionAuth,
-} from "@qlever-llc/trellis/auth";
+} from "../auth.ts";
 import {
   ContractResourceBindingsSchema,
   type InferSchemaType,
-} from "@qlever-llc/trellis/contracts";
-import type { TrellisAPI } from "@qlever-llc/trellis/contracts";
+} from "../contracts.ts";
+import type { TrellisAPI } from "../contracts.ts";
 import type { TrellisContractV1 } from "../contract_support/mod.ts";
 import type {
   ContractEventConsumers,
@@ -45,7 +45,7 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { type HealthCheckFn, ServiceHealth } from "./health.ts";
 import { mountStandardHealthRpc } from "./health_rpc.ts";
-import type { RPCDesc } from "@qlever-llc/trellis/contracts";
+import type { RPCDesc } from "../contracts.ts";
 import type {
   AcceptedOperation,
   ActiveEventFacade,

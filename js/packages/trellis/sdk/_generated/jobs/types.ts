@@ -1,8 +1,8 @@
 // Generated from ./generated/contracts/manifests/trellis.jobs@v1.json
-import type { RpcHandlerFn } from "@qlever-llc/trellis";
+import type { RpcHandlerFn } from "../../../index.ts";
 import type { API } from "./api.ts";
 
-import { type SerializableErrorData, TrellisError } from "@qlever-llc/trellis";
+import { type SerializableErrorData, TrellisError } from "../../../index.ts";
 
 import { NotFoundErrorDataSchema } from "./schemas.ts";
 

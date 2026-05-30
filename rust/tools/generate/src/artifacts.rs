@@ -1111,9 +1111,28 @@ fn copy_embedded_trellis_owned_ts_sdk(
             )
         })?;
         let contents = fs::read_to_string(&path).into_diagnostic()?;
+        let contents = rewrite_embedded_trellis_owned_ts_sdk_source(&contents);
         write_if_changed(&dest_dir.join(file_name), &contents)?;
     }
     Ok(())
+}
+
+fn rewrite_embedded_trellis_owned_ts_sdk_source(contents: &str) -> String {
+    let mut rewritten = contents
+        .replace(
+            "from \"@qlever-llc/trellis/contracts\"",
+            "from \"../../../contracts.ts\"",
+        )
+        .replace("from \"@qlever-llc/trellis\"", "from \"../../../index.ts\"");
+
+    for sdk_name in ["auth", "core", "health", "jobs", "state"] {
+        rewritten = rewritten.replace(
+            &format!("from \"@qlever-llc/trellis/sdk/{sdk_name}\""),
+            &format!("from \"../{sdk_name}/mod.ts\""),
+        );
+    }
+
+    rewritten
 }
 
 fn rewrite_embedded_rust_sdk_source(contents: &str, is_root: bool) -> String {
@@ -1239,8 +1258,8 @@ mod tests {
 
     use super::{
         find_tsc_in_node_modules, generated_artifacts_metadata_path, render_npm_tsconfig,
-        rewrite_npm_ts_imports, trellis_package_version, ts_package_name_from_id,
-        write_contract_shell_outputs,
+        rewrite_embedded_trellis_owned_ts_sdk_source, rewrite_npm_ts_imports,
+        trellis_package_version, ts_package_name_from_id, write_contract_shell_outputs,
     };
 
     #[test]
@@ -1330,6 +1349,23 @@ mod tests {
         assert!(rewritten.contains("@qlever-llc/trellis"));
         assert!(!rewritten.contains(".ts\""));
         assert!(!rewritten.contains(".ts'"));
+    }
+
+    #[test]
+    fn embedded_trellis_owned_ts_sdk_uses_package_relative_imports() {
+        let source = concat!(
+            "import type { TrellisAPI } from \"@qlever-llc/trellis/contracts\";\n",
+            "import { schema } from \"@qlever-llc/trellis/contracts\";\n",
+            "import type { RpcHandlerFn } from \"@qlever-llc/trellis\";\n",
+            "import { OWNED_API as HealthApi } from \"@qlever-llc/trellis/sdk/health\";\n",
+        );
+
+        let rewritten = rewrite_embedded_trellis_owned_ts_sdk_source(source);
+
+        assert!(rewritten.contains("from \"../../../contracts.ts\""));
+        assert!(rewritten.contains("from \"../../../index.ts\""));
+        assert!(rewritten.contains("from \"../health/mod.ts\""));
+        assert!(!rewritten.contains("from \"@qlever-llc/trellis"));
     }
 
     #[test]

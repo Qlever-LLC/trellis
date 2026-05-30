@@ -4,7 +4,7 @@ import type {
   SdkContractModule,
   TrellisContractV1,
   UseSpec,
-} from "@qlever-llc/trellis";
+} from "../../../index.ts";
 import { API } from "./api.ts";
 
 const CONTRACT_MODULE_METADATA = Symbol.for(

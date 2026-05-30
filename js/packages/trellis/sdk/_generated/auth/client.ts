@@ -28,10 +28,10 @@ import type {
   UnexpectedError,
   ValidationError,
   ValueStateStoreClient,
-} from "@qlever-llc/trellis";
+} from "../../../index.ts";
 import type { API, Api } from "./api.ts";
 import type * as Types from "./types.ts";
-import type * as HealthSdk from "@qlever-llc/trellis/sdk/health";
+import type * as HealthSdk from "../health/mod.ts";
 
 type EventCallback<TMessage> = {
   bivarianceHack(message: TMessage): MaybeAsync<void, BaseError>;
