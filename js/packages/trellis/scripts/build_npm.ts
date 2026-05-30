@@ -329,9 +329,31 @@ async function rewriteCanonicalGeneratedSdkSelfImports() {
       }
 
       const original = await Deno.readTextFile(fileUrl);
-      let updated = original;
-      for (const sdkName of Object.keys(sdkExportDirs)) {
+      let updated = original
+        .replaceAll("../../../contracts.js", "@qlever-llc/trellis/contracts")
+        .replaceAll("../../contracts.js", "@qlever-llc/trellis/contracts")
+        .replaceAll("../../../contract.js", "@qlever-llc/trellis")
+        .replaceAll("../../contract.js", "@qlever-llc/trellis")
+        .replaceAll("../../../index.js", "@qlever-llc/trellis")
+        .replaceAll("../../index.js", "@qlever-llc/trellis");
+      for (const [sdkName, sdkDir] of Object.entries(sdkExportDirs)) {
         updated = updated
+          .replaceAll(
+            `../${sdkName}/mod.js`,
+            `@qlever-llc/trellis/sdk/${sdkName}`,
+          )
+          .replaceAll(
+            `../${sdkDir}/mod.js`,
+            `@qlever-llc/trellis/sdk/${sdkName}`,
+          )
+          .replaceAll(
+            `../../${sdkName}/mod.js`,
+            `@qlever-llc/trellis/sdk/${sdkName}`,
+          )
+          .replaceAll(
+            `../../${sdkDir}/mod.js`,
+            `@qlever-llc/trellis/sdk/${sdkName}`,
+          )
           .replaceAll(
             `../../${sdkName}.js`,
             `@qlever-llc/trellis/sdk/${sdkName}`,

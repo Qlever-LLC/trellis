@@ -7,6 +7,9 @@ const staleCliArtifactPattern =
   /defineCliContract|"service" \| "app" \| "device" \| "cli"|defineClientContract\("cli"/;
 const privateGeneratedSdkBuildPattern = /\.build\/generated-sdk/;
 const dntShimDenoRuntimeDetectionPattern = /"Deno" in dntShim\.dntGlobalThis/;
+const generatedSdkRootRelativeImportPattern =
+  /\.\.\/\.\.\/\.\.\/(?:contract|contracts|index)\.js/;
+const generatedSdkCoreAliasImportPattern = /\.\.\/core\/mod\.js/;
 
 async function* walkFiles(dir: string): AsyncGenerator<string> {
   for await (const entry of Deno.readDir(dir)) {
@@ -50,6 +53,16 @@ Deno.test("trellis npm artifact only depends on allowed published Trellis packag
     assertEquals(forbiddenImportPattern.test(source), false, filePath);
     assertEquals(staleCliArtifactPattern.test(source), false, filePath);
     assertEquals(privateGeneratedSdkBuildPattern.test(source), false, filePath);
+    assertEquals(
+      generatedSdkRootRelativeImportPattern.test(source),
+      false,
+      filePath,
+    );
+    assertEquals(
+      generatedSdkCoreAliasImportPattern.test(source),
+      false,
+      filePath,
+    );
   }
 
   for await (const filePath of walkFiles(join(npmDir.pathname, "script"))) {
@@ -58,6 +71,16 @@ Deno.test("trellis npm artifact only depends on allowed published Trellis packag
     assertEquals(forbiddenImportPattern.test(source), false, filePath);
     assertEquals(staleCliArtifactPattern.test(source), false, filePath);
     assertEquals(privateGeneratedSdkBuildPattern.test(source), false, filePath);
+    assertEquals(
+      generatedSdkRootRelativeImportPattern.test(source),
+      false,
+      filePath,
+    );
+    assertEquals(
+      generatedSdkCoreAliasImportPattern.test(source),
+      false,
+      filePath,
+    );
   }
 });
 
@@ -118,7 +141,7 @@ Deno.test("trellis npm SDK exports resolve through public wrapper modules", asyn
   const authClientTypes = await Deno.readTextFile(
     new URL("../npm/esm/generated-sdk/auth/client.d.ts", import.meta.url),
   );
-  assertEquals(authClientTypes.includes('from "../../../index.js"'), true);
+  assertEquals(authClientTypes.includes('from "@qlever-llc/trellis"'), true);
   assertEquals(authClientTypes.includes("npm/src/errors"), false);
   assertEquals(authClientTypes.includes("../errors"), false);
 
@@ -127,7 +150,7 @@ Deno.test("trellis npm SDK exports resolve through public wrapper modules", asyn
   );
   assertEquals(
     authApiTypes.includes(
-      'import("../../../contracts.js").Schema',
+      'import("@qlever-llc/trellis/contracts").Schema',
     ),
     true,
   );
@@ -137,7 +160,7 @@ Deno.test("trellis npm SDK exports resolve through public wrapper modules", asyn
   );
   assertEquals(
     healthApiTypes.includes(
-      'import("../../../contracts.js").Schema',
+      'import("@qlever-llc/trellis/contracts").Schema',
     ),
     true,
   );
@@ -146,7 +169,7 @@ Deno.test("trellis npm SDK exports resolve through public wrapper modules", asyn
   );
   assertEquals(
     stateApiTypes.includes(
-      'import("../../../contracts.js").Schema',
+      'import("@qlever-llc/trellis/contracts").Schema',
     ),
     true,
   );
@@ -161,6 +184,7 @@ Deno.test("trellis npm SDK exports resolve through public wrapper modules", asyn
 
 Deno.test("trellis npm runtime transport falls back to npm native transport in Deno", async () => {
   const packageJsonUrl = new URL("../npm/package.json", import.meta.url);
+  const esmGenerate = new URL("../npm/esm/generate.js", import.meta.url);
   const esmRuntimeTransport = new URL(
     "../npm/esm/runtime_transport.js",
     import.meta.url,
@@ -179,6 +203,11 @@ Deno.test("trellis npm runtime transport falls back to npm native transport in D
 
   await Deno.stat(esmRuntimeTransport);
   await Deno.stat(scriptRuntimeTransport);
+  assertEquals(
+    (await Deno.readTextFile(esmGenerate)).includes("../package.json"),
+    true,
+    esmGenerate.pathname,
+  );
 
   for (const path of [esmRuntimeTransport, scriptRuntimeTransport]) {
     const source = await Deno.readTextFile(path);

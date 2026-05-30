@@ -74,6 +74,7 @@ async function runLocalGenerator(
 async function readPackageVersion(): Promise<string> {
   const manifest = await readFirstManifest([
     new URL("./deno.json", import.meta.url),
+    new URL("../package.json", import.meta.url),
     new URL("../../../package.json", import.meta.url),
   ]);
   if (typeof manifest.version !== "string" || !manifest.version.trim()) {
