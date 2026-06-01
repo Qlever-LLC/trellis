@@ -12,6 +12,8 @@ type PackageManifest = {
   version?: unknown;
 };
 
+class ManifestNotFoundError extends Error {}
+
 type CommandStatus = {
   success: boolean;
   code: number;
@@ -43,6 +45,10 @@ function denoRuntime(): typeof Deno {
 }
 
 async function findLocalTrellisRepoRoot(): Promise<string | undefined> {
+  if (new URL(import.meta.url).protocol !== "file:") {
+    return undefined;
+  }
+
   let current = urlDirname(import.meta.url);
   while (current !== dirname(current)) {
     if (
@@ -89,15 +95,37 @@ async function readFirstManifest(urls: URL[]): Promise<PackageManifest> {
   const deno = denoRuntime();
   for (const url of urls) {
     try {
-      return JSON.parse(await deno.readTextFile(url)) as PackageManifest;
+      return JSON.parse(await readManifestText(url)) as PackageManifest;
     } catch (error) {
-      if (error instanceof deno.errors.NotFound) {
+      if (
+        error instanceof deno.errors.NotFound ||
+        error instanceof ManifestNotFoundError
+      ) {
         continue;
       }
       throw error;
     }
   }
   throw new Error("@qlever-llc/trellis package manifest was not found");
+}
+
+async function readManifestText(url: URL): Promise<string> {
+  if (url.protocol === "file:") {
+    return await denoRuntime().readTextFile(url);
+  }
+
+  if (url.protocol === "http:" || url.protocol === "https:") {
+    const response = await fetch(url);
+    if (response.status === 404) {
+      throw new ManifestNotFoundError(`package manifest was not found: ${url}`);
+    }
+    if (!response.ok) {
+      throw new Error(`failed to read ${url}: HTTP ${response.status}`);
+    }
+    return await response.text();
+  }
+
+  throw new Error(`unsupported package manifest URL protocol: ${url.protocol}`);
 }
 
 async function ensureCachedReleaseBinary(version: string): Promise<string> {

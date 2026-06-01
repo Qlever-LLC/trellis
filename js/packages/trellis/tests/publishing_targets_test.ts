@@ -165,6 +165,64 @@ Deno.test("trellis package exports the first-party SDK subpaths", async () => {
   assertStringIncludes(source, '"./sdk/state": "./sdk/state.ts"');
 });
 
+Deno.test("trellis generate wrapper reads package metadata from remote modules", async () => {
+  const packageRoot = new URL("../", import.meta.url);
+  const generateSource = await Deno.readTextFile(
+    new URL("generate.ts", packageRoot),
+  );
+  const packageManifest = await Deno.readTextFile(
+    new URL("deno.json", packageRoot),
+  );
+  const packageVersion = JSON.parse(packageManifest).version as string;
+  const tempDir = await Deno.makeTempDir();
+  const fakeGenerator = `${tempDir}/trellis-generate`;
+  await Deno.writeTextFile(
+    fakeGenerator,
+    `#!/bin/sh
+printf 'trellis-generate ${packageVersion}\n'
+`,
+  );
+  await Deno.chmod(fakeGenerator, 0o755);
+
+  const server = Deno.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    onListen: () => {},
+  }, (request) => {
+    const url = new URL(request.url);
+    if (url.pathname === "/generate.ts") {
+      return new Response(generateSource, {
+        headers: { "content-type": "application/typescript" },
+      });
+    }
+    if (url.pathname === "/deno.json") {
+      return new Response(packageManifest, {
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response("not found", { status: 404 });
+  });
+
+  try {
+    const output = await new Deno.Command(Deno.execPath(), {
+      args: [
+        "run",
+        "-A",
+        `http://127.0.0.1:${server.addr.port}/generate.ts`,
+        "--version",
+      ],
+      env: { TRELLIS_GENERATE_BIN: fakeGenerator },
+      stdout: "piped",
+      stderr: "piped",
+    }).output();
+
+    assertEquals(output.success, true, decoder.decode(output.stderr));
+  } finally {
+    await server.shutdown();
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
 Deno.test("published trellis sources do not self-import package subpaths", async () => {
   const offenders: string[] = [];
   const packageRoot = new URL("../", import.meta.url);
@@ -196,7 +254,7 @@ Deno.test("trellis npm build depends on the standalone result package name", asy
   );
 
   assertStringIncludes(source, '"@qlever-llc/result"');
-  assertStringIncludes(source, '"@qlever-llc/result": "^0.10.3"');
+  assertStringIncludes(source, '"@qlever-llc/result": "^0.10.4"');
 });
 
 Deno.test("trellis-svelte npm build uses current Trellis package bases", async () => {
@@ -204,8 +262,8 @@ Deno.test("trellis-svelte npm build uses current Trellis package bases", async (
     new URL("../../trellis-svelte/scripts/build_npm.ts", import.meta.url),
   );
 
-  assertStringIncludes(source, '"@qlever-llc/result": "^0.10.3"');
-  assertStringIncludes(source, '"@qlever-llc/trellis": "^0.10.3"');
+  assertStringIncludes(source, '"@qlever-llc/result": "^0.10.4"');
+  assertStringIncludes(source, '"@qlever-llc/trellis": "^0.10.4"');
 });
 
 Deno.test("trellis package exports the errors and health subpaths", async () => {

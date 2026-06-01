@@ -31,7 +31,6 @@ import type {
 } from "../../../index.ts";
 import type { API, Api } from "./api.ts";
 import type * as Types from "./types.ts";
-import type * as HealthSdk from "../health/mod.ts";
 
 type EventCallback<TMessage> = {
   bivarianceHack(message: TMessage): MaybeAsync<void, BaseError>;
@@ -518,24 +517,6 @@ export interface TrellisAuthClient {
         >;
         listen(
           handler: EventCallback<Types.AuthSessionsRevokedEvent>,
-          subjectData?: Record<string, unknown>,
-          opts?: EventOpts,
-        ): AsyncResult<void, ValidationError | UnexpectedError>;
-      };
-    };
-    readonly health: {
-      heartbeat: {
-        publish(
-          event: Omit<HealthSdk.HealthHeartbeatEvent, "header">,
-        ): AsyncResult<void, ValidationError | UnexpectedError>;
-        prepare(
-          event: Omit<HealthSdk.HealthHeartbeatEvent, "header">,
-        ): Result<
-          PreparedTrellisEvent<Omit<HealthSdk.HealthHeartbeatEvent, "header">>,
-          ValidationError | UnexpectedError
-        >;
-        listen(
-          handler: EventCallback<HealthSdk.HealthHeartbeatEvent>,
           subjectData?: Record<string, unknown>,
           opts?: EventOpts,
         ): AsyncResult<void, ValidationError | UnexpectedError>;

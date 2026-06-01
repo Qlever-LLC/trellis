@@ -14,7 +14,8 @@ import {
 } from "../index.ts";
 import { checkDeviceActivation } from "../device/deno.ts";
 import { API as CORE_API, type Client as CoreClient } from "../sdk/core.ts";
-import type { HandlerClient as CoreHandlerClient } from "../../../../generated/packages/jsr/trellis-core/client.ts";
+import type { Client as HealthClient } from "../sdk/health.ts";
+import type { HandlerClient as HealthHandlerClient } from "../../../../generated/packages/jsr/health/client.ts";
 import { sdk as jobs } from "../sdk/jobs.ts";
 import { TrellisService } from "../service/deno.ts";
 import { StoreHandle } from "../server/mod.ts";
@@ -361,8 +362,8 @@ async function typecheckServiceConnectSurface() {
 }
 
 function typecheckGeneratedServiceHandlerClientSurface(
-  client: CoreClient,
-  handlerClient: CoreHandlerClient,
+  client: HealthClient,
+  handlerClient: HealthHandlerClient,
 ) {
   void client.event.health.heartbeat.listen(() => Result.ok(undefined));
   const prepare = handlerClient.event.health.heartbeat.prepare;

@@ -8,6 +8,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.4] - 2026-06-01
+
+### Fixed
+
+- Fixed the JSR `@qlever-llc/trellis/generate` wrapper so `deno task prepare`
+  can read package metadata when the wrapper is loaded from a remote module URL,
+  avoiding Deno's file-URL-only read path before the release binary starts.
+
 ## [0.10.3] - 2026-05-30
 
 ### Fixed
@@ -710,7 +718,8 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.3...HEAD
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.4...HEAD
+[0.10.4]: https://github.com/Qlever-LLC/trellis/compare/v0.10.3...v0.10.4
 [0.10.3]: https://github.com/Qlever-LLC/trellis/compare/v0.10.3-rc.4...v0.10.3
 [0.10.3-rc.4]: https://github.com/Qlever-LLC/trellis/compare/v0.10.3-rc.3...v0.10.3-rc.4
 [0.10.3-rc.3]: https://github.com/Qlever-LLC/trellis/compare/v0.10.3-rc.2...v0.10.3-rc.3
