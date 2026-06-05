@@ -1,7 +1,7 @@
 {
   "extends": "../../deno.json",
   "name": "@qlever-llc/trellis",
-  "version": "0.10.4",
+  "version": "0.10.5",
   "imports": {
     "#trellis-generated-sdk/auth": "./.build/generated-sdk/auth/mod.ts",
     "#trellis-generated-sdk/core": "./.build/generated-sdk/trellis-core/mod.ts",

@@ -16,6 +16,7 @@ import {
   SentinelCredsSchema,
 } from "../auth/schemas.ts";
 import { StoredStateEntrySchema } from "../state/model.ts";
+import { resolveJetStreamReplicaCount } from "./jetstream_replicas.ts";
 
 type CleanupStep = {
   name: string;
@@ -72,7 +73,6 @@ function parseSentinelCreds(credsContent: string): SentinelCreds {
 /** Creates Trellis runtime dependencies in explicit startup order. */
 export async function createRuntimeGlobals(config: Config) {
   const cleanupSteps: CleanupStep[] = [];
-  const kvOptions = { replicas: config.nats.jetstream.replicas };
   const sentinelCreds = parseSentinelCreds(
     Deno.readTextFileSync(config.nats.sentinelCredsPath),
   );
@@ -130,6 +130,13 @@ export async function createRuntimeGlobals(config: Config) {
         if (!natsTrellis.isClosed()) await natsTrellis.close();
       },
     });
+
+    const jetstreamReplicas = await resolveJetStreamReplicaCount(
+      config,
+      natsSystem,
+      logger,
+    );
+    const kvOptions = { replicas: jetstreamReplicas };
 
     const oauthStateKVResult = await TypedKV.open(
       natsAuth,
@@ -270,6 +277,7 @@ export async function createRuntimeGlobals(config: Config) {
       natsAuth,
       natsSystem,
       natsTrellis,
+      jetstreamReplicas,
       oauthStateKV,
       pendingAuthKV,
       browserFlowsKV,

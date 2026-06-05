@@ -345,10 +345,12 @@ subjects, and service-local worker heartbeat subjects. It does not include broad
 stream management, `JOBS_WORK` stream-info preflight, or legacy
 durable-consumer-create subjects for ordinary services.
 
-Trellis-created Jobs streams use the configured JetStream replica count for the
-deployment. Standalone/local NATS deployments should use `1`; production
-clustered deployments should normally use `3`. The examples below use `3` to
-show the recommended production shape.
+Trellis-created Jobs streams use the resolved JetStream replica count for the
+deployment. Operators may set `nats.jetstream.replicas` explicitly. When it is
+omitted, the Trellis runtime probes NATS through the system account JSZ service
+and chooses `3` only when at least three current JetStream metadata peers are
+visible; otherwise it uses `1`. The examples below use `3` to show the
+recommended production shape.
 
 Resolved service bindings may still include internal runtime-generated work
 stream details such as `JOBS_WORK`, but ordinary service code should treat those

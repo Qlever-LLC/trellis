@@ -94,10 +94,8 @@ const rawSchema = z.object({
   nats: z.object({
     servers: z.string(),
     jetstream: z.object({
-      replicas: z.coerce.number().int().positive().default(1),
-    }).default({
-      replicas: 1,
-    }),
+      replicas: z.coerce.number().int().positive().optional(),
+    }).default({}),
     trellis: z.object({
       credsPath: z.string(),
     }),
@@ -207,7 +205,7 @@ export type Config = {
   nats: {
     servers: string;
     jetstream: {
-      replicas: number;
+      replicas?: number;
     };
     trellis: { credsPath: string };
     auth: { credsPath: string };

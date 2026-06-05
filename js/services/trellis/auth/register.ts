@@ -103,6 +103,7 @@ type AuthRegistrationDeps =
     serviceDeploymentStorage: SqlServiceDeploymentRepository;
     serviceInstanceStorage: SqlServiceInstanceRepository;
     sessionStorage: SqlSessionRepository;
+    jetstreamReplicas: number;
   }
   & Pick<
     AuthRuntimeDeps,
@@ -129,7 +130,9 @@ export async function registerAuth(deps: AuthRegistrationDeps): Promise<void> {
     materializedAuthorityStorage: deps.materializedAuthorityStorage,
     authorityReconciliationStorage: deps.authorityReconciliationStorage,
     physicalResources: {
-      manager: createNatsAuthorityPhysicalResourceManager(deps.natsTrellis),
+      manager: createNatsAuthorityPhysicalResourceManager(deps.natsTrellis, {
+        jetstreamReplicas: deps.jetstreamReplicas,
+      }),
     },
   });
   const registrationDeps = {

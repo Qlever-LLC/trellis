@@ -10,9 +10,11 @@ services can rely on the catalog, bindings, and auth runtime.
 
 Runtime requirement: Trellis requires `nats-server` 2.10.0 or newer. Jobs use
 JetStream source subject transforms and grant the newer filtered consumer-create
-API subject instead of the older durable consumer-create subject. Configure
-`nats.jetstream.replicas` to match the target JetStream topology: use `1` for
-standalone/local NATS and normally `3` for production clusters.
+API subject instead of the older durable consumer-create subject. Omit
+`nats.jetstream.replicas` to let Trellis probe the JetStream topology and choose
+`3` only when enough current metadata peers are visible; otherwise it uses `1`.
+Set the value explicitly to pin standalone, local, or production deployments to
+a known replica count.
 
 ## What the service does
 

@@ -125,7 +125,7 @@ Deno.test("auth config loads structured provider map from file", async () => {
         "ws://localhost:8080",
         "wss://nats.example.com",
       ]);
-      assertEquals(cfg.nats.jetstream.replicas, 1);
+      assertEquals(cfg.nats.jetstream.replicas, undefined);
       assertEquals(cfg.client.nativeNatsServers, [
         "tls://nats.example.com:4222",
       ]);

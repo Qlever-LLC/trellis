@@ -325,15 +325,22 @@ export function createNatsResourcePurgeManager(
 /** Creates a NATS-backed manager for authority-owned physical resources. */
 export function createNatsAuthorityPhysicalResourceManager(
   nats: NatsConnection,
+  defaultOptions: ResourceProvisioningOptions = {},
 ): AuthorityPhysicalResourceManager {
+  const mergeOptions = (options?: ResourceProvisioningOptions) => ({
+    ...defaultOptions,
+    ...options,
+    jetstreamReplicas: options?.jetstreamReplicas ??
+      defaultOptions.jetstreamReplicas,
+  });
   return {
     ...createNatsResourcePurgeManager(nats),
     ensureKvBucket: (bucket, request, options) =>
-      ensureKvResource(nats, bucket, request, options),
+      ensureKvResource(nats, bucket, request, mergeOptions(options)),
     ensureObjectStore: (name, request, options) =>
-      ensureStoreResource(nats, name, request, options),
+      ensureStoreResource(nats, name, request, mergeOptions(options)),
     ensureJobsInfrastructure: (options) =>
-      ensureBuiltinJobsInfrastructure(nats, options),
+      ensureBuiltinJobsInfrastructure(nats, mergeOptions(options)),
     ensureJobsQueueConsumer: (stream, queue) =>
       ensureJobsQueueConsumer(nats, stream, queue),
     ensureEventConsumer: (request, consumerName) =>

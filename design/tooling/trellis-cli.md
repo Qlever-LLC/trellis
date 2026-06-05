@@ -327,7 +327,10 @@ Operational command behavior:
   pending auth, browser flows, active connection presence, and the public
   Trellis State API; `--jetstream-replicas` defaults to `1` for standalone
   installs and should match the target NATS topology, commonly `3` for
-  production clusters
+  production clusters. The Trellis runtime can auto-detect its own omitted
+  `nats.jetstream.replicas` value through the system account, but this CLI
+  bootstrap path should still receive the intended replica count explicitly when
+  creating shared resources for clustered production deployments
 - `trellis infra check` reports whether the shared runtime infrastructure is
   ready for Trellis services without creating or updating streams or buckets
 - the normal first-admin path is the auth-owned admin bootstrap flow printed by

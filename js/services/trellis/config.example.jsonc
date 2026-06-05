@@ -38,8 +38,10 @@
   "nats": {
     "servers": "localhost",
     "jetstream": {
-      // Use 1 for standalone/local NATS and 3 for a three-node production cluster.
-      "replicas": 1
+      // Optional: omit replicas to let Trellis probe NATS topology and choose
+      // 1 for standalone/local deployments or 3 when enough JetStream peers are visible.
+      // Set explicitly to pin a deployment to a known replica count.
+      // "replicas": 1
     },
     "trellis": {
       "credsPath": ".local/nats/trellis-auth.creds"

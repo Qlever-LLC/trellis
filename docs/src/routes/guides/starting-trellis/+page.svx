@@ -35,6 +35,12 @@ This creates a movable local bundle under `~/trellis`:
 | `trellis/session.seed` | Local Trellis runtime session key seed |
 | `trellis/data/` | Local Trellis SQLite data directory |
 
+The generated Trellis config omits `nats.jetstream.replicas`. On startup,
+Trellis probes NATS JetStream topology and uses `1` for this standalone local
+server. Production deployments can set `nats.jetstream.replicas` explicitly, or
+omit it to let Trellis choose `3` only when enough current JetStream metadata
+peers are visible.
+
 Useful local flags:
 
 | Flag | Default | Use when |

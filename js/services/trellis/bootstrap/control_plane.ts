@@ -81,6 +81,7 @@ export function startControlPlaneBackgroundTasks(opts: {
   natsAuth: AuthRuntimeDeps["natsAuth"];
   natsSystem: AuthRuntimeDeps["natsSystem"];
   natsTrellis: AuthRuntimeDeps["natsTrellis"];
+  jetstreamReplicas: number;
   sessionStorage: SqlSessionRepository;
   trellis: AuthRuntimeDeps["trellis"];
   contracts: Pick<
@@ -99,7 +100,9 @@ export function startControlPlaneBackgroundTasks(opts: {
     materializedAuthorityStorage: opts.materializedAuthorityStorage,
     authorityReconciliationStorage: opts.authorityReconciliationStorage,
     physicalResources: {
-      manager: createNatsAuthorityPhysicalResourceManager(opts.natsTrellis),
+      manager: createNatsAuthorityPhysicalResourceManager(opts.natsTrellis, {
+        jetstreamReplicas: opts.jetstreamReplicas,
+      }),
     },
   });
   void authorityReconciler.reconcileAllEnabled()
