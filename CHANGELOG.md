@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.9] - 2026-06-06
+
 ### Added
 
 - Added reusable TypeScript cursor pagination helpers for service contracts and

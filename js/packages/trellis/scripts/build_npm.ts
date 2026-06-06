@@ -673,7 +673,7 @@ await buildDntPackage({
     "@nats-io/obj": "^3.3.1",
     "@nats-io/nats-core": "^3.3.1",
     "@nats-io/transport-node": "^3.3.1",
-    "@qlever-llc/result": "^0.10.8",
+    "@qlever-llc/result": "^0.10.9",
     "js-sha256": "^0.11.1",
     pino: "^9.11.0",
     tweetnacl: "^1.0.3",
