@@ -8,6 +8,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- Made Trellis generator output formatting part of artifact generation so
+  `prepare` no longer leaves generated TypeScript, npm package, or embedded Rust
+  SDK files needing release-time formatter cleanup.
+
 ## [0.10.9] - 2026-06-06
 
 ### Added

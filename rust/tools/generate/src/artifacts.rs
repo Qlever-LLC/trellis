@@ -1,8 +1,9 @@
 use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use miette::IntoDiagnostic;
 use serde::{Deserialize, Serialize};
@@ -130,6 +131,7 @@ pub fn write_contract_outputs(
             ),
         })
         .into_diagnostic()?;
+        format_generated_typescript_artifacts(ts_out, runtime_repo_root.as_deref())?;
         copy_embedded_trellis_owned_ts_sdk(
             &resolved.loaded.manifest.id,
             ts_out,
@@ -155,6 +157,7 @@ pub fn write_contract_outputs(
             &trellis_package_version(),
             &resolved.loaded.manifest.id,
             &npm_sources.dependency_packages,
+            runtime_repo_root.as_deref(),
         )?;
     }
 
@@ -587,6 +590,7 @@ pub fn build_npm_package_from_ts_sources(
     trellis_runtime_version: &str,
     contract_id: &str,
     dependency_packages: &BTreeSet<String>,
+    runtime_repo_root: Option<&Path>,
 ) -> miette::Result<()> {
     let npm_out = if npm_out.is_absolute() {
         npm_out.to_path_buf()
@@ -639,6 +643,7 @@ pub fn build_npm_package_from_ts_sources(
             package_name
         ));
     }
+    format_generated_npm_artifacts(&npm_out, runtime_repo_root)?;
     Ok(())
 }
 
@@ -1064,13 +1069,15 @@ fn copy_embedded_trellis_owned_rust_sdk(
         })?;
         let is_root = file_name == "lib.rs";
         let contents = fs::read_to_string(&path).into_diagnostic()?;
-        let rewritten = rewrite_embedded_rust_sdk_source(&contents, is_root);
         let dest_name = if is_root {
             OsString::from("mod.rs")
         } else {
             file_name.to_os_string()
         };
-        write_if_changed(&dest_dir.join(dest_name), &rewritten)?;
+        let dest_path = dest_dir.join(dest_name);
+        let rewritten = rewrite_embedded_rust_sdk_source(&contents, is_root);
+        let formatted = format_embedded_rust_sdk_source(&dest_path, &rewritten)?;
+        write_if_changed(&dest_path, &formatted)?;
     }
     Ok(())
 }
@@ -1114,6 +1121,7 @@ fn copy_embedded_trellis_owned_ts_sdk(
         let contents = rewrite_embedded_trellis_owned_ts_sdk_source(&contents);
         write_if_changed(&dest_dir.join(file_name), &contents)?;
     }
+    format_generated_typescript_artifacts(&dest_dir, Some(repo_root))?;
     Ok(())
 }
 
@@ -1145,6 +1153,161 @@ fn rewrite_embedded_rust_sdk_source(contents: &str, is_root: bool) -> String {
         .replace("trellis_rs::client::", "crate::client::")
         .replace("trellis_client::", "crate::client::")
         .replace("trellis_contracts::", "crate::contracts::")
+}
+
+pub fn format_generated_typescript_artifacts(
+    path: &Path,
+    runtime_repo_root: Option<&Path>,
+) -> miette::Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let Some(config) = runtime_repo_root
+        .map(|root| root.join("js/deno.json"))
+        .filter(|config| config.exists())
+    else {
+        return Ok(());
+    };
+
+    let mut command = Command::new("deno");
+    command.arg("fmt").arg("-c").arg(config);
+    command.arg(path);
+
+    let output = command.output().into_diagnostic()?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    Err(miette::miette!(
+        "deno fmt failed for {}\nstdout:\n{}\nstderr:\n{}",
+        path.display(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    ))
+}
+
+fn format_generated_npm_artifacts(
+    npm_out: &Path,
+    runtime_repo_root: Option<&Path>,
+) -> miette::Result<()> {
+    let Some(config) = runtime_repo_root
+        .map(|root| root.join("js/deno.json"))
+        .filter(|config| config.exists())
+    else {
+        return Ok(());
+    };
+    if !npm_out.exists() {
+        return Ok(());
+    }
+
+    for path in npm_format_paths(npm_out)? {
+        let Some(ext) = npm_format_extension(&path) else {
+            continue;
+        };
+        let contents = fs::read_to_string(&path).into_diagnostic()?;
+        let formatted = format_text_with_deno(&path, &config, ext, &contents)?;
+        write_if_changed(&path, &formatted)?;
+    }
+    Ok(())
+}
+
+fn npm_format_paths(root: &Path) -> miette::Result<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+    collect_npm_format_paths(root, &mut paths)?;
+    paths.sort();
+    Ok(paths)
+}
+
+fn collect_npm_format_paths(dir: &Path, paths: &mut Vec<PathBuf>) -> miette::Result<()> {
+    for entry in fs::read_dir(dir).into_diagnostic()? {
+        let entry = entry.into_diagnostic()?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_npm_format_paths(&path, paths)?;
+        } else if npm_format_extension(&path).is_some() {
+            paths.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn npm_format_extension(path: &Path) -> Option<&'static str> {
+    let extension = path.extension()?.to_str()?;
+    match extension {
+        // Generated npm .js files can still contain type-only syntax, so format
+        // them with the TypeScript parser rather than Deno's stricter JS parser.
+        "js" | "ts" => Some("ts"),
+        "json" => Some("json"),
+        "md" => Some("md"),
+        _ => None,
+    }
+}
+
+fn format_text_with_deno(
+    path: &Path,
+    config: &Path,
+    extension: &str,
+    contents: &str,
+) -> miette::Result<String> {
+    let mut child = Command::new("deno")
+        .arg("fmt")
+        .arg("--quiet")
+        .arg("-c")
+        .arg(config)
+        .arg("--ext")
+        .arg(extension)
+        .arg("-")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .into_diagnostic()?;
+
+    child
+        .stdin
+        .take()
+        .expect("deno fmt stdin should be piped")
+        .write_all(contents.as_bytes())
+        .into_diagnostic()?;
+
+    let output = child.wait_with_output().into_diagnostic()?;
+    if !output.status.success() {
+        return Err(miette::miette!(
+            "deno fmt failed for {}\nstderr:\n{}",
+            path.display(),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn format_embedded_rust_sdk_source(path: &Path, contents: &str) -> miette::Result<String> {
+    let mut child = Command::new("rustfmt")
+        .args(["--edition", "2021"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .into_diagnostic()?;
+
+    child
+        .stdin
+        .take()
+        .expect("rustfmt stdin should be piped")
+        .write_all(contents.as_bytes())
+        .into_diagnostic()?;
+
+    let output = child.wait_with_output().into_diagnostic()?;
+    if !output.status.success() {
+        return Err(miette::miette!(
+            "rustfmt failed for {}\nstderr:\n{}",
+            path.display(),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 fn write_if_changed(path: &Path, contents: &str) -> miette::Result<()> {
@@ -1257,7 +1420,8 @@ mod tests {
     use crate::cli::RuntimeSource;
 
     use super::{
-        find_tsc_in_node_modules, generated_artifacts_metadata_path, render_npm_tsconfig,
+        find_tsc_in_node_modules, format_embedded_rust_sdk_source,
+        generated_artifacts_metadata_path, render_npm_tsconfig, rewrite_embedded_rust_sdk_source,
         rewrite_embedded_trellis_owned_ts_sdk_source, rewrite_npm_ts_imports,
         trellis_package_version, ts_package_name_from_id, write_contract_shell_outputs,
     };
@@ -1366,6 +1530,23 @@ mod tests {
         assert!(rewritten.contains("from \"../../../index.ts\""));
         assert!(rewritten.contains("from \"../health/mod.ts\""));
         assert!(!rewritten.contains("from \"@qlever-llc/trellis"));
+    }
+
+    #[test]
+    fn embedded_rust_sdk_copy_is_formatted_after_rewrite() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let dest = temp.path().join("rpc.rs");
+        let rewritten = rewrite_embedded_rust_sdk_source(
+            "pub fn client( )->trellis_client::Result<()> { todo!() }\n",
+            false,
+        );
+        let formatted = format_embedded_rust_sdk_source(&dest, &rewritten)
+            .expect("format rewritten Rust SDK source");
+
+        assert_eq!(
+            formatted,
+            "pub fn client() -> crate::client::Result<()> {\n    todo!()\n}\n"
+        );
     }
 
     #[test]

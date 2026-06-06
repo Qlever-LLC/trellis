@@ -4,10 +4,10 @@ use miette::IntoDiagnostic;
 
 use crate::artifacts::{
     build_npm_package_from_ts_sources, current_generator_fingerprint,
-    default_rust_crate_name_from_id, generated_artifacts_are_fresh, generated_artifacts_metadata,
-    infer_artifact_version, resolve_contract, rust_runtime_deps,
-    should_emit_service_runtime_facade, stage_npm_ts_sources, trellis_package_version,
-    ts_package_name_from_id, ts_runtime_deps, write_contract_outputs,
+    default_rust_crate_name_from_id, format_generated_typescript_artifacts,
+    generated_artifacts_are_fresh, generated_artifacts_metadata, infer_artifact_version,
+    resolve_contract, rust_runtime_deps, should_emit_service_runtime_facade, stage_npm_ts_sources,
+    trellis_package_version, ts_package_name_from_id, ts_runtime_deps, write_contract_outputs,
 };
 use crate::cli::{
     GenerateAllArgs, GenerateCargoPackageArgs, GenerateJsrPackageArgs, GenerateManifestArgs,
@@ -55,6 +55,7 @@ pub fn jsr_package(args: &GenerateJsrPackageArgs) -> miette::Result<()> {
         ),
     })
     .into_diagnostic()?;
+    format_generated_typescript_artifacts(&args.out, args.runtime_repo_root.as_deref())?;
     output::print_success(&format!("generated JSR package at {}", args.out.display()));
     Ok(())
 }
@@ -86,6 +87,7 @@ pub fn npm_package(args: &GenerateNpmPackageArgs) -> miette::Result<()> {
         &trellis_package_version(),
         &resolved.loaded.manifest.id,
         &npm_sources.dependency_packages,
+        None,
     )?;
     output::print_success(&format!("generated npm package at {}", args.out.display()));
     Ok(())
