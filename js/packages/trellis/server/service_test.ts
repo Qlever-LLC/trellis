@@ -20,6 +20,7 @@ import type { LoggerLike } from "../globals.ts";
 import { TransportError } from "../errors/index.ts";
 import { defineServiceContract } from "../contract.ts";
 import type { NatsConnectFn } from "./runtime.ts";
+import { HealthResponseSchema, HealthRpcSchema } from "./health_schemas.ts";
 import { connectTrellisServiceInternal } from "./internal_connect.ts";
 import {
   StoreHandle,
@@ -106,6 +107,29 @@ const heartbeatTestContract = defineServiceContract({}, () => ({
   description: "Verify heartbeat runtime lifecycle behavior.",
 }));
 
+const healthEndpointTestContract = defineServiceContract(
+  {
+    schemas: {
+      HealthRequest: HealthRpcSchema,
+      HealthResponse: HealthResponseSchema,
+    },
+  },
+  (ref) => ({
+    id: "trellis.server.health-endpoint-test@v1",
+    displayName: "Health Endpoint Test",
+    description: "Verify service health endpoint behavior.",
+    rpc: {
+      "Svc.Health": {
+        version: "v1",
+        input: ref.schema("HealthRequest"),
+        output: ref.schema("HealthResponse"),
+        authRequired: false,
+        errors: [ref.error("UnexpectedError")],
+      },
+    },
+  }),
+);
+
 type WaitableService = {
   wait(): Promise<void>;
   stop(): Promise<void>;
@@ -120,6 +144,10 @@ type PublishedNatsMessage = {
 function hasServiceWait(value: object): value is WaitableService {
   return Reflect.has(value, "wait") &&
     typeof Reflect.get(value, "wait") === "function";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function waitForServiceStop(service: WaitableService): Promise<void> {
@@ -269,6 +297,71 @@ async function connectHandlerSurfaceTestService() {
     const service = await TrellisService.connect({
       trellisUrl: "https://trellis.example.com",
       contract: handlerSurfaceTestContract,
+      name: "svc",
+      sessionKeySeed: TEST_SEED,
+      server: { log: false },
+    }, {
+      connect: async () => createFakeNatsConnection(),
+    }).orThrow();
+
+    return {
+      service,
+      restore() {
+        globalThis.fetch = originalFetch;
+      },
+    };
+  } catch (error) {
+    globalThis.fetch = originalFetch;
+    throw error;
+  }
+}
+
+async function connectHealthEndpointTestService() {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          status: "ready",
+          serverNow: 1_700_000_120,
+          connectInfo: {
+            sessionKey: "session-key",
+            contractId: healthEndpointTestContract.CONTRACT_ID,
+            contractDigest: healthEndpointTestContract.CONTRACT_DIGEST,
+            transports: {
+              native: {
+                natsServers: ["nats://127.0.0.1:4222"],
+              },
+            },
+            transport: {
+              sentinel: { jwt: "jwt", seed: "seed", issuer: "trellis" },
+            },
+            auth: {
+              mode: "service_identity",
+              iatSkewSeconds: 30,
+            },
+          },
+          binding: {
+            contractId: healthEndpointTestContract.CONTRACT_ID,
+            digest: healthEndpointTestContract.CONTRACT_DIGEST,
+            resources: {
+              kv: {},
+              store: {},
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    )) as typeof fetch;
+
+  try {
+    const service = await TrellisService.connect({
+      trellisUrl: "https://trellis.example.com",
+      contract: healthEndpointTestContract,
       name: "svc",
       sessionKeySeed: TEST_SEED,
       server: { log: false },
@@ -1905,6 +1998,39 @@ Deno.test("bound service RPC handlers receive isolated deps", async () => {
     assertEquals(unbound.json(), { ok: true });
     assertEquals(observed, ["one:a", "two:b"]);
     assertEquals(unboundHadDeps, false);
+  } finally {
+    await service.stop();
+    restore();
+  }
+});
+
+Deno.test("bound service health checks receive deps through standard health RPC", async () => {
+  const { service, restore } = await connectHealthEndpointTestService();
+
+  try {
+    service.with({ summary: "from deps" }).health.add(
+      "dependency",
+      ({ deps }) => ({ status: "ok", summary: deps.summary }),
+    );
+
+    const response = await service.nc.request(
+      "rpc.v1.Svc.Health",
+      JSON.stringify({}),
+    );
+    const body: unknown = response.json();
+    if (!isRecord(body) || !Array.isArray(body.checks)) {
+      throw new Error("health response did not include checks");
+    }
+
+    const dependencyCheck = body.checks.find((check) =>
+      isRecord(check) && check.name === "dependency"
+    );
+    if (!isRecord(dependencyCheck)) {
+      throw new Error("dependency health check was not returned");
+    }
+
+    assertEquals(dependencyCheck.status, "ok");
+    assertEquals(dependencyCheck.summary, "from deps");
   } finally {
     await service.stop();
     restore();

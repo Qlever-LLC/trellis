@@ -49,7 +49,12 @@ import {
 } from "@qlever-llc/result";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
-import { type HealthCheckFn, ServiceHealth } from "./health.ts";
+import {
+  type HealthCheckFn,
+  ServiceHealth,
+  type ServiceHealthCheck,
+  type ServiceHealthInfo,
+} from "./health.ts";
 import { mountStandardHealthRpc } from "./health_rpc.ts";
 import type { EventDesc, RPCDesc } from "../contracts.ts";
 import type {
@@ -1320,6 +1325,23 @@ type BoundJobsFacadeOf<
   >;
 };
 
+type BoundServiceHealth<TDeps> = Omit<ServiceHealth, "add" | "setInfo"> & {
+  setInfo(
+    info:
+      | ServiceHealthInfo
+      | ((args: { deps: TDeps }) =>
+        | ServiceHealthInfo
+        | undefined
+        | Promise<ServiceHealthInfo | undefined>),
+  ): void;
+  add(
+    name: string,
+    check: (args: { deps: TDeps }) =>
+      | ServiceHealthCheck
+      | Promise<ServiceHealthCheck>,
+  ): () => void;
+};
+
 /** Service wrapper returned by `TrellisService.with(deps)`. */
 export type BoundTrellisService<
   TOwnedApi extends TrellisAPI = TrellisAPI,
@@ -1335,7 +1357,6 @@ export type BoundTrellisService<
     | "nc"
     | "kv"
     | "store"
-    | "health"
     | "connection"
     | "createTransfer"
     | "completeOperation"
@@ -1350,6 +1371,7 @@ export type BoundTrellisService<
       TJobs,
       TDeps
     >;
+    readonly health: BoundServiceHealth<TDeps>;
     readonly jobs: BoundJobsFacadeOf<TJobs, TTrellisApi, TKv, TDeps>;
     readonly handle: BoundTypedServiceHandleFacade<
       TOwnedApi,
@@ -2691,7 +2713,7 @@ export class TrellisService<
       kv: this.kv,
       store: this.store,
       jobs: createBoundJobsFacade({ jobs: this.jobs, deps }),
-      health: this.health,
+      health: this.#createBoundHealth(deps),
       handle: this.#createBoundHandleFacade(deps),
       connection: this.connection,
       createTransfer: (args) => this.createTransfer(args),
@@ -2700,6 +2722,33 @@ export class TrellisService<
       wait: () => this.wait(),
       stop: () => this.stop(),
       with: (nextDeps) => this.with(nextDeps),
+    };
+  }
+
+  #createBoundHealth<TDeps>(deps: TDeps): BoundServiceHealth<TDeps> {
+    const health = this.health;
+    return {
+      serviceName: health.serviceName,
+      kind: health.kind,
+      instanceId: health.instanceId,
+      contractId: health.contractId,
+      contractDigest: health.contractDigest,
+      startedAt: health.startedAt,
+      publishIntervalMs: health.publishIntervalMs,
+      setInfo(info) {
+        if (typeof info !== "function") {
+          health.setInfo(info);
+          return;
+        }
+
+        health.setInfo(() => info({ deps }));
+      },
+      add(name, check) {
+        return health.add(name, () => check({ deps }));
+      },
+      checks: () => health.checks(),
+      response: () => health.response(),
+      heartbeat: () => health.heartbeat(),
     };
   }
 

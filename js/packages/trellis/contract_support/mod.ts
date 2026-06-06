@@ -68,6 +68,8 @@ import {
 } from "./protocol.ts";
 
 export {
+  buildCursorPage,
+  buildPageResponse,
   type ContractEventConsumerEvent,
   ContractEventConsumerEventSchema,
   type ContractEventConsumerGroup,
@@ -83,6 +85,13 @@ export {
   ContractStateSchema,
   ContractStateStoreSchema,
   ContractStoreResourceSchema,
+  type CursorPage,
+  type CursorPageInfo,
+  CursorPageInfoSchema,
+  CursorPageSchema,
+  type CursorQuery,
+  type CursorQueryOptions,
+  CursorQuerySchema,
   type EventConsumerResourceBinding,
   EventConsumerResourceBindingSchema,
   type EventHeader,
@@ -96,6 +105,9 @@ export {
   JobsResourceBindingSchema,
   type KvResourceBinding,
   KvResourceBindingSchema,
+  normalizeCursorQuery,
+  type NormalizedCursorQuery,
+  normalizePageQuery,
   type PageRequest,
   PageRequestSchema,
   type PageResponse,

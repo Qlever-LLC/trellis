@@ -56,12 +56,24 @@ export {
 } from "./health.ts";
 export { defineError } from "./contract_support/mod.ts";
 export {
+  buildCursorPage,
+  buildPageResponse,
+  CursorPageInfoSchema,
+  CursorPageSchema,
+  CursorQuerySchema,
+  normalizeCursorQuery,
+  normalizePageQuery,
   PageRequestSchema,
   PageResponseSchema,
 } from "./contract_support/mod.ts";
 export type {
+  CursorPage,
+  CursorPageInfo,
+  CursorQuery,
+  CursorQueryOptions,
   ErrorClass,
   InferRuntimeRpcError,
+  NormalizedCursorQuery,
   PageRequest,
   PageResponse,
   RpcErrorClass,

@@ -2,6 +2,11 @@ import { assert, assertEquals } from "@std/assert";
 import { Type } from "typebox";
 
 import {
+  buildCursorPage,
+  buildPageResponse,
+  CursorPageInfoSchema,
+  CursorPageSchema,
+  CursorQuerySchema,
   defineAgentContract,
   defineAppContract,
   defineDeviceContract,
@@ -14,7 +19,11 @@ import {
   HealthRpcSchema,
   isErr,
   isOk,
+  normalizeCursorQuery,
+  normalizePageQuery,
   ok,
+  PageRequestSchema,
+  PageResponseSchema,
   Result,
   schema,
   StoreError,
@@ -56,6 +65,15 @@ Deno.test("root public API includes core runtime, contracts, and result helpers"
   assertEquals(typeof defineServiceContract, "function");
   assertEquals(typeof defineError, "function");
   assertEquals(typeof schema, "function");
+  assertEquals(typeof PageRequestSchema, "object");
+  assertEquals(typeof PageResponseSchema, "function");
+  assertEquals(typeof normalizePageQuery, "function");
+  assertEquals(typeof buildPageResponse, "function");
+  assertEquals(typeof CursorQuerySchema, "object");
+  assertEquals(typeof CursorPageInfoSchema, "object");
+  assertEquals(typeof CursorPageSchema, "function");
+  assertEquals(typeof normalizeCursorQuery, "function");
+  assertEquals(typeof buildCursorPage, "function");
   assertEquals(typeof TrellisClient.connect, "function");
   assertEquals(typeof TrellisDevice.connect, "function");
   assertEquals("startActivation" in TrellisDevice, false);

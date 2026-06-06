@@ -35,11 +35,20 @@ or outbox/inbox code.
 - Prefer generated `client.rpc`, `client.event`, `client.feed`, and
   `client.operation` for outbound calls.
 - Register handlers with `service.handle`.
+- Use `service.with(deps)` once during startup when handlers need
+  application-owned dependencies such as databases, loggers, clocks, or domain
+  clients. Register bound RPC, feed, operation, job, event, and health handlers
+  from the returned wrapper and read dependencies from `args.deps`.
 - Register event listeners during startup with `service.event`, never inside
   handlers.
 - Inside handlers, use the scoped `client` argument for outbound calls; event
   handlers can publish and prepare events but cannot listen.
 - Use TypeBox for Trellis wire schemas and Zod for environment/config parsing.
+- Use Trellis pagination helpers instead of bespoke list shapes. Offset list
+  RPCs should use `PageRequestSchema`, `PageResponseSchema(...)`,
+  `normalizePageQuery(...)`, and `buildPageResponse(...)`. Stable ID/keyset
+  pages should use `CursorQuerySchema`, `CursorPageSchema(...)`,
+  `normalizeCursorQuery(...)`, and `buildCursorPage(...)`.
 - Run the repository's format, typecheck, test, and Trellis generation commands
   before reporting completion.
 

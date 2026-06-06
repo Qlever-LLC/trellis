@@ -63,7 +63,9 @@ This applies to RPC handlers, client helpers, operation helpers, file transfer h
 
 List APIs should use standard page request and page response schemas rather than inventing bespoke list shapes for every service.
 
-The common model keeps offset, limit, count, entries, and next offset semantics consistent across generated SDKs and UI code. Domain-specific filters can be added beside the standard page fields.
+The default model is live offset pagination: `{ offset?, limit }` requests and `{ entries, count, offset, limit, nextOffset? }` responses. It keeps offset, limit, count, entries, and next offset semantics consistent across generated SDKs and UI code. Domain-specific filters can be added beside the standard page fields. TypeScript services can use `PageRequestSchema`, `PageResponseSchema(...)`, `normalizePageQuery(...)`, and `buildPageResponse(...)` for this shape.
+
+For stable ID/keyset pages, use cursor pagination instead: `{ cursor?, limit? }` requests and `{ items, page: { nextCursor? } }` responses. Cursor limits default to `100` and are capped at `500` unless the service chooses and documents a different maximum. TypeScript services can use `CursorQuerySchema`, `CursorPageSchema(...)`, `normalizeCursorQuery(...)`, and `buildCursorPage(...)` for this shape.
 
 ## Storage identity
 

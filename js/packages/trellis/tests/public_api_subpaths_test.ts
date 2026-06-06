@@ -10,6 +10,7 @@ import {
   defineAppContract,
   defineDeviceContract,
   defineServiceContract,
+  normalizeCursorQuery,
 } from "@qlever-llc/trellis/contracts";
 import * as contracts from "@qlever-llc/trellis/contracts";
 import * as coreSdk from "@qlever-llc/trellis/sdk/core";
@@ -53,6 +54,10 @@ Deno.test("contracts subpath exposes only kind-specific contract helpers", () =>
   assertEquals(typeof defineAgentContract, "function");
   assertEquals(typeof defineDeviceContract, "function");
   assertEquals(typeof defineServiceContract, "function");
+  assertEquals(typeof contracts.CursorQuerySchema, "object");
+  assertEquals(typeof contracts.CursorPageSchema, "function");
+  assertEquals(typeof normalizeCursorQuery, "function");
+  assertEquals(typeof contracts.normalizePageQuery, "function");
 
   const contract = defineServiceContract(
     {

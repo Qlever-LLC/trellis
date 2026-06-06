@@ -8,6 +8,24 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- Added reusable TypeScript cursor pagination helpers for service contracts and
+  handlers, including `CursorQuerySchema`, `CursorPageSchema`,
+  `normalizeCursorQuery`, and `buildCursorPage` for stable ID/keyset pages.
+
+### Changed
+
+- Extended `TrellisService.with(deps)` so service health checks and health info
+  callbacks can receive application-owned dependencies through `args.deps`.
+- Documented offset and cursor pagination helper choices in the design docs,
+  guide docs, and out-of-tree service `AGENTS.md` template.
+
+### Fixed
+
+- Restored public root and contract-support exports for offset pagination
+  handler helpers `normalizePageQuery` and `buildPageResponse`.
+
 ## [0.10.8] - 2026-06-06
 
 ### Added

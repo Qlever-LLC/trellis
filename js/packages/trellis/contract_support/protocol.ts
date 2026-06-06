@@ -280,3 +280,140 @@ export type PageResponse<TEntry> = {
   limit: number;
   nextOffset?: number;
 };
+
+/**
+ * Validates and normalizes an offset pagination query.
+ *
+ * Ensures `offset` and `limit` are non-negative integers within bounds. Throws
+ * `RangeError` on invalid input.
+ */
+export function normalizePageQuery(
+  query: PageRequest,
+  maxLimit: number = Number.MAX_SAFE_INTEGER,
+): Required<PageRequest> {
+  if (!Number.isInteger(query.limit) || query.limit < 0) {
+    throw new RangeError("list limit must be a non-negative integer");
+  }
+  if (query.limit > maxLimit) {
+    throw new RangeError(`list limit must be <= ${maxLimit}`);
+  }
+  const offset = query.offset ?? 0;
+  if (!Number.isInteger(offset) || offset < 0) {
+    throw new RangeError("list offset must be a non-negative integer");
+  }
+  return { offset, limit: query.limit };
+}
+
+/**
+ * Builds a {@link PageResponse} from a pre-sliced offset page.
+ *
+ * @param entries - The entries for the current page, already sliced by the caller.
+ * @param totalCount - Total number of matching entries before slicing.
+ * @param query - The original pagination query used to produce the page.
+ * @param maxLimit - Optional maximum limit accepted by the endpoint.
+ */
+export function buildPageResponse<T>(
+  entries: T[],
+  totalCount: number,
+  query: PageRequest,
+  maxLimit?: number,
+): PageResponse<T> {
+  const { offset, limit } = normalizePageQuery(query, maxLimit);
+  return {
+    entries,
+    count: totalCount,
+    offset,
+    limit,
+    nextOffset: limit <= 0 || offset + limit >= totalCount
+      ? undefined
+      : offset + limit,
+  };
+}
+
+/** Schema for a cursor pagination query. */
+export const CursorQuerySchema = Type.Object({
+  cursor: Type.Optional(Type.String({ minLength: 1 })),
+  limit: Type.Optional(Type.Integer({ minimum: 0 })),
+});
+
+/** Cursor pagination query. */
+export type CursorQuery = Static<typeof CursorQuerySchema>;
+
+/** Schema for cursor pagination response metadata. */
+export const CursorPageInfoSchema = Type.Object({
+  nextCursor: Type.Optional(Type.String({ minLength: 1 })),
+});
+
+/** Cursor pagination response metadata. */
+export type CursorPageInfo = Static<typeof CursorPageInfoSchema>;
+
+/** Create a schema for a cursor page response with typed items. */
+export function CursorPageSchema<TItem extends TSchema>(item: TItem) {
+  return Type.Object({
+    items: Type.Array(item, { default: [] }),
+    page: CursorPageInfoSchema,
+  });
+}
+
+/** Cursor pagination response with typed items. */
+export type CursorPage<TItem> = {
+  items: TItem[];
+  page: CursorPageInfo;
+};
+
+/** Options for normalizing a cursor pagination query. */
+export type CursorQueryOptions = {
+  /** Limit used when the query does not specify one. Defaults to `100`. */
+  defaultLimit?: number;
+  /** Maximum accepted limit. Defaults to `500`. */
+  maxLimit?: number;
+};
+
+/** Cursor query after defaults and validation have been applied. */
+export type NormalizedCursorQuery = {
+  cursor?: string;
+  limit: number;
+};
+
+/**
+ * Validates and normalizes a cursor pagination query.
+ *
+ * Defaults `limit` to `100`, rejects limits above `500` unless `maxLimit` is
+ * overridden, and preserves a non-empty optional cursor.
+ */
+export function normalizeCursorQuery(
+  query: CursorQuery,
+  options: CursorQueryOptions = {},
+): NormalizedCursorQuery {
+  const maxLimit = options.maxLimit ?? 500;
+  const limit = query.limit ?? options.defaultLimit ?? 100;
+  if (!Number.isInteger(limit) || limit < 0) {
+    throw new RangeError("list limit must be a non-negative integer");
+  }
+  if (limit > maxLimit) {
+    throw new RangeError(`list limit must be <= ${maxLimit}`);
+  }
+  if (query.cursor === undefined) {
+    return { limit };
+  }
+  if (query.cursor.length === 0) {
+    throw new RangeError("list cursor must be a non-empty string");
+  }
+  return { cursor: query.cursor, limit };
+}
+
+/**
+ * Builds a {@link CursorPage} from items and an optional next cursor.
+ *
+ * @param items - The items for the current page.
+ * @param nextCursor - Cursor clients can use to request the next page.
+ */
+export function buildCursorPage<T>(
+  items: T[],
+  nextCursor?: string,
+): CursorPage<T> {
+  return {
+    items,
+    page: nextCursor === undefined ? {} : { nextCursor },
+  };
+}

@@ -132,8 +132,13 @@ Rules:
 
 ## List Pagination Schemas
 
-Trellis list RPCs use a clean-break, standard page shape unless a design doc
-explicitly excludes an endpoint from normal list semantics.
+Trellis list RPCs use clean-break, standard page shapes unless a design doc
+explicitly excludes an endpoint from normal list semantics. Live offset
+pagination is the default for ordinary list RPCs. Cursor pagination is available
+for stable ID/keyset pages where callers should advance by an opaque cursor
+rather than a live row offset.
+
+### Offset Pagination
 
 Request:
 
@@ -167,6 +172,57 @@ Rules:
   live offset
 - this is live offset pagination, not snapshot or cursor pagination; concurrent
   inserts, updates, or deletes can change what appears at later offsets
+
+Trellis provides reusable TypeBox and handler helpers for this shape:
+
+- `PageRequestSchema`
+- `PageResponseSchema(entry)`
+- `normalizePageQuery(query, maxLimit?)`
+- `buildPageResponse(entries, totalCount, query, maxLimit?)`
+
+### Cursor Pagination
+
+Use cursor pagination for stable ID/keyset pages where the service can produce a
+next cursor from the last returned key or another stable opaque position. Cursor
+pages do not expose total counts or live offsets.
+
+Request:
+
+```ts
+{
+  cursor?: string;
+  limit?: number;
+}
+```
+
+Response:
+
+```ts
+{
+  items: T[];
+  page: {
+    nextCursor?: string;
+  };
+}
+```
+
+Rules:
+
+- `limit` defaults to `100`
+- the default maximum `limit` is `500`, though endpoints may choose a narrower
+  or wider maximum when documented
+- `cursor` is optional, but when present it must be a non-empty string
+- responses use `items` for the returned page and `page.nextCursor` only when
+  another page is available
+- cursors are service-owned positions; callers should treat them as opaque
+
+Trellis provides reusable TypeBox and handler helpers for this shape:
+
+- `CursorQuerySchema`
+- `CursorPageInfoSchema`
+- `CursorPageSchema(item)`
+- `normalizeCursorQuery(query, options?)`
+- `buildCursorPage(items, nextCursor?)`
 
 ## Schema Validation
 

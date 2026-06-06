@@ -147,10 +147,10 @@ await app.handle.rpc.entity.list(async ({ input, context, client, deps }) => {
 ```
 
 Bound dependencies are passed as `args.deps` in service-owned handler contexts,
-including RPC, feed, operation, job, and event listener handlers. Trellis
-runtime context remains separate from application dependencies: do not merge app
-dependencies into `context`, and do not pass dependency bags as handler
-registration options.
+including RPC, feed, operation, job, event listener, and health check/info
+handlers. Trellis runtime context remains separate from application
+dependencies: do not merge app dependencies into `context`, and do not pass
+dependency bags as handler registration options.
 
 Rules:
 
