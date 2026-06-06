@@ -8,32 +8,12 @@ import {
   StoreError,
 } from "@qlever-llc/trellis";
 import type { TransferError } from "@qlever-llc/trellis";
-import type { ReceiveTransferGrant } from "@qlever-llc/trellis";
-import type { AsyncResult } from "@qlever-llc/trellis";
 import contract from "../../../contract.ts";
+import type { FieldOpsDeps } from "../../deps.ts";
 
 type Args = RpcArgs<typeof contract, "Evidence.Download">;
-type HandlerArgs = Pick<Args, "context" | "input">;
+type HandlerArgs = Pick<Args, "context" | "input"> & { deps: FieldOpsDeps };
 type HandlerResult = RpcResult<typeof contract, "Evidence.Download">;
-
-type ReceiveTransferIssuer = {
-  createTransfer(args: {
-    direction: "receive";
-    store: string;
-    key: string;
-    sessionKey: string;
-    expiresInMs?: number;
-  }): AsyncResult<ReceiveTransferGrant, TransferError>;
-  store?: {
-    uploads?: {
-      binding?: { ttlMs?: number };
-      waitFor?(key: string, options?: {
-        timeoutMs?: number;
-        pollIntervalMs?: number;
-      }): AsyncResult<unknown, StoreError>;
-    };
-  };
-};
 
 const EVIDENCE_STORE = "uploads";
 const TRANSFER_GRANT_TTL_MS = 60_000;
@@ -142,54 +122,46 @@ function shouldCheckStoreVisibility(error: TransferError): boolean {
   return stringContext(transferCauseContext(error), "reason") === "not_found";
 }
 
-/** Creates a handler that returns a receive transfer grant for stored evidence. */
-export function downloadEvidence(service: ReceiveTransferIssuer) {
-  return async ({ context, input }: HandlerArgs): Promise<HandlerResult> => {
-    const storeTtlMs = service.store?.uploads?.binding?.ttlMs;
-    const transfer = await service.createTransfer({
-      direction: "receive",
-      store: EVIDENCE_STORE,
-      key: input.key,
-      sessionKey: context.sessionKey,
-      expiresInMs: TRANSFER_GRANT_TTL_MS,
-    }).take();
+/** Returns a receive transfer grant for stored evidence. */
+export async function downloadEvidence(
+  { context, deps, input }: HandlerArgs,
+): Promise<HandlerResult> {
+  const transferIssuer = deps.transferIssuer;
+  const storeTtlMs = transferIssuer.store?.uploads?.binding?.ttlMs;
+  const transfer = await transferIssuer.createTransfer({
+    direction: "receive",
+    store: EVIDENCE_STORE,
+    key: input.key,
+    sessionKey: context.sessionKey,
+    expiresInMs: TRANSFER_GRANT_TTL_MS,
+  }).take();
 
-    if (isErr(transfer)) {
-      if (shouldCheckStoreVisibility(transfer.error)) {
-        const visible = await service.store?.uploads?.waitFor?.(input.key, {
+  if (isErr(transfer)) {
+    if (shouldCheckStoreVisibility(transfer.error)) {
+      const visible = await transferIssuer.store?.uploads?.waitFor?.(
+        input.key,
+        {
           timeoutMs: STORE_VISIBILITY_WAIT_MS,
           pollIntervalMs: STORE_VISIBILITY_POLL_MS,
+        },
+      ).take();
+
+      if (visible && !isErr(visible)) {
+        const retried = await transferIssuer.createTransfer({
+          direction: "receive",
+          store: EVIDENCE_STORE,
+          key: input.key,
+          sessionKey: context.sessionKey,
+          expiresInMs: TRANSFER_GRANT_TTL_MS,
         }).take();
-
-        if (visible && !isErr(visible)) {
-          const retried = await service.createTransfer({
-            direction: "receive",
-            store: EVIDENCE_STORE,
-            key: input.key,
-            sessionKey: context.sessionKey,
-            expiresInMs: TRANSFER_GRANT_TTL_MS,
-          }).take();
-          if (!isErr(retried)) return ok({ transfer: retried });
-
-          return Result.err(annotateDownloadFailure({
-            error: retried.error,
-            key: input.key,
-            storeTtlMs,
-            visibilityCheck: "visible_after_wait",
-            retryFailed: true,
-          }));
-        }
+        if (!isErr(retried)) return ok({ transfer: retried });
 
         return Result.err(annotateDownloadFailure({
-          error: transfer.error,
+          error: retried.error,
           key: input.key,
           storeTtlMs,
-          visibilityCheck: visible && isErr(visible)
-            ? "not_visible_after_wait"
-            : "visibility_check_unavailable",
-          visibilityError: visible && isErr(visible)
-            ? visible.error
-            : undefined,
+          visibilityCheck: "visible_after_wait",
+          retryFailed: true,
         }));
       }
 
@@ -197,9 +169,19 @@ export function downloadEvidence(service: ReceiveTransferIssuer) {
         error: transfer.error,
         key: input.key,
         storeTtlMs,
+        visibilityCheck: visible && isErr(visible)
+          ? "not_visible_after_wait"
+          : "visibility_check_unavailable",
+        visibilityError: visible && isErr(visible) ? visible.error : undefined,
       }));
     }
 
-    return ok({ transfer });
-  };
+    return Result.err(annotateDownloadFailure({
+      error: transfer.error,
+      key: input.key,
+      storeTtlMs,
+    }));
+  }
+
+  return ok({ transfer });
 }

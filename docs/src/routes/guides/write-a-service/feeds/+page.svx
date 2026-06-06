@@ -48,9 +48,9 @@ import * as schemas from "../schemas.ts";
 Now handle the feed in `main.ts`. Feed handlers should use service-owned state or an application-local stream; they must not register Trellis event listeners inside the handler. This example watches the service's local order projection and only emits frames the caller is allowed to see:
 
 ```ts
-await service.handle.feed.orders.live(async ({ input, caller, emit, signal }) => {
+await app.handle.feed.orders.live(async ({ input, caller, emit, signal, deps }) => {
   const visibleCustomerIds = await listCustomersVisibleTo(caller);
-  const shippedOrders = watchShippedOrders({ signal });
+  const shippedOrders = deps.orderProjection.watchShippedOrders({ signal });
 
   for await (const event of shippedOrders) {
     if (input.customerId && event.customerId !== input.customerId) {
@@ -65,7 +65,7 @@ await service.handle.feed.orders.live(async ({ input, caller, emit, signal }) =>
 });
 ```
 
-The feed handler receives an authenticated `caller`. Your service is still responsible for checking the requested filter and every emitted frame. If the feed needs data from contract events, consume those events through a startup `service.event...listen(...)` listener that updates service-local state, then have feed handlers watch that state.
+The feed handler receives an authenticated `caller`. Your service is still responsible for checking the requested filter and every emitted frame. If the feed needs data from contract events, consume those events through a startup `service.event...listen(...)` or `app.event...listen(...)` listener that updates service-local state, then have feed handlers watch that state through `deps`.
 
 {/snippet}
 {#snippet rust()}

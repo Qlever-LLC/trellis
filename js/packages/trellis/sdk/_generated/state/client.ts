@@ -3,6 +3,7 @@ import type {
   AcceptedOperation,
   AsyncResult,
   BaseError,
+  EventListenerContext,
   EventOpts,
   FeedSubscribeOpts,
   FeedSubscription,
@@ -14,6 +15,7 @@ import type {
   OperationRef,
   OperationRefData,
   OperationRuntimeHandle,
+  OperationTransferHandle,
   PreparedTrellisEvent,
   ReceiveTransferGrant,
   ReceiveTransferHandle,
@@ -33,13 +35,54 @@ import type { API, Api } from "./api.ts";
 import type * as Types from "./types.ts";
 import type * as HealthSdk from "../health/mod.ts";
 
+type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
+
 type EventCallback<TMessage> = {
-  bivarianceHack(message: TMessage): MaybeAsync<void, BaseError>;
+  bivarianceHack(
+    message: TMessage,
+    context: EventListenerContext,
+  ): MaybeAsync<void, BaseError>;
 }["bivarianceHack"];
 
-type RpcHandler<TInput, TOutput> = (
-  args: { input: TInput; context: RpcHandlerContext; client: HandlerClient },
+type ServiceEventHandler<TEvent, TDeps = undefined> = (
+  args:
+    & { event: TEvent; context: EventListenerContext; client: HandlerClient }
+    & WithDeps<TDeps>,
+) => MaybeAsync<void, BaseError>;
+
+type RpcHandler<TInput, TOutput, TDeps = undefined> = (
+  args:
+    & { input: TInput; context: RpcHandlerContext; client: HandlerClient }
+    & WithDeps<TDeps>,
 ) => MaybeAsync<TOutput, BaseError>;
+
+type FeedHandler<TInput, TEvent, TDeps = undefined> = (
+  context: {
+    input: TInput;
+    caller: unknown;
+    signal: AbortSignal;
+    emit(event: TEvent): AsyncResult<void, ValidationError | UnexpectedError>;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => unknown | Promise<unknown>;
+
+type OperationHandler<
+  TInput,
+  TProgress,
+  TOutput,
+  TTransfer,
+  TDeps = undefined,
+> = (
+  context:
+    & {
+      input: TInput;
+      op: OperationRuntimeHandle<TProgress, TOutput>;
+      caller: unknown;
+      client: HandlerClient;
+    }
+    & TTransfer
+    & WithDeps<TDeps>,
+) => unknown | Promise<unknown>;
 
 export type TrellisStateState = {};
 
@@ -109,42 +152,77 @@ export interface TrellisStateClient {
   wait(): AsyncResult<void, BaseError>;
 }
 
-export interface Service extends Client {
+export interface Service extends TrellisStateClient {
   readonly handle: ServiceHandle;
+  with<TDeps>(deps: TDeps): ServiceWithDeps<TDeps>;
 }
 
-export interface ServiceHandle {
+export type ServiceWithDeps<TDeps> = Omit<TrellisStateClient, "event"> & {
+  readonly event: ServiceEventSurface<TDeps>;
+  readonly handle: ServiceHandle<TDeps>;
+  with<TNextDeps>(deps: TNextDeps): ServiceWithDeps<TNextDeps>;
+};
+
+export interface ServiceEventSurface<TDeps> {
+  readonly health: {
+    heartbeat: {
+      publish(
+        event: Omit<HealthSdk.HealthHeartbeatEvent, "header">,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+      prepare(
+        event: Omit<HealthSdk.HealthHeartbeatEvent, "header">,
+      ): Result<
+        PreparedTrellisEvent<Omit<HealthSdk.HealthHeartbeatEvent, "header">>,
+        ValidationError | UnexpectedError
+      >;
+      listen(
+        handler: ServiceEventHandler<HealthSdk.HealthHeartbeatEvent, TDeps>,
+        subjectData?: Record<string, unknown>,
+        opts?: EventOpts,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+    };
+  };
+}
+
+export interface ServiceHandle<TDeps = undefined> {
   readonly rpc: {
     readonly state: {
       adminDelete(
         handler: RpcHandler<
           Types.StateAdminDeleteInput,
-          Types.StateAdminDeleteOutput
+          Types.StateAdminDeleteOutput,
+          TDeps
         >,
       ): Promise<void>;
       adminGet(
         handler: RpcHandler<
           Types.StateAdminGetInput,
-          Types.StateAdminGetOutput
+          Types.StateAdminGetOutput,
+          TDeps
         >,
       ): Promise<void>;
       adminList(
         handler: RpcHandler<
           Types.StateAdminListInput,
-          Types.StateAdminListOutput
+          Types.StateAdminListOutput,
+          TDeps
         >,
       ): Promise<void>;
       delete(
-        handler: RpcHandler<Types.StateDeleteInput, Types.StateDeleteOutput>,
+        handler: RpcHandler<
+          Types.StateDeleteInput,
+          Types.StateDeleteOutput,
+          TDeps
+        >,
       ): Promise<void>;
       get(
-        handler: RpcHandler<Types.StateGetInput, Types.StateGetOutput>,
+        handler: RpcHandler<Types.StateGetInput, Types.StateGetOutput, TDeps>,
       ): Promise<void>;
       list(
-        handler: RpcHandler<Types.StateListInput, Types.StateListOutput>,
+        handler: RpcHandler<Types.StateListInput, Types.StateListOutput, TDeps>,
       ): Promise<void>;
       put(
-        handler: RpcHandler<Types.StatePutInput, Types.StatePutOutput>,
+        handler: RpcHandler<Types.StatePutInput, Types.StatePutOutput, TDeps>,
       ): Promise<void>;
     };
   };

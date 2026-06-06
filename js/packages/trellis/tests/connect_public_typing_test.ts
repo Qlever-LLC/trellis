@@ -15,7 +15,10 @@ import {
 import { checkDeviceActivation } from "../device/deno.ts";
 import { API as CORE_API, type Client as CoreClient } from "../sdk/core.ts";
 import type { Client as HealthClient } from "../sdk/health.ts";
-import type { HandlerClient as HealthHandlerClient } from "../../../../generated/packages/jsr/health/client.ts";
+import type {
+  HandlerClient as HealthHandlerClient,
+  ServiceWithDeps as HealthServiceWithDeps,
+} from "../../../../generated/packages/jsr/health/client.ts";
 import { sdk as jobs } from "../sdk/jobs.ts";
 import { TrellisService } from "../service/deno.ts";
 import { StoreHandle } from "../server/mod.ts";
@@ -347,6 +350,14 @@ async function typecheckServiceConnectSurface() {
     {},
     { group: "primary" },
   );
+  await service.event.service.changed.listen(
+    (_event, context) => {
+      const subject: string = context.subject;
+      return Result.ok(subject.length > 0 ? undefined : undefined);
+    },
+    {},
+    { mode: "ephemeral" },
+  );
   await service.handle.rpc.service.ping(({ input, client }) => {
     const value: string = input.value;
     client.event.service.changed.prepare({ id: "one", value });
@@ -357,6 +368,25 @@ async function typecheckServiceConnectSurface() {
     void client.listenEvent("Service.Changed", {}, () => {});
     return Result.ok({ ok: true });
   });
+
+  const bound = service.with({ label: "bound" });
+  await bound.handle.rpc.service.ping(({ input, deps, client }) => {
+    const value: string = input.value;
+    const label: string = deps.label;
+    client.event.service.changed.prepare({ id: "one", value: label });
+    return Result.ok({ ok: value.length > 0 });
+  });
+  await bound.event.service.changed.listen(
+    ({ event, context, client, deps }) => {
+      const id: string = event.id;
+      const subject: string = context.subject;
+      const label: string = deps.label;
+      client.event.service.changed.prepare({ id, value: label });
+      return Result.ok(subject.length > 0 ? undefined : undefined);
+    },
+    {},
+    { mode: "ephemeral" },
+  );
 
   return service.name;
 }
@@ -372,6 +402,28 @@ function typecheckGeneratedServiceHandlerClientSurface(
   const listen = handlerClient.event.health.heartbeat.listen;
 
   return { prepare, publish, listen };
+}
+
+function typecheckGeneratedServiceWithDepsSurface(
+  service: HealthServiceWithDeps<{ prefix: string }>,
+) {
+  void service.event.health.heartbeat.listen(
+    ({ event, context, client, deps }) => {
+      const prefix: string = deps.prefix;
+      const eventService = event.service;
+      const eventId: string = context.id;
+      const eventTime: Date = context.time;
+      const prepared = client.event.health.heartbeat.prepare({
+        status: "healthy",
+        service: eventService,
+        checks: [],
+      });
+      void { prefix, eventId, eventTime, prepared };
+      return Result.ok(undefined);
+    },
+  );
+
+  return service.handle;
 }
 
 function typecheckResolvedRuntimeBindingsAreNotPublicAuthoringSurface() {
@@ -409,6 +461,7 @@ void typecheckTrellisClientConnectRequestSurface;
 void typecheckDeviceConnectRequestSurface;
 void typecheckDeviceActivationSurface;
 void typecheckServiceConnectSurface;
+void typecheckGeneratedServiceWithDepsSurface;
 void typecheckResolvedRuntimeBindingsAreNotPublicAuthoringSurface;
 void typecheckGeneratedCoreInternalRpcSurface;
 

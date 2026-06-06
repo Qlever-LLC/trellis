@@ -16,5 +16,5 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 time.workspace = true
-trellis-contracts = { path = "../contracts", version = "0.10.5" }
-trellis-rs = { path = "../trellis", version = "0.10.5" }
+trellis-contracts = { path = "../contracts", version = "0.10.6" }
+trellis-rs = { path = "../trellis", version = "0.10.6" }

@@ -27,6 +27,7 @@ import type {
 
 // Import the module under test
 import {
+  type BoundTrellisService,
   type EventContext,
   type HealthCheckFn,
   type HealthCheckResult,
@@ -44,6 +45,9 @@ import {
   TrellisService as TrellisServiceClass,
   TrellisServiceRuntime,
 } from "./mod.ts";
+import type { BoundTrellisService as DenoBoundTrellisService } from "../service/deno.ts";
+import type { BoundTrellisService as ServiceBoundTrellisService } from "../service/mod.ts";
+import type { BoundTrellisService as NodeBoundTrellisService } from "../service/node.ts";
 
 const typeTestSchemas = {
   PingInput: Type.Object({ value: Type.String() }),
@@ -186,6 +190,68 @@ const operationsTypeTestContract = defineServiceContract(
   }),
 );
 
+const depsTypeTestSchemas = {
+  Input: Type.Object({ value: Type.String() }),
+  Output: Type.Object({ ok: Type.Boolean() }),
+  Event: Type.Object({ value: Type.String() }),
+  Progress: Type.Object({ value: Type.String() }),
+  JobPayload: Type.Object({ value: Type.String() }),
+  JobResult: Type.Object({ value: Type.String() }),
+  KVValue: Type.Object({ value: Type.String() }),
+} as const;
+
+const depsTypeTestContract = defineServiceContract(
+  { schemas: depsTypeTestSchemas },
+  (ref) => ({
+    id: "trellis.server.deps-type-test@v1",
+    displayName: "Deps Type Test",
+    description: "Verify bound service dependency injection types.",
+    rpc: {
+      "Test.Ping": {
+        version: "v1",
+        input: ref.schema("Input"),
+        output: ref.schema("Output"),
+        errors: [ref.error("UnexpectedError")],
+      },
+    },
+    events: {
+      "Test.Changed": {
+        version: "v1",
+        event: ref.schema("Event"),
+      },
+    },
+    feeds: {
+      "Test.Stream": {
+        version: "v1",
+        input: ref.schema("Input"),
+        event: ref.schema("Event"),
+      },
+    },
+    operations: {
+      "Test.Run": {
+        version: "v1",
+        input: ref.schema("Input"),
+        progress: ref.schema("Progress"),
+        output: ref.schema("Output"),
+      },
+    },
+    jobs: {
+      refresh: {
+        payload: ref.schema("JobPayload"),
+        result: ref.schema("JobResult"),
+      },
+    },
+    resources: {
+      kv: {
+        items: {
+          purpose: "Store typed items",
+          schema: ref.schema("KVValue"),
+        },
+      },
+    },
+  }),
+);
+
 Deno.test("TrellisServiceRuntime export exists", () => {
   assertExists(TrellisServiceRuntime);
   assertEquals(typeof TrellisServiceRuntime, "function");
@@ -319,6 +385,97 @@ Deno.test("service wrapper exposes typed jobs facade", () => {
   assertExists(expectTypedJobs);
 });
 
+Deno.test("service subpaths expose bound service type", () => {
+  type DepsContract = typeof depsTypeTestContract;
+  type OwnedApi = DepsContract["API"]["owned"];
+  type Jobs = NonNullable<DepsContract[typeof CONTRACT_JOBS_METADATA]>;
+  type Kv = NonNullable<DepsContract[typeof CONTRACT_KV_METADATA]>;
+  type Deps = { prefix: string };
+
+  function expectSubpathTypes(
+    service: DenoBoundTrellisService<OwnedApi, OwnedApi, Jobs, Kv, Deps>,
+  ): ServiceBoundTrellisService<OwnedApi, OwnedApi, Jobs, Kv, Deps> {
+    const nodeService: NodeBoundTrellisService<
+      OwnedApi,
+      OwnedApi,
+      Jobs,
+      Kv,
+      Deps
+    > = service;
+    return nodeService;
+  }
+
+  assertExists(expectSubpathTypes);
+});
+
+Deno.test("bound service wrapper injects deps across handler surfaces", () => {
+  type DepsContract = typeof depsTypeTestContract;
+  type DepsJobs = NonNullable<DepsContract[typeof CONTRACT_JOBS_METADATA]>;
+  type DepsKv = NonNullable<DepsContract[typeof CONTRACT_KV_METADATA]>;
+  type DepsService = TrellisService<
+    DepsContract["API"]["owned"],
+    DepsContract["API"]["owned"],
+    DepsJobs,
+    DepsKv
+  >;
+  type Deps = { prefix: string };
+
+  function expectBoundService(service: DepsService) {
+    const bound = service.with({ prefix: "dep" });
+    const explicitBound: BoundTrellisService<
+      DepsContract["API"]["owned"],
+      DepsContract["API"]["owned"],
+      DepsJobs,
+      DepsKv,
+      Deps
+    > = bound;
+
+    void bound.handle.rpc.test.ping(({ input, context, client, deps }) => {
+      const value: string = input.value;
+      const sessionKey: string = context.sessionKey;
+      const prefix: string = deps.prefix;
+      assertExists(client.kv.items);
+      assertExists(value);
+      assertExists(sessionKey);
+      return Result.ok({ ok: prefix.length > 0 });
+    });
+
+    void bound.handle.feed.test.stream(
+      ({ input, emit, client, deps }) => {
+        assertExists(client.kv.items);
+        assertExists(emit({ value: `${deps.prefix}:${input.value}` }));
+      },
+    );
+
+    void bound.handle.operation.test.run(({ input, op, client, deps }) => {
+      assertExists(op.started());
+      assertExists(client.kv.items);
+      assertEquals(`${deps.prefix}:${input.value}`.length > 0, true);
+    });
+
+    void bound.jobs.refresh.handle(async ({ job, client, deps }) => {
+      assertExists(client.kv.items);
+      return Result.ok({ value: `${deps.prefix}:${job.payload.value}` });
+    });
+
+    void bound.event.test.changed.listen(
+      ({ event, context, client, deps }) => {
+        const value: string = event.value;
+        const subject: string = context.subject;
+        assertExists(client.kv.items);
+        assertExists(`${deps.prefix}:${value}:${subject}`);
+        return Result.ok(undefined);
+      },
+      {},
+      { mode: "ephemeral" },
+    );
+
+    return explicitBound.name;
+  }
+
+  assertExists(expectBoundService);
+});
+
 Deno.test("server RPC helper types support extracted handlers", () => {
   type PingHandler = RpcHandler<typeof typeTestContract, "Test.Ping">;
 
@@ -390,9 +547,12 @@ Deno.test("contract-oriented helper types support local Args and Return aliases"
 
   const onPinged: TypeTestEvent<"Test.Pinged"> = async (
     event: Parameters<TypeTestEvent<"Test.Pinged">>[0],
+    context: Parameters<TypeTestEvent<"Test.Pinged">>[1],
   ) => {
     const value: TypeTestEventPayload<"Test.Pinged">["value"] = event.value;
+    const subject: string = context.subject;
     assertEquals(value, event.value);
+    assertExists(subject);
     return Result.ok(undefined);
   };
 

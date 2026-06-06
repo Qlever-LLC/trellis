@@ -7,6 +7,7 @@ import {
   StoreError,
   TransferError,
 } from "@qlever-llc/trellis";
+import type { FieldOpsDeps } from "../../deps.ts";
 import { downloadEvidence } from "./downloadEvidence.ts";
 
 const rpcContext = {
@@ -39,8 +40,23 @@ function grantFor(key: string): ReceiveTransferGrant {
   };
 }
 
+function depsFor(
+  transferIssuer: FieldOpsDeps["transferIssuer"],
+): FieldOpsDeps {
+  return {
+    transferIssuer,
+    getSiteSummary: (_siteId: string) => undefined,
+    activityFeedEventNames: {
+      auditRecorded: "Audit.Recorded",
+      reportsPublished: "Reports.Published",
+      evidenceUploaded: "Evidence.Uploaded",
+      sitesRefreshed: "Sites.Refreshed",
+    },
+  };
+}
+
 Deno.test("downloadEvidence adds root-cause context for missing evidence keys", async () => {
-  const handler = downloadEvidence({
+  const deps = depsFor({
     createTransfer: () =>
       AsyncResult.err(
         new TransferError({
@@ -69,9 +85,10 @@ Deno.test("downloadEvidence adds root-cause context for missing evidence keys", 
     },
   });
 
-  const result = await handler({
+  const result = await downloadEvidence({
     input: { key: "evidence/missing.jpg" },
     context: rpcContext,
+    deps,
   });
 
   const value = result.take();
@@ -88,7 +105,7 @@ Deno.test("downloadEvidence adds root-cause context for missing evidence keys", 
 
 Deno.test("downloadEvidence retries when a key appears after the first miss", async () => {
   let createAttempts = 0;
-  const handler = downloadEvidence({
+  const deps = depsFor({
     createTransfer: ({ key }) => {
       createAttempts += 1;
       if (createAttempts === 1) {
@@ -112,9 +129,10 @@ Deno.test("downloadEvidence retries when a key appears after the first miss", as
     },
   });
 
-  const result = await handler({
+  const result = await downloadEvidence({
     input: { key: "evidence/racy.jpg" },
     context: rpcContext,
+    deps,
   });
 
   const value = result.take();

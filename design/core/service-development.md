@@ -132,6 +132,42 @@ Rules:
   wait for listener drain before exiting rather than waiting indefinitely on
   long-lived keep-alive or streaming connections
 
+### Application dependency binding
+
+Services MAY bind application-owned dependencies once with `service.with(deps)`
+and register handlers through the returned wrapper:
+
+```ts
+const app = service.with({ db, logger });
+
+await app.handle.rpc.entity.list(async ({ input, context, client, deps }) => {
+  deps.logger.info({ caller: context.caller }, "listing entities");
+  return Result.ok(await listEntities(deps.db, input));
+});
+```
+
+Bound dependencies are passed as `args.deps` in service-owned handler contexts,
+including RPC, feed, operation, job, and event listener handlers. Trellis
+runtime context remains separate from application dependencies: do not merge app
+dependencies into `context`, and do not pass dependency bags as handler
+registration options.
+
+Rules:
+
+- `service.with(deps)` is optional; unbound service handler registration remains
+  valid
+- Trellis passes the dependency object through but does not own its lifecycle,
+  clone it, initialize it, or dispose it
+- multiple wrappers created from the same service keep independent dependency
+  bindings
+- the second and third arguments to registration methods remain surface-specific
+  Trellis options such as event subject data and event listener options, not app
+  dependency slots
+- registration settings such as handler `timeoutMs`, registration-level
+  cancellation, `onError`, middleware, or custom validation are deferred until
+  the runtime has clear enforcement and interception semantics; do not expose
+  fake settings that have no runtime behavior
+
 ### Service-local storage
 
 Most services should keep durable domain storage behind their own service

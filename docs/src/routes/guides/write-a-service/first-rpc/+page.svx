@@ -61,26 +61,31 @@ Now implement the handler in `handlers/orders.ts`:
 
 ```ts
 import { ok } from "@qlever-llc/trellis";
-import { ulid } from "ulid";
 import type {
   RpcHandlerArgs,
   RpcHandlerResult,
 } from "../contracts/orders_service.ts";
 
-type Args = RpcHandlerArgs<"Orders.Create">;
+type Args = RpcHandlerArgs<"Orders.Create"> & {
+  deps: {
+    id(): string;
+    clock(): Date;
+  };
+};
 type Result = RpcHandlerResult<"Orders.Create">;
 
 export async function createOrderHandler({
   input,
   client,
+  deps,
 }: Args): Promise<Result> {
-  const orderId = ulid();
+  const orderId = deps.id();
   const order = {
     orderId,
     customerId: input.customerId,
     status: "pending" as const,
     items: input.items,
-    createdAt: new Date().toISOString(),
+    createdAt: deps.clock().toISOString(),
   };
 
   await client.kv.orders.put(orderId, order).orThrow();
@@ -94,10 +99,16 @@ Mount it from `main.ts`:
 ```ts
 import { createOrderHandler } from "./handlers/orders.ts";
 
-await service.handle.rpc.orders.create(createOrderHandler);
+await app.handle.rpc.orders.create(createOrderHandler);
 ```
 
-Handlers return `ok(value)` on success or `err(error)` for declared, caller-visible failures. Input validation has already happened by the time your handler is called. If the caller sends a malformed request, Trellis rejects it before reaching your code. Use `.orThrow()` only for unexpected platform failures that should become `UnexpectedError` responses.
+Handlers registered through `app` receive the same Trellis `input`, `context`,
+and `client` values as unbound handlers, plus the app dependencies you bound in
+the entrypoint as `deps`. Handlers return `ok(value)` on success or `err(error)`
+for declared, caller-visible failures. Input validation has already happened by
+the time your handler is called. If the caller sends a malformed request, Trellis
+rejects it before reaching your code. Use `.orThrow()` only for unexpected
+platform failures that should become `UnexpectedError` responses.
 
 {/snippet}
 {#snippet rust()}

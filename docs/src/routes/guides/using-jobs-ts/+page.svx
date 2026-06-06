@@ -104,18 +104,18 @@ export type NotifyWarehouseResult = Static<typeof NotifyWarehouseResultSchema>;
 Update the `Orders.Create` handler in `main.ts` to enqueue a fulfillment job after saving the order:
 
 ```ts
-await service.handle.rpc.orders.create(async ({ input }) => {
-  const orderId = ulid();
+await app.handle.rpc.orders.create(async ({ input, client, deps }) => {
+  const orderId = deps.id();
   const order = {
     orderId,
     customerId: input.customerId,
     status: "pending",
     items: input.items,
-    createdAt: new Date().toISOString(),
+    createdAt: deps.clock().toISOString(),
   };
-  await ordersKV.put(orderId, order);
+  await client.kv.orders.put(orderId, order).orThrow();
 
-  const job = await service.jobs.reserveInventory.create({
+  const job = await client.jobs.reserveInventory.create({
     orderId,
     items: input.items,
   });
@@ -129,12 +129,13 @@ await service.handle.rpc.orders.create(async ({ input }) => {
 
 Register workers for each job type before calling `service.wait()`. Handler registration is synchronous; the connected service owns worker startup and shutdown as part of its lifecycle:
 
-Use the `service.jobs` handle returned by `TrellisService.connect(...)`. Jobs
+Use the `service.jobs` handle returned by `TrellisService.connect(...)`, or the
+bound `app.jobs` wrapper when job handlers need application dependencies. Jobs
 bindings are Trellis runtime internals, not values service code should fetch with
 `Trellis.Bindings.Get` or pass into `Trellis` constructors.
 
 ```ts
-service.jobs.reserveInventory.handle(async ({ job }) => {
+app.jobs.reserveInventory.handle(async ({ job, client, deps }) => {
   console.info(
     `reserveInventory job ${job.ref.id} request=${job.context.requestId} trace=${job.context.traceId}`,
   );
@@ -151,7 +152,8 @@ service.jobs.reserveInventory.handle(async ({ job }) => {
     return Result.err({ type: "InventoryError", message: "Items not available" });
   }
 
-  const chargeJob = await service.jobs.chargePayment.create({
+  deps.log.info("inventory reserved", { orderId: job.payload.orderId });
+  const chargeJob = await client.jobs.chargePayment.create({
     orderId: job.payload.orderId,
     customerId: "cust_placeholder",
     amountCents: 1000,
@@ -161,7 +163,7 @@ service.jobs.reserveInventory.handle(async ({ job }) => {
   return Result.ok({ reserved: true });
 });
 
-service.jobs.chargePayment.handle(async ({ job }) => {
+app.jobs.chargePayment.handle(async ({ job, client, deps }) => {
   await job.progress({ step: "charging", message: "Processing payment" });
 
   if (job.cancelled) {
@@ -169,9 +171,9 @@ service.jobs.chargePayment.handle(async ({ job }) => {
   }
 
   // charge payment...
-  const chargeId = `ch_${ulid()}`;
+  const chargeId = `ch_${deps.id()}`;
 
-  const notifyJob = await service.jobs.notifyWarehouse.create({
+  const notifyJob = await client.jobs.notifyWarehouse.create({
     orderId: job.payload.orderId,
     items: [],
   });
@@ -180,7 +182,7 @@ service.jobs.chargePayment.handle(async ({ job }) => {
   return Result.ok({ chargeId });
 });
 
-service.jobs.notifyWarehouse.handle(async ({ job }) => {
+app.jobs.notifyWarehouse.handle(async ({ job, client, deps }) => {
   await job.progress({ step: "notifying", message: "Notifying warehouse" });
 
   if (job.cancelled) {
@@ -189,10 +191,10 @@ service.jobs.notifyWarehouse.handle(async ({ job }) => {
 
   // notify warehouse...
 
-  await service.event.orders.shipped.publish({
+  await client.event.orders.shipped.publish({
     orderId: job.payload.orderId,
     customerId: "cust_placeholder",
-    shippedAt: new Date().toISOString(),
+    shippedAt: deps.clock().toISOString(),
   });
 
   return Result.ok({ notified: true });
@@ -224,7 +226,7 @@ To prevent retry for a specific job type, set `maxDeliver: 1` in the contract qu
 If a job may run longer than the configured `ackWaitMs` (default 5 minutes), call `job.heartbeat()` periodically to extend the deadline:
 
 ```ts
-service.jobs.chargePayment.handle(async ({ job }) => {
+app.jobs.chargePayment.handle(async ({ job }) => {
   while (processing) {
     await job.heartbeat();
     // continue work

@@ -3,6 +3,7 @@ import type {
   AcceptedOperation,
   AsyncResult,
   BaseError,
+  EventListenerContext,
   EventOpts,
   FeedSubscribeOpts,
   FeedSubscription,
@@ -14,6 +15,7 @@ import type {
   OperationRef,
   OperationRefData,
   OperationRuntimeHandle,
+  OperationTransferHandle,
   PreparedTrellisEvent,
   ReceiveTransferGrant,
   ReceiveTransferHandle,
@@ -35,13 +37,54 @@ import type * as AuthSdk from "../auth/mod.ts";
 import type * as CoreSdk from "../core/mod.ts";
 import type * as HealthSdk from "../health/mod.ts";
 
+type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
+
 type EventCallback<TMessage> = {
-  bivarianceHack(message: TMessage): MaybeAsync<void, BaseError>;
+  bivarianceHack(
+    message: TMessage,
+    context: EventListenerContext,
+  ): MaybeAsync<void, BaseError>;
 }["bivarianceHack"];
 
-type RpcHandler<TInput, TOutput> = (
-  args: { input: TInput; context: RpcHandlerContext; client: HandlerClient },
+type ServiceEventHandler<TEvent, TDeps = undefined> = (
+  args:
+    & { event: TEvent; context: EventListenerContext; client: HandlerClient }
+    & WithDeps<TDeps>,
+) => MaybeAsync<void, BaseError>;
+
+type RpcHandler<TInput, TOutput, TDeps = undefined> = (
+  args:
+    & { input: TInput; context: RpcHandlerContext; client: HandlerClient }
+    & WithDeps<TDeps>,
 ) => MaybeAsync<TOutput, BaseError>;
+
+type FeedHandler<TInput, TEvent, TDeps = undefined> = (
+  context: {
+    input: TInput;
+    caller: unknown;
+    signal: AbortSignal;
+    emit(event: TEvent): AsyncResult<void, ValidationError | UnexpectedError>;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => unknown | Promise<unknown>;
+
+type OperationHandler<
+  TInput,
+  TProgress,
+  TOutput,
+  TTransfer,
+  TDeps = undefined,
+> = (
+  context:
+    & {
+      input: TInput;
+      op: OperationRuntimeHandle<TProgress, TOutput>;
+      caller: unknown;
+      client: HandlerClient;
+    }
+    & TTransfer
+    & WithDeps<TDeps>,
+) => unknown | Promise<unknown>;
 
 export type TrellisJobsState = {};
 
@@ -131,48 +174,91 @@ export interface TrellisJobsClient {
   wait(): AsyncResult<void, BaseError>;
 }
 
-export interface Service extends Client {
+export interface Service extends TrellisJobsClient {
   readonly handle: ServiceHandle;
+  with<TDeps>(deps: TDeps): ServiceWithDeps<TDeps>;
 }
 
-export interface ServiceHandle {
+export type ServiceWithDeps<TDeps> = Omit<TrellisJobsClient, "event"> & {
+  readonly event: ServiceEventSurface<TDeps>;
+  readonly handle: ServiceHandle<TDeps>;
+  with<TNextDeps>(deps: TNextDeps): ServiceWithDeps<TNextDeps>;
+};
+
+export interface ServiceEventSurface<TDeps> {
+  readonly health: {
+    heartbeat: {
+      publish(
+        event: Omit<HealthSdk.HealthHeartbeatEvent, "header">,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+      prepare(
+        event: Omit<HealthSdk.HealthHeartbeatEvent, "header">,
+      ): Result<
+        PreparedTrellisEvent<Omit<HealthSdk.HealthHeartbeatEvent, "header">>,
+        ValidationError | UnexpectedError
+      >;
+      listen(
+        handler: ServiceEventHandler<HealthSdk.HealthHeartbeatEvent, TDeps>,
+        subjectData?: Record<string, unknown>,
+        opts?: EventOpts,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+    };
+  };
+}
+
+export interface ServiceHandle<TDeps = undefined> {
   readonly rpc: {
     readonly jobs: {
       cancel(
-        handler: RpcHandler<Types.JobsCancelInput, Types.JobsCancelOutput>,
+        handler: RpcHandler<
+          Types.JobsCancelInput,
+          Types.JobsCancelOutput,
+          TDeps
+        >,
       ): Promise<void>;
       dismissDLQ(
         handler: RpcHandler<
           Types.JobsDismissDLQInput,
-          Types.JobsDismissDLQOutput
+          Types.JobsDismissDLQOutput,
+          TDeps
         >,
       ): Promise<void>;
       get(
-        handler: RpcHandler<Types.JobsGetInput, Types.JobsGetOutput>,
+        handler: RpcHandler<Types.JobsGetInput, Types.JobsGetOutput, TDeps>,
       ): Promise<void>;
       health(
-        handler: RpcHandler<Types.JobsHealthInput, Types.JobsHealthOutput>,
+        handler: RpcHandler<
+          Types.JobsHealthInput,
+          Types.JobsHealthOutput,
+          TDeps
+        >,
       ): Promise<void>;
       list(
-        handler: RpcHandler<Types.JobsListInput, Types.JobsListOutput>,
+        handler: RpcHandler<Types.JobsListInput, Types.JobsListOutput, TDeps>,
       ): Promise<void>;
       listDLQ(
-        handler: RpcHandler<Types.JobsListDLQInput, Types.JobsListDLQOutput>,
+        handler: RpcHandler<
+          Types.JobsListDLQInput,
+          Types.JobsListDLQOutput,
+          TDeps
+        >,
       ): Promise<void>;
       listServices(
         handler: RpcHandler<
           Types.JobsListServicesInput,
-          Types.JobsListServicesOutput
+          Types.JobsListServicesOutput,
+          TDeps
         >,
       ): Promise<void>;
       replayDLQ(
         handler: RpcHandler<
           Types.JobsReplayDLQInput,
-          Types.JobsReplayDLQOutput
+          Types.JobsReplayDLQOutput,
+          TDeps
         >,
       ): Promise<void>;
       retry(
-        handler: RpcHandler<Types.JobsRetryInput, Types.JobsRetryOutput>,
+        handler: RpcHandler<Types.JobsRetryInput, Types.JobsRetryOutput, TDeps>,
       ): Promise<void>;
     };
   };

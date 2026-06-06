@@ -40,16 +40,24 @@ import {
   CONTRACT_JOBS_METADATA,
   CONTRACT_KV_METADATA,
 } from "../contract_support/mod.ts";
-import { AsyncResult, type BaseError, isErr, Result } from "@qlever-llc/result";
+import {
+  AsyncResult,
+  type BaseError,
+  isErr,
+  type MaybeAsync,
+  Result,
+} from "@qlever-llc/result";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { type HealthCheckFn, ServiceHealth } from "./health.ts";
 import { mountStandardHealthRpc } from "./health_rpc.ts";
-import type { RPCDesc } from "../contracts.ts";
+import type { EventDesc, RPCDesc } from "../contracts.ts";
 import type {
   AcceptedOperation,
   ActiveEventFacade,
   ActiveEventPublishFacade,
+  EventListenerContext,
+  EventOpts,
   FeedEventOf,
   FeedInputOf,
   FeedRegistration as RootFeedRegistration,
@@ -60,6 +68,7 @@ import type {
   OperationRegistration as RootOperationRegistration,
   OperationRuntimeHandle,
   OperationTransferContextOf,
+  PreparedTrellisEvent,
   RpcHandlerContext,
   RpcHandlerErrorOf,
 } from "../trellis.ts";
@@ -1097,6 +1106,268 @@ export type JobsFacadeOf<
   >;
 };
 
+type ServiceEventName<TA extends TrellisAPI> = keyof TA["events"] & string;
+type ServiceEventOf<
+  TA extends TrellisAPI,
+  E extends ServiceEventName<TA>,
+> = TA["events"][E] extends EventDesc<infer TEvent> ? InferSchemaType<TEvent>
+  : never;
+type ServiceEventPayloadOf<
+  TA extends TrellisAPI,
+  E extends ServiceEventName<TA>,
+> = Omit<ServiceEventOf<TA, E>, "header">;
+
+type BoundEventHandleFn<
+  TEventApi extends TrellisAPI,
+  TTrellisApi extends TrellisAPI,
+  E extends ServiceEventName<TEventApi>,
+  TKv extends ContractKvMetadata,
+  TJobs extends ContractJobsMetadata,
+  TDeps,
+> = (args: {
+  event: ServiceEventOf<TEventApi, E>;
+  context: EventListenerContext;
+  client: Trellis<TTrellisApi, TKv, TJobs>;
+  deps: TDeps;
+}) => MaybeAsync<void, BaseError>;
+
+type BoundActiveEventFacade<
+  TEventApi extends TrellisAPI,
+  TTrellisApi extends TrellisAPI,
+  TKv extends ContractKvMetadata,
+  TJobs extends ContractJobsMetadata,
+  TDeps,
+> = {
+  readonly [TGroup in SurfaceGroupName<ServiceEventName<TEventApi>>]: {
+    readonly [
+      E in SurfaceKeysForGroup<
+        ServiceEventName<TEventApi>,
+        TGroup
+      > as SurfaceLeafName<E>
+    ]: {
+      prepare(
+        event: ServiceEventPayloadOf<TEventApi, E>,
+      ): Result<
+        PreparedTrellisEvent<ServiceEventPayloadOf<TEventApi, E>>,
+        ValidationError | UnexpectedError
+      >;
+      publish(
+        event: ServiceEventPayloadOf<TEventApi, E>,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+      listen(
+        handler: BoundEventHandleFn<
+          TEventApi,
+          TTrellisApi,
+          E,
+          TKv,
+          TJobs,
+          TDeps
+        >,
+        subjectData?: Record<string, unknown>,
+        opts?: EventOpts,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+    };
+  };
+};
+
+type BoundRpcHandleFn<
+  TOwnedApi extends TrellisAPI,
+  TTrellisApi extends TrellisAPI,
+  M extends RpcMethodName<TOwnedApi>,
+  TKv extends ContractKvMetadata,
+  TJobs extends ContractJobsMetadata,
+  TDeps,
+> = (args: {
+  input: RpcMethodInput<TOwnedApi, M>;
+  context: RpcHandlerContext;
+  client: Trellis<TTrellisApi, TKv, TJobs>;
+  deps: TDeps;
+}) =>
+  | Promise<
+    Result<RpcMethodOutput<TOwnedApi, M>, RpcHandlerErrorOf<TOwnedApi, M>>
+  >
+  | Result<RpcMethodOutput<TOwnedApi, M>, RpcHandlerErrorOf<TOwnedApi, M>>;
+
+type BoundFeedHandleFn<
+  TOwnedApi extends TrellisAPI,
+  TTrellisApi extends TrellisAPI,
+  F extends keyof TOwnedApi["feeds"] & string,
+  TKv extends ContractKvMetadata,
+  TJobs extends ContractJobsMetadata,
+  TDeps,
+> = (context: {
+  input: FeedInputOf<TOwnedApi, F>;
+  caller: unknown;
+  signal: AbortSignal;
+  emit(
+    event: FeedEventOf<TOwnedApi, F>,
+  ): AsyncResult<void, ValidationError | UnexpectedError>;
+  client: Trellis<TTrellisApi, TKv, TJobs>;
+  deps: TDeps;
+}) => unknown | Promise<unknown>;
+
+type BoundOperationHandleFn<
+  TOwnedApi extends TrellisAPI,
+  TTrellisApi extends TrellisAPI,
+  O extends keyof TOwnedApi["operations"] & string,
+  TKv extends ContractKvMetadata,
+  TJobs extends ContractJobsMetadata,
+  TDeps,
+> =
+  & ((
+    handler: (
+      context:
+        & OperationHandlerContext<
+          InferSchemaType<TOwnedApi["operations"][O]["input"]>,
+          OperationProgressOf<TOwnedApi, O>,
+          OperationOutputOf<TOwnedApi, O>,
+          OperationTransferContextOf<TOwnedApi, O>
+        >
+        & {
+          client: Trellis<TTrellisApi, TKv, TJobs>;
+          deps: TDeps;
+        },
+    ) => unknown | Promise<unknown>,
+  ) => Promise<void>)
+  & Pick<
+    OperationHandleFn<TOwnedApi, TTrellisApi, O, TKv, TJobs>,
+    "accept" | "control"
+  >;
+
+type BoundTypedServiceHandleFacade<
+  TOwnedApi extends TrellisAPI,
+  TTrellisApi extends TrellisAPI,
+  TKv extends ContractKvMetadata,
+  TJobs extends ContractJobsMetadata,
+  TDeps,
+> = {
+  readonly rpc: {
+    readonly [TGroup in SurfaceGroupName<RpcMethodName<TOwnedApi>>]: {
+      readonly [
+        M in SurfaceKeysForGroup<
+          RpcMethodName<TOwnedApi>,
+          TGroup
+        > as SurfaceLeafName<M>
+      ]: (
+        handler: BoundRpcHandleFn<TOwnedApi, TTrellisApi, M, TKv, TJobs, TDeps>,
+      ) => Promise<void>;
+    };
+  };
+  readonly feed: {
+    readonly [TGroup in SurfaceGroupName<keyof TOwnedApi["feeds"] & string>]: {
+      readonly [
+        F in SurfaceKeysForGroup<
+          keyof TOwnedApi["feeds"] & string,
+          TGroup
+        > as SurfaceLeafName<F>
+      ]: (
+        handler: BoundFeedHandleFn<
+          TOwnedApi,
+          TTrellisApi,
+          F,
+          TKv,
+          TJobs,
+          TDeps
+        >,
+      ) => Promise<void>;
+    };
+  };
+  readonly operation: {
+    readonly [
+      TGroup in SurfaceGroupName<keyof TOwnedApi["operations"] & string>
+    ]: {
+      readonly [
+        O in SurfaceKeysForGroup<
+          keyof TOwnedApi["operations"] & string,
+          TGroup
+        > as SurfaceLeafName<O>
+      ]: BoundOperationHandleFn<TOwnedApi, TTrellisApi, O, TKv, TJobs, TDeps>;
+    };
+  };
+};
+
+type BoundJobQueue<
+  TPayload,
+  TResult,
+  TTrellisApi extends TrellisAPI,
+  TKv extends ContractKvMetadata,
+  TJobs extends ContractJobsMetadata,
+  TDeps,
+> = {
+  create(payload: TPayload): AsyncResult<JobRef<TPayload, TResult>, BaseError>;
+  handle(
+    handler: (args: {
+      job: PublicActiveJob<TPayload, TResult>;
+      client: Trellis<TTrellisApi, TKv, TJobs>;
+      deps: TDeps;
+    }) => Promise<Result<TResult, BaseError>>,
+  ): void;
+};
+
+type BoundJobsFacadeOf<
+  TJobs extends ContractJobsMetadata,
+  TTrellisApi extends TrellisAPI,
+  TKv extends ContractKvMetadata,
+  TDeps,
+> = {
+  [K in keyof TJobs]: BoundJobQueue<
+    TJobs[K]["payload"],
+    TJobs[K]["result"],
+    TTrellisApi,
+    TKv,
+    TJobs,
+    TDeps
+  >;
+};
+
+/** Service wrapper returned by `TrellisService.with(deps)`. */
+export type BoundTrellisService<
+  TOwnedApi extends TrellisAPI = TrellisAPI,
+  TTrellisApi extends TrellisAPI = TOwnedApi,
+  TJobs extends ContractJobsMetadata = {},
+  TKv extends ContractKvMetadata = ContractKvMetadata,
+  TDeps = unknown,
+> =
+  & Pick<
+    TrellisService<TOwnedApi, TTrellisApi, TJobs, TKv>,
+    | "name"
+    | "auth"
+    | "nc"
+    | "kv"
+    | "store"
+    | "health"
+    | "connection"
+    | "createTransfer"
+    | "completeOperation"
+    | "wait"
+    | "stop"
+  >
+  & {
+    readonly event: BoundActiveEventFacade<
+      TTrellisApi,
+      TTrellisApi,
+      TKv,
+      TJobs,
+      TDeps
+    >;
+    readonly jobs: BoundJobsFacadeOf<TJobs, TTrellisApi, TKv, TDeps>;
+    readonly handle: BoundTypedServiceHandleFacade<
+      TOwnedApi,
+      TTrellisApi,
+      TKv,
+      TJobs,
+      TDeps
+    >;
+    /** Returns a new bound wrapper that injects the provided dependencies. */
+    with<TNextDeps>(deps: TNextDeps): BoundTrellisService<
+      TOwnedApi,
+      TTrellisApi,
+      TJobs,
+      TKv,
+      TNextDeps
+    >;
+  };
+
 const MANAGED_JOB_WORKERS = Symbol("trellis.managedJobWorkers");
 
 type ManagedJobWorkers = {
@@ -1145,6 +1416,30 @@ type ServiceEventPublishLeaf = {
   publish(
     event: Record<string, unknown>,
   ): ReturnType<HandlerTrellis<TrellisAPI>["publish"]>;
+};
+
+type ServiceEventLeaf = ServiceEventPublishLeaf & {
+  listen(
+    handler: (
+      event: unknown,
+      context: EventListenerContext,
+    ) => MaybeAsync<void, BaseError>,
+    subjectData?: Record<string, unknown>,
+    opts?: EventOpts,
+  ): AsyncResult<void, ValidationError | UnexpectedError>;
+};
+
+type BoundServiceEventLeaf<TDeps> = ServiceEventPublishLeaf & {
+  listen(
+    handler: (args: {
+      event: unknown;
+      context: EventListenerContext;
+      client: unknown;
+      deps: TDeps;
+    }) => MaybeAsync<void, BaseError>,
+    subjectData?: Record<string, unknown>,
+    opts?: EventOpts,
+  ): AsyncResult<void, ValidationError | UnexpectedError>;
 };
 
 function createServiceEventPublishFacade<TA extends TrellisAPI>(outbound: {
@@ -2255,6 +2550,47 @@ function createJobsFacade<
   return jobsFacade as ManagedJobsFacade<TJobs, TTrellisApi, TKv>;
 }
 
+function createBoundJobsFacade<
+  TJobs extends ContractJobsMetadata,
+  TTrellisApi extends TrellisAPI,
+  TKv extends ContractKvMetadata,
+  TDeps,
+>(args: {
+  jobs: JobsFacadeOf<TJobs, TTrellisApi, TKv>;
+  deps: TDeps;
+}): BoundJobsFacadeOf<TJobs, TTrellisApi, TKv, TDeps> {
+  const boundJobs: Record<string, unknown> = {};
+  const jobs = args.jobs as Record<
+    string,
+    JobQueue<unknown, unknown, TTrellisApi, TKv, TJobs>
+  >;
+
+  for (const queueType of Object.keys(jobs)) {
+    const queue = jobs[queueType];
+    if (!queue) continue;
+    boundJobs[queueType] = {
+      create: (payload) => queue.create(payload),
+      handle: (handler) =>
+        queue.handle(({ job, client }) =>
+          handler({
+            job,
+            client,
+            deps: args.deps,
+          })
+        ),
+    } satisfies BoundJobQueue<
+      unknown,
+      unknown,
+      TTrellisApi,
+      TKv,
+      TJobs,
+      TDeps
+    >;
+  }
+
+  return boundJobs as BoundJobsFacadeOf<TJobs, TTrellisApi, TKv, TDeps>;
+}
+
 export class TrellisService<
   TOwnedApi extends TrellisAPI = TrellisAPI,
   TTrellisApi extends TrellisAPI = TOwnedApi,
@@ -2340,6 +2676,77 @@ export class TrellisService<
     this.#stopHealthPublishing = stopHealthPublishing;
   }
 
+  /**
+   * Returns a service wrapper that injects application dependencies into
+   * service-owned handler argument objects as `args.deps`.
+   */
+  with<TDeps>(
+    deps: TDeps,
+  ): BoundTrellisService<TOwnedApi, TTrellisApi, TJobs, TKv, TDeps> {
+    return {
+      name: this.name,
+      auth: this.auth,
+      nc: this.nc,
+      event: this.#createBoundEventFacade(deps),
+      kv: this.kv,
+      store: this.store,
+      jobs: createBoundJobsFacade({ jobs: this.jobs, deps }),
+      health: this.health,
+      handle: this.#createBoundHandleFacade(deps),
+      connection: this.connection,
+      createTransfer: (args) => this.createTransfer(args),
+      completeOperation: (operationId, output) =>
+        this.completeOperation(operationId, output),
+      wait: () => this.wait(),
+      stop: () => this.stop(),
+      with: (nextDeps) => this.with(nextDeps),
+    };
+  }
+
+  #createBoundEventFacade<TDeps>(
+    deps: TDeps,
+  ): BoundActiveEventFacade<TTrellisApi, TTrellisApi, TKv, TJobs, TDeps> {
+    const event = {} as BoundActiveEventFacade<
+      TTrellisApi,
+      TTrellisApi,
+      TKv,
+      TJobs,
+      TDeps
+    >;
+    const source = this.event as Record<
+      string,
+      Record<string, ServiceEventLeaf>
+    >;
+    for (const [groupName, leaves] of Object.entries(source)) {
+      const group: Record<string, BoundServiceEventLeaf<TDeps>> = {};
+      for (const [leafName, leaf] of Object.entries(leaves)) {
+        group[leafName] = {
+          prepare: (payload) => leaf.prepare(payload),
+          publish: (payload) => leaf.publish(payload),
+          listen: (handler, subjectData, opts) =>
+            leaf.listen(
+              (payload, context) =>
+                handler({
+                  event: payload,
+                  context,
+                  client: this.#handlerTrellis,
+                  deps,
+                }),
+              subjectData,
+              opts,
+            ),
+        };
+      }
+      Object.defineProperty(event, groupName, {
+        value: group,
+        enumerable: true,
+        configurable: true,
+      });
+    }
+
+    return event;
+  }
+
   #createHandleFacade(): ServiceHandleFacade {
     const rpc: ServiceHandleFacade["rpc"] = {};
     for (const method of Object.keys(this.#server.api.rpc ?? {})) {
@@ -2403,6 +2810,82 @@ export class TrellisService<
     }
 
     return { rpc, feed, operation };
+  }
+
+  #createBoundHandleFacade<TDeps>(
+    deps: TDeps,
+  ): BoundTypedServiceHandleFacade<TOwnedApi, TTrellisApi, TKv, TJobs, TDeps> {
+    const rpc: ServiceHandleFacade["rpc"] = {};
+    for (const method of Object.keys(this.#server.api.rpc ?? {})) {
+      addSurfaceLeaf(rpc, method, (handler) =>
+        this.#server.mountRuntime(
+          method,
+          async ({ input, context }) =>
+            await Promise.resolve(
+              (handler as (
+                args: unknown,
+              ) =>
+                | Promise<Result<unknown, BaseError>>
+                | Result<unknown, BaseError>)({
+                  input,
+                  context,
+                  client: this.#handlerTrellis,
+                  deps,
+                }),
+            ),
+        ));
+    }
+
+    const feed: ServiceHandleFacade["feed"] = {};
+    for (const feedName of Object.keys(this.#server.api.feeds ?? {})) {
+      addSurfaceLeaf(
+        feed,
+        feedName,
+        (handler) =>
+          this.#server.feedHandle(feedName).handle((context) =>
+            (handler as (args: unknown) => unknown | Promise<unknown>)({
+              ...context,
+              client: this.#handlerTrellis,
+              deps,
+            })
+          ),
+      );
+    }
+
+    const operation: Record<
+      string,
+      Record<string, ServiceHandleOperationLeaf>
+    > = {};
+    for (
+      const operationName of Object.keys(this.#server.api.operations ?? {})
+    ) {
+      const registration = this.#operation(
+        operationName as keyof TOwnedApi["operations"] & string,
+      );
+      const leaf = Object.assign(
+        (handler: (context: unknown) => unknown) =>
+          registration.handle((context) =>
+            handler({
+              ...context,
+              client: this.#handlerTrellis,
+              deps,
+            })
+          ),
+        {
+          accept: (args: { sessionKey: string }) => registration.accept(args),
+          control: (operationId: string) => registration.control(operationId),
+        },
+      ) as ServiceHandleOperationLeaf;
+      addSurfaceLeaf(operation, operationName, leaf);
+    }
+
+    return { rpc, feed, operation } as BoundTypedServiceHandleFacade<
+      TOwnedApi,
+      TTrellisApi,
+      TKv,
+      TJobs,
+      TDeps
+    >;
   }
 
   /**

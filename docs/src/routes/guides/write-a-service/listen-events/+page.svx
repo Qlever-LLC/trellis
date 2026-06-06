@@ -45,6 +45,25 @@ await service.event.auth.connectionsOpened.listen(async (event) => {
 }, {}, { group: "authConnections" });
 ```
 
+If the listener needs application dependencies, register through the bound
+wrapper. The event payload, Trellis listener context, handler client, and deps are
+kept separate:
+
+```ts
+await app.event.auth.connectionsOpened.listen(
+  async ({ event, context, deps }) => {
+    const e = event as { sessionKey: string };
+    deps.log.info("connection opened", {
+      eventId: context.id,
+      sessionKey: e.sessionKey,
+    });
+    return ok(undefined);
+  },
+  {},
+  { group: "authConnections" },
+);
+```
+
 Returning `ok(undefined)` acknowledges the message. If your handler returns `err(...)`, Trellis will NAK the delivery and redeliver it, which is useful for transient failures like a downstream service being temporarily unavailable.
 
 Do not pass a `durableName`. Durable event consumer names, filters, and permissions are provisioned by Trellis from the contract. If you want a live-only listener that does not replay stored events, pass `{ mode: "ephemeral", replay: "new" }` and omit `eventConsumers`.

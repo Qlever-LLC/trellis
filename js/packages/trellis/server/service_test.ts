@@ -32,6 +32,7 @@ const TEST_SEED = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const handlerSurfaceTestSchemas = {
   PingInput: Type.Object({ value: Type.String() }),
   PingOutput: Type.Object({ ok: Type.Boolean() }),
+  PingedEvent: Type.Object({ value: Type.String() }),
 } as const;
 
 const handlerSurfaceTestContract = defineServiceContract(
@@ -45,7 +46,35 @@ const handlerSurfaceTestContract = defineServiceContract(
         version: "v1",
         input: ref.schema("PingInput"),
         output: ref.schema("PingOutput"),
+        authRequired: false,
         errors: [ref.error("UnexpectedError")],
+      },
+      "Test.BoundOne": {
+        version: "v1",
+        input: ref.schema("PingInput"),
+        output: ref.schema("PingOutput"),
+        authRequired: false,
+        errors: [ref.error("UnexpectedError")],
+      },
+      "Test.BoundTwo": {
+        version: "v1",
+        input: ref.schema("PingInput"),
+        output: ref.schema("PingOutput"),
+        authRequired: false,
+        errors: [ref.error("UnexpectedError")],
+      },
+      "Test.Unbound": {
+        version: "v1",
+        input: ref.schema("PingInput"),
+        output: ref.schema("PingOutput"),
+        authRequired: false,
+        errors: [ref.error("UnexpectedError")],
+      },
+    },
+    events: {
+      "Test.Pinged": {
+        version: "v1",
+        event: ref.schema("PingedEvent"),
       },
     },
   }),
@@ -194,6 +223,71 @@ async function connectJobsHandlerTestService(opts?: {
   }
 }
 
+async function connectHandlerSurfaceTestService() {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          status: "ready",
+          serverNow: 1_700_000_120,
+          connectInfo: {
+            sessionKey: "session-key",
+            contractId: handlerSurfaceTestContract.CONTRACT_ID,
+            contractDigest: handlerSurfaceTestContract.CONTRACT_DIGEST,
+            transports: {
+              native: {
+                natsServers: ["nats://127.0.0.1:4222"],
+              },
+            },
+            transport: {
+              sentinel: { jwt: "jwt", seed: "seed", issuer: "trellis" },
+            },
+            auth: {
+              mode: "service_identity",
+              iatSkewSeconds: 30,
+            },
+          },
+          binding: {
+            contractId: handlerSurfaceTestContract.CONTRACT_ID,
+            digest: handlerSurfaceTestContract.CONTRACT_DIGEST,
+            resources: {
+              kv: {},
+              store: {},
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    )) as typeof fetch;
+
+  try {
+    const service = await TrellisService.connect({
+      trellisUrl: "https://trellis.example.com",
+      contract: handlerSurfaceTestContract,
+      name: "svc",
+      sessionKeySeed: TEST_SEED,
+      server: { log: false },
+    }, {
+      connect: async () => createFakeNatsConnection(),
+    }).orThrow();
+
+    return {
+      service,
+      restore() {
+        globalThis.fetch = originalFetch;
+      },
+    };
+  } catch (error) {
+    globalThis.fetch = originalFetch;
+    throw error;
+  }
+}
+
 function createTestLogger() {
   const childBindings: Array<Record<string, unknown>> = [];
   const traceCalls: Array<unknown[]> = [];
@@ -256,13 +350,23 @@ function createFakeNatsConnection(args: {
     subject: string,
     value: unknown,
     data?: Uint8Array<ArrayBufferLike>,
+    opts?: {
+      headers?: MsgHdrs;
+      reply?: string;
+      onRespond?: (data: Uint8Array, headers?: MsgHdrs) => void;
+    },
   ): Msg => {
     const messageData = data ?? new TextEncoder().encode(JSON.stringify(value));
     return {
       subject,
       sid: 1,
       data: messageData,
-      respond: () => true,
+      headers: opts?.headers,
+      reply: opts?.reply,
+      respond: (payload?: Payload, responseOpts?: { headers?: MsgHdrs }) => {
+        opts?.onRespond?.(payloadBytes(payload), responseOpts?.headers);
+        return true;
+      },
       json: <T>() => value as T,
       string: () => new TextDecoder().decode(messageData),
     };
@@ -387,8 +491,44 @@ function createFakeNatsConnection(args: {
     publishMessage: () => {},
     respondMessage: () => true,
     subscribe: (subject: string) => createSubscription(subject),
-    request: async (subject: string) =>
-      createMessage(subject, args.requestJson?.(subject) ?? {}),
+    request: async (
+      subject: string,
+      payload?: Payload,
+      opts?: { headers?: MsgHdrs },
+    ) => {
+      if (args.requestJson) {
+        return createMessage(subject, args.requestJson(subject));
+      }
+      const subscription = subscriptions.find((candidate) =>
+        subjectMatches(candidate.getSubject(), subject)
+      );
+      if (!subscription) {
+        return createMessage(subject, {});
+      }
+
+      const bytes = payloadBytes(payload);
+      let value: unknown = {};
+      try {
+        value = JSON.parse(new TextDecoder().decode(bytes));
+      } catch {
+        value = {};
+      }
+      return await new Promise<Msg>((resolve) => {
+        subscription.push(createMessage(subject, value, bytes, {
+          headers: opts?.headers,
+          reply: "_INBOX.test.reply",
+          onRespond: (data) => {
+            let responseValue: unknown = {};
+            try {
+              responseValue = JSON.parse(new TextDecoder().decode(data));
+            } catch {
+              responseValue = {};
+            }
+            resolve(createMessage(subject, responseValue, data));
+          },
+        }));
+      });
+    },
     requestMany: async () =>
       (async function* () {
         return;
@@ -1668,6 +1808,107 @@ Deno.test("internal service connect cleans up the connection when bootstrap prob
   );
 
   assertEquals(closed, true);
+});
+
+Deno.test("bound service event listeners receive object args with deps", async () => {
+  const { service, restore } = await connectHandlerSurfaceTestService();
+  const deps = { prefix: "dep" };
+  let observed:
+    | {
+      value: string;
+      eventId: string;
+      eventTime: string;
+      subject: string;
+      mode: "durable" | "ephemeral";
+      prefix: string;
+      hasClient: boolean;
+    }
+    | undefined;
+
+  try {
+    const registered = await service.with(deps).event.test.pinged.listen(
+      ({ event, context, client, deps }) => {
+        observed = {
+          value: event.value,
+          eventId: context.id,
+          eventTime: context.time.toISOString(),
+          subject: context.subject,
+          mode: context.mode,
+          prefix: deps.prefix,
+          hasClient: typeof client.rpc.test.ping === "function",
+        };
+        return Result.ok(undefined);
+      },
+      {},
+      { mode: "ephemeral" },
+    ).orThrow();
+    assertEquals(registered, undefined);
+
+    const prepared = service.event.test.pinged.prepare({ value: "one" })
+      .orThrow();
+    service.nc.publish(prepared.subject, prepared.encodedPayload);
+    await delay(10);
+
+    assertEquals(observed, {
+      value: "one",
+      eventId: prepared.payload.header.id,
+      eventTime: prepared.payload.header.time,
+      subject: prepared.subject,
+      mode: "ephemeral",
+      prefix: "dep",
+      hasClient: true,
+    });
+  } finally {
+    await service.stop();
+    restore();
+  }
+});
+
+Deno.test("bound service RPC handlers receive isolated deps", async () => {
+  const { service, restore } = await connectHandlerSurfaceTestService();
+  const observed: string[] = [];
+  let unboundHadDeps = true;
+
+  try {
+    await service.with({ prefix: "one" }).handle.rpc.test.boundOne(
+      ({ input, deps }) => {
+        observed.push(`${deps.prefix}:${input.value}`);
+        return Result.ok({ ok: true });
+      },
+    );
+    await service.with({ prefix: "two" }).handle.rpc.test.boundTwo(
+      ({ input, deps }) => {
+        observed.push(`${deps.prefix}:${input.value}`);
+        return Result.ok({ ok: true });
+      },
+    );
+    await service.handle.rpc.test.unbound((args) => {
+      unboundHadDeps = Reflect.has(args, "deps");
+      return Result.ok({ ok: true });
+    });
+
+    const first = await service.nc.request(
+      "rpc.v1.Test.BoundOne",
+      JSON.stringify({ value: "a" }),
+    );
+    const second = await service.nc.request(
+      "rpc.v1.Test.BoundTwo",
+      JSON.stringify({ value: "b" }),
+    );
+    const unbound = await service.nc.request(
+      "rpc.v1.Test.Unbound",
+      JSON.stringify({ value: "c" }),
+    );
+
+    assertEquals(first.json(), { ok: true });
+    assertEquals(second.json(), { ok: true });
+    assertEquals(unbound.json(), { ok: true });
+    assertEquals(observed, ["one:a", "two:b"]);
+    assertEquals(unboundHadDeps, false);
+  } finally {
+    await service.stop();
+    restore();
+  }
 });
 
 Deno.test({

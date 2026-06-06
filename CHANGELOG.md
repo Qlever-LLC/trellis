@@ -8,6 +8,23 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.6] - 2026-06-06
+
+### Added
+
+- Added `TrellisService.with(deps)` for TypeScript services so service-owned
+  RPC, feed, operation, job, and event listener handlers can receive
+  application-owned dependencies as `args.deps` without mixing them into Trellis
+  runtime context or resource bindings.
+- Added service event listener context for TypeScript handlers, including event
+  id, time, subject, mode, group, and sequence metadata while preserving
+  existing payload-first listener usage.
+
+### Changed
+
+- Updated generated TypeScript SDK service typings, docs, and demos to use bound
+  service dependency wrappers where handlers need application dependencies.
+
 ## [0.10.5] - 2026-06-05
 
 ### Changed

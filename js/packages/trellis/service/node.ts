@@ -1,4 +1,5 @@
 export {
+  type BoundTrellisService,
   type JobArgs,
   type JobHandler,
   type JobQueue,

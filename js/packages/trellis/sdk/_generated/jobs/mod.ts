@@ -5,6 +5,10 @@ export * from "./schemas.ts";
 export type {
   Client,
   HandlerClient,
+  Service,
+  ServiceEventSurface,
+  ServiceHandle,
+  ServiceWithDeps,
   TrellisJobsClient,
   TrellisJobsState,
 } from "./client.ts";

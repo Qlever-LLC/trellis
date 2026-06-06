@@ -1,9 +1,11 @@
 import { Result, UnexpectedError } from "@qlever-llc/trellis";
 import type { JobArgs, JobResult } from "@qlever-llc/trellis/service";
-import { getSiteSummary } from "../../../../shared/field_data.ts";
 import contract from "../../../contract.ts";
+import type { FieldOpsDeps } from "../../deps.ts";
 
-type Args = JobArgs<typeof contract, "refreshSiteSummary">;
+type Args = JobArgs<typeof contract, "refreshSiteSummary"> & {
+  deps: FieldOpsDeps;
+};
 type Return = JobResult<typeof contract, "refreshSiteSummary">;
 
 function pause(ms: number): Promise<void> {
@@ -11,9 +13,9 @@ function pause(ms: number): Promise<void> {
 }
 
 export async function refreshSiteSummary(
-  { job, client }: Args,
+  { deps, job, client }: Args,
 ): Promise<Return> {
-  const siteSummary = getSiteSummary(job.payload.siteId);
+  const siteSummary = deps.getSiteSummary(job.payload.siteId);
   console.info(
     `refreshSiteSummary job ${job.ref.id} request=${job.context.requestId} trace=${job.context.traceId}`,
   );

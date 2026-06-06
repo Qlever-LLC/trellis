@@ -2,8 +2,9 @@ import { isErr } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import { Command } from "@cliffy/command";
 import chalk from "chalk";
-import { SITE_SUMMARIES } from "../../shared/field_data.ts";
+import { getSiteSummary, SITE_SUMMARIES } from "../../shared/field_data.ts";
 import contract from "../contract.ts";
+import type { FieldOpsDeps } from "./deps.ts";
 import * as features from "./features/index.ts";
 
 async function main(): Promise<void> {
@@ -23,6 +24,18 @@ async function main(): Promise<void> {
     name: "field-ops-demo-service",
     sessionKeySeed,
   }).orThrow();
+  const app = service.with(
+    {
+      transferIssuer: service,
+      getSiteSummary,
+      activityFeedEventNames: {
+        auditRecorded: "Audit.Recorded",
+        reportsPublished: "Reports.Published",
+        evidenceUploaded: "Evidence.Uploaded",
+        sitesRefreshed: "Sites.Refreshed",
+      },
+    } satisfies FieldOpsDeps,
+  );
 
   service.health.setInfo({
     version: "0.0.0",
@@ -53,28 +66,26 @@ async function main(): Promise<void> {
     };
   });
 
-  service.jobs.refreshSiteSummary.handle(features.sites.refreshSiteSummary);
+  app.jobs.refreshSiteSummary.handle(features.sites.refreshSiteSummary);
 
-  await service.handle.rpc.assignments.list(
+  await app.handle.rpc.assignments.list(
     features.assignments.listAssignments,
   );
-  await service.handle.rpc.sites.list(features.sites.listSites);
-  await service.handle.rpc.sites.get(features.sites.getSite);
-  await service.handle.rpc.evidence.list(features.evidence.listEvidence);
-  await service.handle.rpc.evidence.download(
-    features.evidence.downloadEvidence(service),
-  );
-  await service.handle.rpc.evidence.delete(features.evidence.deleteEvidence);
-  await service.handle.rpc.reports.list(features.reports.listReports);
-  await service.handle.operation.sites.refresh(features.sites.refreshSite);
-  await service.handle.operation.reports.generate(
+  await app.handle.rpc.sites.list(features.sites.listSites);
+  await app.handle.rpc.sites.get(features.sites.getSite);
+  await app.handle.rpc.evidence.list(features.evidence.listEvidence);
+  await app.handle.rpc.evidence.download(features.evidence.downloadEvidence);
+  await app.handle.rpc.evidence.delete(features.evidence.deleteEvidence);
+  await app.handle.rpc.reports.list(features.reports.listReports);
+  await app.handle.operation.sites.refresh(features.sites.refreshSite);
+  await app.handle.operation.reports.generate(
     features.reports.generateReport,
   );
-  await service.handle.operation.evidence.upload(
+  await app.handle.operation.evidence.upload(
     features.evidence.uploadEvidence,
   );
-  await service.handle.feed.audit.feed(
-    async ({ emit, signal, client }) => {
+  await app.handle.feed.audit.feed(
+    async ({ emit, signal }) => {
       const controller = new AbortController();
       const stop = () => {
         controller.abort();
@@ -82,30 +93,42 @@ async function main(): Promise<void> {
       signal.addEventListener("abort", stop, { once: true });
 
       try {
-        await client.event.audit.recorded.listen(
-          (event) => {
-            return emit({ name: "Audit.Recorded", event });
+        await app.event.audit.recorded.listen(
+          ({ event, deps }) => {
+            return emit({
+              name: deps.activityFeedEventNames.auditRecorded,
+              event,
+            });
           },
           {},
           { mode: "ephemeral", replay: "new", signal: controller.signal },
         ).orThrow();
-        await client.event.reports.published.listen(
-          (event) => {
-            return emit({ name: "Reports.Published", event });
+        await app.event.reports.published.listen(
+          ({ event, deps }) => {
+            return emit({
+              name: deps.activityFeedEventNames.reportsPublished,
+              event,
+            });
           },
           {},
           { mode: "ephemeral", replay: "new", signal: controller.signal },
         ).orThrow();
-        await client.event.evidence.uploaded.listen(
-          (event) => {
-            return emit({ name: "Evidence.Uploaded", event });
+        await app.event.evidence.uploaded.listen(
+          ({ event, deps }) => {
+            return emit({
+              name: deps.activityFeedEventNames.evidenceUploaded,
+              event,
+            });
           },
           {},
           { mode: "ephemeral", replay: "new", signal: controller.signal },
         ).orThrow();
-        await client.event.sites.refreshed.listen(
-          (event) => {
-            return emit({ name: "Sites.Refreshed", event });
+        await app.event.sites.refreshed.listen(
+          ({ event, deps }) => {
+            return emit({
+              name: deps.activityFeedEventNames.sitesRefreshed,
+              event,
+            });
           },
           {},
           { mode: "ephemeral", replay: "new", signal: controller.signal },

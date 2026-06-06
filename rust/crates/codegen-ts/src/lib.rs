@@ -1429,7 +1429,7 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
     let mut lines = vec![
         format!("// Generated from {}", escape_js_string(&source_reference)),
         format!(
-            "import type {{ AcceptedOperation, AsyncResult, BaseError, EventOpts, FeedSubscribeOpts, FeedSubscription, HandlerTrellis, MapStateStoreClient, MaybeAsync, OperationInputBuilder, OperationObserverCallbacks, OperationRef, OperationRefData, OperationRuntimeHandle, PreparedTrellisEvent, ReceiveTransferGrant, ReceiveTransferHandle, RequestOpts, Result, RpcHandlerContext, SendTransferGrant, SendTransferHandle, TerminalOperation, TransferCapableOperationInputBuilder, TrellisConnection, UnexpectedError, ValidationError, ValueStateStoreClient }} from {};",
+            "import type {{ AcceptedOperation, AsyncResult, BaseError, EventListenerContext, EventOpts, FeedSubscribeOpts, FeedSubscription, HandlerTrellis, MapStateStoreClient, MaybeAsync, OperationInputBuilder, OperationObserverCallbacks, OperationRef, OperationRefData, OperationRuntimeHandle, OperationTransferHandle, PreparedTrellisEvent, ReceiveTransferGrant, ReceiveTransferHandle, RequestOpts, Result, RpcHandlerContext, SendTransferGrant, SendTransferHandle, TerminalOperation, TransferCapableOperationInputBuilder, TrellisConnection, UnexpectedError, ValidationError, ValueStateStoreClient }} from {};",
             js_string(&trellis_import)
         ),
         "import type { API, Api } from \"./api.ts\";".to_string(),
@@ -1453,11 +1453,19 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
 
     lines.extend([
         String::new(),
+        "type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };".to_string(),
+        String::new(),
         "type EventCallback<TMessage> = {".to_string(),
-        "  bivarianceHack(message: TMessage): MaybeAsync<void, BaseError>;".to_string(),
+        "  bivarianceHack(message: TMessage, context: EventListenerContext): MaybeAsync<void, BaseError>;".to_string(),
         "}[\"bivarianceHack\"];".to_string(),
         String::new(),
-        "type RpcHandler<TInput, TOutput> = (args: { input: TInput; context: RpcHandlerContext; client: HandlerClient }) => MaybeAsync<TOutput, BaseError>;".to_string(),
+        "type ServiceEventHandler<TEvent, TDeps = undefined> = (args: { event: TEvent; context: EventListenerContext; client: HandlerClient } & WithDeps<TDeps>) => MaybeAsync<void, BaseError>;".to_string(),
+        String::new(),
+        "type RpcHandler<TInput, TOutput, TDeps = undefined> = (args: { input: TInput; context: RpcHandlerContext; client: HandlerClient } & WithDeps<TDeps>) => MaybeAsync<TOutput, BaseError>;".to_string(),
+        String::new(),
+        "type FeedHandler<TInput, TEvent, TDeps = undefined> = (context: { input: TInput; caller: unknown; signal: AbortSignal; emit(event: TEvent): AsyncResult<void, ValidationError | UnexpectedError>; client: HandlerClient } & WithDeps<TDeps>) => unknown | Promise<unknown>;".to_string(),
+        String::new(),
+        "type OperationHandler<TInput, TProgress, TOutput, TTransfer, TDeps = undefined> = (context: { input: TInput; op: OperationRuntimeHandle<TProgress, TOutput>; caller: unknown; client: HandlerClient } & TTransfer & WithDeps<TDeps>) => unknown | Promise<unknown>;".to_string(),
         String::new(),
         state_type,
         String::new(),
@@ -1512,9 +1520,22 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
     lines.push("  wait(): AsyncResult<void, BaseError>;".to_string());
     lines.push("}".to_string());
     lines.push(String::new());
-    lines.push("export interface Service extends Client {".to_string());
+    lines.push(format!(
+        "export interface Service extends {interface_name} {{"
+    ));
     lines.push("  readonly handle: ServiceHandle;".to_string());
+    lines.push("  with<TDeps>(deps: TDeps): ServiceWithDeps<TDeps>;".to_string());
     lines.push("}".to_string());
+    lines.push(String::new());
+    lines.push(format!(
+        "export type ServiceWithDeps<TDeps> = Omit<{interface_name}, \"event\"> & {{"
+    ));
+    lines.push("  readonly event: ServiceEventSurface<TDeps>;".to_string());
+    lines.push("  readonly handle: ServiceHandle<TDeps>;".to_string());
+    lines.push("  with<TNextDeps>(deps: TNextDeps): ServiceWithDeps<TNextDeps>;".to_string());
+    lines.push("};".to_string());
+    lines.push(String::new());
+    lines.push(render_service_event_surface(loaded, &uses));
     lines.push(String::new());
     lines.push(render_service_handle_surface(loaded));
     lines.push(String::new());
@@ -1528,6 +1549,53 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
             "
 "
         )
+    )
+}
+
+fn render_service_event_surface(loaded: &LoadedManifest, uses: &[ClientUseDependency]) -> String {
+    let mut leaves = Vec::new();
+    for key in loaded.manifest.events.keys() {
+        let base = key_to_pascal(key);
+        leaves.push(surface_leaf(
+            key,
+            format!(
+                "{}: {{ publish(event: Omit<Types.{base}Event, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Omit<Types.{base}Event, \"header\">): Result<PreparedTrellisEvent<Omit<Types.{base}Event, \"header\">>, ValidationError | UnexpectedError>; listen(handler: ServiceEventHandler<Types.{base}Event, TDeps>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; }};",
+                surface_leaf_name(key)
+            ),
+        ));
+    }
+    for use_dep in uses {
+        let mut keys = BTreeSet::new();
+        for key in use_dep.event_publish_keys() {
+            keys.insert(key);
+        }
+        for key in use_dep.event_subscribe_keys() {
+            keys.insert(key);
+        }
+        for key in keys {
+            if use_dep.manifest.manifest.events.contains_key(key) {
+                let base = key_to_pascal(key);
+                leaves.push(surface_leaf(
+                    key,
+                    format!(
+                        "{}: {{ publish(event: Omit<{}.{base}Event, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Omit<{}.{base}Event, \"header\">): Result<PreparedTrellisEvent<Omit<{}.{base}Event, \"header\">>, ValidationError | UnexpectedError>; listen(handler: ServiceEventHandler<{}.{base}Event, TDeps>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; }};",
+                        surface_leaf_name(key),
+                        use_dep.namespace,
+                        use_dep.namespace,
+                        use_dep.namespace,
+                        use_dep.namespace
+                    ),
+                ));
+            }
+        }
+    }
+    if leaves.is_empty() {
+        return "export type ServiceEventSurface<TDeps> = {};".to_string();
+    }
+
+    format!(
+        "export interface ServiceEventSurface<TDeps> {{\n{}\n}}",
+        render_surface_groups(leaves, "  ", "    ")
     )
 }
 
@@ -1683,7 +1751,7 @@ fn render_service_handle_surface(loaded: &LoadedManifest) -> String {
             surface_leaf(
                 key,
                 format!(
-                    "{}(handler: RpcHandler<Types.{base}Input, Types.{base}Output>): Promise<void>;",
+                    "{}(handler: RpcHandler<Types.{base}Input, Types.{base}Output, TDeps>): Promise<void>;",
                     surface_leaf_name(key)
                 ),
             )
@@ -1698,7 +1766,7 @@ fn render_service_handle_surface(loaded: &LoadedManifest) -> String {
             surface_leaf(
                 key,
                 format!(
-                    "{}(handler: (context: {{ input: Types.{base}Input; caller: unknown; signal: AbortSignal; emit(event: Types.{base}Event): AsyncResult<void, ValidationError | UnexpectedError>; client: HandlerClient }}) => unknown | Promise<unknown>): Promise<void>;",
+                    "{}(handler: FeedHandler<Types.{base}Input, Types.{base}Event, TDeps>): Promise<void>;",
                     surface_leaf_name(key)
                 ),
             )
@@ -1720,10 +1788,15 @@ fn render_service_handle_surface(loaded: &LoadedManifest) -> String {
             } else {
                 "unknown".to_string()
             };
+            let transfer = if operation.transfer.is_some() {
+                "{ transfer: OperationTransferHandle }".to_string()
+            } else {
+                "{}".to_string()
+            };
             surface_leaf(
                 key,
                 format!(
-                    "{}: ((handler: (context: {{ input: Types.{base}Input; client: HandlerClient }}) => unknown | Promise<unknown>) => Promise<void>) & {{ accept(args: {{ sessionKey: string }}): AsyncResult<AcceptedOperation<{progress}, {output}>, UnexpectedError>; control(operationId: string): AsyncResult<OperationRuntimeHandle<{progress}, {output}>, BaseError>; }};",
+                    "{}: ((handler: OperationHandler<Types.{base}Input, {progress}, {output}, {transfer}, TDeps>) => Promise<void>) & {{ accept(args: {{ sessionKey: string }}): AsyncResult<AcceptedOperation<{progress}, {output}>, UnexpectedError>; control(operationId: string): AsyncResult<OperationRuntimeHandle<{progress}, {output}>, BaseError>; }};",
                     surface_leaf_name(key)
                 ),
             )
@@ -1731,7 +1804,7 @@ fn render_service_handle_surface(loaded: &LoadedManifest) -> String {
         .collect::<Vec<_>>();
 
     [
-        "export interface ServiceHandle {".to_string(),
+        "export interface ServiceHandle<TDeps = undefined> {".to_string(),
         render_surface_property("rpc", rpc),
         render_surface_property("feed", feed),
         render_surface_property("operation", operation),
@@ -1748,19 +1821,27 @@ fn render_surface_property(name: &str, leaves: Vec<(String, String)>) -> String 
     if leaves.is_empty() {
         return format!("  readonly {name}: {{}};");
     }
+    let body = render_surface_groups(leaves, "    ", "      ");
+    [format!("  readonly {name}: {{"), body, "  };".to_string()].join("\n")
+}
+
+fn render_surface_groups(
+    leaves: Vec<(String, String)>,
+    group_indent: &str,
+    declaration_indent: &str,
+) -> String {
     let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (group, declaration) in leaves {
         groups.entry(group).or_default().push(declaration);
     }
-    let mut lines = vec![format!("  readonly {name}: {{")];
+    let mut lines = Vec::new();
     for (group, declarations) in groups {
-        lines.push(format!("    readonly {group}: {{"));
+        lines.push(format!("{group_indent}readonly {group}: {{"));
         for declaration in declarations {
-            lines.push(format!("      {declaration}"));
+            lines.push(format!("{declaration_indent}{declaration}"));
         }
-        lines.push("    };".to_string());
+        lines.push(format!("{group_indent}}};"));
     }
-    lines.push("  };".to_string());
     lines.join("\n")
 }
 
@@ -2505,7 +2586,7 @@ fn render_mod_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
         "export * from \"./types.ts\";".to_string(),
         "export * from \"./schemas.ts\";".to_string(),
         format!(
-            "export type {{ Client, HandlerClient, {client_interface}, {client_state} }} from \"./client.ts\";"
+            "export type {{ Client, HandlerClient, Service, ServiceEventSurface, ServiceHandle, ServiceWithDeps, {client_interface}, {client_state} }} from \"./client.ts\";"
         ),
     ];
     if !operation_client_exports.is_empty() {
@@ -3225,14 +3306,30 @@ mod tests {
             "live(input: Types.ExampleLiveInput, opts?: FeedSubscribeOpts): AsyncResult<FeedSubscription<Types.ExampleLiveEvent>, BaseError>;"
         ));
         assert!(client.contains("readonly handle: ServiceHandle;"));
+        assert!(client.contains("with<TDeps>(deps: TDeps): ServiceWithDeps<TDeps>;"));
+        assert!(client.contains(
+            "import type { AcceptedOperation, AsyncResult, BaseError, EventListenerContext,"
+        ));
+        assert!(client.contains("export interface Service extends TrellisDemoKvServiceClient {"));
+        assert!(client.contains(
+            "export type ServiceWithDeps<TDeps> = Omit<TrellisDemoKvServiceClient, \"event\"> & {"
+        ));
+        assert!(client.contains("readonly event: ServiceEventSurface<TDeps>;"));
+        assert!(client.contains("export type ServiceEventSurface<TDeps> = {};"));
+        assert!(client.contains("export interface ServiceHandle<TDeps = undefined>"));
         assert!(client.contains("export type HandlerClient = HandlerTrellis<Api>;"));
         assert!(client.contains(
-            "type RpcHandler<TInput, TOutput> = (args: { input: TInput; context: RpcHandlerContext; client: HandlerClient }) => MaybeAsync<TOutput, BaseError>;"
+            "type ServiceEventHandler<TEvent, TDeps = undefined> = (args: { event: TEvent; context: EventListenerContext; client: HandlerClient } & WithDeps<TDeps>) => MaybeAsync<void, BaseError>;"
         ));
         assert!(client.contains(
-            "emit(event: Types.ExampleLiveEvent): AsyncResult<void, ValidationError | UnexpectedError>; client: HandlerClient"
+            "type RpcHandler<TInput, TOutput, TDeps = undefined> = (args: { input: TInput; context: RpcHandlerContext; client: HandlerClient } & WithDeps<TDeps>) => MaybeAsync<TOutput, BaseError>;"
         ));
-        assert!(client.contains("input: Types.ExampleProcessInput; client: HandlerClient"));
+        assert!(client.contains(
+            "live(handler: FeedHandler<Types.ExampleLiveInput, Types.ExampleLiveEvent, TDeps>): Promise<void>;"
+        ));
+        assert!(client.contains(
+            "process: ((handler: OperationHandler<Types.ExampleProcessInput, Types.ExampleProcessProgress, Types.ExampleProcessOutput, {}, TDeps>) => Promise<void>)"
+        ));
         assert!(!client.contains("client: Client"));
         assert!(!client.contains("request(method:"));
         assert!(!client.contains("publish(event: string"));
@@ -3240,7 +3337,7 @@ mod tests {
         assert!(!client.contains("feed(feed:"));
         assert!(client.contains("export type Client = TrellisDemoKvServiceClient;"));
         assert!(mod_ts.contains(
-            "export type { Client, HandlerClient, TrellisDemoKvServiceClient, TrellisDemoKvServiceState } from \"./client.ts\";"
+            "export type { Client, HandlerClient, Service, ServiceEventSurface, ServiceHandle, ServiceWithDeps, TrellisDemoKvServiceClient, TrellisDemoKvServiceState } from \"./client.ts\";"
         ));
         assert!(mod_ts.contains(
             "export type { ExampleProcessOperation, ExampleProcessOperationRef, ExampleProcessTerminal } from \"./client.ts\";"
@@ -3404,6 +3501,10 @@ mod tests {
         ));
         assert!(client.contains(
             "updated: { publish(event: Omit<JobsSdk.JobsUpdatedEvent, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Omit<JobsSdk.JobsUpdatedEvent, \"header\">): Result<PreparedTrellisEvent<Omit<JobsSdk.JobsUpdatedEvent, \"header\">>, ValidationError | UnexpectedError>; listen(handler: EventCallback<JobsSdk.JobsUpdatedEvent>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
+        ));
+        assert!(client.contains("export interface ServiceEventSurface<TDeps>"));
+        assert!(client.contains(
+            "updated: { publish(event: Omit<JobsSdk.JobsUpdatedEvent, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Omit<JobsSdk.JobsUpdatedEvent, \"header\">): Result<PreparedTrellisEvent<Omit<JobsSdk.JobsUpdatedEvent, \"header\">>, ValidationError | UnexpectedError>; listen(handler: ServiceEventHandler<JobsSdk.JobsUpdatedEvent, TDeps>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
         ));
         assert!(client.contains(
             "live(input: JobsSdk.JobsLiveInput, opts?: FeedSubscribeOpts): AsyncResult<FeedSubscription<JobsSdk.JobsLiveEvent>, BaseError>;"

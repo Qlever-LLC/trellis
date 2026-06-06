@@ -20,6 +20,12 @@ const service = await TrellisService.connect({
   sessionKeySeed: Deno.env.get("ORDERS_SERVICE_SESSION_KEY_SEED")!,
 });
 
+const app = service.with({
+  clock: () => new Date(),
+  id: () => crypto.randomUUID(),
+  log: console,
+});
+
 console.log("Connected to Trellis!");
 ```
 
@@ -33,6 +39,13 @@ Those resolved bindings are Trellis runtime internals. Use the returned
 `service.kv`, `service.store`, and `service.jobs` handles; do not call
 `Trellis.Bindings.Get`, construct `TrellisService` or `StoreHandle`, or pass
 binding/resource payloads into `Trellis` constructors.
+
+Use `service.with(deps)` for application-owned dependencies you want available
+in handlers, such as repositories, clocks, loggers, or local projections. The
+returned `app` wrapper injects those dependencies as `args.deps` in RPC, feed,
+operation, job, and event listener handlers. It does not replace Trellis runtime
+resources or contract `uses` dependencies; keep `service` for lifecycle and
+resolved resource handles.
 
 {/snippet}
 {#snippet rust()}

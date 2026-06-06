@@ -199,6 +199,7 @@ export type {
   ClientTrellis,
   ConnectedTrellisClient,
   EventHandler,
+  EventListenerContext,
   EventName,
   EventOpts,
   EventPayload,

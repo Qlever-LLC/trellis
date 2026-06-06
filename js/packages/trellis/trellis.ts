@@ -1009,6 +1009,50 @@ export type EventOpts = {
   signal?: AbortSignal;
 };
 
+/** Context provided to event listener callbacks. */
+export type EventListenerContext = {
+  /** Stable event id from the Trellis event header. */
+  id: string;
+  /** Event creation time from the Trellis event header. */
+  time: Date;
+  /** NATS subject that delivered the event. */
+  subject: string;
+  /** Runtime listener mode that delivered the event. */
+  mode: "durable" | "ephemeral";
+  /** Durable event consumer group, when delivered through a group. */
+  group?: string;
+  /** JetStream sequence number, when available. */
+  sequence?: number;
+};
+
+function createEventListenerContext(args: {
+  payload: unknown;
+  subject: string;
+  mode: "durable" | "ephemeral";
+  group?: string;
+  message: object;
+}): EventListenerContext {
+  const header = typeof args.payload === "object" && args.payload !== null
+    ? Reflect.get(args.payload, "header")
+    : undefined;
+  const id = typeof header === "object" && header !== null
+    ? Reflect.get(header, "id")
+    : undefined;
+  const time = typeof header === "object" && header !== null
+    ? Reflect.get(header, "time")
+    : undefined;
+  const sequence = Reflect.get(args.message, "seq");
+
+  return {
+    id: typeof id === "string" ? id : "",
+    time: new Date(typeof time === "string" ? time : 0),
+    subject: args.subject,
+    mode: args.mode,
+    ...(args.group ? { group: args.group } : {}),
+    ...(typeof sequence === "number" ? { sequence } : {}),
+  };
+}
+
 type RuntimeEventConsumers = {
   metadata?: ContractEventConsumers;
   bindings?: Record<string, EventConsumerResourceBinding>;
@@ -1224,7 +1268,10 @@ export type FeedSurface<
 type MaybePromise<T> = T | Promise<T>;
 
 type EventCallback<TMessage> = {
-  bivarianceHack(message: TMessage): MaybeAsync<void, BaseError>;
+  bivarianceHack(
+    message: TMessage,
+    context: EventListenerContext,
+  ): MaybeAsync<void, BaseError>;
 }["bivarianceHack"];
 
 export type RpcHandlerContext = {
@@ -1731,7 +1778,10 @@ export type EventPayload<
 export type EventHandler<
   TContract,
   E extends EventName<TContract>,
-> = (event: EventType<TContract, E>) => MaybeAsync<void, BaseError>;
+> = (
+  event: EventType<TContract, E>,
+  context: EventListenerContext,
+) => MaybeAsync<void, BaseError>;
 
 type DeepRecord<T> = {
   [k: string]: T | DeepRecord<T>;
@@ -3664,7 +3714,15 @@ export class Trellis<
         }
 
         const handlerResult = await AsyncResult.lift(
-          fn(m as EventOf<TA, EventsOf<TA>>),
+          fn(
+            m as EventOf<TA, EventsOf<TA>>,
+            createEventListenerContext({
+              payload: m,
+              subject: msg.subject,
+              mode: "ephemeral",
+              message: msg,
+            }),
+          ),
         );
         if (handlerResult.isErr()) {
           this.#log.error(
@@ -3887,7 +3945,15 @@ export class Trellis<
         }
 
         const handlerResult = await AsyncResult.lift(
-          fn(m as EventOf<TA, EventsOf<TA>>),
+          fn(
+            m as EventOf<TA, EventsOf<TA>>,
+            createEventListenerContext({
+              payload: m,
+              subject: msg.subject,
+              mode: "durable",
+              message: msg,
+            }),
+          ),
         );
         if (handlerResult.isErr()) {
           this.#log.error(
@@ -3949,7 +4015,16 @@ export class Trellis<
           }
 
           const handlerResult = await AsyncResult.lift(
-            registration.fn(eventPayload as EventOf<TA, EventsOf<TA>>),
+            registration.fn(
+              eventPayload as EventOf<TA, EventsOf<TA>>,
+              createEventListenerContext({
+                payload: eventPayload,
+                subject: msg.subject,
+                mode: "durable",
+                group,
+                message: msg,
+              }),
+            ),
           );
           if (handlerResult.isErr()) {
             this.#log.error(

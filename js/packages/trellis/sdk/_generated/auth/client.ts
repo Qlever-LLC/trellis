@@ -3,6 +3,7 @@ import type {
   AcceptedOperation,
   AsyncResult,
   BaseError,
+  EventListenerContext,
   EventOpts,
   FeedSubscribeOpts,
   FeedSubscription,
@@ -14,6 +15,7 @@ import type {
   OperationRef,
   OperationRefData,
   OperationRuntimeHandle,
+  OperationTransferHandle,
   PreparedTrellisEvent,
   ReceiveTransferGrant,
   ReceiveTransferHandle,
@@ -33,13 +35,54 @@ import type { API, Api } from "./api.ts";
 import type * as Types from "./types.ts";
 import type * as HealthSdk from "../health/mod.ts";
 
+type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
+
 type EventCallback<TMessage> = {
-  bivarianceHack(message: TMessage): MaybeAsync<void, BaseError>;
+  bivarianceHack(
+    message: TMessage,
+    context: EventListenerContext,
+  ): MaybeAsync<void, BaseError>;
 }["bivarianceHack"];
 
-type RpcHandler<TInput, TOutput> = (
-  args: { input: TInput; context: RpcHandlerContext; client: HandlerClient },
+type ServiceEventHandler<TEvent, TDeps = undefined> = (
+  args:
+    & { event: TEvent; context: EventListenerContext; client: HandlerClient }
+    & WithDeps<TDeps>,
+) => MaybeAsync<void, BaseError>;
+
+type RpcHandler<TInput, TOutput, TDeps = undefined> = (
+  args:
+    & { input: TInput; context: RpcHandlerContext; client: HandlerClient }
+    & WithDeps<TDeps>,
 ) => MaybeAsync<TOutput, BaseError>;
+
+type FeedHandler<TInput, TEvent, TDeps = undefined> = (
+  context: {
+    input: TInput;
+    caller: unknown;
+    signal: AbortSignal;
+    emit(event: TEvent): AsyncResult<void, ValidationError | UnexpectedError>;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => unknown | Promise<unknown>;
+
+type OperationHandler<
+  TInput,
+  TProgress,
+  TOutput,
+  TTransfer,
+  TDeps = undefined,
+> = (
+  context:
+    & {
+      input: TInput;
+      op: OperationRuntimeHandle<TProgress, TOutput>;
+      caller: unknown;
+      client: HandlerClient;
+    }
+    & TTransfer
+    & WithDeps<TDeps>,
+) => unknown | Promise<unknown>;
 
 export type TrellisAuthState = {};
 
@@ -551,401 +594,657 @@ export interface TrellisAuthClient {
   wait(): AsyncResult<void, BaseError>;
 }
 
-export interface Service extends Client {
+export interface Service extends TrellisAuthClient {
   readonly handle: ServiceHandle;
+  with<TDeps>(deps: TDeps): ServiceWithDeps<TDeps>;
 }
 
-export interface ServiceHandle {
+export type ServiceWithDeps<TDeps> = Omit<TrellisAuthClient, "event"> & {
+  readonly event: ServiceEventSurface<TDeps>;
+  readonly handle: ServiceHandle<TDeps>;
+  with<TNextDeps>(deps: TNextDeps): ServiceWithDeps<TNextDeps>;
+};
+
+export interface ServiceEventSurface<TDeps> {
+  readonly auth: {
+    connectionsClosed: {
+      publish(
+        event: Omit<Types.AuthConnectionsClosedEvent, "header">,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+      prepare(
+        event: Omit<Types.AuthConnectionsClosedEvent, "header">,
+      ): Result<
+        PreparedTrellisEvent<Omit<Types.AuthConnectionsClosedEvent, "header">>,
+        ValidationError | UnexpectedError
+      >;
+      listen(
+        handler: ServiceEventHandler<Types.AuthConnectionsClosedEvent, TDeps>,
+        subjectData?: Record<string, unknown>,
+        opts?: EventOpts,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+    };
+    connectionsKicked: {
+      publish(
+        event: Omit<Types.AuthConnectionsKickedEvent, "header">,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+      prepare(
+        event: Omit<Types.AuthConnectionsKickedEvent, "header">,
+      ): Result<
+        PreparedTrellisEvent<Omit<Types.AuthConnectionsKickedEvent, "header">>,
+        ValidationError | UnexpectedError
+      >;
+      listen(
+        handler: ServiceEventHandler<Types.AuthConnectionsKickedEvent, TDeps>,
+        subjectData?: Record<string, unknown>,
+        opts?: EventOpts,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+    };
+    connectionsOpened: {
+      publish(
+        event: Omit<Types.AuthConnectionsOpenedEvent, "header">,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+      prepare(
+        event: Omit<Types.AuthConnectionsOpenedEvent, "header">,
+      ): Result<
+        PreparedTrellisEvent<Omit<Types.AuthConnectionsOpenedEvent, "header">>,
+        ValidationError | UnexpectedError
+      >;
+      listen(
+        handler: ServiceEventHandler<Types.AuthConnectionsOpenedEvent, TDeps>,
+        subjectData?: Record<string, unknown>,
+        opts?: EventOpts,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+    };
+    deviceUserAuthoritiesApproved: {
+      publish(
+        event: Omit<Types.AuthDeviceUserAuthoritiesApprovedEvent, "header">,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+      prepare(
+        event: Omit<Types.AuthDeviceUserAuthoritiesApprovedEvent, "header">,
+      ): Result<
+        PreparedTrellisEvent<
+          Omit<Types.AuthDeviceUserAuthoritiesApprovedEvent, "header">
+        >,
+        ValidationError | UnexpectedError
+      >;
+      listen(
+        handler: ServiceEventHandler<
+          Types.AuthDeviceUserAuthoritiesApprovedEvent,
+          TDeps
+        >,
+        subjectData?: Record<string, unknown>,
+        opts?: EventOpts,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+    };
+    deviceUserAuthoritiesRequested: {
+      publish(
+        event: Omit<Types.AuthDeviceUserAuthoritiesRequestedEvent, "header">,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+      prepare(
+        event: Omit<Types.AuthDeviceUserAuthoritiesRequestedEvent, "header">,
+      ): Result<
+        PreparedTrellisEvent<
+          Omit<Types.AuthDeviceUserAuthoritiesRequestedEvent, "header">
+        >,
+        ValidationError | UnexpectedError
+      >;
+      listen(
+        handler: ServiceEventHandler<
+          Types.AuthDeviceUserAuthoritiesRequestedEvent,
+          TDeps
+        >,
+        subjectData?: Record<string, unknown>,
+        opts?: EventOpts,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+    };
+    deviceUserAuthoritiesResolved: {
+      publish(
+        event: Omit<Types.AuthDeviceUserAuthoritiesResolvedEvent, "header">,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+      prepare(
+        event: Omit<Types.AuthDeviceUserAuthoritiesResolvedEvent, "header">,
+      ): Result<
+        PreparedTrellisEvent<
+          Omit<Types.AuthDeviceUserAuthoritiesResolvedEvent, "header">
+        >,
+        ValidationError | UnexpectedError
+      >;
+      listen(
+        handler: ServiceEventHandler<
+          Types.AuthDeviceUserAuthoritiesResolvedEvent,
+          TDeps
+        >,
+        subjectData?: Record<string, unknown>,
+        opts?: EventOpts,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+    };
+    deviceUserAuthoritiesReviewRequested: {
+      publish(
+        event: Omit<
+          Types.AuthDeviceUserAuthoritiesReviewRequestedEvent,
+          "header"
+        >,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+      prepare(
+        event: Omit<
+          Types.AuthDeviceUserAuthoritiesReviewRequestedEvent,
+          "header"
+        >,
+      ): Result<
+        PreparedTrellisEvent<
+          Omit<Types.AuthDeviceUserAuthoritiesReviewRequestedEvent, "header">
+        >,
+        ValidationError | UnexpectedError
+      >;
+      listen(
+        handler: ServiceEventHandler<
+          Types.AuthDeviceUserAuthoritiesReviewRequestedEvent,
+          TDeps
+        >,
+        subjectData?: Record<string, unknown>,
+        opts?: EventOpts,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+    };
+    sessionsRevoked: {
+      publish(
+        event: Omit<Types.AuthSessionsRevokedEvent, "header">,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+      prepare(
+        event: Omit<Types.AuthSessionsRevokedEvent, "header">,
+      ): Result<
+        PreparedTrellisEvent<Omit<Types.AuthSessionsRevokedEvent, "header">>,
+        ValidationError | UnexpectedError
+      >;
+      listen(
+        handler: ServiceEventHandler<Types.AuthSessionsRevokedEvent, TDeps>,
+        subjectData?: Record<string, unknown>,
+        opts?: EventOpts,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+    };
+  };
+  readonly health: {
+    heartbeat: {
+      publish(
+        event: Omit<HealthSdk.HealthHeartbeatEvent, "header">,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+      prepare(
+        event: Omit<HealthSdk.HealthHeartbeatEvent, "header">,
+      ): Result<
+        PreparedTrellisEvent<Omit<HealthSdk.HealthHeartbeatEvent, "header">>,
+        ValidationError | UnexpectedError
+      >;
+      listen(
+        handler: ServiceEventHandler<HealthSdk.HealthHeartbeatEvent, TDeps>,
+        subjectData?: Record<string, unknown>,
+        opts?: EventOpts,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+    };
+  };
+}
+
+export interface ServiceHandle<TDeps = undefined> {
   readonly rpc: {
     readonly auth: {
       capabilitiesList(
         handler: RpcHandler<
           Types.AuthCapabilitiesListInput,
-          Types.AuthCapabilitiesListOutput
+          Types.AuthCapabilitiesListOutput,
+          TDeps
         >,
       ): Promise<void>;
       capabilityGroupsDelete(
         handler: RpcHandler<
           Types.AuthCapabilityGroupsDeleteInput,
-          Types.AuthCapabilityGroupsDeleteOutput
+          Types.AuthCapabilityGroupsDeleteOutput,
+          TDeps
         >,
       ): Promise<void>;
       capabilityGroupsGet(
         handler: RpcHandler<
           Types.AuthCapabilityGroupsGetInput,
-          Types.AuthCapabilityGroupsGetOutput
+          Types.AuthCapabilityGroupsGetOutput,
+          TDeps
         >,
       ): Promise<void>;
       capabilityGroupsList(
         handler: RpcHandler<
           Types.AuthCapabilityGroupsListInput,
-          Types.AuthCapabilityGroupsListOutput
+          Types.AuthCapabilityGroupsListOutput,
+          TDeps
         >,
       ): Promise<void>;
       capabilityGroupsPut(
         handler: RpcHandler<
           Types.AuthCapabilityGroupsPutInput,
-          Types.AuthCapabilityGroupsPutOutput
+          Types.AuthCapabilityGroupsPutOutput,
+          TDeps
         >,
       ): Promise<void>;
       catalogIssuesResolve(
         handler: RpcHandler<
           Types.AuthCatalogIssuesResolveInput,
-          Types.AuthCatalogIssuesResolveOutput
+          Types.AuthCatalogIssuesResolveOutput,
+          TDeps
         >,
       ): Promise<void>;
       connectionsKick(
         handler: RpcHandler<
           Types.AuthConnectionsKickInput,
-          Types.AuthConnectionsKickOutput
+          Types.AuthConnectionsKickOutput,
+          TDeps
         >,
       ): Promise<void>;
       connectionsList(
         handler: RpcHandler<
           Types.AuthConnectionsListInput,
-          Types.AuthConnectionsListOutput
+          Types.AuthConnectionsListOutput,
+          TDeps
         >,
       ): Promise<void>;
       deploymentAuthorityAcceptMigration(
         handler: RpcHandler<
           Types.AuthDeploymentAuthorityAcceptMigrationInput,
-          Types.AuthDeploymentAuthorityAcceptMigrationOutput
+          Types.AuthDeploymentAuthorityAcceptMigrationOutput,
+          TDeps
         >,
       ): Promise<void>;
       deploymentAuthorityAcceptUpdate(
         handler: RpcHandler<
           Types.AuthDeploymentAuthorityAcceptUpdateInput,
-          Types.AuthDeploymentAuthorityAcceptUpdateOutput
+          Types.AuthDeploymentAuthorityAcceptUpdateOutput,
+          TDeps
         >,
       ): Promise<void>;
       deploymentAuthorityGet(
         handler: RpcHandler<
           Types.AuthDeploymentAuthorityGetInput,
-          Types.AuthDeploymentAuthorityGetOutput
+          Types.AuthDeploymentAuthorityGetOutput,
+          TDeps
         >,
       ): Promise<void>;
       deploymentAuthorityGrantOverridesList(
         handler: RpcHandler<
           Types.AuthDeploymentAuthorityGrantOverridesListInput,
-          Types.AuthDeploymentAuthorityGrantOverridesListOutput
+          Types.AuthDeploymentAuthorityGrantOverridesListOutput,
+          TDeps
         >,
       ): Promise<void>;
       deploymentAuthorityGrantOverridesPut(
         handler: RpcHandler<
           Types.AuthDeploymentAuthorityGrantOverridesPutInput,
-          Types.AuthDeploymentAuthorityGrantOverridesPutOutput
+          Types.AuthDeploymentAuthorityGrantOverridesPutOutput,
+          TDeps
         >,
       ): Promise<void>;
       deploymentAuthorityGrantOverridesRemove(
         handler: RpcHandler<
           Types.AuthDeploymentAuthorityGrantOverridesRemoveInput,
-          Types.AuthDeploymentAuthorityGrantOverridesRemoveOutput
+          Types.AuthDeploymentAuthorityGrantOverridesRemoveOutput,
+          TDeps
         >,
       ): Promise<void>;
       deploymentAuthorityList(
         handler: RpcHandler<
           Types.AuthDeploymentAuthorityListInput,
-          Types.AuthDeploymentAuthorityListOutput
+          Types.AuthDeploymentAuthorityListOutput,
+          TDeps
         >,
       ): Promise<void>;
       deploymentAuthorityPlan(
         handler: RpcHandler<
           Types.AuthDeploymentAuthorityPlanInput,
-          Types.AuthDeploymentAuthorityPlanOutput
+          Types.AuthDeploymentAuthorityPlanOutput,
+          TDeps
         >,
       ): Promise<void>;
       deploymentAuthorityPlansGet(
         handler: RpcHandler<
           Types.AuthDeploymentAuthorityPlansGetInput,
-          Types.AuthDeploymentAuthorityPlansGetOutput
+          Types.AuthDeploymentAuthorityPlansGetOutput,
+          TDeps
         >,
       ): Promise<void>;
       deploymentAuthorityPlansList(
         handler: RpcHandler<
           Types.AuthDeploymentAuthorityPlansListInput,
-          Types.AuthDeploymentAuthorityPlansListOutput
+          Types.AuthDeploymentAuthorityPlansListOutput,
+          TDeps
         >,
       ): Promise<void>;
       deploymentAuthorityReconcile(
         handler: RpcHandler<
           Types.AuthDeploymentAuthorityReconcileInput,
-          Types.AuthDeploymentAuthorityReconcileOutput
+          Types.AuthDeploymentAuthorityReconcileOutput,
+          TDeps
         >,
       ): Promise<void>;
       deploymentAuthorityReject(
         handler: RpcHandler<
           Types.AuthDeploymentAuthorityRejectInput,
-          Types.AuthDeploymentAuthorityRejectOutput
+          Types.AuthDeploymentAuthorityRejectOutput,
+          TDeps
         >,
       ): Promise<void>;
       deploymentsCreate(
         handler: RpcHandler<
           Types.AuthDeploymentsCreateInput,
-          Types.AuthDeploymentsCreateOutput
+          Types.AuthDeploymentsCreateOutput,
+          TDeps
         >,
       ): Promise<void>;
       deploymentsDisable(
         handler: RpcHandler<
           Types.AuthDeploymentsDisableInput,
-          Types.AuthDeploymentsDisableOutput
+          Types.AuthDeploymentsDisableOutput,
+          TDeps
         >,
       ): Promise<void>;
       deploymentsEnable(
         handler: RpcHandler<
           Types.AuthDeploymentsEnableInput,
-          Types.AuthDeploymentsEnableOutput
+          Types.AuthDeploymentsEnableOutput,
+          TDeps
         >,
       ): Promise<void>;
       deploymentsList(
         handler: RpcHandler<
           Types.AuthDeploymentsListInput,
-          Types.AuthDeploymentsListOutput
+          Types.AuthDeploymentsListOutput,
+          TDeps
         >,
       ): Promise<void>;
       deploymentsRemove(
         handler: RpcHandler<
           Types.AuthDeploymentsRemoveInput,
-          Types.AuthDeploymentsRemoveOutput
+          Types.AuthDeploymentsRemoveOutput,
+          TDeps
         >,
       ): Promise<void>;
       deviceUserAuthoritiesList(
         handler: RpcHandler<
           Types.AuthDeviceUserAuthoritiesListInput,
-          Types.AuthDeviceUserAuthoritiesListOutput
+          Types.AuthDeviceUserAuthoritiesListOutput,
+          TDeps
         >,
       ): Promise<void>;
       deviceUserAuthoritiesReviewsDecide(
         handler: RpcHandler<
           Types.AuthDeviceUserAuthoritiesReviewsDecideInput,
-          Types.AuthDeviceUserAuthoritiesReviewsDecideOutput
+          Types.AuthDeviceUserAuthoritiesReviewsDecideOutput,
+          TDeps
         >,
       ): Promise<void>;
       deviceUserAuthoritiesReviewsList(
         handler: RpcHandler<
           Types.AuthDeviceUserAuthoritiesReviewsListInput,
-          Types.AuthDeviceUserAuthoritiesReviewsListOutput
+          Types.AuthDeviceUserAuthoritiesReviewsListOutput,
+          TDeps
         >,
       ): Promise<void>;
       deviceUserAuthoritiesRevoke(
         handler: RpcHandler<
           Types.AuthDeviceUserAuthoritiesRevokeInput,
-          Types.AuthDeviceUserAuthoritiesRevokeOutput
+          Types.AuthDeviceUserAuthoritiesRevokeOutput,
+          TDeps
         >,
       ): Promise<void>;
       devicesConnectInfoGet(
         handler: RpcHandler<
           Types.AuthDevicesConnectInfoGetInput,
-          Types.AuthDevicesConnectInfoGetOutput
+          Types.AuthDevicesConnectInfoGetOutput,
+          TDeps
         >,
       ): Promise<void>;
       devicesDisable(
         handler: RpcHandler<
           Types.AuthDevicesDisableInput,
-          Types.AuthDevicesDisableOutput
+          Types.AuthDevicesDisableOutput,
+          TDeps
         >,
       ): Promise<void>;
       devicesEnable(
         handler: RpcHandler<
           Types.AuthDevicesEnableInput,
-          Types.AuthDevicesEnableOutput
+          Types.AuthDevicesEnableOutput,
+          TDeps
         >,
       ): Promise<void>;
       devicesList(
         handler: RpcHandler<
           Types.AuthDevicesListInput,
-          Types.AuthDevicesListOutput
+          Types.AuthDevicesListOutput,
+          TDeps
         >,
       ): Promise<void>;
       devicesProvision(
         handler: RpcHandler<
           Types.AuthDevicesProvisionInput,
-          Types.AuthDevicesProvisionOutput
+          Types.AuthDevicesProvisionOutput,
+          TDeps
         >,
       ): Promise<void>;
       devicesRemove(
         handler: RpcHandler<
           Types.AuthDevicesRemoveInput,
-          Types.AuthDevicesRemoveOutput
+          Types.AuthDevicesRemoveOutput,
+          TDeps
         >,
       ): Promise<void>;
       health(
-        handler: RpcHandler<Types.AuthHealthInput, Types.AuthHealthOutput>,
+        handler: RpcHandler<
+          Types.AuthHealthInput,
+          Types.AuthHealthOutput,
+          TDeps
+        >,
       ): Promise<void>;
       identitiesList(
         handler: RpcHandler<
           Types.AuthIdentitiesListInput,
-          Types.AuthIdentitiesListOutput
+          Types.AuthIdentitiesListOutput,
+          TDeps
         >,
       ): Promise<void>;
       identityGrantsList(
         handler: RpcHandler<
           Types.AuthIdentityGrantsListInput,
-          Types.AuthIdentityGrantsListOutput
+          Types.AuthIdentityGrantsListOutput,
+          TDeps
         >,
       ): Promise<void>;
       identityGrantsRevoke(
         handler: RpcHandler<
           Types.AuthIdentityGrantsRevokeInput,
-          Types.AuthIdentityGrantsRevokeOutput
+          Types.AuthIdentityGrantsRevokeOutput,
+          TDeps
         >,
       ): Promise<void>;
       portalsGet(
         handler: RpcHandler<
           Types.AuthPortalsGetInput,
-          Types.AuthPortalsGetOutput
+          Types.AuthPortalsGetOutput,
+          TDeps
         >,
       ): Promise<void>;
       portalsList(
         handler: RpcHandler<
           Types.AuthPortalsListInput,
-          Types.AuthPortalsListOutput
+          Types.AuthPortalsListOutput,
+          TDeps
         >,
       ): Promise<void>;
       portalsLoginSettingsGet(
         handler: RpcHandler<
           Types.AuthPortalsLoginSettingsGetInput,
-          Types.AuthPortalsLoginSettingsGetOutput
+          Types.AuthPortalsLoginSettingsGetOutput,
+          TDeps
         >,
       ): Promise<void>;
       portalsLoginSettingsUpdate(
         handler: RpcHandler<
           Types.AuthPortalsLoginSettingsUpdateInput,
-          Types.AuthPortalsLoginSettingsUpdateOutput
+          Types.AuthPortalsLoginSettingsUpdateOutput,
+          TDeps
         >,
       ): Promise<void>;
       portalsPut(
         handler: RpcHandler<
           Types.AuthPortalsPutInput,
-          Types.AuthPortalsPutOutput
+          Types.AuthPortalsPutOutput,
+          TDeps
         >,
       ): Promise<void>;
       portalsRemove(
         handler: RpcHandler<
           Types.AuthPortalsRemoveInput,
-          Types.AuthPortalsRemoveOutput
+          Types.AuthPortalsRemoveOutput,
+          TDeps
         >,
       ): Promise<void>;
       portalsRoutesPut(
         handler: RpcHandler<
           Types.AuthPortalsRoutesPutInput,
-          Types.AuthPortalsRoutesPutOutput
+          Types.AuthPortalsRoutesPutOutput,
+          TDeps
         >,
       ): Promise<void>;
       portalsRoutesRemove(
         handler: RpcHandler<
           Types.AuthPortalsRoutesRemoveInput,
-          Types.AuthPortalsRoutesRemoveOutput
+          Types.AuthPortalsRoutesRemoveOutput,
+          TDeps
         >,
       ): Promise<void>;
       requestsValidate(
         handler: RpcHandler<
           Types.AuthRequestsValidateInput,
-          Types.AuthRequestsValidateOutput
+          Types.AuthRequestsValidateOutput,
+          TDeps
         >,
       ): Promise<void>;
       serviceInstancesDisable(
         handler: RpcHandler<
           Types.AuthServiceInstancesDisableInput,
-          Types.AuthServiceInstancesDisableOutput
+          Types.AuthServiceInstancesDisableOutput,
+          TDeps
         >,
       ): Promise<void>;
       serviceInstancesEnable(
         handler: RpcHandler<
           Types.AuthServiceInstancesEnableInput,
-          Types.AuthServiceInstancesEnableOutput
+          Types.AuthServiceInstancesEnableOutput,
+          TDeps
         >,
       ): Promise<void>;
       serviceInstancesList(
         handler: RpcHandler<
           Types.AuthServiceInstancesListInput,
-          Types.AuthServiceInstancesListOutput
+          Types.AuthServiceInstancesListOutput,
+          TDeps
         >,
       ): Promise<void>;
       serviceInstancesProvision(
         handler: RpcHandler<
           Types.AuthServiceInstancesProvisionInput,
-          Types.AuthServiceInstancesProvisionOutput
+          Types.AuthServiceInstancesProvisionOutput,
+          TDeps
         >,
       ): Promise<void>;
       serviceInstancesRemove(
         handler: RpcHandler<
           Types.AuthServiceInstancesRemoveInput,
-          Types.AuthServiceInstancesRemoveOutput
+          Types.AuthServiceInstancesRemoveOutput,
+          TDeps
         >,
       ): Promise<void>;
       sessionsList(
         handler: RpcHandler<
           Types.AuthSessionsListInput,
-          Types.AuthSessionsListOutput
+          Types.AuthSessionsListOutput,
+          TDeps
         >,
       ): Promise<void>;
       sessionsLogout(
         handler: RpcHandler<
           Types.AuthSessionsLogoutInput,
-          Types.AuthSessionsLogoutOutput
+          Types.AuthSessionsLogoutOutput,
+          TDeps
         >,
       ): Promise<void>;
       sessionsMe(
         handler: RpcHandler<
           Types.AuthSessionsMeInput,
-          Types.AuthSessionsMeOutput
+          Types.AuthSessionsMeOutput,
+          TDeps
         >,
       ): Promise<void>;
       sessionsRevoke(
         handler: RpcHandler<
           Types.AuthSessionsRevokeInput,
-          Types.AuthSessionsRevokeOutput
+          Types.AuthSessionsRevokeOutput,
+          TDeps
         >,
       ): Promise<void>;
       userIdentitiesList(
         handler: RpcHandler<
           Types.AuthUserIdentitiesListInput,
-          Types.AuthUserIdentitiesListOutput
+          Types.AuthUserIdentitiesListOutput,
+          TDeps
         >,
       ): Promise<void>;
       userIdentitiesUnlink(
         handler: RpcHandler<
           Types.AuthUserIdentitiesUnlinkInput,
-          Types.AuthUserIdentitiesUnlinkOutput
+          Types.AuthUserIdentitiesUnlinkOutput,
+          TDeps
         >,
       ): Promise<void>;
       usersCreate(
         handler: RpcHandler<
           Types.AuthUsersCreateInput,
-          Types.AuthUsersCreateOutput
+          Types.AuthUsersCreateOutput,
+          TDeps
         >,
       ): Promise<void>;
       usersGet(
-        handler: RpcHandler<Types.AuthUsersGetInput, Types.AuthUsersGetOutput>,
+        handler: RpcHandler<
+          Types.AuthUsersGetInput,
+          Types.AuthUsersGetOutput,
+          TDeps
+        >,
       ): Promise<void>;
       usersIdentityLinkCreate(
         handler: RpcHandler<
           Types.AuthUsersIdentityLinkCreateInput,
-          Types.AuthUsersIdentityLinkCreateOutput
+          Types.AuthUsersIdentityLinkCreateOutput,
+          TDeps
         >,
       ): Promise<void>;
       usersList(
         handler: RpcHandler<
           Types.AuthUsersListInput,
-          Types.AuthUsersListOutput
+          Types.AuthUsersListOutput,
+          TDeps
         >,
       ): Promise<void>;
       usersPasswordChange(
         handler: RpcHandler<
           Types.AuthUsersPasswordChangeInput,
-          Types.AuthUsersPasswordChangeOutput
+          Types.AuthUsersPasswordChangeOutput,
+          TDeps
         >,
       ): Promise<void>;
       usersPasswordResetCreate(
         handler: RpcHandler<
           Types.AuthUsersPasswordResetCreateInput,
-          Types.AuthUsersPasswordResetCreateOutput
+          Types.AuthUsersPasswordResetCreateOutput,
+          TDeps
         >,
       ): Promise<void>;
       usersUpdate(
         handler: RpcHandler<
           Types.AuthUsersUpdateInput,
-          Types.AuthUsersUpdateOutput
+          Types.AuthUsersUpdateOutput,
+          TDeps
         >,
       ): Promise<void>;
     };
@@ -955,12 +1254,13 @@ export interface ServiceHandle {
     readonly auth: {
       deviceUserAuthoritiesResolve:
         & ((
-          handler: (
-            context: {
-              input: Types.AuthDeviceUserAuthoritiesResolveInput;
-              client: HandlerClient;
-            },
-          ) => unknown | Promise<unknown>,
+          handler: OperationHandler<
+            Types.AuthDeviceUserAuthoritiesResolveInput,
+            Types.AuthDeviceUserAuthoritiesResolveProgress,
+            Types.AuthDeviceUserAuthoritiesResolveOutput,
+            {},
+            TDeps
+          >,
         ) => Promise<void>)
         & {
           accept(
