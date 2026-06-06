@@ -1032,6 +1032,9 @@ Rules:
 - deployment authority mutations fail closed when required `uses` dependencies
   are unknown or cannot be resolved from effective active contracts or the
   latest accepted dependency fallback
+- runtime credentials use materialized `nats` grants from current materialized
+  authority instead of recomputing subjects from active contracts during
+  auth-callout
 - service and device deployment removal may skip `uses` validation so operators
   can tear down an already-broken graph instead of being trapped by stale
   dependencies
@@ -1616,14 +1619,15 @@ type AuthCapabilityRow = {
 
 Rules:
 
-- `Auth.Capabilities.List` returns capabilities known to the current auth
-  runtime: Trellis platform capabilities plus capability metadata projected from
-  known contract manifests. Durable deployment authority and identity authority
+- `Auth.Capabilities.List` returns the assignment catalog known to the current
+  auth runtime: Trellis platform capabilities plus capability metadata projected
+  into authority-owned capability definitions when deployment authority is
+  planned or accepted. Durable deployment authority and identity authority
   remain the authority sources.
 - The response is an assignment catalog for admin UX; it is not a grant source
   by itself.
 - Capability keys are canonical global keys such as
-  `trellis.auth::device.review`; contract-owned keys are emitted from declared
+  `trellis.auth::device.review`; contract-owned keys originate from declared
   top-level capability metadata, while platform keys are explicitly defined by
   Trellis.
 
@@ -1770,8 +1774,10 @@ current capabilities into the user's direct grants. The built-in `admin` group
 is read-only in management surfaces, but can be assigned to users.
 
 `Auth.CapabilityGroups.Put` accepts only capability keys returned by
-`Auth.Capabilities.List`. Requests that include uncataloged capability strings
-fail with `invalid_request` instead of preserving or creating hidden grants.
+`Auth.Capabilities.List`, including Trellis platform keys and
+authority-projected contract capability definitions. Requests that include
+uncataloged capability strings fail with `invalid_request` instead of preserving
+or creating hidden grants.
 
 Admin UX SHOULD make the distinction visible: capabilities provided by selected
 groups should appear resolved for review but should not be editable as direct

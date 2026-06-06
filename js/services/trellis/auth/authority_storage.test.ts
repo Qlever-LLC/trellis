@@ -7,6 +7,7 @@ import {
 import type { TrellisStorage } from "../storage/db.ts";
 import type {
   DeploymentAuthority,
+  DeploymentAuthorityCapabilityDefinition,
   DeploymentAuthorityGrantOverride,
   DeploymentAuthorityMaterialization,
   DeploymentAuthorityPlan,
@@ -15,6 +16,7 @@ import type {
 } from "./schemas.ts";
 import {
   SqlAuthorityReconciliationRepository,
+  SqlDeploymentAuthorityCapabilityDefinitionRepository,
   SqlDeploymentAuthorityGrantOverrideRepository,
   SqlDeploymentAuthorityPlanRepository,
   SqlDeploymentAuthorityRepository,
@@ -29,6 +31,8 @@ async function withAuthorityRepositories(
       materialized: SqlMaterializedAuthorityRepository;
       reconciliation: SqlAuthorityReconciliationRepository;
       grantOverrides: SqlDeploymentAuthorityGrantOverrideRepository;
+      capabilityDefinitions:
+        SqlDeploymentAuthorityCapabilityDefinitionRepository;
     },
     storage: TrellisStorage,
   ) => Promise<void>,
@@ -50,6 +54,8 @@ async function withAuthorityRepositories(
       grantOverrides: new SqlDeploymentAuthorityGrantOverrideRepository(
         storage.db,
       ),
+      capabilityDefinitions:
+        new SqlDeploymentAuthorityCapabilityDefinitionRepository(storage.db),
     }, storage);
   } finally {
     storage.client.close();
@@ -130,7 +136,7 @@ function makeMaterialized(
       createdAt: "2026-05-07T00:00:03.000Z",
       updatedAt: "2026-05-07T00:00:03.000Z",
     }],
-    grants: [{ capability: "a.use" }],
+    grants: [{ kind: "capability", capability: "a.use" }],
     reconciledAt: "2026-05-07T00:00:03.000Z",
     ...overrides,
   };
@@ -146,16 +152,6 @@ Deno.test("deployment authority storage round-trips desired state", async () => 
         desiredState: {
           needs: [
             { kind: "contract", contractId: "a.contract@v1", required: true },
-            {
-              kind: "surface",
-              surface: {
-                contractId: "a.contract@v1",
-                kind: "rpc",
-                name: "Rpc.Call",
-                action: "call",
-              },
-              required: true,
-            },
             {
               kind: "resource",
               resource: {
@@ -267,6 +263,62 @@ Deno.test("materialized authority stores resource bindings", async () => {
       makeMaterialized().resourceBindings,
     );
   });
+});
+
+Deno.test("materialized authority round-trips typed nats grants", async () => {
+  await withAuthorityRepositories(async ({ materialized }) => {
+    const record = makeMaterialized({
+      grants: [{
+        kind: "nats",
+        direction: "publish",
+        subject: "rpc.v1.Example.Ping",
+        surface: {
+          contractId: "example@v1",
+          kind: "rpc",
+          name: "Example.Ping",
+          action: "call",
+        },
+        requiredCapabilities: ["example.ping"],
+        grantSource: "used-surface",
+      }],
+    });
+
+    await materialized.put(record);
+
+    assertEquals(await materialized.get("svc-a"), record);
+  });
+});
+
+Deno.test("authority capability definitions list enabled deployments", async () => {
+  await withAuthorityRepositories(
+    async ({ authorities, capabilityDefinitions }) => {
+      const definition: DeploymentAuthorityCapabilityDefinition = {
+        deploymentId: "svc-a",
+        key: "customer.read",
+        displayName: "Read customers",
+        description: "Read customer records.",
+        source: "contract",
+        contractId: "customer@v1",
+        contractDigest: "digest-customer",
+        contractDisplayName: "Customer",
+        direction: "creates",
+      };
+
+      await authorities.put(makeAuthority());
+      await authorities.put(makeAuthority({
+        deploymentId: "svc-disabled",
+        disabled: true,
+      }));
+      await capabilityDefinitions.replaceForDeployment("svc-a", [definition]);
+      await capabilityDefinitions.replaceForDeployment("svc-disabled", [{
+        ...definition,
+        deploymentId: "svc-disabled",
+        key: "disabled.read",
+      }]);
+
+      assertEquals(await capabilityDefinitions.listEnabled(), [definition]);
+    },
+  );
 });
 
 Deno.test("authority reconciliation stores status and events", async () => {

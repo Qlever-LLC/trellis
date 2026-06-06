@@ -123,7 +123,7 @@ pub(crate) fn required_integration_coverage() -> Vec<RequiredCoverage> {
         RequiredCoverage {
             id: "active-catalog-authority",
             title: "Deployment authority and strict replacement rejection",
-            expectation: "The suite must update deployment authority through public bootstrap APIs, reject incompatible same-contract replacement for an existing strict service instance, prove the current authority-authorized digest remains callable, and verify restart does not require active catalog issues for runtime authority.",
+            expectation: "The suite must update deployment authority through public bootstrap APIs, reject incompatible same-contract replacement for an existing strict service instance, prove the current authority-authorized digest remains callable, verify restart does not require active catalog issues for runtime authority, and prove materialized deployment authority rather than active or broad contract-derived auth controls runtime permissions.",
         },
         RequiredCoverage {
             id: "observability-trace-matrix",

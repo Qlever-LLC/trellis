@@ -248,6 +248,7 @@ Deno.test("authority surfaces and pending plans persist observe/subscribe action
         surfaceName: "Billing.Start",
         action: "observe",
         required: true,
+        source: "surface",
       },
       {
         deploymentId: "billing.default",
@@ -256,6 +257,7 @@ Deno.test("authority surfaces and pending plans persist observe/subscribe action
         surfaceName: "Billing.AlreadyUpdated",
         action: "observe",
         required: true,
+        source: "surface",
       },
       {
         deploymentId: "billing.default",
@@ -264,6 +266,7 @@ Deno.test("authority surfaces and pending plans persist observe/subscribe action
         surfaceName: "Billing.Stream",
         action: "subscribe",
         required: true,
+        source: "surface",
       },
     ]);
     await storage.db.insert(deploymentAuthorityPlans).values({

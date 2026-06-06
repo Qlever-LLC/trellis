@@ -1,44 +1,36 @@
 <script lang="ts">
   import { isErr, type BaseError, type Result } from "@qlever-llc/result";
-  import type { DeploymentAuthorityKind, DeploymentAuthorityPlan } from "@qlever-llc/trellis/auth";
+  import type { DeploymentAuthority, DeploymentAuthorityMaterialization, DeploymentAuthorityPlan } from "@qlever-llc/trellis/auth";
   import { base, resolve } from "$app/paths";
   import { page } from "$app/state";
   import { onMount } from "svelte";
   import DataTable from "$lib/components/DataTable.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
-  import Icon from "$lib/components/Icon.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
   import Notice from "$lib/components/Notice.svelte";
   import PageToolbar from "$lib/components/PageToolbar.svelte";
   import Panel from "$lib/components/Panel.svelte";
   import StatusBadge from "$lib/components/StatusBadge.svelte";
   import {
+    type AuthorityCapabilityDefinition,
     authorityCounts,
     authorityPlanRows,
-    deltaCapabilityRows,
+    createsCapabilityRows,
     deltaContractRows,
     deltaResourceRows,
     deltaSurfaceRows,
     formatBindingTarget,
+    givenCapabilityRows,
   } from "$lib/authority_console";
   import { errorMessage, formatDate } from "../../../../../lib/format";
   import { getTrellis } from "../../../../../lib/trellis";
 
-  type AuthorityKind = DeploymentAuthorityKind;
-  type SurfaceAction = "call" | "publish" | "subscribe" | "observe" | "cancel";
-  type Surface = { contractId: string; kind: "rpc" | "operation" | "event" | "feed"; name: string; action?: SurfaceAction };
-  type Resource = { kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer"; alias: string; required: boolean; definition?: Record<string, unknown> };
-  type Need =
-    | { kind: "contract"; contractId: string; required: boolean }
-    | { kind: "surface"; surface: Surface; required: boolean }
-    | { kind: "capability"; capability: string; required: boolean }
-    | { kind: "resource"; resource: Resource; required: boolean };
-  type DesiredState = { needs: Need[]; capabilities: string[]; resources: Resource[]; surfaces: Surface[] };
-  type Authority = { deploymentId: string; kind: AuthorityKind; disabled: boolean; desiredState: DesiredState; version: string; createdAt: string; updatedAt: string };
-  type Binding = { deploymentId: string; kind: Resource["kind"]; alias: string; binding: Record<string, unknown>; limits: Record<string, unknown> | null; createdAt: string; updatedAt: string };
-  type MaterializedAuthority = { deploymentId: string; desiredVersion: string; status: "current" | "pending" | "failed"; resourceBindings: Binding[]; grants: Record<string, unknown>[]; reconciledAt: string | null; error?: string };
-  type AuthorityDetail = { authority: Authority; materializedAuthority: MaterializedAuthority | null; portalRoute: unknown; grantOverrides: unknown[] };
-  type ReconcileResponse = { authority: Authority; materializedAuthority: MaterializedAuthority };
+  type ResourceKind = "kv" | "store" | "jobs" | "event-consumer" | "transfer";
+  type Binding = { deploymentId: string; kind: ResourceKind; alias: string; binding: Record<string, unknown>; limits: Record<string, unknown> | null; createdAt: string; updatedAt: string };
+  type MaterializedAuthority = DeploymentAuthorityMaterialization & { resourceBindings: Binding[] };
+  type AuthorityDetail = { authority: DeploymentAuthority; materializedAuthority: MaterializedAuthority | null; portalRoute: unknown; grantOverrides: unknown[]; capabilityDefinitions?: AuthorityCapabilityDefinition[] };
+  type ReconcileResponse = { authority: DeploymentAuthority; materializedAuthority: MaterializedAuthority };
+  type CapabilitiesListResponse = { entries?: AuthorityCapabilityDefinition[] };
   type ServiceInstance = { deploymentId: string; instanceId: string; disabled: boolean; createdAt?: string };
   type ListResponse<T> = { entries?: T[] };
   type RpcTakeable<T> = { take(): Promise<T | Result<never, BaseError>> };
@@ -47,6 +39,7 @@
     (method: "Auth.DeploymentAuthority.Reconcile", input: { deploymentId: string; desiredVersion?: string }): RpcTakeable<ReconcileResponse>;
     (method: "Auth.DeploymentAuthority.Plans.List", input: { deploymentId: string; limit: number; offset?: number }): RpcTakeable<{ entries?: DeploymentAuthorityPlan[] }>;
     (method: "Auth.ServiceInstances.List", input: { limit: number; offset: number }): RpcTakeable<ListResponse<ServiceInstance>>;
+    (method: "Auth.Capabilities.List", input: { limit: number; offset: number }): RpcTakeable<CapabilitiesListResponse>;
   };
   type Tab = "desired" | "materialized" | "resources" | "capabilities" | "instances" | "plans";
 
@@ -63,6 +56,7 @@
   let detail = $state.raw<AuthorityDetail | null>(null);
   let instances = $state.raw<ServiceInstance[]>([]);
   let plans = $state.raw<DeploymentAuthorityPlan[]>([]);
+  let capabilityDefinitions = $state.raw<AuthorityCapabilityDefinition[]>([]);
   let activeTab = $state<Tab>("desired");
 
   const authority = $derived(detail?.authority ?? null);
@@ -72,7 +66,9 @@
   const desiredContractRows = $derived(authority ? deltaContractRows(authority.desiredState) : []);
   const desiredSurfaceRows = $derived(authority ? deltaSurfaceRows(authority.desiredState) : []);
   const desiredResourceRows = $derived(authority ? deltaResourceRows(authority.desiredState) : []);
-  const desiredCapabilityRows = $derived(authority ? deltaCapabilityRows(authority.desiredState) : []);
+  const authorityCapabilityDefinitions = $derived(detail?.capabilityDefinitions ?? capabilityDefinitions);
+  const createsRows = $derived(authority ? createsCapabilityRows(authority, authorityCapabilityDefinitions) : []);
+  const givenRows = $derived(authority ? givenCapabilityRows(authority, materializedAuthority, authorityCapabilityDefinitions) : []);
   const reconciliationStatus = $derived(materializedAuthority?.status ?? "pending");
   const planRows = $derived.by(() =>
     authorityPlanRows(plans).toSorted((left, right) => {
@@ -88,17 +84,20 @@
     error = null;
     notice = null;
     try {
-      const [detailResponse, instancesResponse, plansResponse] = await Promise.all([
+      const [detailResponse, instancesResponse, plansResponse, capabilitiesResponse] = await Promise.all([
         request("Auth.DeploymentAuthority.Get", { deploymentId: selectedDeploymentId }).take(),
         request("Auth.ServiceInstances.List", { limit: 500, offset: 0 }).take(),
         request("Auth.DeploymentAuthority.Plans.List", { deploymentId: selectedDeploymentId, limit: 500, offset: 0 }).take(),
+        request("Auth.Capabilities.List", { limit: 500, offset: 0 }).take(),
       ]);
       if (isErr(detailResponse)) { error = errorMessage(detailResponse); return; }
       if (isErr(instancesResponse)) { error = errorMessage(instancesResponse); return; }
       if (isErr(plansResponse)) { error = errorMessage(plansResponse); return; }
+      if (isErr(capabilitiesResponse)) { error = errorMessage(capabilitiesResponse); return; }
       detail = detailResponse;
       instances = instancesResponse.entries ?? [];
       plans = plansResponse.entries ?? [];
+      capabilityDefinitions = capabilitiesResponse.entries ?? [];
     } catch (cause) {
       error = errorMessage(cause);
     } finally {
@@ -119,6 +118,7 @@
         materializedAuthority: response.materializedAuthority,
         portalRoute: detail?.portalRoute ?? null,
         grantOverrides: detail?.grantOverrides ?? [],
+        capabilityDefinitions: detail?.capabilityDefinitions,
       };
       notice = "Reconciliation completed for the current deployment authority.";
     } catch (cause) {
@@ -133,10 +133,14 @@
   }
 
   function statusVariant(status: string): "healthy" | "degraded" | "unhealthy" | "offline" {
-    if (status === "current" || status === "Enabled" || status === "accepted") return "healthy";
+    if (status === "current" || status === "Enabled" || status === "accepted" || status === "granted") return "healthy";
     if (status === "pending" || status === "running") return "degraded";
-    if (status === "failed" || status === "Disabled" || status === "rejected") return "unhealthy";
+    if (status === "failed" || status === "Disabled" || status === "rejected" || status === "not-materialized") return "unhealthy";
     return "offline";
+  }
+
+  function materializedStatusLabel(status: string): string {
+    return status === "not-materialized" ? "not materialized" : status;
   }
 
   function planHref(planId: string): string {
@@ -189,7 +193,8 @@
           <span class="badge badge-outline badge-sm">{counts?.requiredContracts ?? 0} required contracts</span>
           <span class="badge badge-outline badge-sm">{desiredSurfaceRows.length} surfaces</span>
           <span class="badge badge-outline badge-sm">{desiredResourceRows.length} resources</span>
-          <span class="badge badge-outline badge-sm">{desiredCapabilityRows.length} capabilities</span>
+          <span class="badge badge-outline badge-sm">{createsRows.length} Creates</span>
+          <span class="badge badge-outline badge-sm">{givenRows.length} Given</span>
         </div>
       </div>
 
@@ -228,7 +233,29 @@
         {:else if activeTab === "resources"}
           <DataTable><thead><tr><th>Resource</th><th>Availability</th><th>Materialized binding</th></tr></thead><tbody>{#each desiredResourceRows as row (row.id)}{@const binding = materializedAuthority?.resourceBindings.find((item) => item.kind === row.kind && item.alias === row.alias)}<tr><td><div class="trellis-identifier">{row.alias}</div><div class="text-xs text-base-content/60">{row.kind}</div></td><td><span class="badge badge-outline badge-xs">{row.availability}</span></td><td class="trellis-identifier text-xs">{binding ? formatBindingTarget(binding) : "not materialized"}</td></tr>{:else}<tr><td colspan="3"><EmptyState title="No resources" description="This deployment authority has no desired resource needs." /></td></tr>{/each}</tbody></DataTable>
         {:else if activeTab === "capabilities"}
-          <DataTable><thead><tr><th>Capability</th><th>Availability</th></tr></thead><tbody>{#each desiredCapabilityRows as row (row.id)}<tr><td class="trellis-identifier">{row.capability}</td><td><span class="badge badge-outline badge-xs">{row.availability}</span></td></tr>{:else}<tr><td colspan="2"><EmptyState title="No capabilities" description="This deployment authority has no capability needs." /></td></tr>{/each}</tbody></DataTable>
+          <div class="space-y-4">
+            <div class="rounded-box border border-base-300 bg-base-100">
+              <div class="flex flex-wrap items-center justify-between gap-2 border-b border-base-300 px-3 py-2">
+                <div>
+                  <h3 class="font-medium">Creates</h3>
+                  <p class="text-xs text-base-content/60">Capability definitions this deployment provides for other participants.</p>
+                </div>
+                <span class="badge badge-outline badge-sm">{createsRows.length}</span>
+              </div>
+              <DataTable><thead><tr><th>Capability</th><th>Definition</th><th>Source</th><th>Contract</th></tr></thead><tbody>{#each createsRows as row (row.id)}<tr><td><div class="trellis-identifier font-medium">{row.capability}</div>{#if row.consequence}<div class="text-xs text-base-content/60">{row.consequence}</div>{/if}</td><td><div>{row.displayName}</div><div class="text-xs text-base-content/60">{row.description}</div></td><td><span class="badge badge-outline badge-xs">{row.source}</span></td><td><div class="trellis-identifier text-xs">{row.contractId ?? "platform"}</div>{#if row.contractDigest}<div class="trellis-identifier text-xs text-base-content/50">{row.contractDigest}</div>{/if}</td></tr>{:else}<tr><td colspan="4"><EmptyState title="No Creates capabilities" description="No capability definitions for this deployment are available from authority APIs." /></td></tr>{/each}</tbody></DataTable>
+            </div>
+
+            <div class="rounded-box border border-base-300 bg-base-100">
+              <div class="flex flex-wrap items-center justify-between gap-2 border-b border-base-300 px-3 py-2">
+                <div>
+                  <h3 class="font-medium">Given</h3>
+                  <p class="text-xs text-base-content/60">Capability needs accepted for this deployment and the matching materialized grants.</p>
+                </div>
+                <span class="badge badge-outline badge-sm">{givenRows.length}</span>
+              </div>
+              <DataTable><thead><tr><th>Capability</th><th>Need</th><th>Materialized</th><th>Definition</th><th>Contract</th></tr></thead><tbody>{#each givenRows as row (row.id)}<tr><td><div class="trellis-identifier font-medium">{row.capability}</div>{#if row.consequence}<div class="text-xs text-base-content/60">{row.consequence}</div>{/if}</td><td><span class="badge badge-outline badge-xs">{row.availability}</span></td><td><StatusBadge label={materializedStatusLabel(row.materializedStatus)} status={statusVariant(row.materializedStatus)} />{#if row.materializedGrantCount > 1}<div class="mt-1 text-xs text-base-content/60">{row.materializedGrantCount} grants</div>{/if}</td><td><div>{row.displayName}</div><div class="text-xs text-base-content/60">{row.description}</div><div class="mt-1"><span class="badge badge-outline badge-xs">{row.source}</span></div></td><td><div class="trellis-identifier text-xs">{row.contractId ?? "authority"}</div>{#if row.contractDigest}<div class="trellis-identifier text-xs text-base-content/50">{row.contractDigest}</div>{/if}</td></tr>{:else}<tr><td colspan="5"><EmptyState title="No Given capabilities" description="This deployment authority has no accepted capability needs or materialized capability grants." /></td></tr>{/each}</tbody></DataTable>
+            </div>
+          </div>
         {:else if activeTab === "instances"}
           <DataTable><thead><tr><th>Instance</th><th>Status</th><th>Created</th></tr></thead><tbody>{#each selectedInstances as instance (instance.instanceId)}<tr><td class="trellis-identifier">{instance.instanceId}</td><td><StatusBadge label={instance.disabled ? "Disabled" : "Enabled"} status={statusVariant(instance.disabled ? "Disabled" : "Enabled")} /></td><td>{instance.createdAt ? formatDate(instance.createdAt) : "—"}</td></tr>{:else}<tr><td colspan="3"><EmptyState title="No runtime instances" description="Service runtime instances appear after they connect." /></td></tr>{/each}</tbody></DataTable>
         {:else if activeTab === "plans"}

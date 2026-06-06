@@ -56,6 +56,7 @@ export function registerBootstrapRoutes(
       },
       deploymentAuthorityStorage: opts.deploymentAuthorityStorage,
       deploymentAuthorityPlanStorage: opts.deploymentAuthorityPlanStorage,
+      capabilityDefinitionStorage: opts.capabilityDefinitionStorage,
       materializedAuthorityStorage: opts.materializedAuthorityStorage,
       implementationOfferStorage: opts.implementationOfferStorage,
       authorityReconciler: opts.authorityReconciler,

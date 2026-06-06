@@ -3,6 +3,7 @@ import {
   SqlAccountFlowRepository,
   SqlAuthorityReconciliationRepository,
   SqlCapabilityGroupRepository,
+  SqlDeploymentAuthorityCapabilityDefinitionRepository,
   SqlDeploymentAuthorityGrantOverrideRepository,
   SqlDeploymentAuthorityPlanRepository,
   SqlDeploymentAuthorityRepository,
@@ -43,6 +44,8 @@ export async function createStorage(config: Config) {
     deploymentAuthorityStorage: new SqlDeploymentAuthorityRepository(
       storage.db,
     ),
+    capabilityDefinitionStorage:
+      new SqlDeploymentAuthorityCapabilityDefinitionRepository(storage.db),
     deploymentAuthorityPlanStorage: new SqlDeploymentAuthorityPlanRepository(
       storage.db,
     ),

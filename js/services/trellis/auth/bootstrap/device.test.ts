@@ -184,20 +184,15 @@ function materializedAuthorityFor(
     resourceBindings: [],
     grants: options?.grants ?? [
       ...needs.capabilities.map((capability) => ({
-        kind: "capability",
+        kind: "capability" as const,
         capability,
       })),
       ...needs.surfaces.map((surface) => ({
-        kind: "surface",
+        kind: "surface" as const,
         contractId: surface.contractId,
         surfaceKind: surface.kind,
         name: surface.name,
         ...(surface.action === undefined ? {} : { action: surface.action }),
-      })),
-      ...needs.resources.map((resource) => ({
-        kind: "resource",
-        resourceKind: resource.kind,
-        alias: resource.alias,
       })),
     ],
     reconciledAt: options?.status === "pending" ? null : TEST_NOW,

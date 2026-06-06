@@ -13,7 +13,7 @@ const CONTRACT_MODULE_METADATA = Symbol.for(
 
 export const CONTRACT_ID = "trellis.auth@v1" as const;
 export const CONTRACT_DIGEST =
-  "gLadyuZkZX2uxa3wnVMUJkDDddoVgRrDEzH8TIdeDyw" as const;
+  "XdqgSxkrIhWOu1ODbOk6-QHLTlI52ZP-6qhYJpIdCMc" as const;
 export const CONTRACT = {
   "capabilities": {
     "trellis.auth::device.review": {
@@ -1122,7 +1122,14 @@ export const CONTRACT = {
               },
               "contractDisplayName": { "minLength": 1, "type": "string" },
               "contractId": { "minLength": 1, "type": "string" },
+              "deploymentId": { "minLength": 1, "type": "string" },
               "description": { "minLength": 1, "type": "string" },
+              "direction": {
+                "anyOf": [{ "const": "creates", "type": "string" }, {
+                  "const": "given",
+                  "type": "string",
+                }],
+              },
               "displayName": { "minLength": 1, "type": "string" },
               "key": { "minLength": 1, "type": "string" },
               "source": {
@@ -2094,7 +2101,101 @@ export const CONTRACT = {
               "deploymentId": { "minLength": 1, "type": "string" },
               "desiredVersion": { "minLength": 1, "type": "string" },
               "error": { "minLength": 1, "type": "string" },
-              "grants": { "items": { "type": "object" }, "type": "array" },
+              "grants": {
+                "items": {
+                  "anyOf": [{
+                    "properties": {
+                      "capability": { "minLength": 1, "type": "string" },
+                      "kind": { "const": "capability", "type": "string" },
+                    },
+                    "required": ["kind", "capability"],
+                    "type": "object",
+                  }, {
+                    "properties": {
+                      "action": {
+                        "anyOf": [
+                          { "const": "call", "type": "string" },
+                          { "const": "publish", "type": "string" },
+                          { "const": "subscribe", "type": "string" },
+                          { "const": "observe", "type": "string" },
+                          { "const": "cancel", "type": "string" },
+                        ],
+                      },
+                      "contractId": { "minLength": 1, "type": "string" },
+                      "kind": { "const": "surface", "type": "string" },
+                      "name": { "minLength": 1, "type": "string" },
+                      "surfaceKind": {
+                        "anyOf": [
+                          { "const": "rpc", "type": "string" },
+                          { "const": "operation", "type": "string" },
+                          { "const": "event", "type": "string" },
+                          { "const": "feed", "type": "string" },
+                        ],
+                      },
+                    },
+                    "required": ["kind", "contractId", "surfaceKind", "name"],
+                    "type": "object",
+                  }, {
+                    "properties": {
+                      "direction": {
+                        "anyOf": [{ "const": "publish", "type": "string" }, {
+                          "const": "subscribe",
+                          "type": "string",
+                        }],
+                      },
+                      "grantSource": {
+                        "anyOf": [
+                          { "const": "owned-surface", "type": "string" },
+                          { "const": "used-surface", "type": "string" },
+                          { "const": "resource-binding", "type": "string" },
+                          { "const": "platform-service", "type": "string" },
+                          { "const": "transfer", "type": "string" },
+                        ],
+                      },
+                      "kind": { "const": "nats", "type": "string" },
+                      "requiredCapabilities": {
+                        "items": { "minLength": 1, "type": "string" },
+                        "type": "array",
+                      },
+                      "subject": { "minLength": 1, "type": "string" },
+                      "surface": {
+                        "properties": {
+                          "action": {
+                            "anyOf": [
+                              { "const": "call", "type": "string" },
+                              { "const": "publish", "type": "string" },
+                              { "const": "subscribe", "type": "string" },
+                              { "const": "observe", "type": "string" },
+                              { "const": "cancel", "type": "string" },
+                            ],
+                          },
+                          "contractId": { "minLength": 1, "type": "string" },
+                          "kind": {
+                            "anyOf": [
+                              { "const": "rpc", "type": "string" },
+                              { "const": "operation", "type": "string" },
+                              { "const": "event", "type": "string" },
+                              { "const": "feed", "type": "string" },
+                            ],
+                          },
+                          "name": { "minLength": 1, "type": "string" },
+                        },
+                        "required": ["contractId", "kind", "name"],
+                        "type": "object",
+                      },
+                    },
+                    "required": [
+                      "kind",
+                      "direction",
+                      "subject",
+                      "requiredCapabilities",
+                      "grantSource",
+                    ],
+                    "type": "object",
+                  }],
+                },
+                "type": "array",
+              },
               "reconciledAt": {
                 "anyOf": [{ "format": "date-time", "type": "string" }, {
                   "type": "null",
@@ -4183,7 +4284,101 @@ export const CONTRACT = {
             "deploymentId": { "minLength": 1, "type": "string" },
             "desiredVersion": { "minLength": 1, "type": "string" },
             "error": { "minLength": 1, "type": "string" },
-            "grants": { "items": { "type": "object" }, "type": "array" },
+            "grants": {
+              "items": {
+                "anyOf": [{
+                  "properties": {
+                    "capability": { "minLength": 1, "type": "string" },
+                    "kind": { "const": "capability", "type": "string" },
+                  },
+                  "required": ["kind", "capability"],
+                  "type": "object",
+                }, {
+                  "properties": {
+                    "action": {
+                      "anyOf": [
+                        { "const": "call", "type": "string" },
+                        { "const": "publish", "type": "string" },
+                        { "const": "subscribe", "type": "string" },
+                        { "const": "observe", "type": "string" },
+                        { "const": "cancel", "type": "string" },
+                      ],
+                    },
+                    "contractId": { "minLength": 1, "type": "string" },
+                    "kind": { "const": "surface", "type": "string" },
+                    "name": { "minLength": 1, "type": "string" },
+                    "surfaceKind": {
+                      "anyOf": [
+                        { "const": "rpc", "type": "string" },
+                        { "const": "operation", "type": "string" },
+                        { "const": "event", "type": "string" },
+                        { "const": "feed", "type": "string" },
+                      ],
+                    },
+                  },
+                  "required": ["kind", "contractId", "surfaceKind", "name"],
+                  "type": "object",
+                }, {
+                  "properties": {
+                    "direction": {
+                      "anyOf": [{ "const": "publish", "type": "string" }, {
+                        "const": "subscribe",
+                        "type": "string",
+                      }],
+                    },
+                    "grantSource": {
+                      "anyOf": [
+                        { "const": "owned-surface", "type": "string" },
+                        { "const": "used-surface", "type": "string" },
+                        { "const": "resource-binding", "type": "string" },
+                        { "const": "platform-service", "type": "string" },
+                        { "const": "transfer", "type": "string" },
+                      ],
+                    },
+                    "kind": { "const": "nats", "type": "string" },
+                    "requiredCapabilities": {
+                      "items": { "minLength": 1, "type": "string" },
+                      "type": "array",
+                    },
+                    "subject": { "minLength": 1, "type": "string" },
+                    "surface": {
+                      "properties": {
+                        "action": {
+                          "anyOf": [
+                            { "const": "call", "type": "string" },
+                            { "const": "publish", "type": "string" },
+                            { "const": "subscribe", "type": "string" },
+                            { "const": "observe", "type": "string" },
+                            { "const": "cancel", "type": "string" },
+                          ],
+                        },
+                        "contractId": { "minLength": 1, "type": "string" },
+                        "kind": {
+                          "anyOf": [
+                            { "const": "rpc", "type": "string" },
+                            { "const": "operation", "type": "string" },
+                            { "const": "event", "type": "string" },
+                            { "const": "feed", "type": "string" },
+                          ],
+                        },
+                        "name": { "minLength": 1, "type": "string" },
+                      },
+                      "required": ["contractId", "kind", "name"],
+                      "type": "object",
+                    },
+                  },
+                  "required": [
+                    "kind",
+                    "direction",
+                    "subject",
+                    "requiredCapabilities",
+                    "grantSource",
+                  ],
+                  "type": "object",
+                }],
+              },
+              "type": "array",
+            },
             "reconciledAt": {
               "anyOf": [{ "format": "date-time", "type": "string" }, {
                 "type": "null",
@@ -7818,7 +8013,101 @@ export const CONTRACT = {
         "deploymentId": { "minLength": 1, "type": "string" },
         "desiredVersion": { "minLength": 1, "type": "string" },
         "error": { "minLength": 1, "type": "string" },
-        "grants": { "items": { "type": "object" }, "type": "array" },
+        "grants": {
+          "items": {
+            "anyOf": [{
+              "properties": {
+                "capability": { "minLength": 1, "type": "string" },
+                "kind": { "const": "capability", "type": "string" },
+              },
+              "required": ["kind", "capability"],
+              "type": "object",
+            }, {
+              "properties": {
+                "action": {
+                  "anyOf": [
+                    { "const": "call", "type": "string" },
+                    { "const": "publish", "type": "string" },
+                    { "const": "subscribe", "type": "string" },
+                    { "const": "observe", "type": "string" },
+                    { "const": "cancel", "type": "string" },
+                  ],
+                },
+                "contractId": { "minLength": 1, "type": "string" },
+                "kind": { "const": "surface", "type": "string" },
+                "name": { "minLength": 1, "type": "string" },
+                "surfaceKind": {
+                  "anyOf": [
+                    { "const": "rpc", "type": "string" },
+                    { "const": "operation", "type": "string" },
+                    { "const": "event", "type": "string" },
+                    { "const": "feed", "type": "string" },
+                  ],
+                },
+              },
+              "required": ["kind", "contractId", "surfaceKind", "name"],
+              "type": "object",
+            }, {
+              "properties": {
+                "direction": {
+                  "anyOf": [{ "const": "publish", "type": "string" }, {
+                    "const": "subscribe",
+                    "type": "string",
+                  }],
+                },
+                "grantSource": {
+                  "anyOf": [
+                    { "const": "owned-surface", "type": "string" },
+                    { "const": "used-surface", "type": "string" },
+                    { "const": "resource-binding", "type": "string" },
+                    { "const": "platform-service", "type": "string" },
+                    { "const": "transfer", "type": "string" },
+                  ],
+                },
+                "kind": { "const": "nats", "type": "string" },
+                "requiredCapabilities": {
+                  "items": { "minLength": 1, "type": "string" },
+                  "type": "array",
+                },
+                "subject": { "minLength": 1, "type": "string" },
+                "surface": {
+                  "properties": {
+                    "action": {
+                      "anyOf": [
+                        { "const": "call", "type": "string" },
+                        { "const": "publish", "type": "string" },
+                        { "const": "subscribe", "type": "string" },
+                        { "const": "observe", "type": "string" },
+                        { "const": "cancel", "type": "string" },
+                      ],
+                    },
+                    "contractId": { "minLength": 1, "type": "string" },
+                    "kind": {
+                      "anyOf": [
+                        { "const": "rpc", "type": "string" },
+                        { "const": "operation", "type": "string" },
+                        { "const": "event", "type": "string" },
+                        { "const": "feed", "type": "string" },
+                      ],
+                    },
+                    "name": { "minLength": 1, "type": "string" },
+                  },
+                  "required": ["contractId", "kind", "name"],
+                  "type": "object",
+                },
+              },
+              "required": [
+                "kind",
+                "direction",
+                "subject",
+                "requiredCapabilities",
+                "grantSource",
+              ],
+              "type": "object",
+            }],
+          },
+          "type": "array",
+        },
         "reconciledAt": {
           "anyOf": [{ "format": "date-time", "type": "string" }, {
             "type": "null",

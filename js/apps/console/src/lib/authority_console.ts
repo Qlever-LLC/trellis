@@ -1,3 +1,4 @@
+import type { AuthCapabilitiesListOutput } from "@qlever-llc/trellis/sdk/auth";
 import type {
   AuthDeploymentAuthorityGetResponse,
   DeploymentAuthority,
@@ -43,6 +44,16 @@ type AuthorityNeedCapability = Extract<
 type AuthorityDetailBinding = NonNullable<
   AuthDeploymentAuthorityGetResponse["materializedAuthority"]
 >["resourceBindings"][number];
+type AuthorityMaterialization = NonNullable<
+  AuthDeploymentAuthorityGetResponse["materializedAuthority"]
+>;
+type MaterializedAuthorityGrant = AuthorityMaterialization["grants"][number];
+type MaterializedCapabilityGrant = Extract<
+  MaterializedAuthorityGrant,
+  { kind: "capability" }
+>;
+export type AuthorityCapabilityDefinition =
+  AuthCapabilitiesListOutput["entries"][number];
 
 export type DeltaContractRow = {
   id: string;
@@ -70,6 +81,37 @@ export type DeltaCapabilityRow = {
   id: string;
   capability: string;
   availability: "required" | "optional";
+};
+
+export type CreatesCapabilityRow = {
+  id: string;
+  capability: string;
+  displayName: string;
+  description: string;
+  consequence: string | null;
+  source: AuthorityCapabilityDefinition["source"];
+  contractId: string | null;
+  contractDigest: string | null;
+  contractDisplayName: string | null;
+};
+
+export type GivenCapabilityRow = {
+  id: string;
+  capability: string;
+  displayName: string;
+  description: string;
+  consequence: string | null;
+  availability: "required" | "optional" | "materialized-only";
+  materializedStatus:
+    | "granted"
+    | "pending"
+    | "not-materialized"
+    | "unknown";
+  materializedGrantCount: number;
+  source: AuthorityCapabilityDefinition["source"] | "authority";
+  contractId: string | null;
+  contractDigest: string | null;
+  contractDisplayName: string | null;
 };
 
 export type AuthorityCounts = {
@@ -267,6 +309,83 @@ export function deltaCapabilityRows(
   }));
 }
 
+export function createsCapabilityRows(
+  authority: DeploymentAuthority,
+  definitions: AuthorityCapabilityDefinition[],
+): CreatesCapabilityRow[] {
+  return capabilityDefinitionsForDeployment(
+    definitions,
+    authority.deploymentId,
+    "creates",
+  ).map((definition) => ({
+    id: capabilityDefinitionId(definition),
+    capability: definition.key,
+    displayName: definition.displayName,
+    description: definition.description,
+    consequence: definition.consequence ?? null,
+    source: definition.source,
+    contractId: definition.contractId ?? null,
+    contractDigest: definition.contractDigest ?? null,
+    contractDisplayName: definition.contractDisplayName ?? null,
+  }));
+}
+
+export function givenCapabilityRows(
+  authority: DeploymentAuthority,
+  materializedAuthority: AuthorityMaterialization | null,
+  definitions: AuthorityCapabilityDefinition[],
+): GivenCapabilityRow[] {
+  const definitionIndex = capabilityDefinitionIndex(
+    definitions,
+    authority.deploymentId,
+  );
+  const grants = materializedAuthority?.grants.filter(
+    (grant): grant is MaterializedCapabilityGrant =>
+      grant.kind === "capability",
+  ) ?? [];
+  const grantCounts = new Map<string, number>();
+  for (const grant of grants) {
+    grantCounts.set(
+      grant.capability,
+      (grantCounts.get(grant.capability) ?? 0) + 1,
+    );
+  }
+
+  const desiredCapabilities = deltaCapabilityRows(authority.desiredState);
+  const desiredKeys = new Set(desiredCapabilities.map((row) => row.capability));
+  const rows = desiredCapabilities.map((row) => {
+    const definition = definitionIndex.get(row.capability);
+    const materializedGrantCount = grantCounts.get(row.capability) ?? 0;
+    return givenCapabilityRowFromParts({
+      capability: row.capability,
+      availability: row.availability,
+      definition,
+      materializedGrantCount,
+      materializedStatus: materializedCapabilityStatus(
+        materializedAuthority,
+        materializedGrantCount,
+      ),
+    });
+  });
+
+  for (const grant of grants) {
+    if (desiredKeys.has(grant.capability)) continue;
+    const definition = definitionIndex.get(grant.capability);
+    rows.push(givenCapabilityRowFromParts({
+      capability: grant.capability,
+      availability: "materialized-only",
+      definition,
+      materializedGrantCount: grantCounts.get(grant.capability) ?? 0,
+      materializedStatus: "granted",
+    }));
+    desiredKeys.add(grant.capability);
+  }
+
+  return rows.toSorted((left, right) =>
+    left.capability.localeCompare(right.capability)
+  );
+}
+
 export function chooseSelectedAuthorityPlan(
   plans: DeploymentAuthorityPlan[],
   selectedPlanId: string | null,
@@ -439,6 +558,95 @@ function capabilityNeeds(state: AuthorityState): AuthorityNeedCapability[] {
   return state.needs.filter((need): need is AuthorityNeedCapability =>
     need.kind === "capability"
   );
+}
+
+function capabilityDefinitionsForDeployment(
+  definitions: AuthorityCapabilityDefinition[],
+  deploymentId: string,
+  direction: "creates" | "given",
+): AuthorityCapabilityDefinition[] {
+  return definitions
+    .filter((definition) =>
+      definition.deploymentId === deploymentId &&
+      definition.direction === direction
+    )
+    .toSorted((left, right) =>
+      left.key.localeCompare(right.key) ||
+      (left.contractId ?? "").localeCompare(right.contractId ?? "") ||
+      (left.contractDigest ?? "").localeCompare(right.contractDigest ?? "")
+    );
+}
+
+function capabilityDefinitionIndex(
+  definitions: AuthorityCapabilityDefinition[],
+  deploymentId: string,
+): Map<string, AuthorityCapabilityDefinition> {
+  const index = new Map<string, AuthorityCapabilityDefinition>();
+  for (
+    const definition of capabilityDefinitionsForDeployment(
+      definitions,
+      deploymentId,
+      "given",
+    )
+  ) {
+    index.set(definition.key, definition);
+  }
+  for (const definition of definitions) {
+    if (
+      definition.deploymentId !== deploymentId ||
+      definition.direction !== undefined
+    ) {
+      continue;
+    }
+    if (!index.has(definition.key)) index.set(definition.key, definition);
+  }
+  return index;
+}
+
+function capabilityDefinitionId(
+  definition: AuthorityCapabilityDefinition,
+): string {
+  return [
+    definition.deploymentId ?? "global",
+    definition.direction ?? "unspecified",
+    definition.key,
+    definition.contractId ?? "platform",
+    definition.contractDigest ?? "no-digest",
+  ].join(":");
+}
+
+function materializedCapabilityStatus(
+  materializedAuthority: AuthorityMaterialization | null,
+  materializedGrantCount: number,
+): GivenCapabilityRow["materializedStatus"] {
+  if (materializedGrantCount > 0) return "granted";
+  if (!materializedAuthority) return "unknown";
+  if (materializedAuthority.status === "pending") return "pending";
+  return "not-materialized";
+}
+
+function givenCapabilityRowFromParts(args: {
+  capability: string;
+  availability: GivenCapabilityRow["availability"];
+  definition?: AuthorityCapabilityDefinition;
+  materializedStatus: GivenCapabilityRow["materializedStatus"];
+  materializedGrantCount: number;
+}): GivenCapabilityRow {
+  return {
+    id: `${args.capability}:${args.availability}`,
+    capability: args.capability,
+    displayName: args.definition?.displayName ?? args.capability,
+    description: args.definition?.description ??
+      "Accepted deployment authority capability.",
+    consequence: args.definition?.consequence ?? null,
+    availability: args.availability,
+    materializedStatus: args.materializedStatus,
+    materializedGrantCount: args.materializedGrantCount,
+    source: args.definition?.source ?? "authority",
+    contractId: args.definition?.contractId ?? null,
+    contractDigest: args.definition?.contractDigest ?? null,
+    contractDisplayName: args.definition?.contractDisplayName ?? null,
+  };
 }
 
 function stateFromNeeds(needs: DeploymentAuthorityNeed[]): AuthorityState {

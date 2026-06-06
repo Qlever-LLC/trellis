@@ -357,6 +357,7 @@ export const deploymentAuthoritySurfaces = sqliteTable(
     surfaceName: text("surface_name").notNull(),
     action: text("action").notNull(),
     required: integer("required", { mode: "boolean" }).notNull(),
+    source: text("source", { enum: ["need", "surface"] }).notNull(),
   },
   (table) => [
     primaryKey({
@@ -402,6 +403,39 @@ export const deploymentAuthorityCapabilities = sqliteTable(
   },
   (table) => [
     primaryKey({ columns: [table.deploymentId, table.capability] }),
+  ],
+);
+
+export const deploymentAuthorityCapabilityDefinitions = sqliteTable(
+  "deployment_authority_capability_definitions",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    capability: text("capability").notNull(),
+    displayName: text("display_name").notNull(),
+    description: text("description").notNull(),
+    consequence: text("consequence"),
+    source: text("source").notNull(),
+    contractId: text("contract_id").notNull(),
+    contractDigest: text("contract_digest").notNull(),
+    contractDisplayName: text("contract_display_name"),
+    direction: text("direction").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.deploymentId,
+        table.capability,
+        table.direction,
+        table.contractId,
+        table.contractDigest,
+      ],
+    }),
+    index("deployment_authority_capability_definitions_lookup_idx").on(
+      table.capability,
+      table.deploymentId,
+      table.contractId,
+      table.contractDigest,
+    ),
   ],
 );
 
@@ -696,6 +730,7 @@ export const schema = {
   deploymentAuthoritySurfaces,
   deploymentAuthorityResources,
   deploymentAuthorityCapabilities,
+  deploymentAuthorityCapabilityDefinitions,
   deploymentAuthorityPlans,
   materializedAuthority,
   materializedResourceBindings,

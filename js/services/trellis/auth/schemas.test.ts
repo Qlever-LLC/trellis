@@ -7,7 +7,9 @@ import {
   AuthBrowserFlowSchema,
   AuthRequestsValidateRequestSchema,
   BindResponseSchema,
+  DeploymentAuthorityCapabilityDefinitionSchema,
   DeploymentAuthorityGrantOverrideSchema,
+  DeploymentAuthorityMaterializationSchema,
   DeploymentAuthoritySchema,
   DeploymentPortalRouteSchema,
   DeploymentResourceBindingSchema,
@@ -319,6 +321,53 @@ Deno.test("deployment authority storage schemas validate modeled rows", () => {
     version: new Date().toISOString(),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+  }));
+  assert(Value.Check(DeploymentAuthorityCapabilityDefinitionSchema, {
+    deploymentId: "svc.graph.default",
+    key: "graph.query",
+    displayName: "Query graph",
+    description: "Query graph data.",
+    source: "contract",
+    contractId: "svc.graph@v1",
+    contractDigest: "sha256-graph",
+    contractDisplayName: "Graph",
+    direction: "creates",
+  }));
+  assertFalse(Value.Check(DeploymentAuthorityCapabilityDefinitionSchema, {
+    deploymentId: "svc.graph.default",
+    key: "graph.query",
+    displayName: "Query graph",
+    description: "Query graph data.",
+    source: "contract",
+    direction: "sideways",
+  }));
+  assert(Value.Check(DeploymentAuthorityMaterializationSchema, {
+    deploymentId: "svc.graph.default",
+    desiredVersion: "v1",
+    status: "current",
+    resourceBindings: [],
+    grants: [{
+      kind: "nats",
+      direction: "subscribe",
+      subject: "rpc.v1.Graph.Query",
+      surface: {
+        contractId: "svc.graph@v1",
+        kind: "rpc",
+        name: "Graph.Query",
+        action: "call",
+      },
+      requiredCapabilities: [],
+      grantSource: "owned-surface",
+    }],
+    reconciledAt: "2026-05-07T00:00:03.000Z",
+  }));
+  assertFalse(Value.Check(DeploymentAuthorityMaterializationSchema, {
+    deploymentId: "svc.graph.default",
+    desiredVersion: "v1",
+    status: "current",
+    resourceBindings: [],
+    grants: [{ subject: "rpc.v1.Graph.Query" }],
+    reconciledAt: "2026-05-07T00:00:03.000Z",
   }));
   assert(Value.Check(DeploymentPortalRouteSchema, {
     deploymentId: "svc.graph.default",

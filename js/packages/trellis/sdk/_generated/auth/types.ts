@@ -4,7 +4,7 @@ import type { API } from "./api.ts";
 
 export const CONTRACT_ID = "trellis.auth@v1" as const;
 export const CONTRACT_DIGEST =
-  "gLadyuZkZX2uxa3wnVMUJkDDddoVgRrDEzH8TIdeDyw" as const;
+  "XdqgSxkrIhWOu1ODbOk6-QHLTlI52ZP-6qhYJpIdCMc" as const;
 
 export type AuthCapabilitiesListInput = { limit: number; offset?: number };
 export type AuthCapabilitiesListOutput = {
@@ -15,7 +15,9 @@ export type AuthCapabilitiesListOutput = {
       contractDigest?: string;
       contractDisplayName?: string;
       contractId?: string;
+      deploymentId?: string;
       description: string;
+      direction?: "creates" | "given";
       displayName: string;
       key: string;
       source: "contract" | "platform";
@@ -392,7 +394,32 @@ export type AuthDeploymentAuthorityGetOutput = {
     deploymentId: string;
     desiredVersion: string;
     error?: string;
-    grants: Array<{}>;
+    grants: Array<
+      ({ capability: string; kind: "capability" } | {
+        action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
+        contractId: string;
+        kind: "surface";
+        name: string;
+        surfaceKind: "rpc" | "operation" | "event" | "feed";
+      } | {
+        direction: "publish" | "subscribe";
+        grantSource:
+          | "owned-surface"
+          | "used-surface"
+          | "resource-binding"
+          | "platform-service"
+          | "transfer";
+        kind: "nats";
+        requiredCapabilities: Array<string>;
+        subject: string;
+        surface?: {
+          action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
+          contractId: string;
+          kind: "rpc" | "operation" | "event" | "feed";
+          name: string;
+        };
+      })
+    >;
     reconciledAt: string | null;
     resourceBindings: Array<
       {
@@ -1144,7 +1171,32 @@ export type AuthDeploymentAuthorityReconcileOutput = {
     deploymentId: string;
     desiredVersion: string;
     error?: string;
-    grants: Array<{}>;
+    grants: Array<
+      ({ capability: string; kind: "capability" } | {
+        action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
+        contractId: string;
+        kind: "surface";
+        name: string;
+        surfaceKind: "rpc" | "operation" | "event" | "feed";
+      } | {
+        direction: "publish" | "subscribe";
+        grantSource:
+          | "owned-surface"
+          | "used-surface"
+          | "resource-binding"
+          | "platform-service"
+          | "transfer";
+        kind: "nats";
+        requiredCapabilities: Array<string>;
+        subject: string;
+        surface?: {
+          action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
+          contractId: string;
+          kind: "rpc" | "operation" | "event" | "feed";
+          name: string;
+        };
+      })
+    >;
     reconciledAt: string | null;
     resourceBindings: Array<
       {

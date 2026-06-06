@@ -18,6 +18,7 @@ import {
   authorityReconciliationStatus,
   deploymentAuthorities,
   deploymentAuthorityCapabilities,
+  deploymentAuthorityCapabilityDefinitions,
   deploymentAuthorityContracts,
   deploymentAuthorityGrantOverrides,
   deploymentAuthorityPlans,
@@ -30,6 +31,8 @@ import {
 } from "../../storage/schema.ts";
 import {
   type DeploymentAuthority,
+  type DeploymentAuthorityCapabilityDefinition,
+  DeploymentAuthorityCapabilityDefinitionSchema,
   type DeploymentAuthorityGrantOverride,
   DeploymentAuthorityGrantOverrideSchema,
   type DeploymentAuthorityMaterialization,
@@ -84,6 +87,10 @@ type GrantOverrideInsert =
   typeof deploymentAuthorityGrantOverrides.$inferInsert;
 type ImplementationOfferRow = typeof implementationOffers.$inferSelect;
 type ImplementationOfferInsert = typeof implementationOffers.$inferInsert;
+type CapabilityDefinitionRow =
+  typeof deploymentAuthorityCapabilityDefinitions.$inferSelect;
+type CapabilityDefinitionInsert =
+  typeof deploymentAuthorityCapabilityDefinitions.$inferInsert;
 
 function emptyDesiredState(): DeploymentAuthority["desiredState"] {
   return { needs: [], capabilities: [], resources: [], surfaces: [] };
@@ -306,6 +313,48 @@ function encodeImplementationOffer(
   return Value.Decode(ImplementationOfferSchema, record);
 }
 
+function decodeCapabilityDefinitionRow(
+  row: CapabilityDefinitionRow,
+): DeploymentAuthorityCapabilityDefinition {
+  return Value.Decode(DeploymentAuthorityCapabilityDefinitionSchema, {
+    deploymentId: row.deploymentId,
+    key: row.capability,
+    displayName: row.displayName,
+    description: row.description,
+    ...(row.consequence === null ? {} : { consequence: row.consequence }),
+    source: row.source,
+    ...(row.contractId === "" ? {} : { contractId: row.contractId }),
+    ...(row.contractDigest === ""
+      ? {}
+      : { contractDigest: row.contractDigest }),
+    ...(row.contractDisplayName === null
+      ? {}
+      : { contractDisplayName: row.contractDisplayName }),
+    direction: row.direction,
+  });
+}
+
+function encodeCapabilityDefinition(
+  record: DeploymentAuthorityCapabilityDefinition,
+): CapabilityDefinitionInsert {
+  const decoded = Value.Decode(
+    DeploymentAuthorityCapabilityDefinitionSchema,
+    record,
+  );
+  return {
+    deploymentId: decoded.deploymentId,
+    capability: decoded.key,
+    displayName: decoded.displayName,
+    description: decoded.description,
+    consequence: decoded.consequence ?? null,
+    source: decoded.source,
+    contractId: decoded.contractId ?? "",
+    contractDigest: decoded.contractDigest ?? "",
+    contractDisplayName: decoded.contractDisplayName ?? null,
+    direction: decoded.direction,
+  };
+}
+
 type AuthorityWriteTarget = Pick<TrellisStorageDb, "delete" | "insert">;
 type AuthorityPlanWriteTarget = Pick<TrellisStorageDb, "insert">;
 
@@ -362,6 +411,7 @@ async function replaceAuthorityDesiredStateRows(
         surfaceName: need.surface.name,
         action: need.surface.action ?? "",
         required: need.required,
+        source: "need" as const,
       }]
       : []
   );
@@ -372,6 +422,7 @@ async function replaceAuthorityDesiredStateRows(
     surfaceName: surface.name,
     action: surface.action ?? "",
     required: true,
+    source: "surface" as const,
   }));
   const needResources = decoded.desiredState.needs.flatMap((need) =>
     need.kind === "resource"
@@ -664,12 +715,15 @@ export class SqlDeploymentAuthorityRepository {
         name: row.surfaceName,
         ...(row.action === "" ? {} : { action: row.action }),
       });
-      states.get(row.deploymentId)?.surfaces.push(surface);
-      states.get(row.deploymentId)?.needs.push({
-        kind: "surface",
-        surface,
-        required: row.required,
-      });
+      if (row.source === "surface") {
+        states.get(row.deploymentId)?.surfaces.push(surface);
+      } else {
+        states.get(row.deploymentId)?.needs.push({
+          kind: "surface",
+          surface,
+          required: row.required,
+        });
+      }
     }
     for (const row of resources) {
       const resource = Value.Decode(DeploymentAuthorityResourceSchema, {
@@ -785,6 +839,80 @@ export class SqlDeploymentAuthorityPlanRepository {
       deploymentAuthorityPlans.planId,
     ).limit(limit).offset(offset);
     return listPage(rows.map(decodePlan), countRow?.count ?? 0, query);
+  }
+}
+
+/** Stores authority-backed capability definition projections in SQL. */
+export class SqlDeploymentAuthorityCapabilityDefinitionRepository {
+  readonly #db: TrellisStorageDb;
+
+  /** Creates a capability definition repository backed by a Trellis storage DB. */
+  constructor(db: TrellisStorageDb) {
+    this.#db = db;
+  }
+
+  /** Replaces all capability definitions for one deployment. */
+  async replaceForDeployment(
+    deploymentId: string,
+    definitions: DeploymentAuthorityCapabilityDefinition[],
+  ): Promise<void> {
+    const rows = definitions
+      .map((definition) =>
+        encodeCapabilityDefinition({
+          ...definition,
+          deploymentId,
+        })
+      )
+      .sort((left, right) =>
+        left.capability.localeCompare(right.capability) ||
+        left.deploymentId.localeCompare(right.deploymentId) ||
+        (left.contractId ?? "").localeCompare(right.contractId ?? "") ||
+        (left.contractDigest ?? "").localeCompare(right.contractDigest ?? "") ||
+        left.direction.localeCompare(right.direction)
+      );
+    await this.#db.transaction(async (tx) => {
+      await tx.delete(deploymentAuthorityCapabilityDefinitions).where(
+        eq(deploymentAuthorityCapabilityDefinitions.deploymentId, deploymentId),
+      );
+      if (rows.length > 0) {
+        await tx.insert(deploymentAuthorityCapabilityDefinitions).values(rows);
+      }
+    });
+  }
+
+  /** Returns capability definitions for enabled deployment authorities. */
+  async listEnabled(): Promise<DeploymentAuthorityCapabilityDefinition[]> {
+    const rows = await this.#db
+      .select({
+        deploymentId: deploymentAuthorityCapabilityDefinitions.deploymentId,
+        capability: deploymentAuthorityCapabilityDefinitions.capability,
+        displayName: deploymentAuthorityCapabilityDefinitions.displayName,
+        description: deploymentAuthorityCapabilityDefinitions.description,
+        consequence: deploymentAuthorityCapabilityDefinitions.consequence,
+        source: deploymentAuthorityCapabilityDefinitions.source,
+        contractId: deploymentAuthorityCapabilityDefinitions.contractId,
+        contractDigest: deploymentAuthorityCapabilityDefinitions.contractDigest,
+        contractDisplayName:
+          deploymentAuthorityCapabilityDefinitions.contractDisplayName,
+        direction: deploymentAuthorityCapabilityDefinitions.direction,
+      })
+      .from(deploymentAuthorityCapabilityDefinitions)
+      .innerJoin(
+        deploymentAuthorities,
+        eq(
+          deploymentAuthorities.deploymentId,
+          deploymentAuthorityCapabilityDefinitions.deploymentId,
+        ),
+      )
+      .where(eq(deploymentAuthorities.disabled, false))
+      .orderBy(
+        deploymentAuthorityCapabilityDefinitions.capability,
+        deploymentAuthorityCapabilityDefinitions.deploymentId,
+        deploymentAuthorityCapabilityDefinitions.contractId,
+        deploymentAuthorityCapabilityDefinitions.contractDigest,
+        deploymentAuthorityCapabilityDefinitions.direction,
+      );
+    return rows.map(decodeCapabilityDefinitionRow);
   }
 }
 

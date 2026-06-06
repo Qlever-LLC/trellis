@@ -24,9 +24,11 @@ metadata, and role/capability usage patterns.
 
 Contracts declare capability requirements on RPCs, operations, events, and
 feeds. The owning contract may also declare human-facing metadata for each owned
-capability so approval UIs can explain the requested authority without inventing
-a separate scope catalog. Deployments grant capabilities through roles, groups,
-grant overrides, or external identity mappings.
+capability so planning and approval UIs can explain the requested authority
+without inventing a separate scope catalog. Accepted deployment authority stores
+the runtime capability view projected from those contracts. Deployments grant
+capabilities through roles, groups, grant overrides, or external identity
+mappings.
 
 Rules:
 
@@ -42,8 +44,9 @@ Rules:
   `contractId + sessionPublicKey` for session-keyed grants
 - services receive deployment policy through deployment authority
   materialization and current materialized authority
-- authorization changes take effect immediately because auth derives subjects
-  from presented contracts, materialized authority, and current grants
+- authorization changes take effect after accepted authority is materialized or
+  stored grants change; runtime auth derives transport permissions from current
+  materialized authority and stored grants, not from active contracts
 - auth-owned self-service RPCs may intentionally require zero granted
   capabilities when ordinary authenticated user context is sufficient, such as
   `Auth.Sessions.Me` and `Auth.Sessions.Logout`
@@ -86,6 +89,9 @@ Rules:
 - capability metadata belongs to the owning contract; other contracts reference
   used APIs by logical `uses` selections, not by redeclaring another contract's
   capability metadata
+- admin capability catalogs come from Trellis platform capabilities plus
+  authority-owned projected capability definitions, not from the active catalog
+  alone
 - changing capability metadata changes what users are asked to approve and
   therefore changes the contract digest
 

@@ -13,7 +13,7 @@ order: 10
 - [../core/capability-patterns.md](./../core/capability-patterns.md) -
   capability naming and deployment policy guidance
 - [../contracts/trellis-contracts-catalog.md](./../contracts/trellis-contracts-catalog.md) -
-  contract-driven permission derivation
+  contract manifests, catalog projection, and planning inputs
 
 ## Context
 
@@ -27,8 +27,8 @@ Trellis needs one authentication and authorization model that works for:
 - application-layer request authorization
 
 The model must avoid long-lived bearer tokens, must fit NATS auth callout, and
-must preserve Trellis's contract-driven permission model while making deployment
-ownership explicit.
+must preserve Trellis's contract-authored surface and capability model while
+making deployment ownership and materialized runtime authority explicit.
 
 ## Design
 
@@ -476,7 +476,7 @@ Rules:
 - higher-level runtimes should resolve bindings eagerly and expose typed
   resource handles rather than raw connect details
 
-### 14) Auth is contract-driven
+### 14) Contracts drive planning; materialized authority drives runtime
 
 Authorization is derived from:
 
@@ -487,12 +487,15 @@ Authorization is derived from:
 
 Rules:
 
-- Trellis MUST derive permissions from contracts rather than from a parallel
-  scope system
-- runtime permission derivation resolves `uses` dependencies against effective
-  active contracts. Bootstrap and planning may use the latest accepted
-  dependency fallback when no active offer exists. Unknown required dependencies
-  fail closed instead of being treated as advisory metadata.
+- Trellis MUST derive reviewable surfaces, capability metadata, and authority
+  plans from contracts rather than from a parallel scope system.
+- runtime transport permissions MUST be issued from current materialized
+  authority and stored identity grants, not from active catalog membership or
+  the latest known contract manifest.
+- planning resolves `uses` dependencies against effective active contracts.
+  Bootstrap and planning may use the latest accepted dependency fallback when no
+  active offer exists. Unknown required dependencies fail closed instead of
+  being treated as advisory metadata.
 - contract dependencies are authored and emitted only under `uses.required` or
   `uses.optional`; flat aliases directly under `uses` are invalid and must not
   be interpreted as required dependencies.
@@ -515,9 +518,9 @@ Rules:
 - user consent planning collects required capability keys from declared RPC,
   operation, and event capability lists and attaches the owning contract's
   capability metadata when available
-- operation, RPC, and event access are contract-level authorization concerns;
-  runtime subject permissions are derived from those surfaces, transfer
-  declarations, and materialized resource bindings
+- operation, RPC, and event access are contract-authored authorization concerns;
+  reconciliation materializes their runtime subject permissions from accepted
+  authority, transfer declarations, and materialized resource bindings
 - `uses.events.subscribe` authorizes the logical event subscription surface.
   Durable service event processing also requires a matching `eventConsumers`
   resource binding materialized by reconciliation.

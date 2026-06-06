@@ -1147,13 +1147,10 @@ async fn assert_consumer_authority_omits_dependency(auth_client: &SdkAuthClient<
         })
         .await
         .into_diagnostic()?;
-    if authority
-        .authority
-        .desired_state
-        .needs
-        .iter()
-        .any(|need| need.get("contractId").and_then(Value::as_str) == Some(DEPENDENCY_CONTRACT_ID))
-    {
+    if authority.authority.desired_state.needs.iter().any(|need| {
+        need.get("contractId").and_then(Value::as_str) == Some(DEPENDENCY_CONTRACT_ID)
+            || surface_need_matches(need, DEPENDENCY_CONTRACT_ID, "Optional.Dep.Ping")
+    }) {
         return Err(miette!(
             "consumer authority included missing optional dependency contract"
         ));
@@ -1192,17 +1189,29 @@ async fn assert_consumer_authority_includes_dependency(
     let includes_surface = authority
         .authority
         .desired_state
-        .surfaces
+        .needs
         .iter()
-        .any(|surface| {
-            surface.contract_id == DEPENDENCY_CONTRACT_ID && surface.name == "Optional.Dep.Ping"
-        });
+        .any(|need| surface_need_matches(need, DEPENDENCY_CONTRACT_ID, "Optional.Dep.Ping"));
     if !includes_contract || !includes_surface {
         return Err(miette!(
             "consumer authority did not include active optional dependency after reconnect"
         ));
     }
     Ok(())
+}
+
+fn surface_need_matches(need: &Value, contract_id: &str, surface_name: &str) -> bool {
+    need.get("kind").and_then(Value::as_str) == Some("surface")
+        && need
+            .get("surface")
+            .and_then(|surface| surface.get("contractId"))
+            .and_then(Value::as_str)
+            == Some(contract_id)
+        && need
+            .get("surface")
+            .and_then(|surface| surface.get("name"))
+            .and_then(Value::as_str)
+            == Some(surface_name)
 }
 
 async fn assert_optional_dependency_call(client: &TrellisClient) -> Result<()> {

@@ -1,8 +1,10 @@
 import { assert, assertEquals, assertMatch } from "@std/assert";
 import { isErr } from "@qlever-llc/result";
-import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
-import { createTestContracts } from "../../catalog/test_contracts.ts";
-import type { UserAccount, UserIdentity } from "../schemas.ts";
+import type {
+  DeploymentAuthorityCapabilityDefinition,
+  UserAccount,
+  UserIdentity,
+} from "../schemas.ts";
 import {
   createAuthCapabilitiesListHandler,
   createAuthCapabilityGroupsDeleteHandler,
@@ -55,23 +57,22 @@ function makeIdentity(overrides: Partial<UserIdentity> = {}): UserIdentity {
 }
 
 Deno.test("Auth.Capabilities.List returns platform and active contract capabilities", async () => {
-  const contracts = createTestContracts();
-  const contract: TrellisContractV1 = {
-    format: "trellis.contract.v1",
-    id: "trellis.auth@v1",
-    displayName: "Trellis Auth",
-    description: "Auth contract.",
-    kind: "service",
-    capabilities: {
-      "trellis.auth::device.review": {
-        displayName: "Review device activation",
-        description: "Review and decide pending device activation requests.",
-      },
-    },
-  };
-  contracts.activateTestContract({ digest: "digest-auth", contract });
+  const capabilities: DeploymentAuthorityCapabilityDefinition[] = [{
+    deploymentId: "svc-auth",
+    key: "trellis.auth::device.review",
+    displayName: "Review device activation",
+    description: "Review and decide pending device activation requests.",
+    source: "contract",
+    contractId: "trellis.auth@v1",
+    contractDigest: "digest-auth",
+    contractDisplayName: "Trellis Auth",
+    direction: "creates",
+  }];
 
-  const result = await createAuthCapabilitiesListHandler(contracts, logger)({
+  const result = await createAuthCapabilitiesListHandler(
+    { listEnabled: () => Promise.resolve(capabilities) },
+    logger,
+  )({
     input: { limit: 10 },
     context: {
       caller: {
@@ -94,9 +95,11 @@ Deno.test("Auth.Capabilities.List returns platform and active contract capabilit
       displayName: "Review device activation",
       description: "Review and decide pending device activation requests.",
       source: "contract",
+      deploymentId: "svc-auth",
       contractId: "trellis.auth@v1",
       contractDigest: "digest-auth",
       contractDisplayName: "Trellis Auth",
+      direction: "creates",
     }],
     count: 2,
     offset: 0,
@@ -106,23 +109,20 @@ Deno.test("Auth.Capabilities.List returns platform and active contract capabilit
 });
 
 Deno.test("Auth.CapabilityGroups RPCs expose built-ins and manage custom groups", async () => {
-  const contracts = createTestContracts();
-  contracts.activateTestContract({
-    digest: "digest-customer",
-    contract: {
-      format: "trellis.contract.v1",
-      id: "customer@v1",
-      displayName: "Customer",
-      description: "Customer contract.",
-      kind: "service",
-      capabilities: {
-        "customer.read": {
-          displayName: "Read customers",
-          description: "Read customer records.",
-        },
-      },
-    },
-  });
+  const capabilities: DeploymentAuthorityCapabilityDefinition[] = [{
+    deploymentId: "svc-customer",
+    key: "customer.read",
+    displayName: "Read customers",
+    description: "Read customer records.",
+    source: "contract",
+    contractId: "customer@v1",
+    contractDigest: "digest-customer",
+    contractDisplayName: "Customer",
+    direction: "creates",
+  }];
+  const capabilityDefinitions = {
+    listEnabled: () => Promise.resolve(capabilities),
+  };
   const groups = new Map<string, {
     groupKey: string;
     displayName: string;
@@ -156,7 +156,7 @@ Deno.test("Auth.CapabilityGroups RPCs expose built-ins and manage custom groups"
 
   const putResult = await createAuthCapabilityGroupsPutHandler(
     storage,
-    contracts,
+    capabilityDefinitions,
     logger,
   )(
     {
@@ -207,7 +207,7 @@ Deno.test("Auth.CapabilityGroups RPCs expose built-ins and manage custom groups"
 
   const overwriteBuiltin = await createAuthCapabilityGroupsPutHandler(
     storage,
-    contracts,
+    capabilityDefinitions,
     logger,
   )({
     input: {
@@ -223,7 +223,7 @@ Deno.test("Auth.CapabilityGroups RPCs expose built-ins and manage custom groups"
 
   const unknownCapability = await createAuthCapabilityGroupsPutHandler(
     storage,
-    contracts,
+    capabilityDefinitions,
     logger,
   )({
     input: {

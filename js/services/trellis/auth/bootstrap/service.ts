@@ -80,6 +80,15 @@ type DeploymentAuthorityPlanStorage = {
   ): Promise<DeploymentAuthorityPlan[]>;
 };
 
+type DeploymentAuthorityCapabilityDefinitionStorage = {
+  replaceForDeployment(
+    deploymentId: string,
+    definitions: Awaited<ReturnType<typeof analyzeContractProposal>>[
+      "capabilityDefinitions"
+    ],
+  ): Promise<void>;
+};
+
 type MaterializedAuthorityStorage = {
   get(
     deploymentId: string,
@@ -142,6 +151,7 @@ export type ServiceBootstrapDeps = {
   >;
   deploymentAuthorityStorage: DeploymentAuthorityStorage;
   deploymentAuthorityPlanStorage: DeploymentAuthorityPlanStorage;
+  capabilityDefinitionStorage?: DeploymentAuthorityCapabilityDefinitionStorage;
   materializedAuthorityStorage: MaterializedAuthorityStorage;
   implementationOfferStorage: ImplementationOfferStorage;
   storePresentedContract?(input: {
@@ -512,8 +522,8 @@ function authorityNeedsToProposalNeeds(
   ];
 }
 
-function desiredStateFromProposalNeeds(
-  needsInput: DeploymentAuthorityPlan["proposal"]["requestedNeeds"],
+function desiredStateFromProposal(
+  proposal: DeploymentAuthorityPlan["proposal"],
 ): DeploymentAuthority["desiredState"] {
   const capabilities = new Set<string>();
   const resources = new Map<
@@ -525,7 +535,7 @@ function desiredStateFromProposalNeeds(
     DeploymentAuthority["desiredState"]["surfaces"][number]
   >();
 
-  for (const need of needsInput) {
+  for (const need of proposal.requestedNeeds) {
     if (need.kind === "capability") {
       capabilities.add(need.capability);
     }
@@ -535,21 +545,18 @@ function desiredStateFromProposalNeeds(
         need.resource,
       );
     }
-    if (need.kind === "surface") {
-      surfaces.set(
-        [
-          need.surface.contractId,
-          need.surface.kind,
-          need.surface.name,
-          need.surface.action,
-        ].join("\u001f"),
-        need.surface,
-      );
-    }
+  }
+  for (const surface of proposal.providedSurfaces) {
+    surfaces.set(
+      [surface.contractId, surface.kind, surface.name, surface.action].join(
+        "\u001f",
+      ),
+      surface,
+    );
   }
 
   return {
-    needs: [...needsInput],
+    needs: [...proposal.requestedNeeds],
     capabilities: [...capabilities].sort(),
     resources: [...resources.values()].sort((left, right) =>
       resourceKey(left.kind, left.alias).localeCompare(
@@ -575,9 +582,7 @@ async function acceptMutableDevCompatibilityMigration(input: {
   const newVersion = input.deps.createAuthorityVersion?.() ?? ulid();
   const updatedAuthority: DeploymentAuthority = {
     ...input.authority,
-    desiredState: desiredStateFromProposalNeeds(
-      input.plan.proposal.requestedNeeds,
-    ),
+    desiredState: desiredStateFromProposal(input.plan.proposal),
     version: newVersion,
     updatedAt: input.now,
   };
@@ -651,6 +656,9 @@ function compatibilityMigrationSummary(input: {
   requestedById: string;
   desiredVersion: string;
   previousContractDigest: string;
+  authorityCapabilityDefinitions: Awaited<
+    ReturnType<typeof analyzeContractProposal>
+  >["capabilityDefinitions"];
 }) {
   return {
     requestedByKind: "service",
@@ -658,6 +666,7 @@ function compatibilityMigrationSummary(input: {
     desiredVersion: input.desiredVersion,
     compatibilityMigration: true,
     previousContractDigest: input.previousContractDigest,
+    authorityCapabilityDefinitions: input.authorityCapabilityDefinitions,
   };
 }
 
@@ -1019,7 +1028,13 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
     const requestedNeeds = mergeBoundaries(
       analysis.required,
       analysis.optional,
-      analysis.contributedAvailability,
+      {
+        ...emptyAuthorityNeeds(),
+        contracts: analysis.contributedAvailability.contracts,
+      },
+    );
+    const providedSurfaces = analysis.contributedAvailability.surfaces.map(
+      ({ required: _required, ...surface }) => surface,
     );
     const desiredNeeds = desiredStateToAuthorityNeeds(
       deploymentAuthority.desiredState,
@@ -1035,6 +1050,12 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
     );
     const requestedProposalNeeds = authorityNeedsToProposalNeeds(
       requestedNeeds,
+    );
+    const capabilityDefinitions = analysis.capabilityDefinitions.map(
+      (definition) => ({
+        ...definition,
+        deploymentId: service.deploymentId,
+      }),
     );
 
     const compatibilityError = await assertPresentedContractCompatible({
@@ -1076,14 +1097,13 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
             contractDigest: request.contractDigest,
             contract: { ...contract },
             requestedNeeds: requestedProposalNeeds,
-            providedSurfaces: requestedNeeds.surfaces.map(
-              ({ required: _required, ...surface }) => surface,
-            ),
+            providedSurfaces,
             summary: compatibilityMigrationSummary({
               requestedById: service.instanceId,
               desiredVersion: deploymentAuthority.version,
               previousContractDigest:
                 compatibilityError.latestAcceptedContractDigest,
+              authorityCapabilityDefinitions: capabilityDefinitions,
             }),
           },
           desiredChange: planClassification.desiredChange,
@@ -1130,6 +1150,10 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
         } else {
           if (existingPlan === undefined) {
             await deps.deploymentAuthorityPlanStorage.put(plan);
+            await deps.capabilityDefinitionStorage?.replaceForDeployment(
+              service.deploymentId,
+              capabilityDefinitions,
+            );
           }
           return c.json(
             bootstrapFailure(
@@ -1176,13 +1200,12 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
         contractDigest: request.contractDigest,
         contract: { ...contract },
         requestedNeeds: requestedProposalNeeds,
-        providedSurfaces: requestedNeeds.surfaces.map(
-          ({ required: _required, ...surface }) => surface,
-        ),
+        providedSurfaces,
         summary: {
           requestedByKind: "service",
           requestedById: service.instanceId,
           desiredVersion: deploymentAuthority.version,
+          authorityCapabilityDefinitions: capabilityDefinitions,
         },
       };
       const plan: DeploymentAuthorityPlan = existingPlan ??
@@ -1212,6 +1235,10 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
           });
       if (existingPlan === undefined) {
         await deps.deploymentAuthorityPlanStorage.put(plan);
+        await deps.capabilityDefinitionStorage?.replaceForDeployment(
+          service.deploymentId,
+          capabilityDefinitions,
+        );
       }
       return c.json(
         bootstrapFailure(
@@ -1295,6 +1322,90 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
       );
     }
 
+    const currentMaterializedAuthority = await deps.materializedAuthorityStorage
+      .get(
+        service.deploymentId,
+      );
+    if (
+      currentMaterializedAuthority === undefined ||
+      currentMaterializedAuthority.desiredVersion !==
+        deploymentAuthority.version ||
+      currentMaterializedAuthority.status === "pending"
+    ) {
+      return c.json(
+        bootstrapFailure(
+          "authority_reconciliation_pending",
+          `Service deployment '${service.deploymentId}' authority reconciliation is pending.`,
+          {
+            instanceId: service.instanceId,
+            deploymentId: service.deploymentId,
+            contractId: request.contractId,
+            contractDigest: request.contractDigest,
+            desiredVersion: deploymentAuthority.version,
+            materializedDesiredVersion: currentMaterializedAuthority
+              ?.desiredVersion,
+            materializedStatus: currentMaterializedAuthority?.status,
+          },
+        ),
+        202,
+      );
+    }
+    if (currentMaterializedAuthority.status === "failed") {
+      return c.json(
+        bootstrapFailure(
+          "authority_reconciliation_failed",
+          `Service deployment '${service.deploymentId}' authority reconciliation failed.`,
+          {
+            instanceId: service.instanceId,
+            deploymentId: service.deploymentId,
+            contractId: request.contractId,
+            contractDigest: request.contractDigest,
+            desiredVersion: deploymentAuthority.version,
+            materializedDesiredVersion: currentMaterializedAuthority
+              .desiredVersion,
+            materializedStatus: currentMaterializedAuthority.status,
+            ...(currentMaterializedAuthority.error
+              ? { reconciliationError: currentMaterializedAuthority.error }
+              : {}),
+          },
+        ),
+        202,
+      );
+    }
+
+    await deps.implementationOfferStorage.put(
+      await acceptedServiceOfferRecord({
+        storage: deps.implementationOfferStorage,
+        deploymentId: service.deploymentId,
+        instanceId: service.instanceId,
+        contract,
+        digest: request.contractDigest,
+        now,
+      }),
+    );
+    try {
+      await deps.authorityReconciler?.reconcileDeployment(
+        service.deploymentId,
+        { desiredVersion: deploymentAuthority.version },
+      );
+    } catch (error) {
+      return c.json(
+        bootstrapFailure(
+          "authority_reconciliation_pending",
+          `Service deployment '${service.deploymentId}' authority reconciliation could not be refreshed after accepting the implementation offer.`,
+          {
+            err: toError(error).message,
+            instanceId: service.instanceId,
+            deploymentId: service.deploymentId,
+            contractId: request.contractId,
+            contractDigest: request.contractDigest,
+            desiredVersion: deploymentAuthority.version,
+          },
+        ),
+        202,
+      );
+    }
+
     const materializedAuthority = await deps.materializedAuthorityStorage.get(
       service.deploymentId,
     );
@@ -1355,17 +1466,6 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
         capabilities,
       });
     }
-
-    await deps.implementationOfferStorage.put(
-      await acceptedServiceOfferRecord({
-        storage: deps.implementationOfferStorage,
-        deploymentId: service.deploymentId,
-        instanceId: service.instanceId,
-        contract,
-        digest: request.contractDigest,
-        now,
-      }),
-    );
 
     return c.json({
       status: "ready",

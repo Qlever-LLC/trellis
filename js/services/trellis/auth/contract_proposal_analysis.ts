@@ -31,6 +31,7 @@ import type {
   AuthorityNeedSetSurface,
   AuthoritySurfaceAction,
   AuthoritySurfaceKind,
+  DeploymentAuthorityCapabilityDefinition,
 } from "./schemas.ts";
 
 const EMPTY_AUTHORITY_NEEDS: AuthorityNeedSet = {
@@ -67,6 +68,7 @@ export type ContractProposalAnalysis = {
   optional: AuthorityNeedSet;
   resources: AuthorityNeedSetResource[];
   contributedAvailability: AuthorityNeedSet;
+  capabilityDefinitions: DeploymentAuthorityCapabilityDefinition[];
 };
 
 type ContractProposalDeps =
@@ -750,6 +752,67 @@ function validatedEventConsumers(
     .eventConsumers ?? {};
 }
 
+function fallbackCapabilityDescription(key: string): string {
+  return `Requires ${key}.`;
+}
+
+function capabilityDefinitionsForContract(input: {
+  deploymentId: string;
+  contract: TrellisContractV1;
+  digest: string;
+  direction: DeploymentAuthorityCapabilityDefinition["direction"];
+  capabilities?: Iterable<string>;
+}): DeploymentAuthorityCapabilityDefinition[] {
+  const requested = input.capabilities === undefined
+    ? undefined
+    : new Set(input.capabilities);
+  const keys = requested === undefined
+    ? Object.keys(input.contract.capabilities ?? {})
+    : [...requested];
+  return sortUniqueStrings(keys).map((key) => {
+    const metadata = input.contract.capabilities?.[key];
+    return {
+      deploymentId: input.deploymentId,
+      key,
+      displayName: metadata?.displayName ?? key,
+      description: metadata?.description ?? fallbackCapabilityDescription(key),
+      ...(metadata?.consequence === undefined
+        ? {}
+        : { consequence: metadata.consequence }),
+      source: "contract" as const,
+      contractId: input.contract.id,
+      contractDigest: input.digest,
+      contractDisplayName: input.contract.displayName,
+      direction: input.direction,
+    };
+  });
+}
+
+function uniqueCapabilityDefinitions(
+  definitions: DeploymentAuthorityCapabilityDefinition[],
+): DeploymentAuthorityCapabilityDefinition[] {
+  const byKey = new Map<string, DeploymentAuthorityCapabilityDefinition>();
+  for (const definition of definitions) {
+    byKey.set(
+      JSON.stringify([
+        definition.deploymentId,
+        definition.key,
+        definition.direction,
+        definition.contractId ?? "",
+        definition.contractDigest ?? "",
+      ]),
+      definition,
+    );
+  }
+  return [...byKey.values()].sort((left, right) =>
+    left.key.localeCompare(right.key) ||
+    left.deploymentId.localeCompare(right.deploymentId) ||
+    (left.contractId ?? "").localeCompare(right.contractId ?? "") ||
+    (left.contractDigest ?? "").localeCompare(right.contractDigest ?? "") ||
+    left.direction.localeCompare(right.direction)
+  );
+}
+
 function deriveOwnTransferResources(
   contract: TrellisContractV1,
 ): AuthorityNeedSetResource[] {
@@ -878,5 +941,20 @@ export async function analyzeContractProposal(
     optional: normalizeAuthorityNeeds(optional),
     resources,
     contributedAvailability: deriveContributedAvailability(validated.contract),
+    capabilityDefinitions: uniqueCapabilityDefinitions([
+      ...capabilityDefinitionsForContract({
+        deploymentId: validated.contract.id,
+        contract: validated.contract,
+        digest: validated.digest,
+        direction: "creates",
+      }),
+      ...capabilityDefinitionsForContract({
+        deploymentId: validated.contract.id,
+        contract: validated.contract,
+        digest: validated.digest,
+        direction: "given",
+        capabilities: [...required.capabilities, ...optional.capabilities],
+      }),
+    ]),
   };
 }

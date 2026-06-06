@@ -15,6 +15,7 @@ import type {
   AccountFlowKind,
   AuthorityNeedSet,
   DeploymentAuthority,
+  DeploymentAuthorityCapabilityDefinition,
   DeploymentAuthorityGrantOverride,
   DeploymentAuthorityMaterialization,
   DeploymentAuthorityPlan,
@@ -161,6 +162,12 @@ export type AuthHttpRouteOptions = {
       filters: { deploymentId?: string; state?: string },
       query: BoundedListQuery,
     ): Promise<DeploymentAuthorityPlan[]>;
+  };
+  capabilityDefinitionStorage?: {
+    replaceForDeployment(
+      deploymentId: string,
+      definitions: DeploymentAuthorityCapabilityDefinition[],
+    ): Promise<void>;
   };
   materializedAuthorityStorage: {
     get(

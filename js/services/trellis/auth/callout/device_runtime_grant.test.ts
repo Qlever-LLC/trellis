@@ -1,10 +1,13 @@
 import { assert, assertEquals } from "@std/assert";
 
 import type { ContractRecord } from "../../catalog/schemas.ts";
-import { createTestContracts } from "../../catalog/test_contracts.ts";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { deviceInstanceId } from "../admin/shared.ts";
-import type { AuthorityNeedSet, DeploymentAuthority } from "../schemas.ts";
+import type {
+  AuthorityNeedSet,
+  DeploymentAuthority,
+  DeploymentAuthorityMaterialization,
+} from "../schemas.ts";
 import { __testing__ } from "./callout.ts";
 
 const PUBLIC_IDENTITY_KEY = "A".repeat(43);
@@ -70,10 +73,25 @@ const FITTING_AUTHORITY: DeploymentAuthority = {
   },
 };
 
-const EMPTY_AUTHORITY: DeploymentAuthority = {
-  ...FITTING_AUTHORITY,
-  desiredState: { needs: [], capabilities: [], resources: [], surfaces: [] },
-};
+function materializedDeviceAuthority(
+  overrides: Partial<DeploymentAuthorityMaterialization> = {},
+): DeploymentAuthorityMaterialization {
+  return {
+    deploymentId: "reader.default",
+    desiredVersion: FITTING_AUTHORITY.version,
+    status: "current",
+    resourceBindings: [],
+    grants: [{ kind: "capability", capability: "example.read" }, {
+      kind: "nats",
+      direction: "publish",
+      subject: "rpc.v1.Example.Narrow",
+      requiredCapabilities: ["example.read"],
+      grantSource: "used-surface",
+    }],
+    reconciledAt: TEST_NOW,
+    ...overrides,
+  };
+}
 
 function makeContractRecord(
   overrides: Partial<ContractRecord> = {},
@@ -130,14 +148,10 @@ function makeGrantDeps(args: {
   activationDeploymentId?: string;
   deploymentDisabled?: boolean;
   authority?: DeploymentAuthority;
+  materializedAuthority?: DeploymentAuthorityMaterialization | null;
   activation?: "activated" | "revoked" | null;
 }) {
   const contractRecord = makeContractRecord();
-  const contracts = createTestContracts();
-  contracts.addKnownTestContract({
-    digest: "digest-a",
-    contract: DEVICE_CONTRACT,
-  });
   return {
     deviceInstanceStorage: {
       get: async () => ({
@@ -177,9 +191,17 @@ function makeGrantDeps(args: {
       get: async (digest: string) =>
         digest === "digest-a" ? contractRecord : undefined,
     },
-    contracts,
     deploymentAuthorityStorage: {
       get: async () => args.authority ?? FITTING_AUTHORITY,
+    },
+    materializedAuthorityStorage: {
+      get: async () =>
+        args.materializedAuthority === undefined
+          ? materializedDeviceAuthority({
+            desiredVersion: (args.authority ?? FITTING_AUTHORITY).version,
+          })
+          : args.materializedAuthority ?? undefined,
+      listByDeployment: async () => [],
     },
   };
 }
@@ -191,16 +213,16 @@ Deno.test("resolveDeviceRuntimeGrant allows registered device runtime authority 
     PUBLIC_IDENTITY_KEY,
     deps.contractStorage,
     "digest-a",
-    deps.contracts,
   );
 
   assert(result.ok);
   assertEquals(result.value.authority, "admin_reviewed");
   assertEquals(result.value.activation, null);
   assertEquals(result.value.instance.instanceId, INSTANCE_ID);
+  assertEquals(result.value.publishSubjects, ["rpc.v1.Example.Narrow"]);
 });
 
-Deno.test("resolveDeviceRuntimeGrant uses authority fit instead of legacy policies", async () => {
+Deno.test("resolveDeviceRuntimeGrant uses materialized grants instead of contract-derived subjects", async () => {
   const deps = makeGrantDeps({
     activation: null,
   });
@@ -209,13 +231,15 @@ Deno.test("resolveDeviceRuntimeGrant uses authority fit instead of legacy polici
     PUBLIC_IDENTITY_KEY,
     deps.contractStorage,
     "digest-a",
-    deps.contracts,
   );
 
   assert(result.ok);
-  assertEquals(result.value.authority, "admin_reviewed");
-  assertEquals(result.value.activation, null);
-  assertEquals(result.value.instance.instanceId, INSTANCE_ID);
+  assertEquals(
+    result.value.publishSubjects.includes("rpc.v1.Example.Read"),
+    false,
+  );
+  assertEquals(result.value.publishSubjects, ["rpc.v1.Example.Narrow"]);
+  assertEquals(result.value.subscribeSubjects, []);
 });
 
 Deno.test("resolveDeviceRuntimeGrant keeps activated devices user delegated", async () => {
@@ -225,7 +249,6 @@ Deno.test("resolveDeviceRuntimeGrant keeps activated devices user delegated", as
     PUBLIC_IDENTITY_KEY,
     deps.contractStorage,
     "digest-a",
-    deps.contracts,
   );
 
   assert(result.ok);
@@ -244,7 +267,6 @@ Deno.test("resolveDeviceRuntimeGrant rejects stale activation deployment", async
     PUBLIC_IDENTITY_KEY,
     deps.contractStorage,
     "digest-a",
-    deps.contracts,
   );
 
   assertEquals(result, { ok: false, denial: "device_activation_revoked" });
@@ -261,14 +283,13 @@ Deno.test("resolveDeviceRuntimeGrant denies pre-activation disabled deployment a
       PUBLIC_IDENTITY_KEY,
       disabled.contractStorage,
       "digest-a",
-      disabled.contracts,
     ),
     { ok: false, denial: "device_deployment_disabled" },
   );
 
   const disallowed = makeGrantDeps({
     activation: null,
-    authority: EMPTY_AUTHORITY,
+    materializedAuthority: null,
   });
   assertEquals(
     await __testing__.resolveDeviceRuntimeGrant(
@@ -276,7 +297,6 @@ Deno.test("resolveDeviceRuntimeGrant denies pre-activation disabled deployment a
       PUBLIC_IDENTITY_KEY,
       disallowed.contractStorage,
       "digest-a",
-      disallowed.contracts,
     ),
     { ok: false, denial: "device_authority_miss" },
   );
@@ -295,7 +315,6 @@ Deno.test("resolveDeviceRuntimeGrant denies pre-activation disabled and revoked 
         PUBLIC_IDENTITY_KEY,
         deps.contractStorage,
         "digest-a",
-        deps.contracts,
       ),
       { ok: false, denial: "unknown_device" },
     );

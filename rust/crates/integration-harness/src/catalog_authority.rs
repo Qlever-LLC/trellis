@@ -1,16 +1,21 @@
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use miette::{miette, IntoDiagnostic, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
-use trellis_rs::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
+use serde_json::{json, Value};
+use trellis_rs::auth::{
+    connect_admin_client_async, generate_session_keypair, payload_hash_base64url,
+    AdminLoginOutcome, AuthRequestsValidateRequest,
+};
 use trellis_rs::client::{ServiceConnectWithContractOptions, TrellisClient};
 use trellis_rs::contracts::{
     digest_contract_json, rpc, use_contract, ContractKind, ContractManifestBuilder,
 };
 use trellis_rs::sdk::auth::client::AuthClient as SdkAuthClient;
-use trellis_rs::sdk::auth::types::AuthServiceInstancesProvisionRequest;
+use trellis_rs::sdk::auth::types::{
+    AuthDeploymentAuthorityGetRequest, AuthServiceInstancesProvisionRequest,
+};
 use trellis_rs::sdk::core::client::CoreClient;
 use trellis_rs::service::{
     ConnectedServiceRuntime, HandlerResult, ServerError, ServiceRuntimeError,
@@ -28,6 +33,15 @@ const AUTHORITY_PERSIST_CONTRACT_ID: &str =
     "trellis.integration-harness.catalog-authority-persist@v1";
 const AUTHORITY_SERVICE_NAME: &str = "harness-catalog-authority-rust";
 const AUTHORITY_RPC_SUBJECT: &str = "rpc.v1.Harness.CatalogAuthority.Ping";
+const MATERIALIZED_BROAD_DEPLOYMENT_ID: &str = "harness.catalog-authority-materialized-broad";
+const MATERIALIZED_NARROW_DEPLOYMENT_ID: &str = "harness.catalog-authority-materialized-narrow";
+const MATERIALIZED_AUTHORITY_CONTRACT_ID: &str =
+    "trellis.integration-harness.catalog-authority-materialized@v1";
+const MATERIALIZED_AUTHORITY_SERVICE_NAME: &str = "harness-catalog-authority-materialized-rust";
+const MATERIALIZED_AUTHORITY_PING_SUBJECT: &str =
+    "rpc.v1.Harness.CatalogAuthority.Materialized.Ping";
+const MATERIALIZED_AUTHORITY_EXTRA_SUBJECT: &str =
+    "rpc.v1.Harness.CatalogAuthority.Materialized.Extra";
 
 #[derive(Debug, Clone)]
 pub(crate) struct CatalogAuthorityPersistenceCheck {
@@ -52,6 +66,30 @@ impl trellis_rs::client::RpcDescriptor for AuthorityPingRpc {
 
     const KEY: &'static str = "Authority.Ping";
     const SUBJECT: &'static str = AUTHORITY_RPC_SUBJECT;
+    const CALLER_CAPABILITIES: &'static [&'static str] = &[];
+    const ERRORS: &'static [&'static str] = &["UnexpectedError"];
+}
+
+struct MaterializedAuthorityPingRpc;
+
+impl trellis_rs::client::RpcDescriptor for MaterializedAuthorityPingRpc {
+    type Input = AuthorityPingRequest;
+    type Output = AuthorityPingResponse;
+
+    const KEY: &'static str = "Authority.Ping";
+    const SUBJECT: &'static str = MATERIALIZED_AUTHORITY_PING_SUBJECT;
+    const CALLER_CAPABILITIES: &'static [&'static str] = &[];
+    const ERRORS: &'static [&'static str] = &["UnexpectedError"];
+}
+
+struct MaterializedAuthorityExtraRpc;
+
+impl trellis_rs::client::RpcDescriptor for MaterializedAuthorityExtraRpc {
+    type Input = AuthorityPingRequest;
+    type Output = AuthorityPingResponse;
+
+    const KEY: &'static str = "Authority.Extra";
+    const SUBJECT: &'static str = MATERIALIZED_AUTHORITY_EXTRA_SUBJECT;
     const CALLER_CAPABILITIES: &'static [&'static str] = &[];
     const ERRORS: &'static [&'static str] = &["UnexpectedError"];
 }
@@ -134,6 +172,14 @@ pub(crate) async fn run_catalog_authority_fixture(
     drop(old_reconnect);
     wait_for_authority_ping(&caller_client, "after-rejected-conflict").await?;
 
+    let materialized_authority_checks = run_materialized_authority_runtime_proof(
+        trellis_url,
+        &auth_client,
+        &sdk_auth_client,
+        browser,
+    )
+    .await?;
+
     let persistence_check = create_no_active_issue_check(
         trellis_url,
         &auth_client,
@@ -145,7 +191,101 @@ pub(crate) async fn run_catalog_authority_fixture(
     .await?;
 
     service_task.abort();
-    Ok((5, persistence_check))
+    Ok((5 + materialized_authority_checks, persistence_check))
+}
+
+async fn run_materialized_authority_runtime_proof(
+    trellis_url: &str,
+    auth_client: &trellis_rs::auth::AuthClient<'_>,
+    sdk_auth_client: &SdkAuthClient<'_>,
+    browser: &BrowserContainer,
+) -> Result<usize> {
+    auth_client
+        .create_service_deployment(
+            MATERIALIZED_BROAD_DEPLOYMENT_ID,
+            vec!["harness".to_string()],
+        )
+        .await
+        .into_diagnostic()?;
+    auth_client
+        .create_service_deployment(
+            MATERIALIZED_NARROW_DEPLOYMENT_ID,
+            vec!["harness".to_string()],
+        )
+        .await
+        .into_diagnostic()?;
+
+    let broad_contract_json = materialized_authority_contract_json(AuthoritySurfaceShape::Broad)?;
+    let broad_digest = digest_contract_json(&broad_contract_json).into_diagnostic()?;
+    plan_accept_reconcile_deployment_authority(
+        sdk_auth_client,
+        MATERIALIZED_BROAD_DEPLOYMENT_ID,
+        &broad_contract_json,
+        &broad_digest,
+        "integration harness broad catalog authority materialization setup",
+    )
+    .await?;
+
+    let narrow_contract_json = materialized_authority_contract_json(AuthoritySurfaceShape::Narrow)?;
+    let narrow_digest = digest_contract_json(&narrow_contract_json).into_diagnostic()?;
+    plan_accept_reconcile_deployment_authority(
+        sdk_auth_client,
+        MATERIALIZED_NARROW_DEPLOYMENT_ID,
+        &narrow_contract_json,
+        &narrow_digest,
+        "integration harness narrow catalog authority materialization setup",
+    )
+    .await?;
+
+    let broad_seed =
+        provision_service_instance(auth_client, MATERIALIZED_BROAD_DEPLOYMENT_ID).await?;
+    let _broad_service_client = connect_service(
+        trellis_url.to_string(),
+        MATERIALIZED_AUTHORITY_CONTRACT_ID.to_string(),
+        broad_contract_json,
+        broad_digest,
+        broad_seed,
+        30_000,
+    )
+    .await?;
+
+    let narrow_seed =
+        provision_service_instance(auth_client, MATERIALIZED_NARROW_DEPLOYMENT_ID).await?;
+    let service_client = Arc::new(
+        connect_service(
+            trellis_url.to_string(),
+            MATERIALIZED_AUTHORITY_CONTRACT_ID.to_string(),
+            narrow_contract_json,
+            narrow_digest,
+            narrow_seed,
+            30_000,
+        )
+        .await?,
+    );
+    let service_task = start_materialized_authority_service(Arc::clone(&service_client));
+
+    let result = async {
+        let caller_contract_json = materialized_authority_caller_contract_json()?;
+        let caller_login = login_contract(trellis_url, browser, &caller_contract_json).await?;
+        let caller_client = connect_admin_client_async(&caller_login.state)
+            .await
+            .into_diagnostic()?;
+        wait_for_materialized_authority_ping(&caller_client, "materialized-allowed").await?;
+        assert_caller_validate_allows_subject(
+            service_client.as_ref(),
+            &caller_client,
+            MATERIALIZED_AUTHORITY_EXTRA_SUBJECT,
+            "materialized-caller-extra",
+        )
+        .await?;
+        expect_materialized_authority_extra_denied(&caller_client).await?;
+        assert_narrow_materialized_authority_grants(sdk_auth_client).await?;
+        Ok(4)
+    }
+    .await;
+
+    service_task.abort();
+    result
 }
 
 pub(crate) async fn verify_catalog_authority_persistence_after_restart(
@@ -269,6 +409,27 @@ fn start_authority_service(
     tokio::spawn(async move { service.run().await })
 }
 
+fn start_materialized_authority_service(
+    service_client: Arc<TrellisClient>,
+) -> tokio::task::JoinHandle<Result<(), ServiceRuntimeError>> {
+    let mut service = ConnectedServiceRuntime::<()>::from_connected_client(
+        MATERIALIZED_AUTHORITY_SERVICE_NAME,
+        Arc::clone(&service_client),
+    )
+    .expect("materialized authority service client should include bootstrap binding");
+    service.register_rpc::<MaterializedAuthorityPingRpc, _, _>(|_ctx, input| async move {
+        Ok::<_, ServerError>(AuthorityPingResponse {
+            message: input.message,
+        }) as HandlerResult<AuthorityPingResponse>
+    });
+    service.register_rpc::<MaterializedAuthorityExtraRpc, _, _>(|_ctx, input| async move {
+        Ok::<_, ServerError>(AuthorityPingResponse {
+            message: input.message,
+        }) as HandlerResult<AuthorityPingResponse>
+    });
+    tokio::spawn(async move { service.run().await })
+}
+
 async fn assert_authority_ping(client: &TrellisClient, message: &str) -> Result<()> {
     let response = client
         .call::<AuthorityPingRpc>(&AuthorityPingRequest {
@@ -300,6 +461,161 @@ async fn wait_for_authority_ping(client: &TrellisClient, message: &str) -> Resul
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
+}
+
+async fn assert_materialized_authority_ping(client: &TrellisClient, message: &str) -> Result<()> {
+    let response = client
+        .call::<MaterializedAuthorityPingRpc>(&AuthorityPingRequest {
+            message: message.to_string(),
+        })
+        .await
+        .map_err(|error| miette!("materialized Authority.Ping `{message}` failed: {error}"))?;
+    if response.message != message {
+        return Err(miette!(
+            "materialized Authority.Ping returned `{}` instead of `{message}`",
+            response.message
+        ));
+    }
+    Ok(())
+}
+
+async fn wait_for_materialized_authority_ping(client: &TrellisClient, message: &str) -> Result<()> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        match assert_materialized_authority_ping(client, message).await {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(miette!(
+                        "timed out waiting for materialized Authority.Ping `{message}`: {error}"
+                    ));
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+async fn expect_materialized_authority_extra_denied(client: &TrellisClient) -> Result<()> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        match client
+            .call::<MaterializedAuthorityExtraRpc>(&AuthorityPingRequest {
+                message: "materialized-denied".to_string(),
+            })
+            .await
+        {
+            Ok(output) => {
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(miette!(
+                        "Authority.Extra unexpectedly succeeded through narrow deployment authority: {:?}",
+                        output
+                    ));
+                }
+            }
+            Err(_) => return Ok(()),
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+async fn assert_caller_validate_allows_subject(
+    validator_client: &TrellisClient,
+    caller_client: &TrellisClient,
+    subject: &str,
+    request_id: &str,
+) -> Result<()> {
+    let input = AuthorityPingRequest {
+        message: request_id.to_string(),
+    };
+    let payload = serde_json::to_vec(&input)
+        .into_diagnostic()
+        .map_err(|error| miette!("failed to encode materialized authority payload: {error}"))?;
+    let iat = current_iat()?;
+    let proof = caller_client
+        .auth()
+        .create_proof(subject, &payload, iat, request_id);
+    let response = trellis_rs::auth::AuthClient::new(validator_client)
+        .validate_request(&AuthRequestsValidateRequest {
+            capabilities: Some(Vec::new()),
+            iat,
+            payload_hash: payload_hash_base64url(&payload),
+            proof,
+            request_id: request_id.to_string(),
+            session_key: caller_client.auth().session_key.clone(),
+            subject: subject.to_string(),
+        })
+        .await
+        .into_diagnostic()?;
+    if !response.allowed {
+        return Err(miette!(
+            "Auth.Requests.Validate rejected caller authority for `{subject}` before provider boundary check"
+        ));
+    }
+    Ok(())
+}
+
+async fn assert_narrow_materialized_authority_grants(
+    auth_client: &SdkAuthClient<'_>,
+) -> Result<()> {
+    let authority = auth_client
+        .rpc()
+        .auth()
+        .deployment_authority_get(&AuthDeploymentAuthorityGetRequest {
+            deployment_id: MATERIALIZED_NARROW_DEPLOYMENT_ID.to_string(),
+        })
+        .await
+        .into_diagnostic()?;
+    let materialized = &authority.materialized_authority;
+    if materialized.get("status").and_then(Value::as_str) != Some("current") {
+        return Err(miette!(
+            "narrow deployment materialized authority was not current: {}",
+            materialized
+        ));
+    }
+    if !has_materialized_nats_grant(
+        materialized,
+        "subscribe",
+        MATERIALIZED_AUTHORITY_PING_SUBJECT,
+    ) {
+        return Err(miette!(
+            "narrow deployment materialized authority did not grant `{}`: {}",
+            MATERIALIZED_AUTHORITY_PING_SUBJECT,
+            materialized
+        ));
+    }
+    if has_materialized_nats_grant(
+        materialized,
+        "subscribe",
+        MATERIALIZED_AUTHORITY_EXTRA_SUBJECT,
+    ) {
+        return Err(miette!(
+            "narrow deployment materialized authority unexpectedly granted `{}`: {}",
+            MATERIALIZED_AUTHORITY_EXTRA_SUBJECT,
+            materialized
+        ));
+    }
+    Ok(())
+}
+
+fn has_materialized_nats_grant(materialized: &Value, direction: &str, subject: &str) -> bool {
+    let Some(grants) = materialized.get("grants").and_then(Value::as_array) else {
+        return false;
+    };
+    grants.iter().any(|grant| {
+        grant.get("kind").and_then(Value::as_str) == Some("nats")
+            && grant.get("direction").and_then(Value::as_str) == Some(direction)
+            && grant.get("subject").and_then(Value::as_str) == Some(subject)
+    })
+}
+
+fn current_iat() -> Result<i64> {
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .into_diagnostic()
+        .map_err(|error| miette!("system clock is before UNIX epoch: {error}"))?
+        .as_secs();
+    i64::try_from(seconds).map_err(|error| miette!("current time exceeded i64 range: {error}"))
 }
 
 async fn provision_service_instance(
@@ -412,6 +728,12 @@ enum AuthorityContractShape {
     New,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum AuthoritySurfaceShape {
+    Narrow,
+    Broad,
+}
+
 fn authority_contract_json(contract_id: &str, shape: AuthorityContractShape) -> Result<String> {
     let old_request_schema = json!({
         "type": "object",
@@ -491,4 +813,83 @@ fn authority_caller_contract_json(contract_id: &str) -> Result<String> {
 
     serde_json::to_string(&manifest)
         .map_err(|error| miette!("failed to serialize catalog authority caller contract: {error}"))
+}
+
+fn materialized_authority_contract_json(shape: AuthoritySurfaceShape) -> Result<String> {
+    let request_schema = json!({
+        "type": "object",
+        "properties": { "message": { "type": "string" } },
+        "required": ["message"]
+    });
+    let response_schema = json!({
+        "type": "object",
+        "properties": { "message": { "type": "string" } },
+        "required": ["message"]
+    });
+    let mut builder = ContractManifestBuilder::new(
+        MATERIALIZED_AUTHORITY_CONTRACT_ID,
+        "Trellis Integration Materialized Catalog Authority",
+        "Harness-owned service contract for materialized deployment authority verification.",
+        ContractKind::Service,
+    )
+    .use_ref(
+        "auth",
+        use_contract("trellis.auth@v1").with_rpc_call(["Auth.Requests.Validate"]),
+    )
+    .schema("AuthorityPingRequest", request_schema.clone())
+    .schema("AuthorityPingResponse", response_schema.clone())
+    .rpc(
+        "Authority.Ping",
+        rpc(
+            "v1",
+            MATERIALIZED_AUTHORITY_PING_SUBJECT,
+            "AuthorityPingRequest",
+            "AuthorityPingResponse",
+        )
+        .with_call_capabilities(std::iter::empty::<&str>())
+        .with_error_types(["UnexpectedError"]),
+    );
+    if matches!(shape, AuthoritySurfaceShape::Broad) {
+        builder = builder.rpc(
+            "Authority.Extra",
+            rpc(
+                "v1",
+                MATERIALIZED_AUTHORITY_EXTRA_SUBJECT,
+                "AuthorityPingRequest",
+                "AuthorityPingResponse",
+            )
+            .with_call_capabilities(std::iter::empty::<&str>())
+            .with_error_types(["UnexpectedError"]),
+        );
+    }
+    let manifest = builder
+        .build()
+        .map_err(|error| miette!("failed to build materialized authority contract: {error}"))?;
+
+    serde_json::to_string(&manifest)
+        .map_err(|error| miette!("failed to serialize materialized authority contract: {error}"))
+}
+
+fn materialized_authority_caller_contract_json() -> Result<String> {
+    let manifest = ContractManifestBuilder::new(
+        "trellis.integration-catalog-authority-materialized-agent@v1",
+        "Trellis Integration Materialized Catalog Authority Agent",
+        "Verify materialized deployment authority controls provider runtime subjects.",
+        ContractKind::Agent,
+    )
+    .use_ref(
+        "auth",
+        use_contract("trellis.auth@v1").with_rpc_call(["Auth.Sessions.Logout", "Auth.Sessions.Me"]),
+    )
+    .use_ref(
+        "authority",
+        use_contract(MATERIALIZED_AUTHORITY_CONTRACT_ID)
+            .with_rpc_call(["Authority.Ping", "Authority.Extra"]),
+    )
+    .build()
+    .map_err(|error| miette!("failed to build materialized authority caller contract: {error}"))?;
+
+    serde_json::to_string(&manifest).map_err(|error| {
+        miette!("failed to serialize materialized authority caller contract: {error}")
+    })
 }

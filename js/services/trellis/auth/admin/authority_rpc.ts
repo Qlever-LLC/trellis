@@ -228,6 +228,7 @@ function needKey(need: DeploymentAuthority["desiredState"]["needs"][number]) {
 function mergeDesiredChange(
   authority: DeploymentAuthority,
   desiredChange: AuthorityNeedSet,
+  providedSurfaces: DeploymentAuthorityPlan["proposal"]["providedSurfaces"],
 ): DeploymentAuthority["desiredState"] {
   const needs = new Map<
     string,
@@ -249,6 +250,9 @@ function mergeDesiredChange(
     resources.set(resourceKey(resource), resource);
   }
   for (const surface of authority.desiredState.surfaces) {
+    surfaces.set(surfaceKey(surface), surface);
+  }
+  for (const surface of providedSurfaces) {
     surfaces.set(surfaceKey(surface), surface);
   }
 
@@ -314,8 +318,8 @@ function mergeDesiredChange(
   };
 }
 
-function desiredStateFromProposalNeeds(
-  needsInput: DeploymentAuthorityPlan["proposal"]["requestedNeeds"],
+function desiredStateFromProposal(
+  proposal: DeploymentAuthorityPlan["proposal"],
 ): DeploymentAuthority["desiredState"] {
   const capabilities = new Set<string>();
   const resources = new Map<
@@ -327,20 +331,20 @@ function desiredStateFromProposalNeeds(
     DeploymentAuthority["desiredState"]["surfaces"][number]
   >();
 
-  for (const need of needsInput) {
+  for (const need of proposal.requestedNeeds) {
     if (need.kind === "capability") {
       capabilities.add(need.capability);
     }
     if (need.kind === "resource") {
       resources.set(resourceKey(need.resource), need.resource);
     }
-    if (need.kind === "surface") {
-      surfaces.set(surfaceKey(need.surface), need.surface);
-    }
+  }
+  for (const surface of proposal.providedSurfaces) {
+    surfaces.set(surfaceKey(surface), surface);
   }
 
   return {
-    needs: [...needsInput],
+    needs: [...proposal.requestedNeeds],
     capabilities: [...capabilities].sort(),
     resources: [...resources.values()].sort((left, right) =>
       resourceKey(left).localeCompare(resourceKey(right))
@@ -366,6 +370,9 @@ function proposalScopedReplacementAllowed(
     if (need.kind === "surface") {
       allowedContractIds.add(need.surface.contractId);
     }
+  }
+  for (const surface of plan.proposal.providedSurfaces) {
+    allowedContractIds.add(surface.contractId);
   }
 
   const currentContractIds = [
@@ -393,7 +400,11 @@ function desiredStateForAcceptedPlan(
   if (classification === "update") {
     return {
       ok: true,
-      desiredState: mergeDesiredChange(authority, desiredChange),
+      desiredState: mergeDesiredChange(
+        authority,
+        desiredChange,
+        plan.proposal.providedSurfaces,
+      ),
     };
   }
   if (!proposalScopedReplacementAllowed(authority, plan)) {
@@ -409,12 +420,12 @@ function desiredStateForAcceptedPlan(
   if (isEmptyAuthorityNeedSet(desiredChange)) {
     return {
       ok: true,
-      desiredState: desiredStateFromProposalNeeds(plan.proposal.requestedNeeds),
+      desiredState: desiredStateFromProposal(plan.proposal),
     };
   }
   return {
     ok: true,
-    desiredState: desiredStateFromProposalNeeds(plan.proposal.requestedNeeds),
+    desiredState: desiredStateFromProposal(plan.proposal),
   };
 }
 

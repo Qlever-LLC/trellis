@@ -12,6 +12,8 @@ import type {
   DeploymentAuthorityResource,
   DeploymentAuthoritySurface,
   DeploymentResourceBinding,
+  MaterializedAuthorityGrant,
+  MaterializedAuthorityNatsGrant,
 } from "../schemas.ts";
 
 type DeploymentAuthorityStorage = {
@@ -51,6 +53,17 @@ export type AuthorityResourceMaterializer = {
   materialize(
     input: AuthorityResourceMaterializerInput,
   ): Promise<DeploymentResourceBinding[]>;
+};
+
+export type AuthorityNatsGrantMaterializerInput = {
+  authority: DeploymentAuthority;
+  resourceBindings: DeploymentResourceBinding[];
+};
+
+export type AuthorityNatsGrantMaterializer = {
+  materialize(
+    input: AuthorityNatsGrantMaterializerInput,
+  ): Promise<MaterializedAuthorityNatsGrant[]>;
 };
 
 export type PhysicalAuthorityResourceMaterializerOptions = {
@@ -116,7 +129,8 @@ function desiredResources(
 
 function materializedGrants(
   authority: DeploymentAuthority,
-): Record<string, unknown>[] {
+  natsGrants: MaterializedAuthorityNatsGrant[] = [],
+): MaterializedAuthorityGrant[] {
   const capabilities = new Set(authority.desiredState.capabilities);
   const surfaces = new Map<string, DeploymentAuthoritySurface>();
   for (const surface of authority.desiredState.surfaces) {
@@ -130,23 +144,19 @@ function materializedGrants(
   }
   return [
     ...[...capabilities].sort().map((capability) => ({
-      kind: "capability",
+      kind: "capability" as const,
       capability,
     })),
     ...[...surfaces.values()].sort((left, right) =>
       surfaceKey(left).localeCompare(surfaceKey(right))
     ).map((surface) => ({
-      kind: "surface",
+      kind: "surface" as const,
       contractId: surface.contractId,
       surfaceKind: surface.kind,
       name: surface.name,
       ...(surface.action === undefined ? {} : { action: surface.action }),
     })),
-    ...desiredResources(authority).map((resource) => ({
-      kind: "resource",
-      resourceKind: resource.kind,
-      alias: resource.alias,
-    })),
+    ...natsGrants,
   ];
 }
 
@@ -221,6 +231,7 @@ export function createAuthorityReconciler(deps: {
   materializedAuthorityStorage: MaterializedAuthorityStorage;
   authorityReconciliationStorage: AuthorityReconciliationStorage;
   resourceMaterializer?: AuthorityResourceMaterializer;
+  natsGrantMaterializer?: AuthorityNatsGrantMaterializer;
   physicalResources?: PhysicalAuthorityResourceMaterializerOptions;
 }) {
   const resourceMaterializer = deps.resourceMaterializer ??
@@ -285,13 +296,17 @@ export function createAuthorityReconciler(deps: {
         authority,
         existingBindings,
       });
+      const natsGrants = await (deps.natsGrantMaterializer?.materialize({
+        authority,
+        resourceBindings,
+      }) ?? Promise.resolve([]));
       const finishedAt = new Date().toISOString();
       const materializedAuthority: DeploymentAuthorityMaterialization = {
         deploymentId,
         desiredVersion: authority.version,
         status: "current",
         resourceBindings,
-        grants: materializedGrants(authority),
+        grants: materializedGrants(authority, natsGrants),
         reconciledAt: finishedAt,
       };
       const reconciliation = status({

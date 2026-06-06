@@ -32,7 +32,6 @@ export type AuthRuntime =
 
 export type AuthContractsRuntime = Pick<
   ContractsModule,
-  | "getActiveCapabilityDefinitions"
   | "getActiveContractsById"
   | "getActiveEntries"
   | "getBuiltinDigests"

@@ -43,9 +43,9 @@ type PermissionState = {
 const AUTH_VALIDATE_SUBJECT = trellisAuthContract.rpc
   ?.["Auth.Requests.Validate"]
   ?.subject;
-const TRANSFER_UPLOAD_SUBJECT_PREFIX = "transfer.v1.upload";
-const TRANSFER_DOWNLOAD_SUBJECT_PREFIX = "transfer.v1.download";
-const TRELLIS_JOBS_CONTRACT_ID = "trellis.jobs@v1";
+export const TRANSFER_UPLOAD_SUBJECT_PREFIX = "transfer.v1.upload";
+export const TRANSFER_DOWNLOAD_SUBJECT_PREFIX = "transfer.v1.download";
+export const TRELLIS_JOBS_CONTRACT_ID = "trellis.jobs@v1";
 const JOBS_STREAM = "JOBS";
 const JOBS_WORK_STREAM = "JOBS_WORK";
 const JOBS_ADVISORIES_STREAM = "JOBS_ADVISORIES";
@@ -463,7 +463,7 @@ function implementsJobsAdminService(
   );
 }
 
-function jobsAdminRuntimePublishSubjects(): string[] {
+export function jobsAdminRuntimePublishSubjects(): string[] {
   return [
     "trellis.jobs.>",
     "$JS.API.INFO",

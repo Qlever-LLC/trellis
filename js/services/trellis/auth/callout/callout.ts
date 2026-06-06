@@ -20,33 +20,18 @@ import { buildAuthCalloutPermissions } from "./permissions.ts";
 import type { Config } from "../../config.ts";
 import {
   type ContractResourceBindings,
+  getKvPermissionGrants,
   getResourcePermissionGrants,
 } from "../../catalog/resources.ts";
 import type { ContractsModule } from "../../catalog/runtime.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
-import { analyzeContractProposal } from "../contract_proposal_analysis.ts";
-import {
-  computeAuthorityNeedsDelta,
-  evaluateProposalNeedsFit,
-} from "../authority_needs_decision.ts";
+import { computeAuthorityNeedsDelta } from "../authority_needs_decision.ts";
 import { resolveUserReconnectSession } from "./user_reconnect.ts";
 import {
-  getServicePublishSubjectsForContracts,
-  getServiceSubscribeSubjectsForContracts,
-  getUserPublishSubjectsForContracts,
-  getUserSubscribeSubjectsForContracts,
-} from "../../catalog/permissions.ts";
-import {
-  ContractUseDependencyError,
   resolveContractUsesFromEntries,
   validateActiveContractCompatibility,
 } from "../../catalog/uses.ts";
-import {
-  deriveDeviceRuntimeAccess,
-  type DeviceRuntimeAccess,
-  type DeviceRuntimeAccessDenialReason,
-} from "../device_activation/runtime_access.ts";
 import type {
   AuthorityNeedSetSurface,
   DeploymentAuthority,
@@ -101,6 +86,18 @@ type CalloutContractDeps = Pick<
 type RuntimeContractEntry = { digest: string; contract: TrellisContractV1 };
 type ServiceRuntimeContract = { contractId: string; contractDigest: string };
 type ContractWithUses = TrellisContractV1 & { uses?: ContractUses };
+type DeviceRuntimeAccess = {
+  contractId: string;
+  contractDigest: string;
+  capabilities: string[];
+  publishSubjects: string[];
+  subscribeSubjects: string[];
+};
+type DeviceRuntimeAccessDenialReason =
+  | "invalid_auth_token"
+  | "device_deployment_contract_mismatch"
+  | "device_contract_analysis_missing"
+  | "device_resources_not_supported";
 type ContractUseRef = NonNullable<
   NonNullable<ContractUses["optional"]>[string]
 >;
@@ -143,6 +140,8 @@ export type MaterializedResourceBindingStorage = {
   ): Promise<DeploymentAuthorityMaterialization | undefined>;
   listByDeployment(deploymentId: string): Promise<DeploymentResourceBinding[]>;
 };
+
+type MaterializedNatsGrantDirection = "publish" | "subscribe";
 
 type SerializedErrorDetails = {
   err?: Error;
@@ -188,6 +187,7 @@ function serializedErrorDetails(error: unknown): SerializedErrorDetails {
 
 const AUTH_CALLOUT_DRAIN_TIMEOUT_MS = 5_000;
 const AUTH_CALLOUT_INTERNAL_ERROR = "internal_error";
+const TRANSFER_SERVICE_SESSION_PREFIX_PLACEHOLDER = "{serviceSessionPrefix}";
 
 type AuthCalloutErrorCode =
   | AuthCalloutDenialCode
@@ -359,6 +359,62 @@ function serviceCapabilitiesForPermissions(
   ].sort((left, right) => left.localeCompare(right));
 }
 
+function uniqueSorted(values: Iterable<string>): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
+
+function materializedCapabilitiesForPermissions(
+  materializedAuthority: DeploymentAuthorityMaterialization,
+  baseCapabilities: Iterable<string> = [],
+): string[] {
+  return uniqueSorted([
+    ...baseCapabilities,
+    ...materializedAuthority.grants.flatMap((grant) =>
+      grant.kind === "capability" ? [grant.capability] : []
+    ),
+  ]);
+}
+
+function materializedNatsSubjectsForPermissions(args: {
+  materializedAuthority: DeploymentAuthorityMaterialization;
+  direction: MaterializedNatsGrantDirection;
+  capabilities: string[];
+  serviceSessionPrefix?: string;
+}): string[] {
+  const capabilities = new Set(args.capabilities);
+  return uniqueSorted(args.materializedAuthority.grants.flatMap((grant) => {
+    if (grant.kind !== "nats" || grant.direction !== args.direction) return [];
+    if (
+      !grant.requiredCapabilities.every((capability) =>
+        capabilities.has(capability)
+      )
+    ) {
+      return [];
+    }
+    if (
+      grant.grantSource === "transfer" &&
+      args.serviceSessionPrefix !== undefined
+    ) {
+      return [grant.subject.replace(
+        TRANSFER_SERVICE_SESSION_PREFIX_PLACEHOLDER,
+        args.serviceSessionPrefix,
+      )];
+    }
+    return [grant.subject];
+  }));
+}
+
+function serviceOperationStorePublishSubjects(
+  sessionKey: string,
+  capabilities: string[],
+): string[] {
+  if (!capabilities.includes("service")) return [];
+  return getKvPermissionGrants(
+    `trellis_operations_${sessionKey.slice(0, 16)}`,
+    { allowCreate: true },
+  ).publish;
+}
+
 type DeviceRuntimeGrantDeps = {
   deviceInstanceStorage: {
     get(instanceId: string): Promise<DeviceInstance | undefined>;
@@ -366,6 +422,7 @@ type DeviceRuntimeGrantDeps = {
   deviceActivationStorage: Pick<SqlDeviceActivationRepository, "get" | "put">;
   deviceDeploymentStorage: Pick<SqlDeviceDeploymentRepository, "get">;
   deploymentAuthorityStorage: DeploymentAuthorityStorage;
+  materializedAuthorityStorage: MaterializedResourceBindingStorage;
 };
 
 const EMPTY_AUTHORITY_NEEDS: AuthorityNeedSet = {
@@ -716,7 +773,6 @@ async function resolveDeviceRuntimeGrant(
   publicIdentityKey: string,
   contractStorage: Pick<SqlContractStorageRepository, "get">,
   contractDigest: string | undefined,
-  contracts: CalloutContractDeps,
 ): Promise<AuthCalloutStageResult<DeviceRuntimeGrant>> {
   const instance = await findDeviceInstanceByIdentityKey(
     deps,
@@ -769,27 +825,35 @@ async function resolveDeviceRuntimeGrant(
   if (!authority || authority.disabled) {
     return stageDeny("device_deployment_disabled");
   }
-  const authorityNeeds = authorityNeedSetFromDesiredState(authority);
-  const contract = JSON.parse(contractRecord.contract);
-  const analysis = await analyzeContractProposal(
-    contracts,
-    contract,
-    { dependencyResolution: "known" },
+  const materializedAuthority = await deps.materializedAuthorityStorage.get(
+    deployment.deploymentId,
   );
-  const requestedNeeds = mergeAuthorityNeedSets(
-    analysis.required,
-    analysis.contributedAvailability,
+  if (
+    !materializedAuthority || materializedAuthority.status !== "current" ||
+    materializedAuthority.desiredVersion !== authority.version
+  ) {
+    return stageDeny("device_authority_miss");
+  }
+  if (materializedAuthority.resourceBindings.length > 0) {
+    return stageDeny("device_resources_not_supported");
+  }
+  const capabilities = materializedCapabilitiesForPermissions(
+    materializedAuthority,
   );
-  const fit = evaluateProposalNeedsFit(authorityNeeds, requestedNeeds);
-  if (!fit.fits) return stageDeny("device_authority_miss");
-  const accessResult = await deriveDeviceRuntimeAccess(
-    contractRecord,
-    contracts,
-    authorityNeeds,
-  );
-  if (!accessResult.ok) return stageDeny(accessResult.reason);
   return stageOk({
-    ...accessResult.value,
+    contractId: contractRecord.id,
+    contractDigest: contractRecord.digest,
+    capabilities,
+    publishSubjects: materializedNatsSubjectsForPermissions({
+      materializedAuthority,
+      direction: "publish",
+      capabilities,
+    }),
+    subscribeSubjects: materializedNatsSubjectsForPermissions({
+      materializedAuthority,
+      direction: "subscribe",
+      capabilities,
+    }),
     authority: activation ? "user_delegated" : "admin_reviewed",
     instance: {
       instanceId: instance.instanceId,
@@ -844,6 +908,7 @@ async function validateServiceRuntimeDigest(args: {
   >;
   contracts: CalloutContractDeps;
   deploymentAuthorityStorage: DeploymentAuthorityStorage;
+  materializedAuthorityStorage: MaterializedResourceBindingStorage;
   now: Date;
 }): Promise<AuthCalloutStageResult<ServiceRuntimeContract>> {
   const presentedContractDigest = args.presentedContractDigest;
@@ -862,7 +927,7 @@ async function validateServiceRuntimeDigest(args: {
     offer.instanceId === args.service.instanceId &&
     offer.contractDigest === presentedContractDigest &&
     offer.status === "accepted" &&
-    offer.staleAt === null
+    offer.acceptedAt !== null
   );
   if (!matchingOffer) return stageDeny("contract_changed");
 
@@ -899,42 +964,15 @@ async function validateServiceRuntimeDigest(args: {
   if (!authority || authority.disabled) {
     return stageDeny("service_authority_miss");
   }
-  const authorityNeeds = authorityNeedSetFromDesiredState(authority);
-
-  const activeContractEntries = await args.contracts.getActiveEntries();
-  const runtimeContractEntries = await withKnownDependencyEntries(
-    args.contracts,
-    [
-      ...activeContractEntries.filter((entry) =>
-        entry.digest !== presentedContractDigest
-      ),
-      { digest: presentedContractDigest, contract },
-    ],
+  const materializedAuthority = await args.materializedAuthorityStorage.get(
+    args.deployment.deploymentId,
   );
-  if (!runtimeContractEntries.ok) return runtimeContractEntries;
-
-  let analysis: Awaited<ReturnType<typeof analyzeContractProposal>>;
-  try {
-    analysis = await analyzeContractProposal(
-      {
-        ...args.contracts,
-        getActiveEntries: () => Promise.resolve(runtimeContractEntries.value),
-      },
-      contract,
-      { dependencyResolution: "active" },
-    );
-  } catch (error) {
-    if (error instanceof ContractUseDependencyError) {
-      return stageDeny("service_authority_miss");
-    }
-    throw error;
+  if (
+    !materializedAuthority || materializedAuthority.status !== "current" ||
+    materializedAuthority.desiredVersion !== authority.version
+  ) {
+    return stageDeny("service_authority_miss");
   }
-  const requestedNeeds = mergeAuthorityNeedSets(
-    analysis.required,
-    analysis.contributedAvailability,
-  );
-  const fit = evaluateProposalNeedsFit(authorityNeeds, requestedNeeds);
-  if (!fit.fits) return stageDeny("service_authority_miss");
   await args.implementationOfferStorage.put({
     ...matchingOffer,
     lineageKey: serviceOfferLineageKey(
@@ -947,7 +985,7 @@ async function validateServiceRuntimeDigest(args: {
   });
 
   return stageOk({
-    contractId: analysis.contract.id,
+    contractId: contract.id,
     contractDigest: presentedContractDigest,
   });
 }
@@ -1308,6 +1346,7 @@ export function startAuthCallout(
         contractStorage: opts.contractStorage,
         contracts: opts.contracts,
         deploymentAuthorityStorage,
+        materializedAuthorityStorage: materializedResourceBindingStorage,
         implementationOfferStorage,
         now,
       });
@@ -1343,11 +1382,11 @@ export function startAuthCallout(
             deviceDeploymentStorage,
             deviceInstanceStorage,
             deploymentAuthorityStorage,
+            materializedAuthorityStorage: materializedResourceBindingStorage,
           },
           sessionKey,
           opts.contractStorage,
           authToken.contractDigest,
-          opts.contracts,
         );
         if (!deviceGrantResult.ok) return deviceGrantResult;
         const deviceGrant = deviceGrantResult.value;
@@ -1385,11 +1424,11 @@ export function startAuthCallout(
           deviceDeploymentStorage,
           deviceInstanceStorage,
           deploymentAuthorityStorage,
+          materializedAuthorityStorage: materializedResourceBindingStorage,
         },
         sessionKey,
         opts.contractStorage,
         authToken.contractDigest,
-        opts.contracts,
       );
       if (!currentGrantResult.ok) return currentGrantResult;
       const currentGrant = currentGrantResult.value;
@@ -1432,7 +1471,6 @@ export function startAuthCallout(
       const resolvedReconnect = await resolveUserReconnectSession({
         session,
         presentedContractDigest: authToken.contractDigest,
-        contracts: opts.contracts,
         loadUserProjection: async (trellisId) => {
           return await opts.userStorage.get(trellisId) ?? null;
         },
@@ -1494,9 +1532,9 @@ export function startAuthCallout(
     if (isService && (!serviceAuthority || serviceAuthority.disabled)) {
       return stageDeny("service_authority_miss");
     }
-    const serviceAuthorityNeeds = serviceAuthority
-      ? authorityNeedSetFromDesiredState(serviceAuthority)
-      : undefined;
+    let serviceMaterializedAuthority:
+      | DeploymentAuthorityMaterialization
+      | undefined;
     if (principal.value.serviceState) {
       const materializedAuthority = await materializedResourceBindingStorage
         .get(
@@ -1508,117 +1546,57 @@ export function startAuthCallout(
       ) {
         return stageDeny("service_authority_miss");
       }
+      serviceMaterializedAuthority = materializedAuthority;
       const deploymentBindings = resourceBindingsForPermissions(
         materializedAuthority.resourceBindings,
       );
       resourcePermissions = getResourcePermissionGrants(deploymentBindings);
     }
     const effectiveCapabilities = isService
-      ? serviceCapabilitiesForPermissions(serviceAuthorityNeeds)
+      ? serviceMaterializedAuthority
+        ? materializedCapabilitiesForPermissions(serviceMaterializedAuthority, [
+          "service",
+        ])
+        : ["service"]
       : principal.value.capabilities;
 
     const inboxPrefix = `_INBOX.${sessionKey.slice(0, 16)}`;
-    const activeContractEntries = await opts.contracts.getActiveEntries();
-    const serviceContractEntries = isService
-      ? await serviceContractEntriesForPermissions({
-        activeContractEntries,
-        contracts: opts.contracts,
-        contractDigest: session.type === "service"
-          ? session.contractDigest ?? undefined
-          : undefined,
-        authorityNeeds: serviceAuthorityNeeds,
+    const servicePublishSubjects = serviceMaterializedAuthority
+      ? materializedNatsSubjectsForPermissions({
+        materializedAuthority: serviceMaterializedAuthority,
+        direction: "publish",
+        capabilities: effectiveCapabilities,
+        serviceSessionPrefix: sessionKey.slice(0, 16),
       })
-      : stageOk(activeContractEntries);
-    if (!serviceContractEntries.ok) return serviceContractEntries;
-    const userContractEntries =
-      session.type === "user" && session.identityAuthorityNeeds
-        ? await (async () => {
-          const contract = await opts.contracts.getKnownContract(
-            session.contractDigest,
-          );
-          if (!contract) return activeContractEntries;
-          const entries = await withKnownDependencyEntries(opts.contracts, [
-            ...activeContractEntries.filter((entry) =>
-              entry.digest !== session.contractDigest
-            ),
-            { digest: session.contractDigest, contract },
-          ]);
-          return entries.ok ? entries.value : entries;
-        })()
-        : [];
-    if (!Array.isArray(userContractEntries)) return userContractEntries;
-    const userAllowedPublishSubjects =
-      session.type === "user" && session.identityAuthorityNeeds
-        ? getUserPublishSubjectsForContracts(
-          session.delegatedCapabilities,
-          {
-            contractDigest: session.contractDigest,
-            identityAuthority: coerceAuthorityNeedSet(
-              session.identityAuthorityNeeds,
-            ),
-          },
-          userContractEntries,
-        )
-        : [];
-    const userAllowedSubscribeSubjects =
-      session.type === "user" && session.identityAuthorityNeeds
-        ? getUserSubscribeSubjectsForContracts(
-          session.delegatedCapabilities,
-          {
-            contractDigest: session.contractDigest,
-            identityAuthority: coerceAuthorityNeedSet(
-              session.identityAuthorityNeeds,
-            ),
-          },
-          userContractEntries,
-        )
-        : [];
-    const delegatedPublish = session.type === "user" &&
-        session.identityAuthorityNeeds
-      ? session.delegatedPublishSubjects.filter((subject) =>
-        userAllowedPublishSubjects.includes(subject)
-      )
-      : session.type === "service"
+      : [];
+    const serviceSubscribeSubjects = serviceMaterializedAuthority
+      ? materializedNatsSubjectsForPermissions({
+        materializedAuthority: serviceMaterializedAuthority,
+        direction: "subscribe",
+        capabilities: effectiveCapabilities,
+        serviceSessionPrefix: sessionKey.slice(0, 16),
+      })
+      : [];
+    const delegatedPublish = session.type === "service"
       ? []
-      : session.delegatedPublishSubjects!;
-    const delegatedSubscribe =
-      session.type === "user" && session.identityAuthorityNeeds
-        ? session.delegatedSubscribeSubjects.filter((subject) =>
-          userAllowedSubscribeSubjects.includes(subject)
-        )
-        : session.type === "service"
-        ? []
-        : session.delegatedSubscribeSubjects!;
+      : session.delegatedPublishSubjects;
+    const delegatedSubscribe = session.type === "service"
+      ? []
+      : session.delegatedSubscribeSubjects;
     const permissions = buildAuthCalloutPermissions({
       publishAllow: [
+        ...(isService ? servicePublishSubjects : delegatedPublish),
         ...(isService
-          ? getServicePublishSubjectsForContracts(
+          ? serviceOperationStorePublishSubjects(
+            sessionKey,
             effectiveCapabilities,
-            {
-              sessionKey,
-              contractDigest: session.type === "service"
-                ? session.contractDigest ?? undefined
-                : undefined,
-              authorityNeeds: serviceAuthorityNeeds,
-            },
-            serviceContractEntries.value,
           )
-          : delegatedPublish),
+          : []),
         ...resourcePermissions.publish,
       ],
       subscribeAllow: isService
         ? [
-          ...getServiceSubscribeSubjectsForContracts(
-            effectiveCapabilities,
-            {
-              sessionKey,
-              contractDigest: session.type === "service"
-                ? session.contractDigest ?? undefined
-                : undefined,
-              authorityNeeds: serviceAuthorityNeeds,
-            },
-            serviceContractEntries.value,
-          ),
+          ...serviceSubscribeSubjects,
           ...resourcePermissions.subscribe,
         ]
         : delegatedSubscribe,
@@ -1745,7 +1723,9 @@ export function startAuthCallout(
       );
       if (!issued.ok) return await deny(issued.denial);
 
-      await sessionStorage.put(sessionKey, { ...session, lastAuth: now });
+      if (session.type !== "user") {
+        await sessionStorage.put(sessionKey, { ...session, lastAuth: now });
+      }
 
       const serverId = decoded.natsReq.server_id?.id ?? decoded.serverName;
       const clientId = decoded.natsReq.client_info?.id;
@@ -1874,6 +1854,9 @@ export const __testing__ = {
   AUTH_CALLOUT_INTERNAL_ERROR,
   respondAuthCalloutError,
   processDisconnectMessage,
+  materializedCapabilitiesForPermissions,
+  materializedNatsSubjectsForPermissions,
+  serviceOperationStorePublishSubjects,
   resolveDeviceRuntimeGrant,
   refreshServiceSessionFromInstance,
   resourceBindingsForPermissions,

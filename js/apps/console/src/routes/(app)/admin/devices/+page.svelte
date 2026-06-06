@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { isErr } from "@qlever-llc/result";
+  import { isErr, type BaseError, type Result } from "@qlever-llc/result";
+  import type { DeploymentAuthority, DeploymentAuthorityMaterialization } from "@qlever-llc/trellis/auth";
   import type {
     AuthDeploymentsListOutput,
     AuthDevicesListOutput,
@@ -18,6 +19,11 @@
   import SelectableRecordButton from "$lib/components/SelectableRecordButton.svelte";
   import SelectionRail from "$lib/components/SelectionRail.svelte";
   import StatusBadge from "$lib/components/StatusBadge.svelte";
+  import {
+    type AuthorityCapabilityDefinition,
+    createsCapabilityRows,
+    givenCapabilityRows,
+  } from "$lib/authority_console";
   import { errorMessage, formatDate } from "$lib/format";
   import { getTrellis } from "$lib/trellis";
 
@@ -27,19 +33,22 @@
   };
   type Activation = AuthDeviceUserAuthoritiesListOutput["entries"][number];
   type Review = AuthDeviceUserAuthoritiesReviewsListOutput["entries"][number];
-  type DeploymentAuthority = { deploymentId: string; version: string; disabled: boolean };
-  type RpcTakeable<T> = { take(): Promise<T> };
+  type AuthorityDetail = { authority: DeploymentAuthority; materializedAuthority: DeploymentAuthorityMaterialization | null; portalRoute: unknown; grantOverrides: unknown[]; capabilityDefinitions?: AuthorityCapabilityDefinition[] };
+  type RpcTakeable<T> = { take(): Promise<T | Result<never, BaseError>> };
   type AuthorityRequest = {
     (method: "Auth.DeploymentAuthority.List", input: { kind: "device"; limit: number; offset: number }): RpcTakeable<{ entries?: DeploymentAuthority[] }>;
+    (method: "Auth.DeploymentAuthority.Get", input: { deploymentId: string }): RpcTakeable<AuthorityDetail>;
+    (method: "Auth.Capabilities.List", input: { limit: number; offset: number }): RpcTakeable<{ entries?: AuthorityCapabilityDefinition[] }>;
   };
-  type Tab = "instances" | "activations" | "reviews";
+  type Tab = "instances" | "activations" | "reviews" | "authority";
   type StatusVariant = "healthy" | "degraded" | "unhealthy" | "offline";
 
   const trellis = getTrellis();
   const authorityRequest = trellis.request.bind(trellis) as AuthorityRequest;
   const understoodMetadataKeys = ["name", "serialNumber", "modelNumber"] as const;
   const understoodMetadataKeySet = new Set<string>(understoodMetadataKeys);
-  const tabs: Tab[] = ["instances", "activations", "reviews"];
+  const tabs: Tab[] = ["instances", "activations", "reviews", "authority"];
+  let authorityDetailRequestToken = 0;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -48,6 +57,8 @@
   let activations = $state.raw<Activation[]>([]);
   let reviews = $state.raw<Review[]>([]);
   let deploymentAuthorities = $state.raw<DeploymentAuthority[]>([]);
+  let selectedAuthorityDetail = $state.raw<AuthorityDetail | null>(null);
+  let capabilityDefinitions = $state.raw<AuthorityCapabilityDefinition[]>([]);
 
   let selectedDeploymentId = $state("");
   let activeTab = $state<Tab>("instances");
@@ -61,7 +72,11 @@
   const selectedActivations = $derived(activations.filter((activation) => activation.deploymentId === selectedDeploymentId));
   const selectedReviews = $derived(reviews.filter((review) => review.deploymentId === selectedDeploymentId));
   const selectedPendingReviews = $derived(selectedReviews.filter((review) => review.state === "pending"));
-  const selectedDeploymentAuthority = $derived(deploymentAuthorities.find((authority) => authority.deploymentId === selectedDeploymentId) ?? null);
+  const selectedDeploymentAuthority = $derived(selectedAuthorityDetail?.authority ?? deploymentAuthorities.find((authority) => authority.deploymentId === selectedDeploymentId) ?? null);
+  const selectedMaterializedAuthority = $derived(selectedAuthorityDetail?.materializedAuthority ?? null);
+  const selectedCapabilityDefinitions = $derived(selectedAuthorityDetail?.capabilityDefinitions ?? capabilityDefinitions);
+  const createsRows = $derived(selectedDeploymentAuthority ? createsCapabilityRows(selectedDeploymentAuthority, selectedCapabilityDefinitions) : []);
+  const givenRows = $derived(selectedDeploymentAuthority ? givenCapabilityRows(selectedDeploymentAuthority, selectedMaterializedAuthority, selectedCapabilityDefinitions) : []);
   const filteredDeployments = $derived.by(() => {
     const term = search.trim().toLowerCase();
     if (!term) return deployments;
@@ -73,15 +88,19 @@
   const activeInstanceCount = $derived(selectedInstances.filter((instance) => instance.state === "activated").length);
   const revokedActivationCount = $derived(selectedActivations.filter((activation) => activation.state === "revoked").length);
 
-  function syncSelectedDeployment(nextDeployments: DeviceDeployment[]) {
-    if (nextDeployments.some((deployment) => deployment.deploymentId === selectedDeploymentId)) return;
-    selectedDeploymentId = nextDeployments[0]?.deploymentId ?? "";
-    selectedReviewId = null;
+  function syncSelectedDeployment(nextDeployments: DeviceDeployment[]): string {
+    const nextDeploymentId = nextDeployments.some((deployment) => deployment.deploymentId === selectedDeploymentId)
+      ? selectedDeploymentId
+      : nextDeployments[0]?.deploymentId ?? "";
+    if (nextDeploymentId !== selectedDeploymentId) selectedReviewId = null;
+    selectedDeploymentId = nextDeploymentId;
+    return nextDeploymentId;
   }
 
   function selectDeployment(deploymentId: string) {
     selectedDeploymentId = deploymentId;
     selectedReviewId = null;
+    void loadAuthorityDetail(deploymentId);
   }
 
   function selectTab(tab: Tab) {
@@ -108,6 +127,17 @@
     if (state === "pending") return "degraded";
     if (state === "rejected") return "unhealthy";
     return "offline";
+  }
+
+  function materializedStatus(status: string): StatusVariant {
+    if (status === "current" || status === "granted") return "healthy";
+    if (status === "pending") return "degraded";
+    if (status === "failed" || status === "not-materialized") return "unhealthy";
+    return "offline";
+  }
+
+  function materializedStatusLabel(status: string): string {
+    return status === "not-materialized" ? "not materialized" : status;
   }
 
   function badgeClassForDeployment(): string {
@@ -158,16 +188,36 @@
     return actor ? `${actor.participantKind}:${actor.identity.provider}:${actor.identity.subject}` : "—";
   }
 
+  async function loadAuthorityDetail(deploymentId: string) {
+    authorityDetailRequestToken += 1;
+    const requestToken = authorityDetailRequestToken;
+    if (!deploymentId) {
+      selectedAuthorityDetail = null;
+      return;
+    }
+    selectedAuthorityDetail = null;
+    try {
+      const response = await authorityRequest("Auth.DeploymentAuthority.Get", { deploymentId }).take();
+      if (requestToken !== authorityDetailRequestToken) return;
+      if (isErr(response)) { error = errorMessage(response); return; }
+      selectedAuthorityDetail = response;
+    } catch (cause) {
+      if (requestToken !== authorityDetailRequestToken) return;
+      error = errorMessage(cause);
+    }
+  }
+
   async function load() {
     loading = true;
     error = null;
     try {
-      const [deploymentsResponse, instancesResponse, activationsResponse, reviewsResponse, authoritiesResponse] = await Promise.all([
+      const [deploymentsResponse, instancesResponse, activationsResponse, reviewsResponse, authoritiesResponse, capabilitiesResponse] = await Promise.all([
         trellis.request("Auth.Deployments.List", { kind: "device", limit: 500, offset: 0 }).take(),
         trellis.request("Auth.Devices.List", { limit: 500, offset: 0 }).take(),
         trellis.request("Auth.DeviceUserAuthorities.List", { limit: 500, offset: 0 }).take(),
         trellis.request("Auth.DeviceUserAuthorities.Reviews.List", { limit: 500, offset: 0 }).take(),
         authorityRequest("Auth.DeploymentAuthority.List", { kind: "device", limit: 500, offset: 0 }).take(),
+        authorityRequest("Auth.Capabilities.List", { limit: 500, offset: 0 }).take(),
       ]);
 
       if (isErr(deploymentsResponse)) { error = errorMessage(deploymentsResponse); return; }
@@ -175,13 +225,16 @@
       if (isErr(activationsResponse)) { error = errorMessage(activationsResponse); return; }
       if (isErr(reviewsResponse)) { error = errorMessage(reviewsResponse); return; }
       if (isErr(authoritiesResponse)) { error = errorMessage(authoritiesResponse); return; }
+      if (isErr(capabilitiesResponse)) { error = errorMessage(capabilitiesResponse); return; }
 
       deployments = (deploymentsResponse.entries ?? []).filter((deployment): deployment is DeviceDeployment => deployment.kind === "device");
       instances = instancesResponse.entries ?? [];
       activations = activationsResponse.entries ?? [];
       reviews = reviewsResponse.entries ?? [];
       deploymentAuthorities = authoritiesResponse.entries ?? [];
-      syncSelectedDeployment(deployments);
+      capabilityDefinitions = capabilitiesResponse.entries ?? [];
+      const nextDeploymentId = syncSelectedDeployment(deployments);
+      await loadAuthorityDetail(nextDeploymentId);
       if (selectedReviewId && !reviews.some((review) => review.reviewId === selectedReviewId)) selectedReviewId = null;
     } catch (cause) {
       error = errorMessage(cause);
@@ -290,6 +343,8 @@
               <span class="badge badge-outline badge-sm">{activeInstanceCount}/{selectedInstances.length} activated instances</span>
               <span class="badge badge-outline badge-sm">{selectedPendingReviews.length} pending review{selectedPendingReviews.length === 1 ? "" : "s"}</span>
               <span class="badge badge-outline badge-sm">authority {selectedDeploymentAuthority?.version ?? "not loaded"}</span>
+              <span class="badge badge-outline badge-sm">{createsRows.length} Creates</span>
+              <span class="badge badge-outline badge-sm">{givenRows.length} Given</span>
               <span class="badge badge-outline badge-sm">{selectedActivations.length} activation{selectedActivations.length === 1 ? "" : "s"}</span>
               <span class="badge badge-outline badge-sm">{revokedActivationCount} revoked</span>
             </div>
@@ -315,6 +370,8 @@
                   </div>
                   <div class="flex flex-wrap gap-1">
                     <span class="badge badge-outline badge-sm trellis-identifier">{selectedDeploymentAuthority.version}</span>
+                    {#if selectedMaterializedAuthority}<StatusBadge label={`materialized ${selectedMaterializedAuthority.status}`} status={materializedStatus(selectedMaterializedAuthority.status)} />{/if}
+                    <button type="button" class="btn btn-ghost btn-xs" onclick={() => selectTab("authority")}>Open authority</button>
                   </div>
                 </div>
               </div>
@@ -459,6 +516,44 @@
                     {/if}
                   </div>
                 </div>
+              {:else if activeTab === "authority"}
+                {#if !selectedDeploymentAuthority}
+                  <EmptyState title="No deployment authority" description="This device deployment does not have accepted authority details yet." />
+                {:else}
+                  <div class="space-y-4">
+                    <div class="flex flex-wrap items-center gap-2 text-sm">
+                      <span class="badge badge-outline badge-sm trellis-identifier">desired {selectedDeploymentAuthority.version}</span>
+                      {#if selectedMaterializedAuthority}
+                        <StatusBadge label={`materialized ${selectedMaterializedAuthority.status}`} status={materializedStatus(selectedMaterializedAuthority.status)} />
+                        <span class="badge badge-outline badge-sm">{selectedMaterializedAuthority.grants.length} materialized grants</span>
+                      {:else}
+                        <StatusBadge label="materialized unknown" status="offline" />
+                      {/if}
+                    </div>
+
+                    <div class="rounded-box border border-base-300 bg-base-100">
+                      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-base-300 px-3 py-2">
+                        <div>
+                          <h3 class="font-medium">Creates</h3>
+                          <p class="text-xs text-base-content/60">Capability definitions this device deployment provides for other participants.</p>
+                        </div>
+                        <span class="badge badge-outline badge-sm">{createsRows.length}</span>
+                      </div>
+                      <DataTable><thead><tr><th>Capability</th><th>Definition</th><th>Source</th><th>Contract</th></tr></thead><tbody>{#each createsRows as row (row.id)}<tr><td><div class="trellis-identifier font-medium">{row.capability}</div>{#if row.consequence}<div class="text-xs text-base-content/60">{row.consequence}</div>{/if}</td><td><div>{row.displayName}</div><div class="text-xs text-base-content/60">{row.description}</div></td><td><span class="badge badge-outline badge-xs">{row.source}</span></td><td><div class="trellis-identifier text-xs">{row.contractId ?? "platform"}</div>{#if row.contractDigest}<div class="trellis-identifier text-xs text-base-content/50">{row.contractDigest}</div>{/if}</td></tr>{:else}<tr><td colspan="4"><EmptyState title="No Creates capabilities" description="No capability definitions for this deployment are available from authority APIs." /></td></tr>{/each}</tbody></DataTable>
+                    </div>
+
+                    <div class="rounded-box border border-base-300 bg-base-100">
+                      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-base-300 px-3 py-2">
+                        <div>
+                          <h3 class="font-medium">Given</h3>
+                          <p class="text-xs text-base-content/60">Capability needs accepted for this device deployment and the matching materialized grants.</p>
+                        </div>
+                        <span class="badge badge-outline badge-sm">{givenRows.length}</span>
+                      </div>
+                      <DataTable><thead><tr><th>Capability</th><th>Need</th><th>Materialized</th><th>Definition</th><th>Contract</th></tr></thead><tbody>{#each givenRows as row (row.id)}<tr><td><div class="trellis-identifier font-medium">{row.capability}</div>{#if row.consequence}<div class="text-xs text-base-content/60">{row.consequence}</div>{/if}</td><td><span class="badge badge-outline badge-xs">{row.availability}</span></td><td><StatusBadge label={materializedStatusLabel(row.materializedStatus)} status={materializedStatus(row.materializedStatus)} />{#if row.materializedGrantCount > 1}<div class="mt-1 text-xs text-base-content/60">{row.materializedGrantCount} grants</div>{/if}</td><td><div>{row.displayName}</div><div class="text-xs text-base-content/60">{row.description}</div><div class="mt-1"><span class="badge badge-outline badge-xs">{row.source}</span></div></td><td><div class="trellis-identifier text-xs">{row.contractId ?? "authority"}</div>{#if row.contractDigest}<div class="trellis-identifier text-xs text-base-content/50">{row.contractDigest}</div>{/if}</td></tr>{:else}<tr><td colspan="5"><EmptyState title="No Given capabilities" description="This deployment authority has no accepted capability needs or materialized capability grants." /></td></tr>{/each}</tbody></DataTable>
+                    </div>
+                  </div>
+                {/if}
               {/if}
             </div>
           </Panel>

@@ -7,13 +7,10 @@ import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 
 import type { ContractRecord } from "../../catalog/schemas.ts";
 import { createTestContracts } from "../../catalog/test_contracts.ts";
-import {
-  getServicePublishSubjectsForContracts,
-  getServiceSubscribeSubjectsForContracts,
-} from "../../catalog/permissions.ts";
 import type {
   AuthorityNeedSet,
   DeploymentAuthority,
+  DeploymentAuthorityMaterialization,
   ImplementationOffer,
 } from "../schemas.ts";
 import { __testing__ } from "./callout.ts";
@@ -193,32 +190,6 @@ function staleDependencyContract(): TrellisContractV1 {
   };
 }
 
-let currentContracts: Array<{ digest: string; contract: TrellisContractV1 }> =
-  [];
-
-function setContracts(
-  contracts: Array<{ digest: string; contract: TrellisContractV1 }>,
-): void {
-  currentContracts = contracts;
-}
-
-function getContracts(): Array<
-  { digest: string; contract: TrellisContractV1 }
-> {
-  return currentContracts;
-}
-
-function getServicePublishSubjects(
-  capabilities: string[],
-  service: Parameters<typeof getServicePublishSubjectsForContracts>[1],
-): string[] {
-  return getServicePublishSubjectsForContracts(
-    capabilities,
-    service,
-    currentContracts,
-  );
-}
-
 const FITTING_SERVICE_NEEDS: AuthorityNeedSet = {
   contracts: [{ contractId: "trellis.worker@v1", required: true }],
   surfaces: [{
@@ -260,10 +231,25 @@ const FITTING_SERVICE_AUTHORITY: DeploymentAuthority = {
   },
 };
 
-const EMPTY_SERVICE_AUTHORITY: DeploymentAuthority = {
-  ...FITTING_SERVICE_AUTHORITY,
-  desiredState: { needs: [], capabilities: [], resources: [], surfaces: [] },
-};
+function materializedServiceAuthority(
+  overrides: Partial<DeploymentAuthorityMaterialization> = {},
+): DeploymentAuthorityMaterialization {
+  return {
+    deploymentId: "worker.default",
+    desiredVersion: FITTING_SERVICE_AUTHORITY.version,
+    status: "current",
+    resourceBindings: [],
+    grants: [{ kind: "capability", capability: "worker.run" }, {
+      kind: "nats",
+      direction: "subscribe",
+      subject: "rpc.v1.Worker.Run",
+      requiredCapabilities: ["worker.run"],
+      grantSource: "owned-surface",
+    }],
+    reconciledAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
 
 function serviceAuthorityWithNeeds(
   needs: AuthorityNeedSet,
@@ -360,7 +346,9 @@ async function serviceDigestCheck(args: {
   knownContracts?: Array<{ digest: string; contract: TrellisContractV1 }>;
   activeContracts?: Array<{ digest: string; contract: TrellisContractV1 }>;
   activeOffer?: boolean;
+  offerStaleAt?: string | null;
   contractCompatibilityMode?: "strict" | "mutable-dev";
+  materializedAuthority?: DeploymentAuthorityMaterialization | null;
 }) {
   const contracts = createTestContracts();
   const validated = await contracts.validateContract(SERVICE_CONTRACT);
@@ -415,7 +403,7 @@ async function serviceDigestCheck(args: {
       firstOfferedAt: "2026-01-01T00:00:00.000Z",
       acceptedAt: "2026-01-01T00:00:00.000Z",
       lastRefreshedAt: "2026-01-01T00:00:00.000Z",
-      staleAt: null,
+      staleAt: args.offerStaleAt ?? null,
       expiresAt: null,
     }]
     : [];
@@ -449,7 +437,7 @@ async function serviceDigestCheck(args: {
             requested.has(offer.contractDigest) &&
             offer.status === "accepted" &&
             offer.acceptedAt !== null &&
-            offer.staleAt === null &&
+            (offer.staleAt === null || offer.staleAt > now) &&
             (offer.expiresAt === null || offer.expiresAt > now)
           ),
         );
@@ -471,6 +459,18 @@ async function serviceDigestCheck(args: {
             ? FITTING_SERVICE_AUTHORITY
             : args.authority ?? undefined,
         ),
+    },
+    materializedAuthorityStorage: {
+      get: () =>
+        Promise.resolve(
+          args.materializedAuthority === undefined
+            ? materializedServiceAuthority({
+              desiredVersion: (args.authority ?? FITTING_SERVICE_AUTHORITY)
+                .version,
+            })
+            : args.materializedAuthority ?? undefined,
+        ),
+      listByDeployment: () => Promise.resolve([]),
     },
     now: new Date("2026-01-01T00:00:10.000Z"),
   };
@@ -719,219 +719,6 @@ Deno.test("auth callout ignores stale incompatible dependency manifests when act
   assertEquals(result.ok, true);
 });
 
-Deno.test("service runtime permission dependencies ignore stale incompatible known manifests", async () => {
-  const contracts = createTestContracts();
-  const staleDependency = await contracts.validateContract(
-    staleDependencyContract(),
-  );
-  const dependency = await contracts.validateContract(DEPENDENCY_CONTRACT);
-  const service = await contracts.validateContract(
-    serviceUsingDependencyContract(),
-  );
-  contracts.activateTestContract({
-    digest: dependency.digest,
-    contract: dependency.contract,
-  });
-  contracts.addKnownTestContract({
-    digest: staleDependency.digest,
-    contract: staleDependency.contract,
-  });
-
-  const entries = await __testing__.withKnownDependencyEntries(contracts, [
-    ...(await contracts.getActiveEntries()),
-    { digest: service.digest, contract: service.contract },
-  ]);
-  assertEquals(entries.ok, true);
-  if (!entries.ok) return;
-  const dependencyNeeds: AuthorityNeedSet = {
-    contracts: [{ contractId: DEPENDENCY_CONTRACT.id, required: true }],
-    surfaces: [{
-      contractId: DEPENDENCY_CONTRACT.id,
-      kind: "rpc",
-      name: "Dependency.Read",
-      action: "call",
-      required: true,
-    }],
-    capabilities: ["dependency.read"],
-    resources: [],
-  };
-
-  const subjects = getServicePublishSubjectsForContracts(
-    ["service", "dependency.read", "dependency.legacy"],
-    {
-      sessionKey: "service-key",
-      contractDigest: service.digest,
-      authorityNeeds: dependencyNeeds,
-    },
-    entries.value,
-  );
-
-  assertEquals(subjects.includes("rpc.v1.Dependency.Read"), true);
-  assertEquals(subjects.includes("rpc.v1.Dependency.LegacyRead"), false);
-});
-
-Deno.test("service runtime permissions include authority-granted optional uses", async () => {
-  const contracts = createTestContracts();
-  const dependency = await contracts.validateContract(DEPENDENCY_CONTRACT);
-  const service = await contracts.validateContract(
-    serviceUsingOptionalDependencyContract(),
-  );
-  contracts.addKnownTestContract({
-    digest: service.digest,
-    contract: service.contract,
-  });
-  contracts.addKnownTestContract({
-    digest: dependency.digest,
-    contract: dependency.contract,
-  });
-  const authorityNeeds: AuthorityNeedSet = {
-    contracts: [
-      { contractId: SERVICE_CONTRACT.id, required: true },
-      { contractId: DEPENDENCY_CONTRACT.id, required: false },
-    ],
-    surfaces: [{
-      contractId: DEPENDENCY_CONTRACT.id,
-      kind: "rpc",
-      name: "Dependency.Read",
-      action: "call",
-      required: false,
-    }],
-    capabilities: [],
-    resources: [],
-  };
-
-  const entries = await __testing__.serviceContractEntriesForPermissions({
-    activeContractEntries: [],
-    contracts,
-    contractDigest: service.digest,
-    authorityNeeds,
-  });
-  assertEquals(entries.ok, true);
-  if (!entries.ok) return;
-
-  const subjects = getServicePublishSubjectsForContracts(
-    ["service", "dependency.read"],
-    {
-      sessionKey: "service-key",
-      contractDigest: service.digest,
-      authorityNeeds,
-    },
-    entries.value,
-  );
-
-  assertEquals(subjects.includes("rpc.v1.Dependency.Read"), true);
-});
-
-Deno.test("service runtime permissions include known inactive required event uses", async () => {
-  const contracts = createTestContracts();
-  const dependency = await contracts.validateContract(
-    dependencyWithEventContract(),
-  );
-  const service = await contracts.validateContract(
-    serviceSubscribingToDependencyEventContract(),
-  );
-  contracts.addKnownTestContract({
-    digest: service.digest,
-    contract: service.contract,
-  });
-  contracts.addKnownTestContract({
-    digest: dependency.digest,
-    contract: dependency.contract,
-  });
-  const authorityNeeds: AuthorityNeedSet = {
-    contracts: [
-      { contractId: SERVICE_CONTRACT.id, required: true },
-      { contractId: DEPENDENCY_CONTRACT.id, required: true },
-    ],
-    surfaces: [{
-      contractId: DEPENDENCY_CONTRACT.id,
-      kind: "event",
-      name: "Dependency.Changed",
-      action: "subscribe",
-      required: true,
-    }],
-    capabilities: ["dependency.events"],
-    resources: [],
-  };
-
-  const entries = await __testing__.serviceContractEntriesForPermissions({
-    activeContractEntries: [],
-    contracts,
-    contractDigest: service.digest,
-    authorityNeeds,
-  });
-  assertEquals(entries.ok, true);
-  if (!entries.ok) return;
-
-  const serviceDescriptor = {
-    sessionKey: "service-key",
-    contractDigest: service.digest,
-    authorityNeeds,
-  };
-  const publishSubjects = getServicePublishSubjectsForContracts(
-    ["service", "dependency.events"],
-    serviceDescriptor,
-    entries.value,
-  );
-  const subscribeSubjects = getServiceSubscribeSubjectsForContracts(
-    ["service", "dependency.events"],
-    serviceDescriptor,
-    entries.value,
-  );
-
-  assertEquals(
-    subscribeSubjects.includes("events.v1.Dependency.Changed"),
-    true,
-  );
-  assertEquals(publishSubjects.includes("$JS.API.INFO"), true);
-  assertEquals(
-    publishSubjects.includes("$JS.API.CONSUMER.DURABLE.CREATE.trellis.>"),
-    false,
-  );
-  assertEquals(
-    publishSubjects.includes("$JS.API.CONSUMER.INFO.trellis.>"),
-    false,
-  );
-  assertEquals(
-    publishSubjects.includes("$JS.API.CONSUMER.MSG.NEXT.trellis.>"),
-    false,
-  );
-  assertEquals(publishSubjects.includes("$JS.ACK.>"), false);
-});
-
-Deno.test("service runtime permissions ignore optional uses without granted surfaces", async () => {
-  const contracts = createTestContracts();
-  const service = await contracts.validateContract(
-    serviceUsingOptionalDependencyContract(),
-  );
-  contracts.addKnownTestContract({
-    digest: service.digest,
-    contract: service.contract,
-  });
-
-  const entries = await __testing__.serviceContractEntriesForPermissions({
-    activeContractEntries: [],
-    contracts,
-    contractDigest: service.digest,
-    authorityNeeds: {
-      contracts: [
-        { contractId: SERVICE_CONTRACT.id, required: true },
-        { contractId: DEPENDENCY_CONTRACT.id, required: false },
-      ],
-      surfaces: [],
-      capabilities: [],
-      resources: [],
-    },
-  });
-
-  assertEquals(entries.ok, true);
-  if (!entries.ok) return;
-  assertEquals(
-    entries.value.some((entry) => entry.contract.id === DEPENDENCY_CONTRACT.id),
-    false,
-  );
-});
-
 Deno.test("callout permission helpers use authority capabilities and deployment bindings", () => {
   assertEquals(
     __testing__.serviceCapabilitiesForPermissions({
@@ -975,74 +762,24 @@ Deno.test("callout permission helpers use authority capabilities and deployment 
       },
     },
   );
-});
-
-Deno.test("service runtime permissions do not promote ungranted optional event uses", async () => {
-  const contracts = createTestContracts();
-  const dependency = await contracts.validateContract(
-    dependencyWithEventContract(),
+  const operationStorePublish = __testing__
+    .serviceOperationStorePublishSubjects(
+      "abcdefghijklmnop1234",
+      ["service"],
+    );
+  assertEquals(
+    operationStorePublish.includes(
+      "$JS.API.STREAM.CREATE.KV_trellis_operations_abcdefghijklmnop",
+    ),
+    true,
   );
-  const service = await contracts.validateContract(
-    serviceUsingOptionalDependencyContractWithEvent(),
+  assertEquals(
+    __testing__.serviceOperationStorePublishSubjects(
+      "abcdefghijklmnop1234",
+      [],
+    ),
+    [],
   );
-  contracts.addKnownTestContract({
-    digest: service.digest,
-    contract: service.contract,
-  });
-  contracts.addKnownTestContract({
-    digest: dependency.digest,
-    contract: dependency.contract,
-  });
-  const authorityNeeds: AuthorityNeedSet = {
-    contracts: [
-      { contractId: SERVICE_CONTRACT.id, required: true },
-      { contractId: DEPENDENCY_CONTRACT.id, required: false },
-    ],
-    surfaces: [{
-      contractId: DEPENDENCY_CONTRACT.id,
-      kind: "rpc",
-      name: "Dependency.Read",
-      action: "call",
-      required: false,
-    }],
-    capabilities: [],
-    resources: [],
-  };
-
-  const entries = await __testing__.serviceContractEntriesForPermissions({
-    activeContractEntries: [],
-    contracts,
-    contractDigest: service.digest,
-    authorityNeeds,
-  });
-  assertEquals(entries.ok, true);
-  if (!entries.ok) return;
-
-  const subjects = getServicePublishSubjectsForContracts(
-    ["service", "dependency.read", "dependency.events"],
-    {
-      sessionKey: "service-key",
-      contractDigest: service.digest,
-      authorityNeeds,
-    },
-    entries.value,
-  );
-
-  assertEquals(subjects.includes("rpc.v1.Dependency.Read"), true);
-  assertEquals(subjects.includes("$JS.API.CONSUMER.CREATE.trellis"), false);
-});
-
-Deno.test("service runtime permission dependency misses deny cleanly", async () => {
-  const contracts = createTestContracts();
-  const service = await contracts.validateContract(
-    serviceUsingDependencyContract(),
-  );
-
-  const entries = await __testing__.withKnownDependencyEntries(contracts, [
-    { digest: service.digest, contract: service.contract },
-  ]);
-
-  assertEquals(entries, { ok: false, denial: "insufficient_permissions" });
 });
 
 Deno.test("auth callout rejects service reconnect when global storage misses even if an offer exists", async () => {
@@ -1053,7 +790,24 @@ Deno.test("auth callout rejects service reconnect when global storage misses eve
   assertEquals(result, { ok: false, denial: "contract_changed" });
 });
 
-Deno.test("auth callout rejects service reconnect when deployment authority is missing, disabled, or does not fit", async () => {
+Deno.test("auth callout accepts service reconnect during offer stale grace window", async () => {
+  const validated = await createTestContracts().validateContract(
+    SERVICE_CONTRACT,
+  );
+  const result = await serviceDigestCheck({
+    offerStaleAt: "2026-01-01T00:05:00.000Z",
+  });
+
+  assertEquals(result, {
+    ok: true,
+    value: {
+      contractId: SERVICE_CONTRACT.id,
+      contractDigest: validated.digest,
+    },
+  });
+});
+
+Deno.test("auth callout rejects service reconnect when deployment authority or current materialization is missing", async () => {
   assertEquals(
     await serviceDigestCheck({ authority: null }),
     { ok: false, denial: "service_authority_miss" },
@@ -1065,8 +819,67 @@ Deno.test("auth callout rejects service reconnect when deployment authority is m
     { ok: false, denial: "service_authority_miss" },
   );
   assertEquals(
-    await serviceDigestCheck({ authority: EMPTY_SERVICE_AUTHORITY }),
+    await serviceDigestCheck({ materializedAuthority: null }),
     { ok: false, denial: "service_authority_miss" },
+  );
+  assertEquals(
+    await serviceDigestCheck({
+      materializedAuthority: materializedServiceAuthority({
+        status: "pending",
+      }),
+    }),
+    { ok: false, denial: "service_authority_miss" },
+  );
+});
+
+Deno.test("service runtime permissions use materialized nats grants instead of broad contract-derived subjects", () => {
+  const materializedAuthority = materializedServiceAuthority({
+    grants: [{ kind: "capability", capability: "worker.run" }, {
+      kind: "nats",
+      direction: "subscribe",
+      subject: "rpc.v1.Worker.Run",
+      requiredCapabilities: ["worker.run"],
+      grantSource: "owned-surface",
+    }],
+  });
+  const capabilities = __testing__.materializedCapabilitiesForPermissions(
+    materializedAuthority,
+    ["service"],
+  );
+
+  assertEquals(capabilities, ["service", "worker.run"]);
+  assertEquals(
+    __testing__.materializedNatsSubjectsForPermissions({
+      materializedAuthority,
+      direction: "subscribe",
+      capabilities,
+    }),
+    ["rpc.v1.Worker.Run"],
+  );
+  assertEquals(
+    __testing__.materializedNatsSubjectsForPermissions({
+      materializedAuthority: materializedServiceAuthority({
+        grants: [{
+          kind: "nats",
+          direction: "subscribe",
+          subject: "transfer.v1.upload.{serviceSessionPrefix}.*",
+          requiredCapabilities: [],
+          grantSource: "transfer",
+        }],
+      }),
+      direction: "subscribe",
+      capabilities,
+      serviceSessionPrefix: "session-prefix-1",
+    }),
+    ["transfer.v1.upload.session-prefix-1.*"],
+  );
+  assertEquals(
+    __testing__.materializedNatsSubjectsForPermissions({
+      materializedAuthority,
+      direction: "publish",
+      capabilities: [...capabilities, "worker.extra"],
+    }).includes("rpc.v1.Worker.Extra"),
+    false,
   );
 });
 
@@ -1132,99 +945,4 @@ Deno.test("auth callout refreshes existing service session contract metadata", (
   assertEquals(session.contractId, "trellis.worker@v1");
   assertEquals(session.contractDigest, "digest-current");
   assertEquals(session.lastAuth, now);
-});
-
-Deno.test("service runtime permissions gate optional uses by deployment authority", () => {
-  const originalContracts = getContracts();
-  const workerContract: TrellisContractV1 = {
-    ...SERVICE_CONTRACT,
-    uses: {
-      required: {
-        auth: {
-          contract: "trellis.auth@v1",
-          rpc: { call: ["Auth.Sessions.Me"] },
-        },
-      },
-      optional: {
-        billing: {
-          contract: "billing@v1",
-          operations: { call: ["Billing.Refund"] },
-        },
-      },
-    },
-  };
-  try {
-    setContracts([
-      { digest: "worker-digest", contract: workerContract },
-      {
-        digest: "auth-digest",
-        contract: {
-          format: "trellis.contract.v1",
-          id: "trellis.auth@v1",
-          displayName: "Auth",
-          description: "Auth API",
-          kind: "service",
-          schemas: { Empty: { type: "object" } },
-          rpc: {
-            "Auth.Sessions.Me": {
-              version: "v1",
-              subject: "rpc.v1.Auth.Sessions.Me",
-              input: { schema: "Empty" },
-              output: { schema: "Empty" },
-              capabilities: { call: ["auth.me"] },
-            },
-          },
-        },
-      },
-      {
-        digest: "billing-digest",
-        contract: {
-          format: "trellis.contract.v1",
-          id: "billing@v1",
-          displayName: "Billing",
-          description: "Billing API",
-          kind: "service",
-          schemas: { Empty: { type: "object" } },
-          operations: {
-            "Billing.Refund": {
-              version: "v1",
-              subject: "operations.v1.Billing.Refund",
-              input: { schema: "Empty" },
-              output: { schema: "Empty" },
-              capabilities: { call: ["billing.refund"] },
-            },
-          },
-        },
-      },
-    ]);
-
-    const authorityNeeds: AuthorityNeedSet = {
-      contracts: [{ contractId: "trellis.auth@v1", required: true }],
-      surfaces: [{
-        contractId: "trellis.auth@v1",
-        kind: "rpc",
-        name: "Auth.Sessions.Me",
-        action: "call",
-        required: true,
-      }],
-      capabilities: ["auth.me"],
-      resources: [],
-    };
-    const publishSubjects = getServicePublishSubjects(
-      ["service", "auth.me", "billing.refund"],
-      {
-        sessionKey: "service-key",
-        contractDigest: "worker-digest",
-        authorityNeeds,
-      },
-    );
-
-    assertEquals(publishSubjects.includes("rpc.v1.Auth.Sessions.Me"), true);
-    assertEquals(
-      publishSubjects.includes("operations.v1.Billing.Refund"),
-      false,
-    );
-  } finally {
-    setContracts(originalContracts);
-  }
 });

@@ -2,14 +2,17 @@ import { deepEqual, equal } from "node:assert/strict";
 
 import type {
   DeploymentAuthority,
+  DeploymentAuthorityMaterialization,
   DeploymentAuthorityPlan,
 } from "@qlever-llc/trellis/auth";
 import {
+  type AuthorityCapabilityDefinition,
   authorityCounts,
   authorityPlanRows,
   AuthoritySelectionGuard,
   chooseSelectedAuthorityPlan,
   chooseSelectedDeployment,
+  createsCapabilityRows,
   deltaCapabilityRows,
   deltaContractRows,
   deltaResourceRows,
@@ -17,6 +20,7 @@ import {
   deploymentAuthorityRows,
   deviceRuntimeDeployments,
   formatBindingTarget,
+  givenCapabilityRows,
   livenessRows,
   serviceRuntimeDeployments,
 } from "./authority_console.ts";
@@ -191,6 +195,60 @@ function implementationOffer(
   };
 }
 
+function materializedAuthority(
+  overrides: Partial<DeploymentAuthorityMaterialization> = {},
+): DeploymentAuthorityMaterialization {
+  return {
+    deploymentId: "billing.default",
+    desiredVersion: "v1",
+    status: "current",
+    resourceBindings: [],
+    grants: [{ kind: "capability", capability: "billing.read" }],
+    reconciledAt: "2026-05-07T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+const capabilityDefinitions: AuthorityCapabilityDefinition[] = [{
+  deploymentId: "billing.default",
+  key: "billing.create-invoices",
+  displayName: "Create invoices",
+  description: "Allows other participants to request invoice creation.",
+  consequence: "Can create billable records.",
+  source: "contract",
+  contractId: "acme.billing@v1",
+  contractDigest: "digest-1",
+  contractDisplayName: "Acme Billing",
+  direction: "creates",
+}, {
+  deploymentId: "billing.default",
+  key: "billing.read",
+  displayName: "Read billing data",
+  description: "Allows this deployment to read billing data.",
+  source: "contract",
+  contractId: "acme.billing@v1",
+  contractDigest: "digest-1",
+  contractDisplayName: "Acme Billing",
+  direction: "given",
+}, {
+  deploymentId: "billing.default",
+  key: "billing.events",
+  displayName: "Observe billing events",
+  description: "Allows this deployment to subscribe to billing events.",
+  source: "contract",
+  contractId: "acme.billing@v1",
+  contractDigest: "digest-1",
+  contractDisplayName: "Acme Billing",
+  direction: "given",
+}, {
+  deploymentId: "orders.default",
+  key: "orders.create",
+  displayName: "Create orders",
+  description: "Out-of-scope deployment definition.",
+  source: "contract",
+  direction: "creates",
+}];
+
 Deno.test("deploymentAuthorityRows summarizes desired authority", () => {
   deepEqual(deploymentAuthorityRows([authority()]), [{
     deploymentId: "billing.default",
@@ -280,6 +338,89 @@ Deno.test("delta display helpers preserve exact authority needs", () => {
     capability: "billing.events",
     availability: "optional",
   }]);
+});
+
+Deno.test("createsCapabilityRows returns deployment-owned Creates definitions", () => {
+  deepEqual(createsCapabilityRows(authority(), capabilityDefinitions), [{
+    id:
+      "billing.default:creates:billing.create-invoices:acme.billing@v1:digest-1",
+    capability: "billing.create-invoices",
+    displayName: "Create invoices",
+    description: "Allows other participants to request invoice creation.",
+    consequence: "Can create billable records.",
+    source: "contract",
+    contractId: "acme.billing@v1",
+    contractDigest: "digest-1",
+    contractDisplayName: "Acme Billing",
+  }]);
+});
+
+Deno.test("givenCapabilityRows combines Given needs and materialized grants", () => {
+  deepEqual(
+    givenCapabilityRows(
+      authority(),
+      materializedAuthority({
+        grants: [
+          { kind: "capability", capability: "billing.read" },
+          { kind: "capability", capability: "billing.admin" },
+        ],
+      }),
+      capabilityDefinitions,
+    ),
+    [{
+      id: "billing.admin:materialized-only",
+      capability: "billing.admin",
+      displayName: "billing.admin",
+      description: "Accepted deployment authority capability.",
+      consequence: null,
+      availability: "materialized-only",
+      materializedStatus: "granted",
+      materializedGrantCount: 1,
+      source: "authority",
+      contractId: null,
+      contractDigest: null,
+      contractDisplayName: null,
+    }, {
+      id: "billing.events:optional",
+      capability: "billing.events",
+      displayName: "Observe billing events",
+      description: "Allows this deployment to subscribe to billing events.",
+      consequence: null,
+      availability: "optional",
+      materializedStatus: "not-materialized",
+      materializedGrantCount: 0,
+      source: "contract",
+      contractId: "acme.billing@v1",
+      contractDigest: "digest-1",
+      contractDisplayName: "Acme Billing",
+    }, {
+      id: "billing.read:required",
+      capability: "billing.read",
+      displayName: "Read billing data",
+      description: "Allows this deployment to read billing data.",
+      consequence: null,
+      availability: "required",
+      materializedStatus: "granted",
+      materializedGrantCount: 1,
+      source: "contract",
+      contractId: "acme.billing@v1",
+      contractDigest: "digest-1",
+      contractDisplayName: "Acme Billing",
+    }],
+  );
+});
+
+Deno.test("givenCapabilityRows reports unknown materialization without details", () => {
+  deepEqual(
+    givenCapabilityRows(authority(), null, []).map((row) => ({
+      capability: row.capability,
+      materializedStatus: row.materializedStatus,
+    })),
+    [{ capability: "billing.events", materializedStatus: "unknown" }, {
+      capability: "billing.read",
+      materializedStatus: "unknown",
+    }],
+  );
 });
 
 Deno.test("livenessRows reports no live implementer without runtime data", () => {

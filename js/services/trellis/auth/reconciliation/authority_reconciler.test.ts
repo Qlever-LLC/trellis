@@ -191,7 +191,6 @@ Deno.test("authority reconciler materializes desired authority", async () => {
       name: "Svc.Call",
       action: "call",
     },
-    { kind: "resource", resourceKind: "kv", alias: "cache" },
   ]);
   assertEquals(materialized.get("svc-a"), result.materializedAuthority);
   assertEquals(statuses.map((status) => status.state), [
@@ -199,6 +198,60 @@ Deno.test("authority reconciler materializes desired authority", async () => {
     "succeeded",
   ]);
   assertEquals(events.map((event) => event.state), ["running", "succeeded"]);
+});
+
+Deno.test("authority reconciler appends materialized nats grants", async () => {
+  const { reconciler } = harness({
+    materializer: { materialize: async () => [binding()] },
+  });
+  const withNats = createAuthorityReconciler({
+    deploymentAuthorityStorage: {
+      get: async () => authority(),
+      listEnabled: async () => [authority()],
+    },
+    materializedAuthorityStorage: {
+      get: async () => undefined,
+      put: async () => {},
+    },
+    authorityReconciliationStorage: {
+      getStatus: async () => undefined,
+      putStatus: async () => {},
+      appendEvent: async () => {},
+    },
+    resourceMaterializer: { materialize: async () => [binding()] },
+    natsGrantMaterializer: {
+      materialize: async () => [{
+        kind: "nats",
+        direction: "subscribe",
+        subject: "rpc.v1.Svc.Call",
+        surface: {
+          contractId: "svc@v1",
+          kind: "rpc",
+          name: "Svc.Call",
+          action: "call",
+        },
+        requiredCapabilities: [],
+        grantSource: "owned-surface",
+      }],
+    },
+  });
+
+  await reconciler.reconcileDeployment("svc-a");
+  const result = await withNats.reconcileDeployment("svc-a");
+
+  assertEquals(result.materializedAuthority.grants.at(-1), {
+    kind: "nats",
+    direction: "subscribe",
+    subject: "rpc.v1.Svc.Call",
+    surface: {
+      contractId: "svc@v1",
+      kind: "rpc",
+      name: "Svc.Call",
+      action: "call",
+    },
+    requiredCapabilities: [],
+    grantSource: "owned-surface",
+  });
 });
 
 Deno.test("authority reconciler reconciles all enabled authorities", async () => {

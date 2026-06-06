@@ -8,6 +8,40 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.8] - 2026-06-06
+
+### Added
+
+- Added authority-owned capability definition storage and API projections so
+  accepted deployment authority, not the active catalog, owns runtime capability
+  metadata for admin capability listing and capability-group validation.
+- Added typed materialized NATS grants for runtime authority, including service
+  transfer endpoints, Jobs runtime internals, platform service calls, and
+  owned/used surface grants.
+- Added Console Creates/Given authority views for service and device deployment
+  capabilities.
+
+### Changed
+
+- Runtime authorization now issues service, device, and delegated user NATS
+  permissions from accepted materialized authority instead of deriving allow
+  lists from active or known contract manifests at reconnect time.
+- Service authority planning now keeps requested needs separate from provided
+  surfaces, records accepted offers before materialization refreshes, and uses
+  latest accepted implementation offers for same-contract digest updates.
+- Updated runtime-authority, capability, and auth API design docs to describe
+  contracts as planning inputs and materialized authority as the runtime source
+  of truth.
+
+### Fixed
+
+- Fixed service reconnects during accepted-offer stale grace windows and
+  restored service operation-store KV grants for operation runtimes.
+- Fixed user reauth races where stale same-session-key reconnects could
+  overwrite a newer successful bind to another approved contract digest.
+- Fixed materialized authority reconstruction so provider-owned surfaces remain
+  provided surfaces instead of being copied into requested needs.
+
 ## [0.10.7] - 2026-06-06
 
 ### Added

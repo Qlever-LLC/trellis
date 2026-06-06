@@ -28,6 +28,7 @@ import type {
   ListPage,
   SqlAccountFlowRepository,
   SqlCapabilityGroupRepository,
+  SqlDeploymentAuthorityCapabilityDefinitionRepository,
   SqlLocalCredentialRepository,
   SqlSessionRepository,
   SqlUserAccountRepository,
@@ -45,7 +46,8 @@ import type { Config } from "../../config.ts";
 export async function registerApprovalAndUserRpcs(deps: {
   trellis: RpcRegistrar;
   config: Config;
-  contracts: Pick<AuthContractsRuntime, "getActiveCapabilityDefinitions">;
+  capabilityDefinitionStorage:
+    SqlDeploymentAuthorityCapabilityDefinitionRepository;
   connectionsKV: RuntimeKV<Connection>;
   logger: AuthLogger;
   natsSystem: AuthRuntimeDeps["natsSystem"];
@@ -129,7 +131,10 @@ export async function registerApprovalAndUserRpcs(deps: {
     createAuthUsersCreateHandler(deps.accountStorage, deps.logger),
   );
   await deps.trellis.handle.rpc.auth.capabilitiesList(
-    createAuthCapabilitiesListHandler(deps.contracts, deps.logger),
+    createAuthCapabilitiesListHandler(
+      deps.capabilityDefinitionStorage,
+      deps.logger,
+    ),
   );
   await deps.trellis.handle.rpc.auth.capabilityGroupsList(
     createAuthCapabilityGroupsListHandler(
@@ -146,7 +151,7 @@ export async function registerApprovalAndUserRpcs(deps: {
   await deps.trellis.handle.rpc.auth.capabilityGroupsPut(
     createAuthCapabilityGroupsPutHandler(
       deps.capabilityGroupStorage,
-      deps.contracts,
+      deps.capabilityDefinitionStorage,
       deps.logger,
     ),
   );

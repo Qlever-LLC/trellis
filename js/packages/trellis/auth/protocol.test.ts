@@ -172,7 +172,7 @@ const deploymentAuthorityMaterialization = {
   desiredVersion: deploymentAuthority.version,
   status: "current" as const,
   resourceBindings: [deploymentResourceBinding],
-  grants: [{ capability: "graph.query" }],
+  grants: [{ kind: "capability" as const, capability: "graph.query" }],
   reconciledAt: now,
 };
 const deploymentAuthorityReconciliation = {

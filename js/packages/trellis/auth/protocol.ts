@@ -173,6 +173,14 @@ export type DeploymentAuthorityCapability = StaticDecode<
   typeof DeploymentAuthorityCapabilitySchema
 >;
 
+export const DeploymentAuthorityCapabilityDirectionSchema = Type.Union([
+  Type.Literal("creates"),
+  Type.Literal("given"),
+]);
+export type DeploymentAuthorityCapabilityDirection = StaticDecode<
+  typeof DeploymentAuthorityCapabilityDirectionSchema
+>;
+
 export const DeploymentAuthorityResourceSchema = Type.Object({
   kind: DeploymentAuthorityResourceKindSchema,
   alias: Type.String({ minLength: 1 }),
@@ -254,6 +262,50 @@ export type DeploymentResourceBinding = StaticDecode<
   typeof DeploymentResourceBindingSchema
 >;
 
+export const MaterializedAuthoritySurfaceGrantSchema = Type.Object({
+  kind: Type.Literal("surface"),
+  contractId: Type.String({ minLength: 1 }),
+  surfaceKind: DeploymentAuthoritySurfaceKindSchema,
+  name: Type.String({ minLength: 1 }),
+  action: Type.Optional(DeploymentAuthoritySurfaceActionSchema),
+});
+
+export const MaterializedAuthorityCapabilityGrantSchema = Type.Object({
+  kind: Type.Literal("capability"),
+  capability: DeploymentAuthorityCapabilitySchema,
+});
+
+export const MaterializedAuthorityNatsGrantSourceSchema = Type.Union([
+  Type.Literal("owned-surface"),
+  Type.Literal("used-surface"),
+  Type.Literal("resource-binding"),
+  Type.Literal("platform-service"),
+  Type.Literal("transfer"),
+]);
+
+export const MaterializedAuthorityNatsGrantSchema = Type.Object({
+  kind: Type.Literal("nats"),
+  direction: Type.Union([Type.Literal("publish"), Type.Literal("subscribe")]),
+  subject: Type.String({ minLength: 1 }),
+  surface: Type.Optional(Type.Object({
+    contractId: Type.String({ minLength: 1 }),
+    kind: DeploymentAuthoritySurfaceKindSchema,
+    name: Type.String({ minLength: 1 }),
+    action: Type.Optional(DeploymentAuthoritySurfaceActionSchema),
+  })),
+  requiredCapabilities: Type.Array(Type.String({ minLength: 1 })),
+  grantSource: MaterializedAuthorityNatsGrantSourceSchema,
+});
+
+export const MaterializedAuthorityGrantSchema = Type.Union([
+  MaterializedAuthorityCapabilityGrantSchema,
+  MaterializedAuthoritySurfaceGrantSchema,
+  MaterializedAuthorityNatsGrantSchema,
+]);
+export type MaterializedAuthorityGrant = StaticDecode<
+  typeof MaterializedAuthorityGrantSchema
+>;
+
 export const DeploymentAuthorityMaterializationSchema = Type.Object({
   deploymentId: Type.String({ minLength: 1 }),
   desiredVersion: Type.String({ minLength: 1 }),
@@ -263,7 +315,7 @@ export const DeploymentAuthorityMaterializationSchema = Type.Object({
     Type.Literal("failed"),
   ]),
   resourceBindings: Type.Array(DeploymentResourceBindingSchema),
-  grants: Type.Array(OpenObjectSchema),
+  grants: Type.Array(MaterializedAuthorityGrantSchema),
   reconciledAt: Type.Union([IsoDateStringSchema, Type.Null()]),
   error: Type.Optional(Type.String({ minLength: 1 })),
 });
@@ -1615,6 +1667,7 @@ export const AuthUsersAccountFlowCreateResponseSchema = Type.Object({
 });
 
 export const CapabilityDefinitionSchema = Type.Object({
+  deploymentId: Type.Optional(Type.String({ minLength: 1 })),
   key: Type.String({ minLength: 1 }),
   displayName: Type.String({ minLength: 1 }),
   description: Type.String({ minLength: 1 }),
@@ -1623,6 +1676,7 @@ export const CapabilityDefinitionSchema = Type.Object({
   contractId: Type.Optional(Type.String({ minLength: 1 })),
   contractDigest: Type.Optional(DigestSchema),
   contractDisplayName: Type.Optional(Type.String({ minLength: 1 })),
+  direction: Type.Optional(DeploymentAuthorityCapabilityDirectionSchema),
 });
 
 export const AuthCapabilitiesListSchema = Type.Object({

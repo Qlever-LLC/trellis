@@ -278,10 +278,10 @@ function materializedAuthorityNeeds(
   return mergeAuthorityNeeds({
     contracts: [],
     surfaces: materialized.grants.flatMap((grant) => {
+      if (grant.kind !== "surface") return [];
       const kind = authoritySurfaceKind(grant.surfaceKind);
       const action = authoritySurfaceAction(grant.action);
-      return grant.kind === "surface" && typeof grant.contractId === "string" &&
-          kind !== undefined && typeof grant.name === "string" &&
+      return kind !== undefined &&
           (grant.action === undefined || action !== undefined)
         ? [{
           contractId: grant.contractId,
@@ -297,12 +297,11 @@ function materializedAuthorityNeeds(
         ? [grant.capability]
         : []
     ),
-    resources: materialized.grants.flatMap((grant) => {
-      const kind = authorityResourceKind(grant.resourceKind);
-      return grant.kind === "resource" && kind !== undefined &&
-          typeof grant.alias === "string"
-        ? [{ kind, alias: grant.alias, required: true }]
-        : [];
+    resources: materialized.resourceBindings.flatMap((binding) => {
+      const kind = authorityResourceKind(binding.kind);
+      return kind === undefined
+        ? []
+        : [{ kind, alias: binding.alias, required: true }];
     }),
   });
 }

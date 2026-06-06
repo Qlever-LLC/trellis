@@ -37,6 +37,7 @@ import type {
 import type {
   BoundedListQuery,
   ListPage,
+  SqlDeploymentAuthorityCapabilityDefinitionRepository,
   SqlDeploymentAuthorityPlanRepository,
   SqlDeploymentAuthorityRepository,
   SqlDeploymentPortalRouteRepository,
@@ -163,6 +164,8 @@ export async function registerServiceAdminRpcs(deps: {
   sessionStorage: SqlSessionRepository;
   contractStorage: SqlContractStorageRepository;
   deploymentAuthorityStorage: SqlDeploymentAuthorityRepository;
+  capabilityDefinitionStorage:
+    SqlDeploymentAuthorityCapabilityDefinitionRepository;
   deploymentAuthorityPlanStorage: SqlDeploymentAuthorityPlanRepository;
   materializedAuthorityStorage: SqlMaterializedAuthorityRepository;
   implementationOfferStorage: SqlImplementationOfferRepository;
@@ -280,7 +283,19 @@ export async function registerServiceAdminRpcs(deps: {
     const requested = mergeNeeds(
       analysis.required,
       analysis.optional,
+      {
+        ...EMPTY_AUTHORITY_NEEDS,
+        contracts: analysis.contributedAvailability.contracts,
+      },
+    );
+    const providedSurfaces = authoritySurfaces(
       analysis.contributedAvailability,
+    );
+    const capabilityDefinitions = analysis.capabilityDefinitions.map(
+      (definition) => ({
+        ...definition,
+        deploymentId: args.input.deploymentId,
+      }),
     );
     const detail = current.take();
     if (isErr(detail)) return detail;
@@ -314,10 +329,11 @@ export async function registerServiceAdminRpcs(deps: {
         contractDigest: args.input.expectedDigest,
         contract: args.input.contract,
         requestedNeeds: authorityNeeds(requested),
-        providedSurfaces: authoritySurfaces(requested),
+        providedSurfaces,
         summary: {
           adapter: "deployment-authority-plan",
           desiredVersion: detail.authority.version,
+          authorityCapabilityDefinitions: capabilityDefinitions,
         },
       },
       desiredChange: classified.desiredChange,
@@ -339,6 +355,10 @@ export async function registerServiceAdminRpcs(deps: {
       : { ...planBase, classification: "update" };
     try {
       await deps.deploymentAuthorityPlanStorage.put(plan);
+      await deps.capabilityDefinitionStorage.replaceForDeployment(
+        args.input.deploymentId,
+        capabilityDefinitions,
+      );
     } catch (error) {
       return Result.err(
         new ValidationError({

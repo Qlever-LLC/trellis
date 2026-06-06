@@ -851,14 +851,24 @@ Deno.test("POST /bootstrap/service auto-accepts incompatible same-contract diges
 Deno.test("POST /bootstrap/service allows retry with accepted compatibility migration", async () => {
   const current = await validatedContract(baseContract());
   const replacement = await validatedContract(incompatibleSchemaContract());
-  const replacementBoundary = await contractBoundary(
+  const replacementAnalysis = await analyzeContractProposal(
     createTestContracts(),
     replacement.contract,
   );
-  const requestedNeeds = authorityFromBoundary(replacementBoundary).desiredState
+  const replacementNeeds = mergeBoundaries(
+    replacementAnalysis.required,
+    replacementAnalysis.optional,
+    {
+      ...EMPTY_BOUNDARY,
+      contracts: replacementAnalysis.contributedAvailability.contracts,
+    },
+  );
+  const requestedNeeds = authorityFromBoundary(replacementNeeds).desiredState
     .needs;
+  const providedSurfaces = replacementAnalysis.contributedAvailability.surfaces
+    .map(({ required: _required, ...surface }) => surface);
   const setup = await createApp({
-    envelopeBoundary: replacementBoundary,
+    envelopeBoundary: replacementNeeds,
     initialOffers: [serviceOffer(current)],
     initialBindings: [kvBinding("cache")],
     initialPlans: [
@@ -872,7 +882,7 @@ Deno.test("POST /bootstrap/service allows retry with accepted compatibility migr
           contractDigest: replacement.digest,
           contract: replacement.contract,
           requestedNeeds,
-          providedSurfaces: [],
+          providedSurfaces,
           summary: {
             requestedByKind: "service",
             requestedById: "svc_1",

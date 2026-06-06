@@ -24,7 +24,12 @@ pub struct AuthCapabilitiesListResponseEntriesItem {
     #[serde(rename = "contractId")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contract_id: Option<String>,
+    #[serde(rename = "deploymentId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deployment_id: Option<String>,
     pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direction: Option<String>,
     #[serde(rename = "displayName")]
     pub display_name: String,
     pub key: String,
@@ -606,7 +611,7 @@ pub struct AuthDeploymentAuthorityReconcileResponseMaterializedAuthority {
     pub desired_version: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    pub grants: Vec<BTreeMap<String, Value>>,
+    pub grants: Vec<Value>,
     #[serde(rename = "reconciledAt")]
     pub reconciled_at: Value,
     #[serde(rename = "resourceBindings")]

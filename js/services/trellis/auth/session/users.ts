@@ -2,9 +2,13 @@ import { Result } from "@qlever-llc/result";
 import { AuthError } from "@qlever-llc/trellis";
 import { ulid } from "ulid";
 
-import type { ContractsModule } from "../../catalog/runtime.ts";
 import type { AuthLogger } from "../runtime_deps.ts";
-import type { CapabilityGroup, UserAccount, UserIdentity } from "../schemas.ts";
+import type {
+  CapabilityGroup,
+  DeploymentAuthorityCapabilityDefinition,
+  UserAccount,
+  UserIdentity,
+} from "../schemas.ts";
 import {
   getBuiltinCapabilityGroup,
   isBuiltinCapabilityGroup,
@@ -56,10 +60,9 @@ type CapabilityGroupStorage = {
   delete(groupKey: string): Promise<void>;
 };
 
-type CapabilityCatalog = Pick<
-  ContractsModule,
-  "getActiveCapabilityDefinitions"
->;
+type CapabilityDefinitionStorage = {
+  listEnabled(): Promise<DeploymentAuthorityCapabilityDefinition[]>;
+};
 
 const ACCOUNT_PAGE_LIMIT = 100;
 
@@ -70,6 +73,20 @@ const PLATFORM_CAPABILITIES = [{
     "Manage Trellis users, sessions, deployments, and runtime policy.",
   source: "platform" as const,
 }];
+
+function capabilitySortParts(capability: {
+  key: string;
+  deploymentId?: string;
+  contractId?: string;
+  contractDigest?: string;
+}): string[] {
+  return [
+    capability.key,
+    capability.deploymentId ?? "",
+    capability.contractId ?? "",
+    capability.contractDigest ?? "",
+  ];
+}
 
 function requireUserCaller(caller: {
   type: string;
@@ -354,9 +371,9 @@ export function createAuthUsersCreateHandler(
   };
 }
 
-/** Creates the Auth.Capabilities.List RPC handler backed by active contracts. */
+/** Creates the Auth.Capabilities.List RPC handler backed by deployment authority. */
 export function createAuthCapabilitiesListHandler(
-  contracts: Pick<ContractsModule, "getActiveCapabilityDefinitions">,
+  capabilityDefinitions: CapabilityDefinitionStorage,
   logger: Pick<AuthLogger, "trace">,
 ) {
   return async (
@@ -382,13 +399,16 @@ export function createAuthCapabilitiesListHandler(
 
     const capabilities = [
       ...PLATFORM_CAPABILITIES,
-      ...(await contracts.getActiveCapabilityDefinitions()).map(
-        (capability) => ({
-          ...capability,
-          source: "contract" as const,
-        }),
-      ),
-    ].sort((left, right) => left.key.localeCompare(right.key));
+      ...(await capabilityDefinitions.listEnabled()),
+    ].sort((left, right) => {
+      const leftParts = capabilitySortParts(left);
+      const rightParts = capabilitySortParts(right);
+      for (const [index, leftPart] of leftParts.entries()) {
+        const compared = leftPart.localeCompare(rightParts[index] ?? "");
+        if (compared !== 0) return compared;
+      }
+      return 0;
+    });
 
     const offset = input.offset ?? 0;
     return Result.ok(listPage(
@@ -466,7 +486,7 @@ export function createAuthCapabilityGroupsGetHandler(
 /** Creates the Auth.CapabilityGroups.Put RPC handler backed by SQL storage. */
 export function createAuthCapabilityGroupsPutHandler(
   storage: Pick<CapabilityGroupStorage, "put">,
-  contracts: CapabilityCatalog,
+  capabilityDefinitions: CapabilityDefinitionStorage,
   logger: Pick<AuthLogger, "trace">,
 ) {
   return async (
@@ -492,7 +512,7 @@ export function createAuthCapabilityGroupsPutHandler(
     }
     const catalogedCapabilities = new Set([
       ...PLATFORM_CAPABILITIES.map((capability) => capability.key),
-      ...(await contracts.getActiveCapabilityDefinitions()).map((capability) =>
+      ...(await capabilityDefinitions.listEnabled()).map((capability) =>
         capability.key
       ),
     ]);
