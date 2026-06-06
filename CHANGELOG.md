@@ -8,6 +8,29 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.7] - 2026-06-06
+
+### Added
+
+- Added `TrellisService.with(deps)` for TypeScript services so service-owned
+  RPC, feed, operation, job, and event listener handlers can receive
+  application-owned dependencies as `args.deps` without mixing them into Trellis
+  runtime context or resource bindings.
+- Added service event listener context for TypeScript handlers, including event
+  id, time, subject, mode, group, and sequence metadata while preserving
+  existing payload-first listener usage.
+
+### Changed
+
+- Updated generated TypeScript SDK service typings, docs, and demos to use bound
+  service dependency wrappers where handlers need application dependencies.
+
+### Fixed
+
+- Fixed npm release packaging by bumping hardcoded internal package dependency
+  ranges in npm build scripts and teaching `release bump` and
+  `release check-versions` to manage those specs for future releases.
+
 ## [0.10.6] - 2026-06-06
 
 ### Added
@@ -751,7 +774,9 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.5...HEAD
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.7...HEAD
+[0.10.7]: https://github.com/Qlever-LLC/trellis/compare/v0.10.6...v0.10.7
+[0.10.6]: https://github.com/Qlever-LLC/trellis/compare/v0.10.5...v0.10.6
 [0.10.5]: https://github.com/Qlever-LLC/trellis/compare/v0.10.4...v0.10.5
 [0.10.4]: https://github.com/Qlever-LLC/trellis/compare/v0.10.3...v0.10.4
 [0.10.3]: https://github.com/Qlever-LLC/trellis/compare/v0.10.3-rc.4...v0.10.3

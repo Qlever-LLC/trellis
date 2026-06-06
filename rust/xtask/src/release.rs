@@ -6,6 +6,12 @@ use std::process::Command;
 
 use miette::{miette, IntoDiagnostic, Result, WrapErr};
 
+const RELEASE_JS_INTERNAL_NPM_VERSION_FILES: &[&str] = &[
+    "js/packages/trellis/scripts/build_npm.ts",
+    "js/packages/trellis-svelte/scripts/build_npm.ts",
+    "js/packages/trellis/tests/publishing_targets_test.ts",
+];
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) enum ReleaseCommand {
     CheckVersions,
@@ -72,7 +78,7 @@ pub(crate) fn run_release(repo_root: &Path, command: ReleaseCommand) -> Result<(
             write_github_env("TRELLIS_RELEASE_VERSION", &release.version)?;
             write_github_env("TRELLIS_RELEASE_BASE_VERSION", &release.base_version)?;
             println!(
-                "Prepared release version {} from tag {tag} in {} manifest(s).",
+                "Prepared release version {} from tag {tag} in {} file(s).",
                 release.version,
                 changed.len()
             );
@@ -86,7 +92,7 @@ pub(crate) fn run_release(repo_root: &Path, command: ReleaseCommand) -> Result<(
             require_stable_version(&to, "--to")?;
             let changed = bump_versions(repo_root, &from, &to)?;
             println!(
-                "Bumped release-managed Trellis versions from {from} to {to} in {} manifest(s).",
+                "Bumped release-managed Trellis versions from {from} to {to} in {} file(s).",
                 changed.len()
             );
             for path in changed {
@@ -252,6 +258,8 @@ fn bump_versions(repo_root: &Path, from: &str, to: &str) -> Result<Vec<PathBuf>>
             rewrite_json_manifest_version(&original, from, to, &path)?
         } else if path.file_name().is_some_and(|name| name == "Cargo.toml") {
             rewrite_cargo_manifest_versions(&original, from, to, &path)?
+        } else if is_release_js_internal_npm_version_file(repo_root, &path) {
+            rewrite_js_internal_npm_dependency_versions(&original, from, to, &path)?
         } else {
             original.clone()
         };
@@ -318,6 +326,11 @@ fn collect_versions(repo_root: &Path) -> Result<Vec<VersionEntry>> {
 
         if path.file_name().is_some_and(|name| name == "Cargo.toml") {
             collect_cargo_versions(repo_root, &path, &contents, &mut versions);
+            continue;
+        }
+
+        if is_release_js_internal_npm_version_file(repo_root, &path) {
+            collect_js_internal_npm_versions(repo_root, &path, &contents, &mut versions);
         }
     }
     Ok(versions)
@@ -328,8 +341,22 @@ fn release_manifest_paths(repo_root: &Path) -> Result<Vec<PathBuf>> {
     collect_manifest_paths(&repo_root.join("generated"), &mut paths)?;
     collect_manifest_paths(&repo_root.join("js"), &mut paths)?;
     collect_manifest_paths(&repo_root.join("rust"), &mut paths)?;
+    for relative_path in RELEASE_JS_INTERNAL_NPM_VERSION_FILES {
+        let path = repo_root.join(relative_path);
+        if path.exists() {
+            paths.push(path);
+        }
+    }
     paths.sort();
+    paths.dedup();
     Ok(paths)
+}
+
+fn is_release_js_internal_npm_version_file(repo_root: &Path, path: &Path) -> bool {
+    path.strip_prefix(repo_root)
+        .ok()
+        .and_then(Path::to_str)
+        .is_some_and(|relative| RELEASE_JS_INTERNAL_NPM_VERSION_FILES.contains(&relative))
 }
 
 fn collect_manifest_paths(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
@@ -434,6 +461,97 @@ fn rewrite_json_manifest_version_for_release(
         &version,
         release_version,
     ))
+}
+
+fn collect_js_internal_npm_versions(
+    repo_root: &Path,
+    path: &Path,
+    contents: &str,
+    versions: &mut Vec<VersionEntry>,
+) {
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        let Some((name, spec)) = json_like_string_property(trimmed) else {
+            continue;
+        };
+        if !is_internal_npm_package(&name) {
+            continue;
+        }
+        if let Some(version) = npm_dependency_spec_version(&spec) {
+            versions.push(VersionEntry::new(
+                format!(
+                    "{} dependency {name}",
+                    display_repo_path(repo_root, path)
+                ),
+                version,
+            ));
+        }
+    }
+}
+
+fn rewrite_js_internal_npm_dependency_versions(
+    contents: &str,
+    from: &str,
+    to: &str,
+    path: &Path,
+) -> Result<String> {
+    let mut lines = Vec::new();
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        let Some((name, spec)) = json_like_string_property(trimmed) else {
+            lines.push(line.to_string());
+            continue;
+        };
+        if !is_internal_npm_package(&name) {
+            lines.push(line.to_string());
+            continue;
+        }
+
+        let Some(version) = npm_dependency_spec_version(&spec) else {
+            lines.push(line.to_string());
+            continue;
+        };
+        if version != from {
+            return Err(miette!(
+                "{} dependency {name} uses version {}, expected {from}",
+                path.display(),
+                version
+            ));
+        }
+
+        let replacement = replace_npm_dependency_spec_version(&spec, to);
+        lines.push(line.replacen(&format!("\"{spec}\""), &format!("\"{replacement}\""), 1));
+    }
+    let mut updated = lines.join("\n");
+    if contents.ends_with('\n') {
+        updated.push('\n');
+    }
+    Ok(updated)
+}
+
+fn json_like_string_property(trimmed: &str) -> Option<(String, String)> {
+    let property_start = trimmed.find("\"@qlever-llc/")?;
+    let rest = trimmed[property_start..].strip_prefix('"')?;
+    let (name, after_name) = rest.split_once('"')?;
+    let after_colon = after_name.trim_start().strip_prefix(':')?.trim_start();
+    let value_rest = after_colon.strip_prefix('"')?;
+    let (value, _) = value_rest.split_once('"')?;
+    Some((name.to_string(), value.to_string()))
+}
+
+fn npm_dependency_spec_version(spec: &str) -> Option<String> {
+    let version = spec.strip_prefix(['^', '~']).unwrap_or(spec);
+    is_stable_semver(version).then(|| version.to_string())
+}
+
+fn replace_npm_dependency_spec_version(spec: &str, version: &str) -> String {
+    let prefix = spec
+        .chars()
+        .next()
+        .filter(|ch| matches!(ch, '^' | '~'))
+        .map(|ch| ch.to_string())
+        .unwrap_or_default();
+    format!("{prefix}{version}")
 }
 
 fn replace_first_version_literal(contents: &str, from: &str, to: &str) -> String {
@@ -692,6 +810,13 @@ fn is_internal_rust_crate(name: &str) -> bool {
     name.starts_with("trellis-")
 }
 
+fn is_internal_npm_package(name: &str) -> bool {
+    matches!(
+        name,
+        "@qlever-llc/result" | "@qlever-llc/trellis" | "@qlever-llc/trellis-svelte"
+    )
+}
+
 fn check_changelog(repo_root: &Path, version: &str, since: Option<&str>) -> Result<()> {
     let changelog_path = repo_root.join("CHANGELOG.md");
     let changelog = fs::read_to_string(&changelog_path)
@@ -889,8 +1014,8 @@ mod tests {
     use super::{
         collect_versions, extract_changelog_section, parse_release_command,
         rewrite_cargo_manifest_versions, rewrite_cargo_manifest_versions_for_release,
-        rewrite_json_manifest_version, rewrite_json_manifest_version_for_release, version_base,
-        ReleaseCommand,
+        rewrite_js_internal_npm_dependency_versions, rewrite_json_manifest_version,
+        rewrite_json_manifest_version_for_release, version_base, ReleaseCommand,
     };
     use std::fs;
 
@@ -1012,6 +1137,47 @@ mod tests {
             updated,
             "[workspace.package]\nversion = \"0.8.2-rc.1\"\n\n[dependencies]\ntrellis-rs = { path = \"../trellis\", version = \"0.8.2-rc.1\" }\ntrellis-local-bootstrap = { path = \"../local-bootstrap\", version = \"0.8.2-rc.1\" }\ntrellis-sdk-health = { path = \"../generated/packages/cargo/health\", version = \"0.8.2-rc.1\" }\ntrellis-sdk-state = { path = \"../generated/packages/cargo/state\", version = \"0.8.2-rc.1\" }\nserde = { version = \"1.0\" }\n"
         );
+    }
+
+    #[test]
+    fn rewrite_js_internal_npm_dependency_versions_updates_build_scripts() {
+        let original = "const dependencies = {\n  \"@qlever-llc/result\": \"^0.8.2\",\n  \"@qlever-llc/trellis\": \"~0.8.2\",\n  \"typebox\": \"^1.0.15\",\n};\nassertStringIncludes(source, '\"@qlever-llc/result\": \"^0.8.2\"');\n";
+        let updated = rewrite_js_internal_npm_dependency_versions(
+            original,
+            "0.8.2",
+            "0.9.0",
+            std::path::Path::new("build_npm.ts"),
+        )
+        .expect("rewrite js internal npm dependencies");
+        assert_eq!(
+            updated,
+            "const dependencies = {\n  \"@qlever-llc/result\": \"^0.9.0\",\n  \"@qlever-llc/trellis\": \"~0.9.0\",\n  \"typebox\": \"^1.0.15\",\n};\nassertStringIncludes(source, '\"@qlever-llc/result\": \"^0.9.0\"');\n"
+        );
+    }
+
+    #[test]
+    fn collect_versions_includes_internal_npm_dependency_specs() {
+        let root = temp_repo_root();
+        let script = root.join("js/packages/trellis/scripts/build_npm.ts");
+        fs::create_dir_all(script.parent().expect("script parent")).expect("mkdir script parent");
+        fs::create_dir_all(root.join("rust")).expect("mkdir rust");
+        fs::write(
+            root.join("rust/Cargo.toml"),
+            "[workspace.package]\nversion = \"0.8.2\"\n",
+        )
+        .expect("write cargo manifest");
+        fs::write(
+            script,
+            "const dependencies = {\n  \"@qlever-llc/result\": \"^0.8.1\",\n};\n",
+        )
+        .expect("write script");
+
+        let versions = collect_versions(&root).expect("collect versions");
+
+        assert!(versions.iter().any(|entry| {
+            entry.label.ends_with("dependency @qlever-llc/result") && entry.version == "0.8.1"
+        }));
+        fs::remove_dir_all(root).expect("remove temp repo");
     }
 
     #[test]

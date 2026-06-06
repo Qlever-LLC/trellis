@@ -8,7 +8,7 @@ description = "Bootstrap and request-validation adapters for the generated Trell
 publish = false
 
 [dependencies]
-trellis-rs = { path = "../trellis", version = "0.10.6" }
+trellis-rs = { path = "../trellis", version = "0.10.7" }
 
 [dev-dependencies]
 bytes.workspace = true
