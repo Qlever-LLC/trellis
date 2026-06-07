@@ -1757,7 +1757,7 @@ Deno.test("connectClientWithDeps uses auth continuation when bootstrap requires 
   }
 });
 
-Deno.test("connectClientWithDeps cleans up stale browser callback URLs when bind is expired", async () => {
+Deno.test("connectClientWithDeps restarts browser auth after an expired callback bind", async () => {
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
   const originalDocument = globalThis.document;
@@ -1766,6 +1766,8 @@ Deno.test("connectClientWithDeps cleans up stale browser callback URLs when bind
   );
   const replaceStateCalls: Array<{ url?: string | URL | null }> = [];
   const handle = await createBrowserHandle();
+  const fetchUrls: string[] = [];
+  const loginUrls: string[] = [];
 
   try {
     Object.defineProperty(globalThis, "window", {
@@ -1786,12 +1788,42 @@ Deno.test("connectClientWithDeps cleans up stale browser callback URLs when bind
     });
     globalThis.fetch = ((input: URL | Request | string) => {
       const url = String(input);
+      fetchUrls.push(url);
       if (url.includes("/auth/flow/flow-expired/bind")) {
         return Promise.resolve(
           new Response(JSON.stringify({ status: "expired" }), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           }),
+        );
+      }
+      if (url.endsWith("/bootstrap/client")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "auth_required",
+              serverNow: 1_700_000_000,
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+      if (url.endsWith("/auth/requests")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "flow_started",
+              flowId: "flow-new",
+              loginUrl: "https://trellis.example.com/login?flowId=flow-new",
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
         );
       }
 
@@ -1807,16 +1839,24 @@ Deno.test("connectClientWithDeps cleans up stale browser callback URLs when bind
             handle,
             currentUrl,
           },
+          onAuthRequired: ({ loginUrl }) => {
+            loginUrls.push(loginUrl);
+            return { status: "handled" };
+          },
         }, {
           loadTransport: async () => {
             throw new Error("loadTransport should not be called");
           },
           now: () => 1_700_000_000_000,
         }),
-      TransportError,
+      ClientAuthHandledError,
     );
 
-    assertEquals(error.code, "trellis.auth.bind_expired");
+    assertEquals(error.name, "ClientAuthHandledError");
+    assertEquals(fetchUrls.some((url) => url.endsWith("/auth/requests")), true);
+    assertEquals(loginUrls, [
+      "https://trellis.example.com/login?flowId=flow-new",
+    ]);
     assertEquals(
       currentUrl.toString(),
       "https://app.example.com/dashboard?redirectTo=%2Fdashboard#section",

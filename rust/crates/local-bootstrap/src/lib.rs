@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-const DEFAULT_NATS_BOX_IMAGE: &str = "docker.io/natsio/nats-box:latest";
+const DEFAULT_NATS_BOX_IMAGE: &str = "docker.io/natsio/nats-box:0.19.7";
 const DEFAULT_OPERATOR_NAME: &str = "Qlever";
 const DEFAULT_SYSTEM_ACCOUNT: &str = "SYS";
 const DEFAULT_AUTH_ACCOUNT: &str = "AUTH";

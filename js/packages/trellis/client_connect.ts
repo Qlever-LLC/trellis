@@ -1038,8 +1038,9 @@ export async function connectClientWithDeps<
     } catch (error) {
       if (currentUrl && isExpiredBindError(error)) {
         cleanupBrowserCallbackUrl(currentUrl);
+      } else {
+        throw error;
       }
-      throw error;
     }
   }
 

@@ -31,7 +31,7 @@ pub struct LocalInitArgs {
     /// Container runtime used to run nats-box and nsc.
     pub container_runtime: LocalNatsContainerRuntimeArg,
 
-    #[arg(long, default_value = "docker.io/natsio/nats-box:latest")]
+    #[arg(long, default_value = "docker.io/natsio/nats-box:0.19.7")]
     /// nats-box image containing nsc.
     pub nats_box_image: String,
 
