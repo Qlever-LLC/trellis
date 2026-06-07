@@ -956,6 +956,22 @@ type ContractJobName<
   >,
 > = keyof ContractJobsOf<TContract> & string;
 
+type ContractEventName<
+  TContract extends ServiceContract<
+    TrellisAPI,
+    TrellisAPI | undefined,
+    ContractJobsMetadata
+  >,
+> = ServiceEventName<ContractTrellisApi<TContract>>;
+
+type ContractFeedName<
+  TContract extends ServiceContract<
+    TrellisAPI,
+    TrellisAPI | undefined,
+    ContractJobsMetadata
+  >,
+> = keyof ContractOwnedApi<TContract>["feeds"] & string;
+
 type ContractOperationName<
   TContract extends ServiceContract<
     TrellisAPI,
@@ -991,6 +1007,7 @@ export type JobArgs<
     ContractKvMetadata
   >,
   TJob extends ContractJobName<TContract>,
+  TDeps = undefined,
 > = {
   job: PublicActiveJob<
     ContractJobPayload<TContract, TJob>,
@@ -1001,7 +1018,7 @@ export type JobArgs<
     ContractKvOf<TContract>,
     ContractJobsOf<TContract>
   >;
-};
+} & WithDeps<TDeps>;
 
 /** Result returned by a typed Trellis service job handler. */
 export type JobResult<
@@ -1014,6 +1031,9 @@ export type JobResult<
   TJob extends ContractJobName<TContract>,
 > = Result<ContractJobResult<TContract, TJob>, BaseError>;
 
+type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
+
+/** Typed RPC handler function for an extracted Trellis service handler. */
 export type RpcHandler<
   TContract extends ServiceContract<
     TrellisAPI,
@@ -1022,6 +1042,7 @@ export type RpcHandler<
     ContractKvMetadata
   >,
   M extends RpcMethodName<ContractOwnedApi<TContract>>,
+  TDeps = undefined,
 > = ({
   input,
   context,
@@ -1034,7 +1055,7 @@ export type RpcHandler<
     ContractKvOf<TContract>,
     ContractJobsOf<TContract>
   >;
-}) =>
+} & WithDeps<TDeps>) =>
   | Promise<
     Result<
       RpcMethodOutput<ContractOwnedApi<TContract>, M>,
@@ -1046,6 +1067,55 @@ export type RpcHandler<
     RpcHandlerErrorOf<ContractOwnedApi<TContract>, M>
   >;
 
+/** Typed event listener function for an extracted Trellis service listener. */
+export type ServiceEventHandler<
+  TContract extends ServiceContract<
+    TrellisAPI,
+    TrellisAPI | undefined,
+    ContractJobsMetadata,
+    ContractKvMetadata
+  >,
+  E extends ContractEventName<TContract>,
+  TDeps = undefined,
+> = (
+  args: {
+    event: ServiceEventOf<ContractTrellisApi<TContract>, E>;
+    context: EventListenerContext;
+    client: Trellis<
+      ContractTrellisApi<TContract>,
+      ContractKvOf<TContract>,
+      ContractJobsOf<TContract>
+    >;
+  } & WithDeps<TDeps>,
+) => MaybeAsync<void, BaseError>;
+
+/** Typed feed handler function for an extracted Trellis service handler. */
+export type FeedHandler<
+  TContract extends ServiceContract<
+    TrellisAPI,
+    TrellisAPI | undefined,
+    ContractJobsMetadata,
+    ContractKvMetadata
+  >,
+  F extends ContractFeedName<TContract>,
+  TDeps = undefined,
+> = (
+  context: {
+    input: FeedInputOf<ContractOwnedApi<TContract>, F>;
+    caller: unknown;
+    signal: AbortSignal;
+    emit(
+      event: FeedEventOf<ContractOwnedApi<TContract>, F>,
+    ): AsyncResult<void, ValidationError | UnexpectedError>;
+    client: Trellis<
+      ContractTrellisApi<TContract>,
+      ContractKvOf<TContract>,
+      ContractJobsOf<TContract>
+    >;
+  } & WithDeps<TDeps>,
+) => unknown | Promise<unknown>;
+
+/** Typed job handler function for an extracted Trellis service job handler. */
 export type JobHandler<
   TContract extends ServiceContract<
     TrellisAPI,
@@ -1054,8 +1124,12 @@ export type JobHandler<
     ContractKvMetadata
   >,
   TJob extends ContractJobName<TContract>,
-> = (args: JobArgs<TContract, TJob>) => Promise<JobResult<TContract, TJob>>;
+  TDeps = undefined,
+> = (args: JobArgs<TContract, TJob, TDeps>) => Promise<
+  JobResult<TContract, TJob>
+>;
 
+/** Typed operation handler function for an extracted Trellis service handler. */
 export type OperationHandler<
   TContract extends ServiceContract<
     TrellisAPI,
@@ -1064,6 +1138,7 @@ export type OperationHandler<
     ContractKvMetadata
   >,
   O extends ContractOperationName<TContract>,
+  TDeps = undefined,
 > = (
   args:
     & OperationHandlerContext<
@@ -1078,8 +1153,19 @@ export type OperationHandler<
         ContractKvOf<TContract>,
         ContractJobsOf<TContract>
       >;
-    },
+    }
+    & WithDeps<TDeps>,
 ) => unknown | Promise<unknown>;
+
+/** Typed health info function for an extracted bound service health handler. */
+export type HealthInfoHandler<TDeps = undefined> = (
+  args: WithDeps<TDeps>,
+) => ServiceHealthInfo | undefined | Promise<ServiceHealthInfo | undefined>;
+
+/** Typed health check function for an extracted bound service health handler. */
+export type HealthCheckHandler<TDeps = undefined> = (
+  args: WithDeps<TDeps>,
+) => ServiceHealthCheck | Promise<ServiceHealthCheck>;
 
 export type JobQueue<
   TPayload,
@@ -1326,19 +1412,10 @@ type BoundJobsFacadeOf<
 };
 
 type BoundServiceHealth<TDeps> = Omit<ServiceHealth, "add" | "setInfo"> & {
-  setInfo(
-    info:
-      | ServiceHealthInfo
-      | ((args: { deps: TDeps }) =>
-        | ServiceHealthInfo
-        | undefined
-        | Promise<ServiceHealthInfo | undefined>),
-  ): void;
+  setInfo(info: ServiceHealthInfo | HealthInfoHandler<TDeps>): void;
   add(
     name: string,
-    check: (args: { deps: TDeps }) =>
-      | ServiceHealthCheck
-      | Promise<ServiceHealthCheck>,
+    check: HealthCheckHandler<TDeps>,
   ): () => void;
 };
 

@@ -8,6 +8,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.10] - 2026-06-06
+
+### Added
+
+- Added deps-aware extracted TypeScript service handler aliases for RPC, event,
+  feed, job, operation, and health handlers so standalone handlers can preserve
+  `service.with(deps)` typing without local argument/result aliases.
+
 ### Fixed
 
 - Made Trellis generator output formatting part of artifact generation so

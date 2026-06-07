@@ -254,7 +254,7 @@ Deno.test("trellis npm build depends on the standalone result package name", asy
   );
 
   assertStringIncludes(source, '"@qlever-llc/result"');
-  assertStringIncludes(source, '"@qlever-llc/result": "^0.10.9"');
+  assertStringIncludes(source, '"@qlever-llc/result": "^0.10.10"');
 });
 
 Deno.test("trellis-svelte npm build uses current Trellis package bases", async () => {
@@ -262,8 +262,8 @@ Deno.test("trellis-svelte npm build uses current Trellis package bases", async (
     new URL("../../trellis-svelte/scripts/build_npm.ts", import.meta.url),
   );
 
-  assertStringIncludes(source, '"@qlever-llc/result": "^0.10.9"');
-  assertStringIncludes(source, '"@qlever-llc/trellis": "^0.10.9"');
+  assertStringIncludes(source, '"@qlever-llc/result": "^0.10.10"');
+  assertStringIncludes(source, '"@qlever-llc/trellis": "^0.10.10"');
 });
 
 Deno.test("trellis package exports the errors and health subpaths", async () => {

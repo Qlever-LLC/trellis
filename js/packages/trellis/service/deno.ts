@@ -1,5 +1,8 @@
 export {
   type BoundTrellisService,
+  type FeedHandler,
+  type HealthCheckHandler,
+  type HealthInfoHandler,
   type JobArgs,
   type JobHandler,
   type JobQueue,
@@ -9,6 +12,7 @@ export {
   type OperationRegistration,
   type RpcHandler,
   type ServiceContract,
+  type ServiceEventHandler,
   type Trellis,
   TrellisService,
   type TrellisServiceConnectOpts,

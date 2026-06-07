@@ -29,8 +29,11 @@ import type {
 import {
   type BoundTrellisService,
   type EventContext,
+  type FeedHandler,
   type HealthCheckFn,
+  type HealthCheckHandler,
   type HealthCheckResult,
+  type HealthInfoHandler,
   type HealthResponse,
   type JobArgs,
   type JobHandler,
@@ -39,6 +42,7 @@ import {
   type OrderingGroup,
   type RpcHandler,
   type ServiceContract,
+  type ServiceEventHandler,
   StoreHandle,
   type SubscribeOpts,
   type TrellisService,
@@ -583,6 +587,34 @@ Deno.test("job helper types support local Args and Return aliases", () => {
 
 Deno.test("service handler aliases expose narrow client object args", () => {
   type PingRpcHandler = RpcHandler<typeof typeTestContract, "Test.Ping">;
+  type Deps = { readonly prefix: string };
+  type BoundPingRpcHandler = RpcHandler<
+    typeof depsTypeTestContract,
+    "Test.Ping",
+    Deps
+  >;
+  type BoundEventHandler = ServiceEventHandler<
+    typeof depsTypeTestContract,
+    "Test.Changed",
+    Deps
+  >;
+  type BoundFeedHandler = FeedHandler<
+    typeof depsTypeTestContract,
+    "Test.Stream",
+    Deps
+  >;
+  type BoundJobHandler = JobHandler<
+    typeof depsTypeTestContract,
+    "refresh",
+    Deps
+  >;
+  type BoundOperationHandler = OperationHandler<
+    typeof depsTypeTestContract,
+    "Test.Run",
+    Deps
+  >;
+  type BoundHealthInfoHandler = HealthInfoHandler<Deps>;
+  type BoundHealthCheckHandler = HealthCheckHandler<Deps>;
   type RefreshJobHandler = JobHandler<
     typeof jobsTypeTestContract,
     "refreshSummaries"
@@ -608,6 +640,51 @@ Deno.test("service handler aliases expose narrow client object args", () => {
     });
   };
 
+  const boundRpcHandler: BoundPingRpcHandler = ({ input, deps }) => {
+    const prefix: string = deps.prefix;
+    return Result.ok({ ok: input.value.startsWith(prefix) });
+  };
+
+  const boundEventHandler: BoundEventHandler = (
+    { event, context, client, deps },
+  ) => {
+    const value: string = event.value;
+    const subject: string = context.subject;
+    const prefix: string = deps.prefix;
+    assertExists(client.kv.items);
+    assertExists(`${prefix}:${value}:${subject}`);
+    return Result.ok(undefined);
+  };
+
+  const boundFeedHandler: BoundFeedHandler = (
+    { input, emit, client, deps },
+  ) => {
+    assertExists(client.kv.items);
+    assertExists(emit({ value: `${deps.prefix}:${input.value}` }));
+  };
+
+  const boundJobHandler: BoundJobHandler = async ({ job, client, deps }) => {
+    assertExists(client.kv.items);
+    return Result.ok({ value: `${deps.prefix}:${job.payload.value}` });
+  };
+
+  const boundOperationHandler: BoundOperationHandler = async (
+    { input, op, client, deps },
+  ) => {
+    assertEquals(input.value.startsWith(deps.prefix), false);
+    assertExists(op.started());
+    assertExists(client.kv.items);
+    return Result.ok(undefined);
+  };
+
+  const boundHealthInfoHandler: BoundHealthInfoHandler = ({ deps }) => ({
+    version: deps.prefix,
+  });
+
+  const boundHealthCheckHandler: BoundHealthCheckHandler = ({ deps }) => ({
+    status: deps.prefix.length > 0 ? "ok" : "failed",
+  });
+
   const jobHandler: RefreshJobHandler = async ({ job, client }) => {
     assertExists(
       client.jobs.refreshSummaries.create({ siteId: job.payload.siteId }),
@@ -625,6 +702,13 @@ Deno.test("service handler aliases expose narrow client object args", () => {
   };
 
   assertExists(rpcHandler);
+  assertExists(boundRpcHandler);
+  assertExists(boundEventHandler);
+  assertExists(boundFeedHandler);
+  assertExists(boundJobHandler);
+  assertExists(boundOperationHandler);
+  assertExists(boundHealthInfoHandler);
+  assertExists(boundHealthCheckHandler);
   assertExists(jobHandler);
   assertExists(operationHandler);
 });
