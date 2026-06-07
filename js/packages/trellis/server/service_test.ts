@@ -676,6 +676,47 @@ function authTokenFromAuthenticatorResult(value: unknown): string {
   return record.auth_token;
 }
 
+function installCoreBootstrapFetch(): () => void {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          status: "ready",
+          serverNow: 1_700_000_120,
+          connectInfo: {
+            sessionKey: "session-key",
+            contractId: core.CONTRACT_ID,
+            contractDigest: core.CONTRACT_DIGEST,
+            transports: {
+              native: { natsServers: ["nats://127.0.0.1:4222"] },
+            },
+            transport: {
+              sentinel: { jwt: "jwt", seed: "seed", issuer: "trellis" },
+            },
+            auth: {
+              mode: "service_identity",
+              iatSkewSeconds: 30,
+            },
+          },
+          binding: {
+            contractId: core.CONTRACT_ID,
+            digest: core.CONTRACT_DIGEST,
+            resources: { kv: {}, store: {} },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    )) as typeof fetch;
+
+  return () => {
+    globalThis.fetch = originalFetch;
+  };
+}
+
 const logDisabledOk: NonNullable<
   TrellisServiceConnectArgs<typeof core>["server"]
 > = {
@@ -800,6 +841,67 @@ Deno.test("TrellisService.connect uses bootstrap response transport details", as
   } finally {
     globalThis.fetch = originalFetch;
     Date.now = originalNow;
+  }
+});
+
+Deno.test("TrellisService.connect initializes telemetry by default", async () => {
+  const restoreFetch = installCoreBootstrapFetch();
+  const initializedServices: string[] = [];
+
+  try {
+    await assertRejects(
+      () =>
+        TrellisService.connect({
+          trellisUrl: "https://trellis.example.com",
+          contract: core,
+          name: "svc",
+          sessionKeySeed: TEST_SEED,
+          server: {},
+        }, {
+          connect: async () => {
+            throw new Error("stop-after-connect");
+          },
+          initTelemetry: (serviceName) => {
+            initializedServices.push(serviceName);
+          },
+        }).orThrow(),
+      TransportError,
+    );
+
+    assertEquals(initializedServices, ["svc"]);
+  } finally {
+    restoreFetch();
+  }
+});
+
+Deno.test("TrellisService.connect skips telemetry when disabled", async () => {
+  const restoreFetch = installCoreBootstrapFetch();
+  const initializedServices: string[] = [];
+
+  try {
+    await assertRejects(
+      () =>
+        TrellisService.connect({
+          trellisUrl: "https://trellis.example.com",
+          contract: core,
+          name: "svc",
+          sessionKeySeed: TEST_SEED,
+          telemetry: { enabled: false },
+          server: {},
+        }, {
+          connect: async () => {
+            throw new Error("stop-after-connect");
+          },
+          initTelemetry: (serviceName) => {
+            initializedServices.push(serviceName);
+          },
+        }).orThrow(),
+      TransportError,
+    );
+
+    assertEquals(initializedServices, []);
+  } finally {
+    restoreFetch();
   }
 });
 

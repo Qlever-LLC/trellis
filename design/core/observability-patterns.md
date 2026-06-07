@@ -1,6 +1,6 @@
 ---
 title: Observability Patterns
-description: Health, stats, documentation, tracing, and request-correlation patterns for Trellis services.
+description: Health, stats, documentation, telemetry, and request-correlation patterns for Trellis services.
 order: 60
 ---
 
@@ -15,7 +15,7 @@ order: 60
 
 ## Scope
 
-This document defines Trellis observability, documentation, tracing, and
+This document defines Trellis observability, documentation, telemetry, and
 request-correlation patterns.
 
 ## Service Observability
@@ -26,7 +26,7 @@ Every service exposes:
 - baseline `Health.Heartbeat` event publishing through the shared Trellis health
   contract
 - optional `<Service>.Stats` RPC
-- OpenTelemetry tracing
+- OpenTelemetry tracing and metrics
 - structured logging
 
 Activated devices publish `Health.Heartbeat` through the same shared contract.
@@ -104,10 +104,19 @@ Required fields:
 
 Skip JSDoc for private helpers when the code is self-evident and for tests.
 
-## Tracing
+## Telemetry
+
+`@qlever-llc/trellis/telemetry` is the public TypeScript telemetry entrypoint.
+The former public `@qlever-llc/trellis/tracing` subpath is not part of the
+current public surface.
 
 `TrellisService.connect()` initializes OpenTelemetry automatically using the
-service name.
+service name unless automatic telemetry is disabled by the caller. Runtime
+helpers must keep browser-safe imports separate from Node/Deno telemetry SDK
+setup; package entrypoints may use `@opentelemetry/api`, but exporter and SDK
+packages should be loaded only from server/runtime initialization paths.
+
+Tracing rules:
 
 Span naming:
 
@@ -131,6 +140,24 @@ Library support rule:
 - if a runtime has not installed an OpenTelemetry tracer provider, RPC error
   responses should still attach `traceId` from a valid inbound `traceparent`
   header before the error leaves the server span boundary
+
+Error metrics:
+
+- Trellis runtime libraries record caller-visible and runtime-observed failures
+  with the `trellis.errors` OpenTelemetry counter
+- metrics are no-op unless an OpenTelemetry meter provider/exporter is installed
+  or configured by telemetry runtime initialization
+- metric attributes must be low cardinality and must not include user IDs,
+  session keys, raw subjects, payload data, trace IDs, request IDs, or raw error
+  messages
+- allowed Trellis error attributes are stable labels such as `trellis.surface`,
+  `trellis.direction`, `trellis.operation`, `trellis.phase`,
+  `trellis.error.type`, `trellis.remote_error.type`, and bounded
+  `trellis.auth.reason`
+- `trellis.operation` should come from contract metadata or runtime operation
+  kind, not from NATS subjects, URLs, payloads, or remote peer-provided values
+- expected public failures remain `Result`-modeled behavior; metrics are
+  observability side effects and must not change error semantics
 
 ## Request Correlation
 

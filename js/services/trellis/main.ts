@@ -1,12 +1,12 @@
 import { Hono } from "@hono/hono";
-import { initTracing } from "@qlever-llc/trellis/tracing";
+import { initTelemetry } from "@qlever-llc/trellis/telemetry";
 import { startControlPlaneBackgroundTasks } from "./bootstrap/control_plane.ts";
 import { createRuntimeGlobals } from "./bootstrap/globals.ts";
 import { registerControlPlane } from "./bootstrap/register.ts";
 import { loadConfig } from "./config.ts";
 import { registerVersionRoute } from "./version.ts";
 
-initTracing("trellis");
+initTelemetry("trellis");
 
 const config = loadConfig();
 const app = new Hono();

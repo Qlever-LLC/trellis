@@ -24,7 +24,7 @@
     "./service": "./service/mod.ts",
     "./service/deno": "./service/deno.ts",
     "./service/node": "./service/node.ts",
-    "./tracing": "./tracing.ts",
+    "./telemetry": "./telemetry.ts",
     "./errors": "./errors/index.ts"
   },
   "publish": {

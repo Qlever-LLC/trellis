@@ -26,6 +26,10 @@ import { RemoteError } from "./errors/RemoteError.ts";
 import type { LoggerLike } from "./globals.ts";
 import { serverLogger } from "./server_logger.ts";
 import {
+  recordTrellisError,
+  type TrellisErrorMetricAttributes,
+} from "./telemetry/mod.ts";
+import {
   type AcceptedOperation,
   annotateHandlerBoundaryError,
   type AnyTrellisAPI,
@@ -218,6 +222,18 @@ function traceIdFromTraceparent(
     return undefined;
   }
   return traceId;
+}
+
+function recordOperationServerError(
+  error: unknown,
+  attributes: TrellisErrorMetricAttributes,
+): void {
+  recordTrellisError(error, {
+    messagingSystem: "nats",
+    surface: "operation",
+    direction: "server",
+    ...attributes,
+  });
 }
 
 export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
@@ -937,6 +953,10 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
       const trellisError = error instanceof BaseError
         ? error
         : new UnexpectedError({ cause: error });
+      recordOperationServerError(trellisError, {
+        operation,
+        phase: "control",
+      });
       msg.respond(JSON.stringify({
         kind: "error",
         error: trellisError.toSerializable(),
@@ -1539,6 +1559,10 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
             const validated = await authenticate(msg, true);
             const value = validated.take();
             if (isErr(value)) {
+              recordOperationServerError(value.error, {
+                operation: String(operation),
+                phase: "start",
+              });
               this.respondWithError(msg, value.error);
               continue;
             }
@@ -1546,15 +1570,20 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
             let transferSession: RuntimeOperationTransferSession | undefined;
             if (ctx.transfer) {
               if (!this.#transferSupport) {
+                const error = new UnexpectedError({
+                  cause: new Error(
+                    `Operation '${
+                      String(operation)
+                    }' declared transfer support but no runtime transfer support is configured`,
+                  ),
+                });
+                recordOperationServerError(error, {
+                  operation: String(operation),
+                  phase: "start",
+                });
                 this.respondWithError(
                   msg,
-                  new UnexpectedError({
-                    cause: new Error(
-                      `Operation '${
-                        String(operation)
-                      }' declared transfer support but no runtime transfer support is configured`,
-                    ),
-                  }),
+                  error,
                 );
                 continue;
               }
@@ -1566,6 +1595,10 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
                 "key",
               ).take();
               if (isErr(key)) {
+                recordOperationServerError(key.error, {
+                  operation: String(operation),
+                  phase: "start",
+                });
                 this.respondWithError(msg, key.error);
                 continue;
               }
@@ -1575,6 +1608,10 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
                 ctx.transfer.contentType,
               ).take();
               if (isErr(contentType)) {
+                recordOperationServerError(contentType.error, {
+                  operation: String(operation),
+                  phase: "start",
+                });
                 this.respondWithError(msg, contentType.error);
                 continue;
               }
@@ -1584,6 +1621,10 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
                 ctx.transfer.metadata,
               ).take();
               if (isErr(metadata)) {
+                recordOperationServerError(metadata.error, {
+                  operation: String(operation),
+                  phase: "start",
+                });
                 this.respondWithError(msg, metadata.error);
                 continue;
               }
@@ -1601,6 +1642,10 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
                   ...(metadata !== undefined ? { metadata } : {}),
                 }).take();
               if (isErr(openedTransferValue)) {
+                recordOperationServerError(openedTransferValue.error, {
+                  operation: String(operation),
+                  phase: "start",
+                });
                 this.respondWithError(msg, openedTransferValue.error);
                 continue;
               }
@@ -1694,7 +1739,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
                   ? handlerResult.take()
                   : handlerResult;
                 if (isErr(handlerOutcome)) {
-                  await op.fail(annotateHandlerBoundaryError(
+                  const error = annotateHandlerBoundaryError(
                     handlerOutcome.error,
                     {
                       operation: String(operation),
@@ -1704,7 +1749,12 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
                       contractDigest: this.contractDigest,
                       traceId: operationContext.traceId,
                     },
-                  ));
+                  );
+                  recordOperationServerError(error, {
+                    operation: String(operation),
+                    phase: "handler_result",
+                  });
+                  await op.fail(error);
                   return;
                 }
 
@@ -1724,14 +1774,19 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
                   await op.complete(handlerOutcome);
                 }
               } catch (cause) {
-                await op.fail(annotateHandlerBoundaryError(cause, {
+                const error = annotateHandlerBoundaryError(cause, {
                   operation: String(operation),
                   requestId: operationContext.requestId,
                   service: this.name,
                   contractId: this.contractId,
                   contractDigest: this.contractDigest,
                   traceId: operationContext.traceId,
-                }));
+                });
+                recordOperationServerError(error, {
+                  operation: String(operation),
+                  phase: "handler_throw",
+                });
+                await op.fail(error);
               }
             })();
           }

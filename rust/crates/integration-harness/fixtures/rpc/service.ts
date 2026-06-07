@@ -12,7 +12,7 @@ import {
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
-import { getActiveSpan } from "@qlever-llc/trellis/tracing";
+import { getActiveSpan } from "@qlever-llc/trellis/telemetry";
 import { Type } from "typebox";
 
 new NodeTracerProvider({

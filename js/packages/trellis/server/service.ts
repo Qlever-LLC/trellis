@@ -128,6 +128,7 @@ import {
   observeNatsTrellisConnection,
   type TrellisConnection,
 } from "../connection.ts";
+import { initTelemetry } from "../telemetry/init.ts";
 
 type ExtraNatsConnectOpts = Omit<
   NatsConnectOpts,
@@ -431,6 +432,7 @@ async function loadDefaultServiceRuntimeDeps(): Promise<
 > {
   const transport = await loadDefaultRuntimeTransport();
   return {
+    initTelemetry,
     connect: (
       { servers, token, authenticator, inboxPrefix, ...extraOptions },
     ) =>
@@ -442,6 +444,12 @@ async function loadDefaultServiceRuntimeDeps(): Promise<
         ...(inboxPrefix ? { inboxPrefix } : {}),
       }),
   };
+}
+
+function automaticTelemetryEnabled(
+  telemetry: TrellisServiceConnectTelemetryOpts | undefined,
+): boolean {
+  return telemetry !== false && telemetry?.enabled !== false;
 }
 
 const ServiceBootstrapReadySchema = Type.Object({
@@ -871,7 +879,18 @@ export type TrellisServiceConnectOpts<
   contract: ServiceContract<TOwnedApi, TTrellisApi>;
   name: string;
   sessionKeySeed: string;
+  /**
+   * Controls automatic telemetry initialization for this service connection.
+   * Enabled by default; pass `false` or `{ enabled: false }` to disable it.
+   */
+  telemetry?: TrellisServiceConnectTelemetryOpts;
   server?: TrellisServiceServerOpts;
+};
+
+/** Controls automatic telemetry initialization for `TrellisService.connect()`. */
+export type TrellisServiceConnectTelemetryOpts = false | {
+  /** Whether automatic telemetry initialization is enabled. Defaults to `true`. */
+  enabled?: boolean;
 };
 
 type ServiceKvFacade<TKv extends ContractKvMetadata> = {
@@ -1760,6 +1779,11 @@ export type TrellisServiceConnectArgs<
   contract: TContract;
   name: string;
   sessionKeySeed: string;
+  /**
+   * Controls automatic telemetry initialization for this service connection.
+   * Enabled by default; pass `false` or `{ enabled: false }` to disable it.
+   */
+  telemetry?: TrellisServiceConnectTelemetryOpts;
   server?: TrellisServiceServerOpts;
 };
 
@@ -3142,6 +3166,9 @@ export class TrellisService<
           ...(await loadDefaultServiceRuntimeDeps()),
           ...deps,
         } satisfies TrellisServiceRuntimeDeps;
+        if (automaticTelemetryEnabled(args.telemetry)) {
+          runtimeDeps.initTelemetry?.(args.name);
+        }
         const auth = await createAuth({ sessionKeySeed: args.sessionKeySeed });
         const bootstrapLog = resolveServiceLogger(args.server?.log);
         const bootstrap = await fetchServiceBootstrapInfo({

@@ -275,4 +275,6 @@ Deno.test("trellis package exports the errors and health subpaths", async () => 
   assertStringIncludes(source, '"./health": "./health.ts"');
   assertStringIncludes(source, '"./host": "./host/mod.ts"');
   assertStringIncludes(source, '"./jobs": "./jobs.ts"');
+  assertStringIncludes(source, '"./telemetry": "./telemetry.ts"');
+  assertEquals(source.includes('"./tracing":'), false);
 });

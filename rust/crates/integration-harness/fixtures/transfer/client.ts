@@ -10,7 +10,7 @@ import {
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
 import { sdk as health } from "@qlever-llc/trellis/sdk/health";
-import { trace } from "@qlever-llc/trellis/tracing";
+import { trace } from "@qlever-llc/trellis/telemetry";
 import { Type } from "typebox";
 
 type UploadOutput = {

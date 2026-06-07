@@ -47,12 +47,14 @@ import {
   createNatsHeaderCarrier,
   extractTraceContext,
   injectTraceContext,
+  recordTrellisError,
   SpanStatusCode,
   startClientSpan,
   startServerSpan,
   trace,
+  type TrellisErrorMetricAttributes,
   withSpanAsync,
-} from "./tracing.ts";
+} from "./telemetry/mod.ts";
 import { Type } from "typebox";
 import { AssertError, Pointer } from "typebox/value";
 import { ulid } from "ulid";
@@ -779,6 +781,16 @@ export function annotateHandlerBoundaryError(
   error.withContext(compactHandlerErrorContext(context));
   error.withTraceId(context.traceId);
   return error;
+}
+
+function recordRuntimeError(
+  error: unknown,
+  attributes: TrellisErrorMetricAttributes,
+): void {
+  recordTrellisError(error, {
+    messagingSystem: "nats",
+    ...attributes,
+  });
 }
 
 export type RuntimeOperationDesc = {
@@ -2464,11 +2476,23 @@ export class Trellis<
 
       const msg = encodeRuntimeSchema(ctx.input, input).take();
       if (isErr(msg)) {
+        recordRuntimeError(msg.error, {
+          surface: "rpc",
+          direction: "client",
+          operation: method,
+          phase: "request_encoding",
+        });
         return msg;
       }
 
       const subject = this.template(ctx.subject, input).take();
       if (isErr(subject)) {
+        recordRuntimeError(subject.error, {
+          surface: "rpc",
+          direction: "client",
+          operation: method,
+          phase: "request_encoding",
+        });
         return subject;
       }
 
@@ -2493,13 +2517,19 @@ export class Trellis<
         });
         const response = msgResult.take();
         if (isErr(response)) {
+          recordRuntimeError(response.error, {
+            surface: "rpc",
+            direction: "client",
+            operation: method,
+            phase: "request_send",
+          });
           return response;
         }
 
         if (response.headers?.get("status") === "error") {
           const json = safeJson(response).take();
           if (isErr(json)) {
-            return err(requestFailedTransportError({
+            const error = requestFailedTransportError({
               code: "trellis.request.invalid_response",
               message: "Trellis returned an invalid response.",
               hint:
@@ -2507,12 +2537,19 @@ export class Trellis<
               method,
               subject,
               cause: json.error.cause,
-            }));
+            });
+            recordRuntimeError(error, {
+              surface: "rpc",
+              direction: "client",
+              operation: method,
+              phase: "response_decoding",
+            });
+            return err(error);
           }
 
           const errorData = parse(TrellisErrorDataSchema, json).take();
           if (isErr(errorData)) {
-            return err(requestFailedTransportError({
+            const error = requestFailedTransportError({
               code: "trellis.request.invalid_response",
               message: "Trellis returned an invalid response.",
               hint:
@@ -2520,7 +2557,14 @@ export class Trellis<
               method,
               subject,
               cause: errorData.error,
-            }));
+            });
+            recordRuntimeError(error, {
+              surface: "rpc",
+              direction: "client",
+              operation: method,
+              phase: "response_decoding",
+            });
+            return err(error);
           }
 
           const declaredErrorTypes = Array.isArray(ctx.declaredErrorTypes)
@@ -2539,17 +2583,29 @@ export class Trellis<
           );
           if (reconstructed) {
             await this.#handleBrowserAuthRequired(reconstructed);
+            recordRuntimeError(new RemoteError({ error: errorData }), {
+              surface: "rpc",
+              direction: "client",
+              operation: method,
+              phase: "remote_error",
+            });
             return err(reconstructed);
           }
 
           const remoteError = new RemoteError({ error: errorData });
           await this.#handleBrowserAuthRequired(remoteError);
+          recordRuntimeError(remoteError, {
+            surface: "rpc",
+            direction: "client",
+            operation: method,
+            phase: "remote_error",
+          });
           return err(remoteError);
         }
 
         const json = safeJson(response).take();
         if (isErr(json)) {
-          return err(requestFailedTransportError({
+          const error = requestFailedTransportError({
             code: "trellis.request.invalid_response",
             message: "Trellis returned an invalid response.",
             hint:
@@ -2557,11 +2613,24 @@ export class Trellis<
             method,
             subject,
             cause: json.error.cause,
-          }));
+          });
+          recordRuntimeError(error, {
+            surface: "rpc",
+            direction: "client",
+            operation: method,
+            phase: "response_decoding",
+          });
+          return err(error);
         }
 
         const outputResult = parseRuntimeSchema(ctx.output, json).take();
         if (isErr(outputResult)) {
+          recordRuntimeError(outputResult.error, {
+            surface: "rpc",
+            direction: "client",
+            operation: method,
+            phase: "response_decoding",
+          });
           return err(outputResult.error);
         }
 
@@ -2590,6 +2659,12 @@ export class Trellis<
             message: unexpected.message,
           });
           span.recordException(unexpected);
+          recordRuntimeError(unexpected, {
+            surface: "rpc",
+            direction: "client",
+            operation: method,
+            phase: "unexpected",
+          });
           return err(unexpected);
         } finally {
           span.end();
@@ -2738,13 +2813,29 @@ export class Trellis<
   ): AsyncResult<FeedSubscription<TEvent>, BaseError> {
     return AsyncResult.from((async () => {
       const payload = encodeRuntimeSchema(descriptor.input, input).take();
-      if (isErr(payload)) return payload;
+      if (isErr(payload)) {
+        recordRuntimeError(payload.error, {
+          surface: "feed",
+          direction: "client",
+          operation: feed,
+          phase: "request_encoding",
+        });
+        return payload;
+      }
 
       const subject = this.template(
         descriptor.subject,
         input as Record<string, unknown>,
       ).take();
-      if (isErr(subject)) return subject;
+      if (isErr(subject)) {
+        recordRuntimeError(subject.error, {
+          surface: "feed",
+          direction: "client",
+          operation: feed,
+          phase: "request_template",
+        });
+        return subject;
+      }
 
       const authHeaders = await this.#createProof(subject, payload);
       const headers = natsHeaders();
@@ -2766,14 +2857,21 @@ export class Trellis<
       } catch (cause) {
         opts?.signal?.removeEventListener("abort", abort);
         sub.unsubscribe();
-        return err(createTransportError({
+        const error = createTransportError({
           code: "trellis.feed.subscribe_failed",
           message: "Trellis could not subscribe to the feed.",
           hint:
             "Retry the subscription. If it keeps failing, check Trellis runtime health.",
           cause,
           context: { feed, subject },
-        }));
+        });
+        recordRuntimeError(error, {
+          surface: "feed",
+          direction: "client",
+          operation: feed,
+          phase: "request_send",
+        });
+        return err(error);
       }
 
       let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -2804,7 +2902,7 @@ export class Trellis<
       if (firstFrame === "timeout" || firstFrame === "aborted") {
         opts?.signal?.removeEventListener("abort", abort);
         sub.unsubscribe();
-        return err(createTransportError({
+        const error = createTransportError({
           code: firstFrame === "timeout"
             ? "trellis.feed.subscribe_timeout"
             : "trellis.feed.subscribe_aborted",
@@ -2815,30 +2913,51 @@ export class Trellis<
             ? "Check that the target service is running and has the current deployment digest, then retry."
             : "Retry the subscription if the feed is still needed.",
           context: { feed, subject },
-        }));
+        });
+        recordRuntimeError(error, {
+          surface: "feed",
+          direction: "client",
+          operation: feed,
+          phase: "handshake",
+        });
+        return err(error);
       }
       if (firstFrame.done) {
         opts?.signal?.removeEventListener("abort", abort);
         sub.unsubscribe();
-        return err(createTransportError({
+        const error = createTransportError({
           code: "trellis.feed.subscribe_closed",
           message: "Trellis closed the feed before acknowledging it.",
           hint:
             "Retry the subscription. If it keeps failing, check Trellis runtime health.",
           context: { feed, subject },
-        }));
+        });
+        recordRuntimeError(error, {
+          surface: "feed",
+          direction: "client",
+          operation: feed,
+          phase: "handshake",
+        });
+        return err(error);
       }
       const firstMessage = firstFrame.value;
       if (firstMessage.headers?.get("status") === "error") {
         opts?.signal?.removeEventListener("abort", abort);
         sub.unsubscribe();
-        return err(createTransportError({
+        const error = createTransportError({
           code: "trellis.feed.failed",
           message: "Trellis rejected the feed subscription.",
           hint:
             "Retry the subscription. If it keeps failing, check Trellis runtime health and permissions.",
           context: { feed, subject, frame: firstMessage.string() },
-        }));
+        });
+        recordRuntimeError(error, {
+          surface: "feed",
+          direction: "client",
+          operation: feed,
+          phase: "remote_error",
+        });
+        return err(error);
       }
       const firstEvent = firstMessage.headers?.get("feed-status") === "ready"
         ? undefined
@@ -2849,18 +2968,41 @@ export class Trellis<
         try {
           const parseFeedFrame = (msg: Msg): TEvent => {
             if (msg.headers?.get("status") === "error") {
-              throw createTransportError({
+              const error = createTransportError({
                 code: "trellis.feed.failed",
                 message: "Trellis stopped the feed.",
                 hint:
                   "Retry the subscription. If it keeps failing, check Trellis runtime health.",
                 context: { feed, subject, frame: msg.string() },
               });
+              recordRuntimeError(error, {
+                surface: "feed",
+                direction: "client",
+                operation: feed,
+                phase: "remote_error",
+              });
+              throw error;
             }
             const json = safeJson(msg).take();
-            if (isErr(json)) throw json.error;
+            if (isErr(json)) {
+              recordRuntimeError(json.error, {
+                surface: "feed",
+                direction: "client",
+                operation: feed,
+                phase: "event_decoding",
+              });
+              throw json.error;
+            }
             const parsed = parseRuntimeSchema(eventSchema, json).take();
-            if (isErr(parsed)) throw parsed.error;
+            if (isErr(parsed)) {
+              recordRuntimeError(parsed.error, {
+                surface: "feed",
+                direction: "client",
+                operation: feed,
+                phase: "event_validation",
+              });
+              throw parsed.error;
+            }
             return parsed as TEvent;
           };
           if (firstEvent) yield parseFeedFrame(firstEvent);
@@ -2891,7 +3033,7 @@ export class Trellis<
       sub = this.nats.subscribe(subject);
       await this.nats.flush();
     } catch (cause) {
-      throw createTransportError({
+      const error = createTransportError({
         code: "trellis.feed.listen_failed",
         message: "Trellis could not listen for feed requests.",
         hint:
@@ -2899,6 +3041,13 @@ export class Trellis<
         cause,
         context: { feed, subject },
       });
+      recordRuntimeError(error, {
+        surface: "feed",
+        direction: "server",
+        operation: feed,
+        phase: "listen",
+      });
+      throw error;
     }
     const task = AsyncResult.try(async () => {
       for await (const msg of sub) {
@@ -2923,6 +3072,12 @@ export class Trellis<
               contractDigest: this.contractDigest,
               traceId: traceIdFromTraceparent(msg.headers?.get("traceparent")),
             });
+            recordRuntimeError(error, {
+              surface: "feed",
+              direction: "server",
+              operation: feed,
+              phase: "handler_throw",
+            });
             this.#respondWithError(msg, error);
           }
         })();
@@ -2940,9 +3095,25 @@ export class Trellis<
     ) => unknown | Promise<unknown>,
   ): Promise<Result<void, BaseError>> {
     const json = safeJson(msg).take();
-    if (isErr(json)) return json;
+    if (isErr(json)) {
+      recordRuntimeError(json.error, {
+        surface: "feed",
+        direction: "server",
+        operation: feed,
+        phase: "request_decoding",
+      });
+      return json;
+    }
     const parsed = parseRuntimeSchema(descriptor.input, json).take();
-    if (isErr(parsed)) return parsed;
+    if (isErr(parsed)) {
+      recordRuntimeError(parsed.error, {
+        surface: "feed",
+        direction: "server",
+        operation: feed,
+        phase: "input_validation",
+      });
+      return parsed;
+    }
 
     const caller = await this.#authenticateFeedRequest({
       feed,
@@ -2952,13 +3123,26 @@ export class Trellis<
       requiredCapabilities: descriptor.subscribeCapabilities,
     });
     const callerValue = caller.take();
-    if (isErr(callerValue)) return callerValue;
+    if (isErr(callerValue)) {
+      recordRuntimeError(callerValue.error, {
+        surface: "feed",
+        direction: "server",
+        operation: feed,
+        phase: "auth",
+      });
+      return callerValue;
+    }
     if (!msg.reply) {
-      return err(
-        new UnexpectedError({
-          context: { feed, reason: "missing_reply" },
-        }),
-      );
+      const error = new UnexpectedError({
+        context: { feed, reason: "missing_reply" },
+      });
+      recordRuntimeError(error, {
+        surface: "feed",
+        direction: "server",
+        operation: feed,
+        phase: "handshake",
+      });
+      return err(error);
     }
     const readyHeaders = natsHeaders();
     readyHeaders.set("feed-status", "ready");
@@ -2974,16 +3158,43 @@ export class Trellis<
         emit: (event: TEvent) =>
           AsyncResult.from((async () => {
             const payload = encodeRuntimeSchema(descriptor.event, event).take();
-            if (isErr(payload)) return payload;
-            if (!msg.reply) {
-              return err(
-                new UnexpectedError({
-                  context: { feed, reason: "missing_reply" },
-                }),
-              );
+            if (isErr(payload)) {
+              recordRuntimeError(payload.error, {
+                surface: "feed",
+                direction: "server",
+                operation: feed,
+                phase: "event_encoding",
+              });
+              return payload;
             }
-            this.nats.publish(msg.reply, payload);
-            await this.nats.flush();
+            if (!msg.reply) {
+              const error = new UnexpectedError({
+                context: { feed, reason: "missing_reply" },
+              });
+              recordRuntimeError(error, {
+                surface: "feed",
+                direction: "server",
+                operation: feed,
+                phase: "event_publish",
+              });
+              return err(error);
+            }
+            try {
+              this.nats.publish(msg.reply, payload);
+              await this.nats.flush();
+            } catch (cause) {
+              const error = new UnexpectedError({
+                cause,
+                context: { feed },
+              });
+              recordRuntimeError(error, {
+                surface: "feed",
+                direction: "server",
+                operation: feed,
+                phase: "event_publish",
+              });
+              return err(error);
+            }
             return ok(undefined);
           })()),
       });
@@ -2991,14 +3202,21 @@ export class Trellis<
         ? handlerResult.take()
         : handlerResult;
       if (isErr(handlerOutcome)) {
-        return err(annotateHandlerBoundaryError(handlerOutcome.error, {
+        const error = annotateHandlerBoundaryError(handlerOutcome.error, {
           feed,
           requestId: msg.headers?.get("request-id"),
           service: this.name,
           contractId: this.contractId,
           contractDigest: this.contractDigest,
           traceId: traceIdFromTraceparent(msg.headers?.get("traceparent")),
-        }));
+        });
+        recordRuntimeError(error, {
+          surface: "feed",
+          direction: "server",
+          operation: feed,
+          phase: "handler_result",
+        });
+        return err(error);
       }
       return ok(undefined);
     } finally {
@@ -3186,6 +3404,12 @@ export class Trellis<
             code: SpanStatusCode.ERROR,
             message: "Failed to parse JSON",
           });
+          recordRuntimeError(jsonData.error, {
+            surface: "rpc",
+            direction: "server",
+            operation: String(method),
+            phase: "parse",
+          });
           return jsonData;
         }
 
@@ -3194,6 +3418,12 @@ export class Trellis<
           span.setStatus({
             code: SpanStatusCode.ERROR,
             message: "Input validation failed",
+          });
+          recordRuntimeError(parsedInput.error, {
+            surface: "rpc",
+            direction: "server",
+            operation: String(method),
+            phase: "input_validation",
           });
           return parsedInput;
         }
@@ -3221,7 +3451,14 @@ export class Trellis<
               code: SpanStatusCode.ERROR,
               message: "Missing session-key",
             });
-            return err(new AuthError({ reason: "missing_session_key" }));
+            const error = new AuthError({ reason: "missing_session_key" });
+            recordRuntimeError(error, {
+              surface: "rpc",
+              direction: "server",
+              operation: String(method),
+              phase: "auth",
+            });
+            return err(error);
           }
           if (!proof) {
             this.#log.warn({ method }, "Missing proof in request");
@@ -3229,11 +3466,25 @@ export class Trellis<
               code: SpanStatusCode.ERROR,
               message: "Missing proof",
             });
-            return err(new AuthError({ reason: "missing_proof" }));
+            const error = new AuthError({ reason: "missing_proof" });
+            recordRuntimeError(error, {
+              surface: "rpc",
+              direction: "server",
+              operation: String(method),
+              phase: "auth",
+            });
+            return err(error);
           }
           const iat = Number(iatHeader);
           if (!Number.isSafeInteger(iat) || !requestId) {
-            return err(new AuthError({ reason: "invalid_signature" }));
+            const error = new AuthError({ reason: "invalid_signature" });
+            recordRuntimeError(error, {
+              surface: "rpc",
+              direction: "server",
+              operation: String(method),
+              phase: "auth",
+            });
+            return err(error);
           }
 
           // Verify proof signature locally using the raw request bytes we received.
@@ -3272,12 +3523,17 @@ export class Trellis<
               code: SpanStatusCode.ERROR,
               message: "Invalid signature",
             });
-            return err(
-              new AuthError({
-                reason: "invalid_signature",
-                context: { sessionKey },
-              }),
-            );
+            const error = new AuthError({
+              reason: "invalid_signature",
+              context: { sessionKey },
+            });
+            recordRuntimeError(error, {
+              surface: "rpc",
+              direction: "server",
+              operation: String(method),
+              phase: "auth",
+            });
+            return err(error);
           }
 
           let auth:
@@ -3323,11 +3579,16 @@ export class Trellis<
           }
 
           if (!auth) {
-            return err(
-              new UnexpectedError({
-                context: { reason: "missing_auth_validate_result" },
-              }),
-            );
+            const error = new UnexpectedError({
+              context: { reason: "missing_auth_validate_result" },
+            });
+            recordRuntimeError(error, {
+              surface: "rpc",
+              direction: "server",
+              operation: String(method),
+              phase: "auth",
+            });
+            return err(error);
           }
 
           if (auth instanceof Error) {
@@ -3347,9 +3608,22 @@ export class Trellis<
               message: "Auth.Requests.Validate failed",
             });
             if (auth instanceof BaseError) {
+              recordRuntimeError(auth, {
+                surface: "rpc",
+                direction: "server",
+                operation: String(method),
+                phase: "auth",
+              });
               return err(auth);
             }
-            return err(new UnexpectedError({ cause: auth }));
+            const error = new UnexpectedError({ cause: auth });
+            recordRuntimeError(error, {
+              surface: "rpc",
+              direction: "server",
+              operation: String(method),
+              phase: "auth",
+            });
+            return err(error);
           }
 
           if (!auth.allowed) {
@@ -3357,15 +3631,20 @@ export class Trellis<
               code: SpanStatusCode.ERROR,
               message: "Insufficient permissions",
             });
-            return err(
-              new AuthError({
-                reason: "insufficient_permissions",
-                context: {
-                  requiredCapabilities: ctx.callerCapabilities,
-                  userCapabilities: auth.caller.capabilities,
-                },
-              }),
-            );
+            const error = new AuthError({
+              reason: "insufficient_permissions",
+              context: {
+                requiredCapabilities: ctx.callerCapabilities,
+                userCapabilities: auth.caller.capabilities,
+              },
+            });
+            recordRuntimeError(error, {
+              surface: "rpc",
+              direction: "server",
+              operation: String(method),
+              phase: "auth",
+            });
+            return err(error);
           }
 
           if (
@@ -3376,12 +3655,17 @@ export class Trellis<
               code: SpanStatusCode.ERROR,
               message: "Reply subject mismatch",
             });
-            return err(
-              new AuthError({
-                reason: "reply_subject_mismatch",
-                context: { expected: auth.inboxPrefix, actual: msg.reply },
-              }),
-            );
+            const error = new AuthError({
+              reason: "reply_subject_mismatch",
+              context: { expected: auth.inboxPrefix, actual: msg.reply },
+            });
+            recordRuntimeError(error, {
+              surface: "rpc",
+              direction: "server",
+              operation: String(method),
+              phase: "auth",
+            });
+            return err(error);
           }
 
           caller = auth.caller;
@@ -3449,6 +3733,12 @@ export class Trellis<
             message: error.message,
           });
           span.recordException(error);
+          recordRuntimeError(error, {
+            surface: "rpc",
+            direction: "server",
+            operation: String(method),
+            phase: "handler_throw",
+          });
           return err(error);
         }
 
@@ -3481,6 +3771,12 @@ export class Trellis<
             code: SpanStatusCode.ERROR,
             message: error.message,
           });
+          recordRuntimeError(error, {
+            surface: "rpc",
+            direction: "server",
+            operation: String(method),
+            phase: "handler_result",
+          });
           return err(error);
         }
 
@@ -3489,6 +3785,12 @@ export class Trellis<
           span.setStatus({
             code: SpanStatusCode.ERROR,
             message: "Output encoding failed",
+          });
+          recordRuntimeError(encoded.error, {
+            surface: "rpc",
+            direction: "server",
+            operation: String(method),
+            phase: "output_encoding",
           });
           return encoded;
         }
@@ -3614,17 +3916,28 @@ export class Trellis<
         typeof eventName
       >;
       if (!ctx) {
-        return err(
-          new UnexpectedError({
-            cause: this.#unknownApiError("event", event.toString()),
-            context: { event: event.toString() },
-          }),
-        );
+        const error = new UnexpectedError({
+          cause: this.#unknownApiError("event", event.toString()),
+          context: { event: event.toString() },
+        });
+        recordRuntimeError(error, {
+          surface: "event",
+          direction: "publisher",
+          operation: event,
+          phase: "prepare",
+        });
+        return err(error);
       }
 
       const subject = this.template(ctx.subject, data).take();
       if (isErr(subject)) {
         logger.error({ err: subject.error }, "Failed to template event.");
+        recordRuntimeError(subject.error, {
+          surface: "event",
+          direction: "publisher",
+          operation: event,
+          phase: "request_encoding",
+        });
         return subject;
       }
 
@@ -3639,7 +3952,14 @@ export class Trellis<
       const msg = encodeSchema(ctx.event, payload).take();
       if (isErr(msg)) {
         logger.error({ err: msg.error }, "Failed to encode event.");
-        return err(new UnexpectedError({ cause: msg.error }));
+        const error = new UnexpectedError({ cause: msg.error });
+        recordRuntimeError(error, {
+          surface: "event",
+          direction: "publisher",
+          operation: event,
+          phase: "request_encoding",
+        });
+        return err(error);
       }
 
       const headers = natsHeaders();
@@ -3659,9 +3979,17 @@ export class Trellis<
         headers: Object.freeze(headerRecord),
       }));
     } catch (cause) {
-      return err(
-        new UnexpectedError({ cause, context: { event: event.toString() } }),
-      );
+      const error = new UnexpectedError({
+        cause,
+        context: { event: event.toString() },
+      });
+      recordRuntimeError(error, {
+        surface: "event",
+        direction: "publisher",
+        operation: event,
+        phase: "prepare",
+      });
+      return err(error);
     }
   }
 
@@ -3686,9 +4014,17 @@ export class Trellis<
         await this.js.publish(event.subject, event.encodedPayload, { headers });
         return ok(undefined);
       } catch (cause) {
-        return err(
-          new UnexpectedError({ cause, context: { event: event.event } }),
-        );
+        const error = new UnexpectedError({
+          cause,
+          context: { event: event.event },
+        });
+        recordRuntimeError(error, {
+          surface: "event",
+          direction: "publisher",
+          operation: event.event,
+          phase: "publish",
+        });
+        return err(error);
       }
     })());
   }
@@ -3795,6 +4131,12 @@ export class Trellis<
         const m = parsedEvent.take();
         if (isErr(m)) {
           this.#log.error({ error: m.error }, "Event validation failed");
+          recordRuntimeError(m.error, {
+            surface: "event",
+            direction: "consumer",
+            operation: String(event),
+            phase: "input_validation",
+          });
           continue;
         }
 
@@ -3807,6 +4149,12 @@ export class Trellis<
         });
         const handlerValue = handlerResult.take();
         if (isErr(handlerValue)) {
+          recordRuntimeError(handlerValue.error, {
+            surface: "event",
+            direction: "consumer",
+            operation: String(event),
+            phase: "handler_result",
+          });
           this.#log.error(
             {
               error: handlerValue.error.toSerializable(),
@@ -4124,6 +4472,12 @@ export class Trellis<
               { error: eventPayload.error },
               "Event validation failed",
             );
+            recordRuntimeError(eventPayload.error, {
+              surface: "event",
+              direction: "consumer",
+              operation: String(registration.event),
+              phase: "input_validation",
+            });
             msg.term();
             failed = true;
             break;
@@ -4139,6 +4493,12 @@ export class Trellis<
           });
           const handlerValue = handlerResult.take();
           if (isErr(handlerValue)) {
+            recordRuntimeError(handlerValue.error, {
+              surface: "event",
+              direction: "consumer",
+              operation: String(registration.event),
+              phase: "handler_result",
+            });
             this.#log.error(
               {
                 error: handlerValue.error.toSerializable(),
@@ -4348,6 +4708,12 @@ export class Trellis<
               code: SpanStatusCode.ERROR,
               message: response.error.message,
             });
+            recordRuntimeError(response.error, {
+              surface: "operation",
+              direction: "client",
+              operation: "requestJson",
+              phase: "request_send",
+            });
             return response;
           }
 
@@ -4365,6 +4731,12 @@ export class Trellis<
               code: SpanStatusCode.ERROR,
               message: error.message,
             });
+            recordRuntimeError(error, {
+              surface: "operation",
+              direction: "client",
+              operation: "requestJson",
+              phase: "response_decoding",
+            });
             return err(error);
           }
 
@@ -4377,6 +4749,12 @@ export class Trellis<
             message: error.message,
           });
           span.recordException(error);
+          recordRuntimeError(error, {
+            surface: "operation",
+            direction: "client",
+            operation: "requestJson",
+            phase: "unexpected",
+          });
           return err(error);
         } finally {
           span.end();
@@ -4413,40 +4791,61 @@ export class Trellis<
         await this.nats.flush();
       } catch (cause) {
         sub.unsubscribe();
-        return err(createTransportError({
+        const error = createTransportError({
           code: "trellis.watch.failed",
           message: "Trellis could not start the operation watch.",
           hint:
             "Retry watching the operation. If it keeps failing, reconnect to Trellis and try again.",
           cause,
           context: { subject },
-        }));
+        });
+        recordRuntimeError(error, {
+          surface: "operation",
+          direction: "client",
+          operation: "watchJson",
+          phase: "request_send",
+        });
+        return err(error);
       }
 
       return ok((async function* () {
         try {
           for await (const msg of sub) {
             if (msg.headers?.get("status") === "error") {
-              yield err(createTransportError({
+              const error = createTransportError({
                 code: "trellis.watch.failed",
                 message: "Trellis stopped the operation watch.",
                 hint:
                   "Retry watching the operation. If it keeps happening, reconnect to Trellis and try again.",
                 context: { subject, frame: msg.string() },
-              }));
+              });
+              recordRuntimeError(error, {
+                surface: "operation",
+                direction: "client",
+                operation: "watchJson",
+                phase: "remote_error",
+              });
+              yield err(error);
               continue;
             }
 
             const json = safeJson(msg).take();
             if (isErr(json)) {
-              yield err(createTransportError({
+              const error = createTransportError({
                 code: "trellis.watch.invalid_response",
                 message: "Trellis returned an invalid watch update.",
                 hint:
                   "Retry watching the operation. If it keeps happening, reconnect to Trellis and try again.",
                 cause: json.error.cause,
                 context: { subject },
-              }));
+              });
+              recordRuntimeError(error, {
+                surface: "operation",
+                direction: "client",
+                operation: "watchJson",
+                phase: "response_decoding",
+              });
+              yield err(error);
               continue;
             }
 

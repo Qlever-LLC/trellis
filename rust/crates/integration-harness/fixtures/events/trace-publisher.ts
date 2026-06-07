@@ -9,7 +9,7 @@ import {
 } from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
-import { trace } from "@qlever-llc/trellis/tracing";
+import { trace } from "@qlever-llc/trellis/telemetry";
 import { Type } from "typebox";
 
 new NodeTracerProvider({

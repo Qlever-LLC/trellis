@@ -55,6 +55,7 @@ export {
   type Trellis,
   TrellisService,
   type TrellisServiceConnectOpts,
+  type TrellisServiceConnectTelemetryOpts,
 } from "./service.ts";
 
 // Re-export subscription types

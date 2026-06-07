@@ -12,7 +12,11 @@ type ProcessLike = {
 export function getEnv(key: string): string | undefined {
   const deno = globalThis as typeof globalThis & { Deno?: DenoLike };
   if (deno.Deno?.env?.get) {
-    return deno.Deno.env.get(key);
+    try {
+      return deno.Deno.env.get(key);
+    } catch {
+      return undefined;
+    }
   }
 
   const processGlobal = globalThis as typeof globalThis & {

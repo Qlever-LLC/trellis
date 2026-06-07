@@ -657,14 +657,16 @@ await buildDntPackage({
     "./js/packages/trellis/service/mod.ts",
     "./js/packages/trellis/service/deno.ts",
     "./js/packages/trellis/service/node.ts",
-    "./js/packages/trellis/tracing.ts",
+    "./js/packages/trellis/telemetry.ts",
   ],
   description:
     "Client-side Trellis runtime, models, and contract helpers for TypeScript applications.",
   dependencies: {
     "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/exporter-metrics-otlp-proto": "^0.56.0",
     "@opentelemetry/exporter-trace-otlp-proto": "^0.56.0",
     "@opentelemetry/resources": "^1.30.1",
+    "@opentelemetry/sdk-metrics": "^1.30.1",
     "@opentelemetry/sdk-trace-base": "^1.30.1",
     "@opentelemetry/sdk-trace-node": "^1.30.1",
     "@opentelemetry/semantic-conventions": "^1.28.0",
@@ -683,8 +685,10 @@ await buildDntPackage({
   },
   npmInstallDeps: {
     "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/exporter-metrics-otlp-proto": "^0.56.0",
     "@opentelemetry/exporter-trace-otlp-proto": "^0.56.0",
     "@opentelemetry/resources": "^1.30.1",
+    "@opentelemetry/sdk-metrics": "^1.30.1",
     "@opentelemetry/sdk-trace-base": "^1.30.1",
     "@opentelemetry/sdk-trace-node": "^1.30.1",
     "@opentelemetry/semantic-conventions": "^1.28.0",

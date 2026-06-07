@@ -13,6 +13,8 @@ Common packages are:
   operations, transfers, state, jobs, and errors.
 - `@qlever-llc/trellis/service/deno`: service runtime entrypoint for Deno.
 - `@qlever-llc/trellis/service/node`: service runtime entrypoint for Node.js.
+- `@qlever-llc/trellis/telemetry`: OpenTelemetry helpers for tracing,
+  propagation, initialization, and Trellis error metrics.
 - `@qlever-llc/trellis-svelte`: Svelte and SvelteKit integration helpers.
 - generated SDK packages under `generated/packages/jsr/` and
   `generated/packages/npm/` for contracts in your project.
@@ -74,6 +76,52 @@ await service.wait();
 
 For Node.js, import from `@qlever-llc/trellis/service/node` and use your normal
 environment variable loader.
+
+### Service telemetry
+
+`TrellisService.connect(...)` initializes Trellis telemetry by default using the
+service `name`. This configures trace IDs on Trellis errors and, when the
+environment configures OpenTelemetry exporters, installs tracing and metrics
+runtime support.
+
+```ts
+const service = await TrellisService.connect({
+  trellisUrl: Deno.env.get("TRELLIS_URL")!,
+  contract: ordersService,
+  name: "orders-service",
+  sessionKeySeed: Deno.env.get("ORDERS_SERVICE_SESSION_KEY_SEED")!,
+}).orThrow();
+```
+
+Disable automatic telemetry only when your process owns OpenTelemetry setup and
+will initialize Trellis telemetry explicitly.
+
+```ts
+import { initTelemetry } from "@qlever-llc/trellis/telemetry";
+import { TrellisService } from "@qlever-llc/trellis/service/deno";
+
+initTelemetry("orders-service");
+
+const service = await TrellisService.connect({
+  trellisUrl: Deno.env.get("TRELLIS_URL")!,
+  contract: ordersService,
+  name: "orders-service",
+  sessionKeySeed: Deno.env.get("ORDERS_SERVICE_SESSION_KEY_SEED")!,
+  telemetry: false,
+}).orThrow();
+```
+
+The telemetry subpath also exports trace propagation helpers such as
+`injectTraceContext(...)`, `extractTraceContext(...)`, `getTracer(...)`, and
+`getActiveSpan(...)` for advanced runtime integration. The old
+`@qlever-llc/trellis/tracing` subpath is no longer published; use
+`@qlever-llc/trellis/telemetry`.
+
+Trellis records runtime error metrics with a `trellis.errors` OpenTelemetry
+counter. Metrics are low-cardinality by design: labels describe stable surfaces,
+directions, operations, phases, and Trellis error types. Do not attach user IDs,
+session keys, trace IDs, request IDs, payloads, raw NATS subjects, or error
+messages as metric attributes in application code.
 
 ## Connect as a device
 

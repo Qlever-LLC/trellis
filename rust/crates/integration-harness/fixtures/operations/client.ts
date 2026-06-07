@@ -8,7 +8,7 @@ import {
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
-import { getTracer, withSpanAsync } from "@qlever-llc/trellis/tracing";
+import { getTracer, withSpanAsync } from "@qlever-llc/trellis/telemetry";
 import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
 import { sdk as health } from "@qlever-llc/trellis/sdk/health";
 import { Type } from "typebox";

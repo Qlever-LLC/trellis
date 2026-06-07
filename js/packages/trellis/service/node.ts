@@ -16,4 +16,5 @@ export {
   type Trellis,
   TrellisService,
   type TrellisServiceConnectOpts,
+  type TrellisServiceConnectTelemetryOpts,
 } from "../server/service.ts";

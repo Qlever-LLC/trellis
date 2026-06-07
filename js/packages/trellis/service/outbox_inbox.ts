@@ -3,6 +3,7 @@ import { type AsyncResult, type BaseError, isErr } from "@qlever-llc/result";
 import { type StaticDecode, Type } from "typebox";
 import type { PreparedTrellisEvent, Trellis } from "../trellis.ts";
 import { TypedKV } from "../kv.ts";
+import { recordTrellisError } from "../telemetry/mod.ts";
 
 export type OutboxMessageState = "pending" | "dispatched" | "failed";
 
@@ -646,6 +647,12 @@ export class OutboxDispatcher {
         retryDelayMs: this.#retryDelayMs(),
       });
     } catch (error) {
+      recordTrellisError(error, {
+        surface: "outbox",
+        direction: "dispatcher",
+        operation: "batch",
+        phase: "dispatch",
+      });
       this.#scheduleRetryWakeup();
       try {
         this.#options.onError?.(error);
@@ -693,6 +700,13 @@ export async function dispatchOutbox(
     );
     const value = result.take();
     if (isErr(value)) {
+      recordTrellisError(value.error, {
+        surface: "outbox",
+        direction: "dispatcher",
+        operation: message.event,
+        phase: "publish",
+        messagingSystem: "nats",
+      });
       failed += 1;
       await repository.markFailed(message.id, {
         error: value.error.message,

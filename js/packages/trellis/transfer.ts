@@ -17,7 +17,11 @@ import { ulid } from "ulid";
 import { buildProofInput, verifyProof } from "./auth/proof.ts";
 import { base64urlEncode, sha256 } from "./auth/utils.ts";
 import { TransferError } from "./errors/TransferError.ts";
-import { createNatsHeaderCarrier, injectTraceContext } from "./tracing.ts";
+import {
+  createNatsHeaderCarrier,
+  injectTraceContext,
+  recordTrellisError,
+} from "./telemetry/mod.ts";
 
 const TRANSFER_SEQUENCE_HEADER = "trellis-transfer-seq";
 const TRANSFER_EOF_HEADER = "trellis-transfer-eof";
@@ -184,17 +188,31 @@ function deserializeTransferError(msg: Msg, operation: string): TransferError {
   try {
     const value = JSON.parse(msg.string()) as {
       message?: string;
-      operation?: string;
       context?: Record<string, unknown>;
     };
     return new TransferError({
-      operation: value.operation ?? operation,
+      operation,
       context: value.context,
       cause: value.message ? new Error(value.message) : undefined,
     });
   } catch (cause) {
     return new TransferError({ operation, cause });
   }
+}
+
+function recordTransferError(
+  error: TransferError,
+  direction: "receive" | "send",
+  phase: string,
+): TransferError {
+  recordTrellisError(error, {
+    surface: "transfer",
+    direction,
+    operation: error.operation ?? direction,
+    phase,
+    messagingSystem: "nats",
+  });
+  return error;
 }
 
 function receiveStream(
@@ -252,11 +270,10 @@ function receiveStream(
         }
       } catch (cause) {
         sub.unsubscribe();
-        controller.error(
-          cause instanceof TransferError
-            ? cause
-            : new TransferError({ operation: "stream", cause }),
-        );
+        const error = cause instanceof TransferError
+          ? cause
+          : new TransferError({ operation: "stream", cause });
+        controller.error(recordTransferError(error, "receive", "stream"));
       }
     },
     cancel() {
@@ -393,7 +410,7 @@ export class SendTransferHandle extends BaseTransferHandle {
       (async (): Promise<ResultType<FileInfo, TransferError>> => {
         const valid = this.validateGrant(this.#grant, "send").take();
         if (isErr(valid)) {
-          return Result.err(valid.error);
+          return Result.err(recordTransferError(valid.error, "send", "grant"));
         }
 
         let sentBytes = 0;
@@ -407,14 +424,18 @@ export class SendTransferHandle extends BaseTransferHandle {
             sentBytes > this.#grant.maxBytes
           ) {
             return Result.err(
-              new TransferError({
-                operation: "send",
-                context: {
-                  reason: "max_bytes_exceeded",
-                  maxBytes: this.#grant.maxBytes,
-                  attemptedBytes: sentBytes,
-                },
-              }),
+              recordTransferError(
+                new TransferError({
+                  operation: "send",
+                  context: {
+                    reason: "max_bytes_exceeded",
+                    maxBytes: this.#grant.maxBytes,
+                    attemptedBytes: sentBytes,
+                  },
+                }),
+                "send",
+                "validation",
+              ),
             );
           }
 
@@ -432,13 +453,17 @@ export class SendTransferHandle extends BaseTransferHandle {
           ).take();
           if (isErr(response)) {
             return Result.err(
-              new TransferError({ operation: "send", cause: response.error }),
+              recordTransferError(
+                new TransferError({ operation: "send", cause: response.error }),
+                "send",
+                "send",
+              ),
             );
           }
 
           const ack = parseTransferAck(response, "send").take();
           if (isErr(ack)) {
-            return Result.err(ack.error);
+            return Result.err(recordTransferError(ack.error, "send", "ack"));
           }
           if (ack.status === "complete") {
             completed = ack.info;
@@ -460,23 +485,31 @@ export class SendTransferHandle extends BaseTransferHandle {
         ).take();
         if (isErr(finalResponse)) {
           return Result.err(
-            new TransferError({
-              operation: "send",
-              cause: finalResponse.error,
-            }),
+            recordTransferError(
+              new TransferError({
+                operation: "send",
+                cause: finalResponse.error,
+              }),
+              "send",
+              "send",
+            ),
           );
         }
 
         const finalAck = parseTransferAck(finalResponse, "send").take();
         if (isErr(finalAck)) {
-          return Result.err(finalAck.error);
+          return Result.err(recordTransferError(finalAck.error, "send", "ack"));
         }
         if (finalAck.status !== "complete") {
           return Result.err(
-            new TransferError({
-              operation: "send",
-              context: { reason: "missing_completion" },
-            }),
+            recordTransferError(
+              new TransferError({
+                operation: "send",
+                context: { reason: "missing_completion" },
+              }),
+              "send",
+              "ack",
+            ),
           );
         }
         return Result.ok(finalAck.info ?? completed!);
@@ -505,7 +538,9 @@ export class ReceiveTransferHandle extends BaseTransferHandle {
       > => {
         const valid = this.validateGrant(this.#grant, "stream").take();
         if (isErr(valid)) {
-          return Result.err(valid.error);
+          return Result.err(
+            recordTransferError(valid.error, "receive", "grant"),
+          );
         }
 
         const inbox = createInbox(
@@ -523,7 +558,11 @@ export class ReceiveTransferHandle extends BaseTransferHandle {
           await this.nc.flush();
         } catch (cause) {
           sub.unsubscribe();
-          return Result.err(new TransferError({ operation: "stream", cause }));
+          return Result.err(recordTransferError(
+            new TransferError({ operation: "stream", cause }),
+            "receive",
+            "send",
+          ));
         }
 
         return Result.ok(receiveStream(sub, this.timeoutMs));

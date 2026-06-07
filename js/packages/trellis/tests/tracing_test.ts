@@ -1,13 +1,13 @@
 import { assertEquals, assertExists, assertNotEquals } from "@std/assert";
 
-// Test file for distributed tracing module
+// Test file for distributed telemetry module
 // Following TDD: writing tests FIRST before implementation
 
-Deno.test("Tracing Module", async (t) => {
+Deno.test("Telemetry Module", async (t) => {
   await t.step("HeaderCarrier interface", async (t) => {
     await t.step("should allow get and set operations", async () => {
       // Import the module - this will fail until we create it
-      const { createMapCarrier } = await import("../tracing.ts");
+      const { createMapCarrier } = await import("../telemetry.ts");
 
       const carrier = createMapCarrier();
       carrier.set("traceparent", "00-abc123-def456-01");
@@ -15,7 +15,7 @@ Deno.test("Tracing Module", async (t) => {
     });
 
     await t.step("should return undefined for missing keys", async () => {
-      const { createMapCarrier } = await import("../tracing.ts");
+      const { createMapCarrier } = await import("../telemetry.ts");
 
       const carrier = createMapCarrier();
       assertEquals(carrier.get("nonexistent"), undefined);
@@ -26,7 +26,7 @@ Deno.test("Tracing Module", async (t) => {
     await t.step(
       "startClientSpan should create a span with correct attributes",
       async () => {
-        const { startClientSpan, SpanKind } = await import("../tracing.ts");
+        const { startClientSpan, SpanKind } = await import("../telemetry.ts");
 
         const span = startClientSpan("TestMethod", "test.subject");
 
@@ -43,7 +43,7 @@ Deno.test("Tracing Module", async (t) => {
     await t.step(
       "startServerSpan should create a span with correct attributes",
       async () => {
-        const { startServerSpan, SpanKind } = await import("../tracing.ts");
+        const { startServerSpan, SpanKind } = await import("../telemetry.ts");
 
         const span = startServerSpan("TestMethod", "test.subject");
 
@@ -66,7 +66,7 @@ Deno.test("Tracing Module", async (t) => {
           injectTraceContext,
           extractTraceContext,
           createMapCarrier,
-        } = await import("../tracing.ts");
+        } = await import("../telemetry.ts");
 
         // Create a "client" span that would inject context
         const clientSpan = startClientSpan("ClientMethod", "client.subject");
@@ -106,7 +106,7 @@ Deno.test("Tracing Module", async (t) => {
           startClientSpan,
           injectTraceContext,
           createMapCarrier,
-        } = await import("../tracing.ts");
+        } = await import("../telemetry.ts");
 
         const span = startClientSpan("TestMethod", "test.subject");
         const carrier = createMapCarrier();
@@ -127,7 +127,7 @@ Deno.test("Tracing Module", async (t) => {
       "extractTraceContext should return a context object",
       async () => {
         const { extractTraceContext, createMapCarrier } = await import(
-          "../tracing.ts"
+          "../telemetry.ts"
         );
 
         const carrier = createMapCarrier();
@@ -147,7 +147,9 @@ Deno.test("Tracing Module", async (t) => {
 
   await t.step("Span Status", async (t) => {
     await t.step("span should allow setting status to OK", async () => {
-      const { startClientSpan, SpanStatusCode } = await import("../tracing.ts");
+      const { startClientSpan, SpanStatusCode } = await import(
+        "../telemetry.ts"
+      );
 
       const span = startClientSpan("TestMethod", "test.subject");
       span.setStatus({ code: SpanStatusCode.OK });
@@ -161,7 +163,7 @@ Deno.test("Tracing Module", async (t) => {
       "span should allow setting status to ERROR with message",
       async () => {
         const { startClientSpan, SpanStatusCode } = await import(
-          "../tracing.ts"
+          "../telemetry.ts"
         );
 
         const span = startClientSpan("TestMethod", "test.subject");
@@ -174,7 +176,7 @@ Deno.test("Tracing Module", async (t) => {
     );
 
     await t.step("span should allow recording exceptions", async () => {
-      const { startClientSpan } = await import("../tracing.ts");
+      const { startClientSpan } = await import("../telemetry.ts");
 
       const span = startClientSpan("TestMethod", "test.subject");
       span.recordException(new Error("Test exception"));
@@ -189,7 +191,7 @@ Deno.test("Tracing Module", async (t) => {
     await t.step(
       "createNatsHeaderCarrier should wrap NATS headers",
       async () => {
-        const { createNatsHeaderCarrier } = await import("../tracing.ts");
+        const { createNatsHeaderCarrier } = await import("../telemetry.ts");
 
         // Mock NATS headers-like object
         const mockHeaders = {
@@ -213,30 +215,44 @@ Deno.test("Tracing Module", async (t) => {
 
   await t.step("getTracer", async (t) => {
     await t.step("should return a tracer instance", async () => {
-      const { getTracer } = await import("../tracing.ts");
+      const { getTracer } = await import("../telemetry.ts");
 
       const tracer = getTracer();
       assertExists(tracer);
     });
   });
 
-  await t.step("initTracing", async (t) => {
+  await t.step("initTelemetry", async (t) => {
     await t.step("should be idempotent (multiple calls safe)", async () => {
-      const { initTracing } = await import("../tracing.ts");
+      const { initTelemetry } = await import("../telemetry.ts");
 
       // Should not throw on multiple calls
-      initTracing("test-service");
-      initTracing("test-service");
-      initTracing("another-service");
+      initTelemetry("test-service");
+      initTelemetry("test-service");
+      initTelemetry("another-service");
 
       // If we get here without throwing, the test passes
     });
   });
 
+  await t.step("recordTrellisError", async (t) => {
+    await t.step(
+      "should be safe without a configured meter provider",
+      async () => {
+        const { recordTrellisError } = await import("../telemetry.ts");
+
+        recordTrellisError(new Error("sensitive message"), {
+          surface: "rpc",
+          operation: "request",
+        });
+      },
+    );
+  });
+
   await t.step("getActiveSpan", async (t) => {
     await t.step("should return active span from context", async () => {
       const { getActiveSpan, startClientSpan, withSpan } = await import(
-        "../tracing.ts"
+        "../telemetry.ts"
       );
 
       const span = startClientSpan("TestMethod", "test.subject");
@@ -251,4 +267,13 @@ Deno.test("Tracing Module", async (t) => {
       span.end();
     });
   });
+});
+
+Deno.test({
+  name: "initTelemetry is safe without env permission",
+  permissions: { env: false },
+  async fn() {
+    const { initTelemetry } = await import("../telemetry.ts");
+    initTelemetry("no-env-permission-service");
+  },
 });

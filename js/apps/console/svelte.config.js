@@ -100,9 +100,9 @@ const config = {
         rootDir,
         "../../packages/trellis/host/mod.ts",
       ),
-      "@qlever-llc/trellis/tracing": resolve(
+      "@qlever-llc/trellis/telemetry": resolve(
         rootDir,
-        "../../packages/trellis/tracing.ts",
+        "../../packages/trellis/telemetry.ts",
       ),
       "@qlever-llc/trellis": resolve(
         rootDir,
