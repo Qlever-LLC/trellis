@@ -27,6 +27,7 @@ import type { LoggerLike } from "./globals.ts";
 import { serverLogger } from "./server_logger.ts";
 import {
   type AcceptedOperation,
+  annotateHandlerBoundaryError,
   type AnyTrellisAPI,
   type AuthRequestsValidateResponse,
   base64urlDecode,
@@ -199,6 +200,26 @@ function asOptionalStringRecordPointerValue(
   return ok(Object.fromEntries(entries) as Record<string, string>);
 }
 
+function traceIdFromTraceparent(
+  traceparent: string | undefined,
+): string | undefined {
+  const [version, traceId, parentId, flags, extra] = traceparent?.split("-") ??
+    [];
+  if (
+    extra !== undefined ||
+    !/^[0-9a-f]{2}$/u.test(version ?? "") ||
+    version === "ff" ||
+    !/^[0-9a-f]{32}$/u.test(traceId ?? "") ||
+    traceId === "00000000000000000000000000000000" ||
+    !/^[0-9a-f]{16}$/u.test(parentId ?? "") ||
+    parentId === "0000000000000000" ||
+    !/^[0-9a-f]{2}$/u.test(flags ?? "")
+  ) {
+    return undefined;
+  }
+  return traceId;
+}
+
 export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
   #version?: string;
   #log: LoggerLike;
@@ -243,7 +264,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
         }),
       fail: (operationId, error) =>
         this.#applyOperationUpdate(operationId, "failed", {
-          patch: { error: { type: error.name, message: error.message } },
+          patch: { error: error.toSerializable() },
           event: { type: "failed" },
         }),
       cancel: (operationId) =>
@@ -506,7 +527,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
         }),
       fail: (error: BaseError) =>
         this.#applyControlledOperationUpdate(runtime, ctx, "failed", {
-          patch: { error: { type: error.name, message: error.message } },
+          patch: { error: error.toSerializable() },
           event: { type: "failed" },
         }),
       cancel: () => {
@@ -1210,7 +1231,10 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
           runtime.waiters.clear();
         };
 
-        const makeOperation = (runtime: RuntimeOperationRecord) => {
+        const makeOperation = (
+          runtime: RuntimeOperationRecord,
+          context: { requestId?: string; traceId?: string },
+        ) => {
           const ensureActive = () => {
             if (runtime.terminal) {
               return err(
@@ -1291,11 +1315,19 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
               AsyncResult.from((async () => {
                 const active = ensureActive();
                 if (active) return active;
+                const annotatedError = annotateHandlerBoundaryError(error, {
+                  operation: String(operation),
+                  requestId: context.requestId,
+                  service: this.name,
+                  contractId: this.contractId,
+                  contractDigest: this.contractDigest,
+                  traceId: context.traceId,
+                });
                 const snapshot = buildRuntimeOperationSnapshot(
                   runtime,
                   "failed",
                   {
-                    error: { type: error.name, message: error.message },
+                    error: annotatedError.toSerializable(),
                     completedAt: now(),
                   },
                 );
@@ -1636,7 +1668,13 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
             msg.respond(JSON.stringify(accepted));
 
             void (async () => {
-              const op = makeOperation(runtime);
+              const operationContext = {
+                requestId: msg.headers?.get("request-id"),
+                traceId: traceIdFromTraceparent(
+                  msg.headers?.get("traceparent"),
+                ),
+              };
+              const op = makeOperation(runtime, operationContext);
               try {
                 const handlerResult: unknown = await handler(
                   transferSession
@@ -1656,7 +1694,17 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
                   ? handlerResult.take()
                   : handlerResult;
                 if (isErr(handlerOutcome)) {
-                  await op.fail(handlerOutcome.error);
+                  await op.fail(annotateHandlerBoundaryError(
+                    handlerOutcome.error,
+                    {
+                      operation: String(operation),
+                      requestId: operationContext.requestId,
+                      service: this.name,
+                      contractId: this.contractId,
+                      contractDigest: this.contractDigest,
+                      traceId: operationContext.traceId,
+                    },
+                  ));
                   return;
                 }
 
@@ -1676,7 +1724,14 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
                   await op.complete(handlerOutcome);
                 }
               } catch (cause) {
-                await op.fail(new UnexpectedError({ cause }));
+                await op.fail(annotateHandlerBoundaryError(cause, {
+                  operation: String(operation),
+                  requestId: operationContext.requestId,
+                  service: this.name,
+                  contractId: this.contractId,
+                  contractDigest: this.contractDigest,
+                  traceId: operationContext.traceId,
+                }));
               }
             })();
           }

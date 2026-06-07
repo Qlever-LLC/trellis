@@ -77,7 +77,10 @@ import type {
   RpcHandlerContext,
   RpcHandlerErrorOf,
 } from "../trellis.ts";
-import { createTrellisInternal } from "../trellis.ts";
+import {
+  annotateHandlerBoundaryError,
+  createTrellisInternal,
+} from "../trellis.ts";
 import type {
   NatsConnectFn,
   NatsConnectOpts,
@@ -1818,6 +1821,8 @@ export async function createConnectedService<
       stream: args.server.stream,
       noResponderRetry: args.server.noResponderRetry,
       api: runtimeApi,
+      contractId: args.contractId,
+      contractDigest: args.contractDigest,
       connection,
       transferSupport: {
         openOperationTransfer: (transferArgs) =>
@@ -1837,6 +1842,8 @@ export async function createConnectedService<
       stream: args.server.stream,
       noResponderRetry: args.server.noResponderRetry,
       api: runtimeApi,
+      contractId: args.contractId,
+      contractDigest: args.contractDigest,
       eventConsumers: {
         metadata: args.contractEventConsumers,
         bindings: args.bindings.eventConsumers,
@@ -2007,6 +2014,14 @@ function toUnexpectedError(cause: unknown): UnexpectedError {
   return cause instanceof UnexpectedError
     ? cause
     : new UnexpectedError({ cause });
+}
+
+function serializeJobHandlerError(error: BaseError): string {
+  try {
+    return JSON.stringify(error.toSerializable());
+  } catch {
+    return error.message;
+  }
 }
 
 function okVoid(): Result<void, never> {
@@ -2403,6 +2418,8 @@ function createJobsFacade<
   TKv extends ContractKvMetadata = ContractKvMetadata,
 >(args: {
   serviceName: string;
+  contractId?: string;
+  contractDigest?: string;
   nc: NatsConnection;
   contractJobs: TJobs;
   client: Trellis<TTrellisApi, TKv, TJobs>;
@@ -2566,9 +2583,35 @@ function createJobsFacade<
                   },
                 );
 
-                const handled = (await handler(publicJob)).take();
+                const jobErrorContext = {
+                  jobType: queueType,
+                  requestId: job.context().requestId,
+                  service: args.serviceName,
+                  contractId: args.contractId,
+                  contractDigest: args.contractDigest,
+                  traceId: job.context().traceId,
+                };
+
+                let handled: unknown | Result<never, BaseError>;
+                try {
+                  handled = (await handler(publicJob)).take();
+                } catch (cause) {
+                  const annotatedError = annotateHandlerBoundaryError(
+                    cause,
+                    jobErrorContext,
+                  );
+                  throw InternalJobProcessError.failed(
+                    serializeJobHandlerError(annotatedError),
+                  );
+                }
                 if (isErr(handled)) {
-                  throw InternalJobProcessError.failed(handled.error.message);
+                  const annotatedError = annotateHandlerBoundaryError(
+                    handled.error,
+                    jobErrorContext,
+                  );
+                  throw InternalJobProcessError.failed(
+                    serializeJobHandlerError(annotatedError),
+                  );
                 }
                 return handled;
               },
@@ -2756,6 +2799,8 @@ export class TrellisService<
     this.#operationTransfer = operationTransfer;
     const jobs = createJobsFacade<TJobs, TTrellisApi, TKv>({
       serviceName: name,
+      contractId: health.contractId,
+      contractDigest: health.contractDigest,
       nc,
       contractJobs,
       client: handlerTrellis,

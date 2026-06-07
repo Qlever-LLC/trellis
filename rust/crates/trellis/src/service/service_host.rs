@@ -43,6 +43,18 @@ impl<H> RequestHandler for ServiceHost<H>
 where
     H: RequestHandler,
 {
+    fn handler_service_name(&self) -> Option<&str> {
+        Some(&self.service_name)
+    }
+
+    fn handler_contract_id(&self) -> Option<&str> {
+        Some(&self.binding.contract_id)
+    }
+
+    fn handler_contract_digest(&self) -> Option<&str> {
+        Some(&self.binding.digest)
+    }
+
     fn handle<'a>(
         &'a self,
         subject: &'a str,

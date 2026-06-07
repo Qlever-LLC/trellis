@@ -24,6 +24,12 @@ and this project adheres to
   integration fixture guidance, corrected Rust formatter checks, and staged JSR
   publish verification.
 
+### Fixed
+
+- Annotated TypeScript and Rust handler-boundary errors with service, contract,
+  surface, request, and trace metadata while preserving declared business error
+  types and omitting internal NATS subjects from serialized error contexts.
+
 ## [0.10.10] - 2026-06-06
 
 ### Added

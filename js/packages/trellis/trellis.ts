@@ -732,6 +732,55 @@ export function isResultLike(
 ): value is Result<unknown, BaseError> {
   return value instanceof Result;
 }
+
+type SerializableRuntimeError = {
+  id?: string;
+  type: string;
+  message: string;
+  context?: Record<string, unknown>;
+  traceId?: string;
+} & Record<string, unknown>;
+
+export type HandlerErrorAnnotationContext = {
+  method?: string;
+  event?: string;
+  feed?: string;
+  operation?: string;
+  jobType?: string;
+  requestId?: string;
+  service?: string;
+  contractId?: string;
+  contractDigest?: string;
+  traceId?: string;
+};
+
+function compactHandlerErrorContext(
+  context: HandlerErrorAnnotationContext,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(context).filter(([key, value]) =>
+      key !== "traceId" && value !== undefined
+    ),
+  );
+}
+
+function sanitizeHandlerErrorContext(error: BaseError): void {
+  delete error.getContext().subject;
+}
+
+export function annotateHandlerBoundaryError(
+  cause: unknown,
+  context: HandlerErrorAnnotationContext,
+): BaseError {
+  const error = cause instanceof BaseError && !(cause instanceof RemoteError)
+    ? cause
+    : new UnexpectedError({ cause });
+  sanitizeHandlerErrorContext(error);
+  error.withContext(compactHandlerErrorContext(context));
+  error.withTraceId(context.traceId);
+  return error;
+}
+
 export type RuntimeOperationDesc = {
   subject: string;
   input: unknown;
@@ -788,10 +837,7 @@ export type RuntimeOperationSnapshot = {
   progress?: unknown;
   transfer?: RuntimeOperationTransferProgress;
   output?: unknown;
-  error?: {
-    type: string;
-    message: string;
-  };
+  error?: SerializableRuntimeError;
 };
 
 export type RuntimeOperationRecord = {
@@ -848,8 +894,11 @@ const DurableOperationSnapshotSchema = Type.Object({
   })),
   output: Type.Optional(Type.Any()),
   error: Type.Optional(Type.Object({
+    id: Type.Optional(Type.String()),
     type: Type.String(),
     message: Type.String(),
+    context: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+    traceId: Type.Optional(Type.String()),
   })),
 });
 
@@ -990,6 +1039,8 @@ export type TrellisOpts<TA extends AnyTrellisAPI> = {
   state?: RuntimeStateStores;
   connection?: TrellisConnection;
   onSessionNotFound?: () => MaybePromise<void>;
+  contractId?: string;
+  contractDigest?: string;
 };
 
 export type RequestOpts = {
@@ -1960,6 +2011,8 @@ export class Trellis<
   readonly handle: { readonly rpc: ActiveRpcHandleFacade<TA, TRequests> };
   /** Framework-neutral lifecycle handle for this Trellis runtime connection. */
   readonly connection: TrellisConnection;
+  readonly contractId?: string;
+  readonly contractDigest?: string;
 
   protected nats: NatsConnection;
   protected js: JetStreamClient;
@@ -1991,6 +2044,8 @@ export class Trellis<
     this.#log = (opts?.log ?? logger).child({ lib: "trellis" });
     this.timeout = opts?.timeout ?? 3000;
     this.stream = opts?.stream ?? "trellis";
+    this.contractId = opts?.contractId;
+    this.contractDigest = opts?.contractDigest;
     this.#hasExplicitApi = api !== undefined;
     this.#noResponderMaxRetries = opts?.noResponderRetry?.maxAttempts ??
       DEFAULT_NO_RESPONDER_MAX_RETRIES;
@@ -2860,9 +2915,14 @@ export class Trellis<
               this.#respondWithError(msg, value.error);
             }
           } catch (cause) {
-            const error = cause instanceof BaseError
-              ? cause
-              : new UnexpectedError({ cause });
+            const error = annotateHandlerBoundaryError(cause, {
+              feed,
+              requestId: msg.headers?.get("request-id"),
+              service: this.name,
+              contractId: this.contractId,
+              contractDigest: this.contractDigest,
+              traceId: traceIdFromTraceparent(msg.headers?.get("traceparent")),
+            });
             this.#respondWithError(msg, error);
           }
         })();
@@ -2907,7 +2967,7 @@ export class Trellis<
 
     const controller = new AbortController();
     try {
-      await handler({
+      const handlerResult = await handler({
         input: parsed as TInput,
         caller: callerValue,
         signal: controller.signal,
@@ -2927,6 +2987,19 @@ export class Trellis<
             return ok(undefined);
           })()),
       });
+      const handlerOutcome = isResultLike(handlerResult)
+        ? handlerResult.take()
+        : handlerResult;
+      if (isErr(handlerOutcome)) {
+        return err(annotateHandlerBoundaryError(handlerOutcome.error, {
+          feed,
+          requestId: msg.headers?.get("request-id"),
+          service: this.name,
+          contractId: this.contractId,
+          contractDigest: this.contractDigest,
+          traceId: traceIdFromTraceparent(msg.headers?.get("traceparent")),
+        }));
+      }
       return ok(undefined);
     } finally {
       controller.abort();
@@ -3350,7 +3423,17 @@ export class Trellis<
         );
 
         if (handlerResultWrapped.isErr()) {
-          const error = handlerResultWrapped.error.withContext({ method });
+          const error = annotateHandlerBoundaryError(
+            handlerResultWrapped.error,
+            {
+              method: String(method),
+              requestId: msg.headers?.get("request-id"),
+              service: this.name,
+              contractId: this.contractId,
+              contractDigest: this.contractDigest,
+              traceId: activeTraceId(span) ?? incomingTraceId,
+            },
+          );
           this.#log.error(
             {
               method,
@@ -3374,12 +3457,14 @@ export class Trellis<
         };
         const handlerOutcome = handlerResult.take();
         if (isErr(handlerOutcome)) {
-          const handlerError = handlerOutcome.error;
-
-          const error = handlerError instanceof BaseError &&
-              !(handlerError instanceof RemoteError)
-            ? handlerError
-            : new UnexpectedError({ cause: handlerError });
+          const error = annotateHandlerBoundaryError(handlerOutcome.error, {
+            method: String(method),
+            requestId: msg.headers?.get("request-id"),
+            service: this.name,
+            contractId: this.contractId,
+            contractDigest: this.contractDigest,
+            traceId: activeTraceId(span) ?? incomingTraceId,
+          });
 
           this.#log.error(
             {
@@ -3713,21 +3798,18 @@ export class Trellis<
           continue;
         }
 
-        const handlerResult = await AsyncResult.lift(
-          fn(
-            m as EventOf<TA, EventsOf<TA>>,
-            createEventListenerContext({
-              payload: m,
-              subject: msg.subject,
-              mode: "ephemeral",
-              message: msg,
-            }),
-          ),
-        );
-        if (handlerResult.isErr()) {
+        const handlerResult = await this.#invokeEventHandler({
+          event,
+          payload: m,
+          mode: "ephemeral",
+          message: msg,
+          fn,
+        });
+        const handlerValue = handlerResult.take();
+        if (isErr(handlerValue)) {
           this.#log.error(
             {
-              error: handlerResult.error.toSerializable(),
+              error: handlerValue.error.toSerializable(),
               event,
               subject: msg.subject,
             },
@@ -3739,6 +3821,42 @@ export class Trellis<
 
     this.#tasks.add(`event:${event}:${ulid()}`, task);
     return ok(undefined);
+  }
+
+  async #invokeEventHandler(args: {
+    event: EventsOf<TA>;
+    payload: unknown;
+    mode: "durable" | "ephemeral";
+    group?: string;
+    message: Pick<Msg, "headers" | "subject"> & object;
+    fn: EventCallback<EventOf<TA, EventsOf<TA>>>;
+  }): Promise<Result<void, BaseError>> {
+    const annotation = {
+      event: String(args.event),
+      service: this.name,
+      contractId: this.contractId,
+      contractDigest: this.contractDigest,
+      traceId: traceIdFromTraceparent(args.message.headers?.get("traceparent")),
+    };
+    try {
+      const result = await Promise.resolve(args.fn(
+        args.payload as EventOf<TA, EventsOf<TA>>,
+        createEventListenerContext({
+          payload: args.payload,
+          subject: args.message.subject,
+          mode: args.mode,
+          ...(args.group ? { group: args.group } : {}),
+          message: args.message,
+        }),
+      ));
+      const outcome = isResultLike(result) ? result.take() : result;
+      if (isErr(outcome)) {
+        return err(annotateHandlerBoundaryError(outcome.error, annotation));
+      }
+      return ok(undefined);
+    } catch (cause) {
+      return err(annotateHandlerBoundaryError(cause, annotation));
+    }
   }
 
   #resolveEventConsumerGroup(
@@ -3944,21 +4062,18 @@ export class Trellis<
           continue;
         }
 
-        const handlerResult = await AsyncResult.lift(
-          fn(
-            m as EventOf<TA, EventsOf<TA>>,
-            createEventListenerContext({
-              payload: m,
-              subject: msg.subject,
-              mode: "durable",
-              message: msg,
-            }),
-          ),
-        );
-        if (handlerResult.isErr()) {
+        const handlerResult = await this.#invokeEventHandler({
+          event,
+          payload: m,
+          mode: "durable",
+          message: msg,
+          fn,
+        });
+        const handlerValue = handlerResult.take();
+        if (isErr(handlerValue)) {
           this.#log.error(
             {
-              error: handlerResult.error.toSerializable(),
+              error: handlerValue.error.toSerializable(),
               event,
               subject: msg.subject,
             },
@@ -4014,22 +4129,19 @@ export class Trellis<
             break;
           }
 
-          const handlerResult = await AsyncResult.lift(
-            registration.fn(
-              eventPayload as EventOf<TA, EventsOf<TA>>,
-              createEventListenerContext({
-                payload: eventPayload,
-                subject: msg.subject,
-                mode: "durable",
-                group,
-                message: msg,
-              }),
-            ),
-          );
-          if (handlerResult.isErr()) {
+          const handlerResult = await this.#invokeEventHandler({
+            event: registration.event,
+            payload: eventPayload,
+            mode: "durable",
+            group,
+            message: msg,
+            fn: registration.fn,
+          });
+          const handlerValue = handlerResult.take();
+          if (isErr(handlerValue)) {
             this.#log.error(
               {
-                error: handlerResult.error.toSerializable(),
+                error: handlerValue.error.toSerializable(),
                 event: registration.event,
                 subject: msg.subject,
               },

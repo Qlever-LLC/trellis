@@ -38,12 +38,40 @@ impl DeclaredRpcError {
         &self.message
     }
 
-    pub(crate) fn to_payload(&self, id: String) -> Value {
+    pub(crate) fn to_payload_with_context(
+        &self,
+        id: String,
+        context: Map<String, Value>,
+        trace_id: Option<&str>,
+    ) -> Value {
         let mut payload = self.fields.clone();
         payload.insert("id".to_string(), Value::String(id));
         payload.insert("type".to_string(), Value::String(self.error_type.clone()));
         payload.insert("message".to_string(), Value::String(self.message.clone()));
+        merge_context(&mut payload, context);
+        if let Some(trace_id) = trace_id {
+            payload.insert("traceId".to_string(), Value::String(trace_id.to_string()));
+        }
         Value::Object(payload)
+    }
+}
+
+fn merge_context(payload: &mut Map<String, Value>, context: Map<String, Value>) {
+    if context.is_empty() {
+        return;
+    }
+
+    match payload.get_mut("context") {
+        Some(Value::Object(existing)) => {
+            existing.remove("subject");
+            for (key, value) in context {
+                existing.entry(key).or_insert(value);
+            }
+        }
+        Some(_) => {}
+        None => {
+            payload.insert("context".to_string(), Value::Object(context));
+        }
     }
 }
 

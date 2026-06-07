@@ -141,6 +141,8 @@ Deno.test("runHealthCheck", async (t) => {
 
       assertEquals(result.status, "failed");
       assertEquals(result.error, errorMessage);
+      assertEquals(result.info?.errorType, "TestError");
+      assertEquals(typeof result.info?.errorId, "string");
     },
   );
 });
@@ -307,9 +309,13 @@ Deno.test("ServiceHealth aggregates registered checks and info", async () => {
 
   const response = await health.response();
   const heartbeat = await health.heartbeat();
+  const dbCheck = response.checks.find((check) => check.name === "db");
 
   assertEquals(response.status, "degraded");
   assertEquals(response.checks.length, 2);
+  assertEquals(dbCheck?.info?.service, "activity");
+  assertEquals(dbCheck?.info?.contractId, "trellis.audit@v1");
+  assertEquals(dbCheck?.info?.contractDigest, "digest");
   assertEquals(heartbeat.service.contractId, "trellis.audit@v1");
   assertEquals(heartbeat.service.version, "1.2.3");
   assertEquals(heartbeat.status, "degraded");
