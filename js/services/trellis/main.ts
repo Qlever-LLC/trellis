@@ -30,7 +30,7 @@ function aggregateStartupFailure(error: unknown, cleanupResults: unknown[]) {
 async function waitForServerDrain(
   server: ReturnType<typeof Deno.serve>,
 ): Promise<void> {
-  let timeoutId: number | undefined;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
   try {
     await Promise.race([
@@ -170,7 +170,7 @@ function shutdown(signal: string): Promise<void> {
 }
 
 async function shutdownForSignal(signal: ShutdownSignal): Promise<void> {
-  let timeoutId: number | undefined;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
   try {
     await Promise.race([

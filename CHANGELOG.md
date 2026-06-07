@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.11] - 2026-06-07
+
 ### Added
 
 - Added `release pretag-check` and `release local-verify` xtask commands so
@@ -29,6 +31,9 @@ and this project adheres to
 - Annotated TypeScript and Rust handler-boundary errors with service, contract,
   surface, request, and trace metadata while preserving declared business error
   types and omitting internal NATS subjects from serialized error contexts.
+- Fixed release verification type checks for cross-runtime timer handles and
+  Node stack-trace capture, and restored JS demo contract parity resolution with
+  local Trellis import mappings.
 
 ## [0.10.10] - 2026-06-06
 
@@ -864,7 +869,11 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.7...HEAD
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.11...HEAD
+[0.10.11]: https://github.com/Qlever-LLC/trellis/compare/v0.10.10...v0.10.11
+[0.10.10]: https://github.com/Qlever-LLC/trellis/compare/v0.10.9...v0.10.10
+[0.10.9]: https://github.com/Qlever-LLC/trellis/compare/v0.10.8...v0.10.9
+[0.10.8]: https://github.com/Qlever-LLC/trellis/compare/v0.10.7...v0.10.8
 [0.10.7]: https://github.com/Qlever-LLC/trellis/compare/v0.10.6...v0.10.7
 [0.10.6]: https://github.com/Qlever-LLC/trellis/compare/v0.10.5...v0.10.6
 [0.10.5]: https://github.com/Qlever-LLC/trellis/compare/v0.10.4...v0.10.5

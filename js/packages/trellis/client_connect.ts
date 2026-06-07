@@ -223,12 +223,11 @@ const ClientTransportsSchema = Type.Object({
 type ClientConnectDeps = {
   loadTransport(): Promise<RuntimeTransport>;
   now(): number;
-  setInterval?: (
-    handler: () => void,
-    ms: number,
-  ) => ReturnType<typeof globalThis.setInterval>;
-  clearInterval?: (id: ReturnType<typeof globalThis.setInterval>) => void;
+  setInterval?: (handler: () => void, ms: number) => IntervalHandle;
+  clearInterval?: (id: IntervalHandle) => void;
 };
+
+type IntervalHandle = ReturnType<typeof globalThis.setInterval> | number;
 
 const ClientBootstrapReadySchema = Type.Object({
   status: Type.Literal("ready"),
@@ -799,11 +798,14 @@ async function createRuntimeUserAuthenticator(args: {
     ((
       handler: () => void,
       ms: number,
-    ): ReturnType<typeof globalThis.setInterval> =>
-      globalThis.setInterval(handler, ms));
+    ): IntervalHandle => globalThis.setInterval(handler, ms));
   const clearRefreshInterval = args.deps.clearInterval ??
-    ((id: ReturnType<typeof globalThis.setInterval>) =>
-      globalThis.clearInterval(id));
+    ((id: IntervalHandle) => {
+      const clearIntervalFn = globalThis.clearInterval as (
+        id: IntervalHandle,
+      ) => void;
+      clearIntervalFn(id);
+    });
   const refreshIntervalId = setRefreshInterval(() => {
     void refresh();
   }, 10_000);

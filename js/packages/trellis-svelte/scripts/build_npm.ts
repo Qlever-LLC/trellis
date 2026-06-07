@@ -38,8 +38,8 @@ const version = resolvePackageBuildVersion(denoConfig.version as string);
 const dependencies = resolveInternalNpmDependenciesForBuild(
   {
     "@nats-io/nats-core": "^3.3.1",
-    "@qlever-llc/result": "^0.10.10",
-    "@qlever-llc/trellis": "^0.10.10",
+    "@qlever-llc/result": "^0.10.11",
+    "@qlever-llc/trellis": "^0.10.11",
     typebox: "^1.0.15",
   },
   version,

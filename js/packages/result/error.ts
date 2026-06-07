@@ -6,6 +6,10 @@
 import { ulid } from "ulid";
 import Type, { type Static } from "typebox";
 
+type StackTraceErrorConstructor = ErrorConstructor & {
+  captureStackTrace?: (targetObject: object, constructorOpt?: object) => void;
+};
+
 /**
  * Base error serialization schema.
  * All errors serialize to this structure with optional additional fields.
@@ -68,8 +72,10 @@ export abstract class BaseError<
     if ("prototype" in constructor) {
       Object.setPrototypeOf(this, constructor.prototype);
     }
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, this.constructor);
+    const captureStackTrace = (Error as StackTraceErrorConstructor)
+      .captureStackTrace;
+    if (captureStackTrace) {
+      captureStackTrace(this, this.constructor);
     }
   }
 
