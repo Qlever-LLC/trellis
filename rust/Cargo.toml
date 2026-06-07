@@ -37,7 +37,7 @@ default-members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.10.11"
+version = "0.10.12"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/qlever-llc/trellis"
@@ -65,8 +65,8 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 time = { version = "0.3.47", features = ["formatting"] }
 self_update = { version = "0.44.0", default-features = false, features = ["archive-tar", "archive-zip", "compression-flate2", "compression-zip-deflate", "rustls", "ureq"] }
-trellis-sdk-auth = { path = "../generated/packages/cargo/auth", version = "0.10.11" }
-trellis-sdk-core = { path = "../generated/packages/cargo/trellis-core", version = "0.10.11" }
-trellis-sdk-health = { path = "../generated/packages/cargo/health", version = "0.10.11" }
-trellis-sdk-jobs = { path = "../generated/packages/cargo/jobs", version = "0.10.11" }
-trellis-sdk-state = { path = "../generated/packages/cargo/state", version = "0.10.11" }
+trellis-sdk-auth = { path = "../generated/packages/cargo/auth", version = "0.10.12" }
+trellis-sdk-core = { path = "../generated/packages/cargo/trellis-core", version = "0.10.12" }
+trellis-sdk-health = { path = "../generated/packages/cargo/health", version = "0.10.12" }
+trellis-sdk-jobs = { path = "../generated/packages/cargo/jobs", version = "0.10.12" }
+trellis-sdk-state = { path = "../generated/packages/cargo/state", version = "0.10.12" }
