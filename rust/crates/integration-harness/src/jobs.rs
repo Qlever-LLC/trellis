@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use trellis_rs::auth::{connect_admin_client_async, generate_session_keypair, AdminLoginOutcome};
-use trellis_rs::client::{ServiceConnectOptions, TrellisClient};
+use trellis_rs::client::{ServiceConnectOptions, TrellisClient, TrellisClientError};
 use trellis_rs::contracts::{
     digest_contract_json, job_queue, schema_ref, use_contract, ContractKind,
     ContractManifestBuilder,
@@ -1726,12 +1726,19 @@ async fn await_job_state(
     expected_state: &str,
 ) -> Result<trellis_rs::sdk::jobs::types::JobsGetResponseJob> {
     for _ in 0..400 {
-        let response = jobs_client
+        let response = match jobs_client
             .rpc()
             .jobs()
             .get(&JobsGetRequest { id: id.to_string() })
             .await
-            .into_diagnostic()?;
+        {
+            Ok(response) => response,
+            Err(error) if is_jobs_not_found_error(&error) => {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                continue;
+            }
+            Err(error) => return Err(error).into_diagnostic(),
+        };
         let job = response.job;
         if state_is(&job.state, expected_state) {
             return Ok(job);
@@ -1741,6 +1748,13 @@ async fn await_job_state(
     Err(miette!(
         "Jobs.Get did not project job `{id}` in state `{expected_state}`"
     ))
+}
+
+fn is_jobs_not_found_error(error: &TrellisClientError) -> bool {
+    matches!(
+        error,
+        TrellisClientError::RpcError(payload) if payload.error_type() == Some("NotFoundError")
+    )
 }
 
 fn assert_state(state: &str, expected: &str, context: &str) -> Result<()> {

@@ -337,12 +337,12 @@ jobs:
       - name: Type-check JS entrypoints
         run: time deno check -c js/deno.json js/packages/trellis/index.ts js/packages/trellis-svelte/src/index.ts js/packages/trellis-svelte/src/context.svelte.ts js/services/trellis/main.ts
 
-      - name: Run Deno tests
-        run: time deno test -c js/deno.json -A
-
       - name: Build publishable npm packages
         run: time deno task packages:build:npm
         working-directory: js
+
+      - name: Run Deno tests
+        run: time deno test -c js/deno.json -A
 
       - name: Smoke test packed npm packages
         run: time deno task smoke:npm

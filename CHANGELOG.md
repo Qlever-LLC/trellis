@@ -26,6 +26,12 @@ and this project adheres to
   Actions creates the release tag only after the release gate passes and
   publishes from the same verified artifacts.
 
+### Fixed
+
+- Fixed release verification so broad Deno tests run after npm package artifacts
+  are built, and made the Jobs integration fixture tolerate transient `Jobs.Get`
+  projection misses while the Jobs projector catches up.
+
 ## [0.10.11] - 2026-06-07
 
 ### Added
