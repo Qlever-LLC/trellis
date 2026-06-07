@@ -31,7 +31,7 @@ pub(crate) enum ReleaseCommand {
         tag: String,
         output: PathBuf,
     },
-    Verify {
+    CheckMetadata {
         version: Option<String>,
         since: Option<String>,
     },
@@ -39,7 +39,7 @@ pub(crate) enum ReleaseCommand {
         tag: String,
         git_ref: String,
     },
-    LocalVerify {
+    Verify {
         version: String,
         since: String,
         skip_integration: bool,
@@ -59,9 +59,9 @@ where
         Some("bump") => parse_bump(args),
         Some("changelog-check") => parse_changelog_check(args),
         Some("write-notes") => parse_write_notes(args),
-        Some("verify") => parse_verify(args),
+        Some("check-metadata") => parse_check_metadata(args),
         Some("pretag-check") => parse_pretag_check(args),
-        Some("local-verify") => parse_local_verify(args),
+        Some("verify") => parse_verify(args),
         Some(command) => Err(miette!(
             "unsupported release command `{command}`\n{}",
             release_usage_text()
@@ -71,7 +71,7 @@ where
 }
 
 pub(crate) fn release_usage_text() -> &'static str {
-    "usage: cargo xtask release check-versions | cargo xtask release prepare [--tag <tag>] | cargo xtask release bump --from <version> --to <version> | cargo xtask release changelog-check --version <version> [--since <tag>] | cargo xtask release write-notes --tag <tag> --output <path> | cargo xtask release verify [--version <version>] [--since <tag>] | cargo xtask release pretag-check --tag <tag> [--ref <ref>] | cargo xtask release local-verify --version <version> --since <tag> [--skip-integration] [--keep-workdir]"
+    "usage: cargo xtask release check-versions | cargo xtask release prepare [--tag <tag>] | cargo xtask release bump --from <version> --to <version> | cargo xtask release changelog-check --version <version> [--since <tag>] | cargo xtask release write-notes --tag <tag> --output <path> | cargo xtask release check-metadata [--version <version>] [--since <tag>] | cargo xtask release pretag-check --tag <tag> [--ref <ref>] | cargo xtask release verify --version <version> --since <tag> [--skip-integration] [--keep-workdir]"
 }
 
 pub(crate) fn run_release(repo_root: &Path, command: ReleaseCommand) -> Result<()> {
@@ -123,7 +123,7 @@ pub(crate) fn run_release(repo_root: &Path, command: ReleaseCommand) -> Result<(
             println!("Wrote release notes for {tag} to {}.", output.display());
             Ok(())
         }
-        ReleaseCommand::Verify { version, since } => {
+        ReleaseCommand::CheckMetadata { version, since } => {
             let checked_version = check_versions(repo_root)?;
             if let Some(version) = version {
                 let version_base = version_base(&version)?;
@@ -136,17 +136,17 @@ pub(crate) fn run_release(repo_root: &Path, command: ReleaseCommand) -> Result<(
             }
             println!("Release metadata verification passed for {checked_version}.");
             println!(
-                "Before the release commit, run formatting, type checks, unit tests, package checks, generated-artifact prepare, and the full integration harness."
+                "Before publishing, run `release verify` locally or use the GitHub release gate."
             );
             Ok(())
         }
         ReleaseCommand::PretagCheck { tag, git_ref } => run_pretag_check(repo_root, &tag, &git_ref),
-        ReleaseCommand::LocalVerify {
+        ReleaseCommand::Verify {
             version,
             since,
             skip_integration,
             keep_workdir,
-        } => run_local_verify(repo_root, &version, &since, skip_integration, keep_workdir),
+        } => run_verify(repo_root, &version, &since, skip_integration, keep_workdir),
     }
 }
 
@@ -190,12 +190,12 @@ where
     Ok(ReleaseCommand::WriteNotes { tag, output })
 }
 
-fn parse_verify<I>(args: I) -> Result<ReleaseCommand>
+fn parse_check_metadata<I>(args: I) -> Result<ReleaseCommand>
 where
     I: Iterator<Item = String>,
 {
     let options = parse_options(args, &["version", "since"])?;
-    Ok(ReleaseCommand::Verify {
+    Ok(ReleaseCommand::CheckMetadata {
         version: options.get("version").cloned(),
         since: options.get("since").cloned(),
     })
@@ -218,7 +218,7 @@ where
     })
 }
 
-fn parse_local_verify<I>(args: I) -> Result<ReleaseCommand>
+fn parse_verify<I>(args: I) -> Result<ReleaseCommand>
 where
     I: Iterator<Item = String>,
 {
@@ -250,7 +250,7 @@ where
     version_base(&version)?;
     let since = since.ok_or_else(|| miette!("missing required option `--since`"))?;
     parse_release_tag(&since)?;
-    Ok(ReleaseCommand::LocalVerify {
+    Ok(ReleaseCommand::Verify {
         version,
         since,
         skip_integration,
@@ -1107,7 +1107,7 @@ fn list_pretag_workflow_run_ids(repo_root: &Path, git_ref: &str) -> Result<Vec<S
     Ok(run_ids)
 }
 
-fn run_local_verify(
+fn run_verify(
     repo_root: &Path,
     version: &str,
     since: &str,
@@ -1122,17 +1122,13 @@ fn run_local_verify(
         );
     }
 
-    for spec in local_verify_command_specs(version, since, skip_integration, keep_workdir) {
-        run_checked_command(
-            repo_root,
-            &spec,
-            "local release verification command failed",
-        )?;
+    for spec in verify_command_specs(version, since, skip_integration, keep_workdir) {
+        run_checked_command(repo_root, &spec, "release verification command failed")?;
     }
     Ok(())
 }
 
-fn local_verify_command_specs(
+fn verify_command_specs(
     version: &str,
     since: &str,
     skip_integration: bool,
@@ -1147,7 +1143,7 @@ fn local_verify_command_specs(
                 "xtask/Cargo.toml",
                 "--",
                 "release",
-                "verify",
+                "check-metadata",
                 "--version",
                 version,
                 "--since",
@@ -1473,11 +1469,12 @@ impl VersionEntry {
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_versions, command_text, extract_changelog_section, local_verify_command_specs,
-        parse_release_command, pretag_dispatch_command, pretag_list_command, pretag_watch_command,
+        collect_versions, command_text, extract_changelog_section, parse_release_command,
+        pretag_dispatch_command, pretag_list_command, pretag_watch_command,
         rewrite_cargo_manifest_versions, rewrite_cargo_manifest_versions_for_release,
         rewrite_js_internal_npm_dependency_versions, rewrite_json_manifest_version,
-        rewrite_json_manifest_version_for_release, version_base, ReleaseCommand,
+        rewrite_json_manifest_version_for_release, verify_command_specs, version_base,
+        ReleaseCommand,
     };
     use std::fs;
 
@@ -1583,10 +1580,33 @@ mod tests {
     }
 
     #[test]
-    fn parse_release_local_verify_command() {
+    fn parse_release_check_metadata_command() {
         let command = parse_release_command(
             [
-                "local-verify",
+                "check-metadata",
+                "--version",
+                "0.9.0-rc.1",
+                "--since",
+                "v0.8.2",
+            ]
+            .into_iter()
+            .map(str::to_string),
+        )
+        .expect("parse release check-metadata");
+        assert_eq!(
+            command,
+            ReleaseCommand::CheckMetadata {
+                version: Some("0.9.0-rc.1".to_string()),
+                since: Some("v0.8.2".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_release_verify_command() {
+        let command = parse_release_command(
+            [
+                "verify",
                 "--version",
                 "0.9.0-rc.1",
                 "--since",
@@ -1597,10 +1617,10 @@ mod tests {
             .into_iter()
             .map(str::to_string),
         )
-        .expect("parse release local-verify");
+        .expect("parse release verify");
         assert_eq!(
             command,
-            ReleaseCommand::LocalVerify {
+            ReleaseCommand::Verify {
                 version: "0.9.0-rc.1".to_string(),
                 since: "v0.8.2".to_string(),
                 skip_integration: true,
@@ -1610,14 +1630,25 @@ mod tests {
     }
 
     #[test]
-    fn parse_release_local_verify_requires_release_tag_since() {
+    fn parse_release_verify_requires_release_tag_since() {
         let error = parse_release_command(
-            ["local-verify", "--version", "0.9.0", "--since", "0.8.2"]
+            ["verify", "--version", "0.9.0", "--since", "0.8.2"]
                 .into_iter()
                 .map(str::to_string),
         )
-        .expect_err("local-verify should reject non-tag since");
+        .expect_err("verify should reject non-tag since");
         assert!(error.to_string().contains("invalid release tag"));
+    }
+
+    #[test]
+    fn parse_release_rejects_old_local_verify_command() {
+        let error = parse_release_command(
+            ["local-verify", "--version", "0.9.0", "--since", "v0.8.2"]
+                .into_iter()
+                .map(str::to_string),
+        )
+        .expect_err("local-verify should not be accepted");
+        assert!(error.to_string().contains("unsupported release command"));
     }
 
     #[test]
@@ -1637,11 +1668,11 @@ mod tests {
     }
 
     #[test]
-    fn local_verify_command_specs_include_checks_and_integration() {
-        let specs = local_verify_command_specs("0.9.0", "v0.8.2", false, true);
+    fn verify_command_specs_include_checks_and_integration() {
+        let specs = verify_command_specs("0.9.0", "v0.8.2", false, true);
         let commands: Vec<_> = specs.iter().map(command_text).collect();
 
-        assert!(commands.contains(&"cargo run --manifest-path xtask/Cargo.toml -- release verify --version 0.9.0 --since v0.8.2".to_string()));
+        assert!(commands.contains(&"cargo run --manifest-path xtask/Cargo.toml -- release check-metadata --version 0.9.0 --since v0.8.2".to_string()));
         assert!(commands
             .contains(&"cargo fmt --manifest-path rust/Cargo.toml --all --check".to_string()));
         assert!(commands.contains(
@@ -1654,14 +1685,14 @@ mod tests {
         assert!(commands.contains(&"cargo test --manifest-path rust/xtask/Cargo.toml".to_string()));
         assert!(commands.contains(&"cargo test --manifest-path xtask/Cargo.toml".to_string()));
         assert_eq!(
-            commands.last().expect("last local verify command"),
+            commands.last().expect("last release verify command"),
             "cargo run --manifest-path xtask/Cargo.toml -- integration run --skip-prepare --keep-workdir"
         );
     }
 
     #[test]
-    fn local_verify_command_specs_skip_integration() {
-        let commands: Vec<_> = local_verify_command_specs("0.9.0", "v0.8.2", true, true)
+    fn verify_command_specs_skip_integration() {
+        let commands: Vec<_> = verify_command_specs("0.9.0", "v0.8.2", true, true)
             .iter()
             .map(command_text)
             .collect();

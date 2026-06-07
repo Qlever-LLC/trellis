@@ -12,9 +12,9 @@ and this project adheres to
 
 ### Added
 
-- Added `release pretag-check` and `release local-verify` xtask commands so
-  release operators can run repeatable local verification and fail-closed
-  pre-tag GitHub Release workflow dry-runs from the CLI.
+- Added `release check-metadata` and full `release verify` xtask commands so
+  release operators can run repeatable metadata checks and optional local
+  release verification from the CLI.
 - Added prepared Deno test partitions for faster focused package, service,
   UI/tooling, and packaging verification loops after a single prepare step.
 
@@ -22,6 +22,9 @@ and this project adheres to
 
 - Updated the Release workflow with Deno dependency caching, broader Rust tool
   cache coverage, and timing diagnostics for release verification phases.
+- Changed release publishing to use `release/v*` branch markers so GitHub
+  Actions creates the release tag only after the release gate passes and
+  publishes from the same verified artifacts.
 - Expanded the release guide with exact Git review commands, targeted
   integration fixture guidance, corrected Rust formatter checks, and staged JSR
   publish verification.
