@@ -20,6 +20,11 @@
     "fmt:integration-fixtures": "deno fmt ../rust/crates/integration-harness/fixtures",
     "test:contracts": "deno task prepare && deno test -A packages/trellis/contract_support/source_emission_test.ts packages/trellis/contract_support/conformance_test.ts services/trellis/catalog/store.test.ts services/trellis/catalog/permissions.test.ts",
     "test:auth": "deno task prepare && deno test -A packages/trellis/auth/conformance_test.ts packages/trellis/auth/session_auth_test.ts services/trellis",
+    "test:prepared:packages": "deno test -A packages/result packages/trellis packages/trellis-svelte",
+    "test:prepared:service:catalog-state": "deno test -A services/trellis/bootstrap services/trellis/catalog services/trellis/contracts services/trellis/state services/trellis/storage services/trellis/config.test.ts services/trellis/manifest_conformance_test.ts services/trellis/version.test.ts",
+    "test:prepared:service:auth": "deno test -A services/trellis/auth",
+    "test:prepared:ui-tools": "deno test -A apps/console portals/login tools",
+    "test:prepared:packaging": "deno task packages:build:npm && deno test -A packages/trellis/tests/npm_artifact_smoke_test.ts packages/trellis/tests/publishing_targets_test.ts tools/package_build",
     "trellis": "bash ../scripts/trellis-cli.sh",
     "trellis-generate": "deno run -A @qlever-llc/trellis/generate"
   },

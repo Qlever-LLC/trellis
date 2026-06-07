@@ -33,6 +33,30 @@ cargo run --manifest-path xtask/Cargo.toml -- integration run --skip-prepare --k
 
 If the full harness cannot be run, record the reason and the last focused checks that did run.
 
+### Targeted integration loops
+
+For focused local debugging, inspect the current integration inventory and run the smallest matching fixture or coverage slice:
+
+```sh
+cargo run --manifest-path xtask/Cargo.toml -- integration list fixtures
+cargo run --manifest-path xtask/Cargo.toml -- integration list coverage
+cargo run --manifest-path xtask/Cargo.toml -- integration run --skip-prepare --keep-workdir --fixture rpc
+cargo run --manifest-path xtask/Cargo.toml -- integration run --skip-prepare --keep-workdir --coverage jobs-public-api
+```
+
+Fixture runner aliases such as `rpc`, `operations`, `events`, `feeds`, `state`, `transfer`, and `resources` select both Rust and TypeScript parity fixtures. Use language-specific fixture ids, for example `rpc:rust`, only when you intentionally want a narrower diagnostic run.
+
+When experimenting with CI sharding, start with a few conservative shards and keep JUnit output per shard:
+
+```sh
+cargo run --manifest-path xtask/Cargo.toml -- integration run --skip-prepare --fixture admin-api --fixture device-activation --fixture service-approval --fixture app-identity-approval --fixture optional-uses --junit target/integration-auth-admin.xml
+cargo run --manifest-path xtask/Cargo.toml -- integration run --skip-prepare --fixture rpc --fixture operations --fixture events --fixture feeds --fixture state --fixture transfer --fixture resources --junit target/integration-runtime-parity.xml
+cargo run --manifest-path xtask/Cargo.toml -- integration run --skip-prepare --fixture jobs --fixture health --fixture password-change --junit target/integration-jobs-health.xml
+cargo run --manifest-path xtask/Cargo.toml -- integration run --skip-prepare --fixture catalog-authority --fixture catalog-authority-restart --junit target/integration-catalog-authority.xml
+```
+
+Keep `catalog-authority` and `catalog-authority-restart` together because the restart fixture depends on state created by the authority fixture. Shards are a speed aid only; release verification still requires the full unsharded integration harness until shard equivalence is proven against fixture reports and coverage ids.
+
 ## Formatting policy
 
 Formatting is part of the normal implementation loop, not just release verification. After editing source, docs, styles, generated-artifact inputs, or workflow files, format the changed files before running type checks and tests.
@@ -43,6 +67,13 @@ Use targeted formatting for the files changed by the task:
 deno fmt -c js/deno.json <changed js/ts/svelte/json/md/css/svg files>
 cargo fmt --manifest-path rust/Cargo.toml --package <crate>
 rustfmt --edition 2021 <changed .rs files>
+```
+
+`rust/tools/generate` and `rust/xtask` are standalone Rust workspaces. When a change touches them, run their formatter checks directly:
+
+```sh
+cargo fmt --manifest-path rust/tools/generate/Cargo.toml --check
+cargo fmt --manifest-path rust/xtask/Cargo.toml --check
 ```
 
 When generated artifacts are affected, run the relevant prepare command first, then verify generated Rust formatting with:
@@ -75,6 +106,8 @@ The GitHub `Release` workflow runs the same Rust release tooling used locally:
 - `release write-notes` extracts the matching `CHANGELOG.md` section for GitHub release notes
 
 The workflow prepares the release workspace once, uploads it as an artifact, and reuses it for Rust tests, npm and JSR package checks, CLI binary builds, image dry-runs, and publish jobs. Publishing only starts after the release gate passes.
+
+Release CI intentionally keeps both the pre-`release prepare` generator bootstrap and the post-`release prepare` generator pass. Removing the first pass is a follow-up optimization only after a generated-artifact freshness check proves `release prepare` no longer depends on bootstrapped artifacts.
 
 The `Deploy Site to GitHub Pages` workflow is separate from release publishing. It builds the released and current guide/console sites, prefers a cached or published `trellis-generate` binary for speed, and falls back to building `trellis-generate` from source when the matching release asset is not available yet. This avoids races while a new release tag is still building its CLI assets.
 
@@ -122,9 +155,16 @@ Review the commits and the actual code changes since the previous release before
 finalizing the changelog:
 
 ```sh
-git log --oneline "$PREVIOUS_TAG..HEAD"
-git diff --stat "$PREVIOUS_TAG..HEAD"
-git diff "$PREVIOUS_TAG..HEAD"
+/usr/bin/git log --oneline "$PREVIOUS_TAG..HEAD"
+/usr/bin/git diff --stat "$PREVIOUS_TAG..HEAD"
+/usr/bin/git diff "$PREVIOUS_TAG..HEAD"
+```
+
+For exact path-limited release evidence, use direct Git or the unfiltered `rtk proxy` path. Do not rely on condensed wrapper output for evidence that must be copied into release notes, approvals, or audit records:
+
+```sh
+/usr/bin/git diff -- <paths>
+rtk proxy git diff -- <paths>
 ```
 
 Use the code review, not just the commit subjects, to verify the changelog is
@@ -189,14 +229,41 @@ less "$tmpdir/release-notes.md"
 Before the release commit, run the full release verification set:
 
 ```sh
+cargo run --manifest-path xtask/Cargo.toml -- release local-verify --version "$RELEASE_VERSION" --since "$PREVIOUS_TAG" --keep-workdir
+```
+
+For emergency focused verification only, `--skip-integration` skips the full integration harness and prints that release verification is incomplete. A release is not ready until the full integration harness passes.
+
+The command runs this sequence and prints each command before executing it:
+
+```sh
+cargo run --manifest-path xtask/Cargo.toml -- release verify --version "$RELEASE_VERSION" --since "$PREVIOUS_TAG"
 cargo run --manifest-path xtask/Cargo.toml -- prepare
 deno fmt -c js/deno.json --check
+cargo fmt --manifest-path rust/Cargo.toml --all --check
+cargo fmt --manifest-path rust/tools/generate/Cargo.toml --check
+cargo fmt --manifest-path rust/xtask/Cargo.toml --check
 deno check -c js/deno.json js/packages/trellis/index.ts js/packages/trellis-svelte/src/index.ts js/packages/trellis-svelte/src/context.svelte.ts js/services/trellis/main.ts
 deno test -c js/deno.json -A
-cargo fmt --manifest-path rust/Cargo.toml --check
 cargo test --manifest-path rust/Cargo.toml --workspace
+cargo test --manifest-path rust/tools/generate/Cargo.toml
+cargo test --manifest-path rust/xtask/Cargo.toml
+cargo test --manifest-path xtask/Cargo.toml
 cargo run --manifest-path xtask/Cargo.toml -- integration run --skip-prepare --keep-workdir
 ```
+
+For focused local Deno loops after a single prepare, use the prepared partitions instead of rerunning generation before every slice:
+
+```sh
+deno task -c js/deno.json prepare
+deno task -c js/deno.json test:prepared:packages
+deno task -c js/deno.json test:prepared:service:catalog-state
+deno task -c js/deno.json test:prepared:service:auth
+deno task -c js/deno.json test:prepared:ui-tools
+deno task -c js/deno.json test:prepared:packaging
+```
+
+The prepared partitions are for faster focused iteration. Keep `deno test -c js/deno.json -A` in the release confidence set until the partition set has been proven equivalent to the broad Deno suite.
 
 Also run generated-artifact preparation when contracts, generated SDKs, runtime surfaces, or release packaging can be affected:
 
@@ -237,7 +304,8 @@ Then commit the release preparation:
 
 ```sh
 git status
-git add CHANGELOG.md js rust guides .github/workflows
+/usr/bin/git diff -- CHANGELOG.md js rust docs .github/workflows
+git add CHANGELOG.md js rust docs .github/workflows
 git commit -m "Prepare $RELEASE_TAG release"
 ```
 
@@ -251,12 +319,20 @@ Push the release commit before creating the tag:
 git push origin main
 ```
 
-Then manually trigger the `Release` workflow from the GitHub UI and wait for it to pass. Use:
+Then start and watch the pre-tag `Release` workflow dry-run:
+
+```sh
+cargo run --manifest-path xtask/Cargo.toml -- release pretag-check --tag "$RELEASE_TAG" --ref main
+```
+
+`--ref` defaults to `main`. Use the branch or ref that contains the release commit if it has not landed on `main` yet.
+
+This dispatches `.github/workflows/release.yml` with:
 
 - `tag`: `$RELEASE_TAG`
 - `publish`: `false`
 
-This exercises the tag-specific release preparation, package dry-runs, CLI builds, and image dry-runs without publishing. If the workflow cannot be run manually, confirm the equivalent branch or pull request `Release` workflow has passed for the release commit before tagging.
+This exercises the tag-specific release preparation, package dry-runs, CLI builds, and image dry-runs without publishing. If `gh` is missing, unauthenticated, or cannot resolve the workflow run, the command prints exact manual fallback commands and fails closed.
 
 ## 8. Tag the release
 
@@ -278,8 +354,7 @@ After the tag lands, GitHub Actions will publish:
 - npm packages
 - crates.io crates
 - GHCR images
-
-JSR package publication remains disabled until JSR package setup is complete.
+- staged JSR packages
 
 The unified `Release` workflow publishes in gated stages:
 
@@ -287,7 +362,7 @@ The unified `Release` workflow publishes in gated stages:
 - `verify-rust`, `verify-js`, `build-cli`, and `verify-images` validate the release before publication
 - `github-release` publishes CLI archives and checksums first
 - `publish-crates`, `publish-npm`, and `publish-images` publish downstream artifacts after the GitHub release exists
-- `publish-jsr` is present but disabled until JSR package setup is complete
+- `publish-jsr` publishes the staged JSR package set after the GitHub release exists
 
 The workflow is idempotent where practical: npm and crates.io publish steps skip versions that already exist. A registry publish is still not an atomic transaction across registries, so if a late publish step fails, inspect the workflow logs and rerun the workflow after fixing the underlying registry or workflow issue.
 
@@ -301,8 +376,7 @@ Then verify the downstream publishes you care about:
 - crates.io shows the expected crate versions
 - GHCR images have the expected tags such as `$RELEASE_TAG`, `latest`, or `rc`
 - the CLI archive checksums are present and match the published artifacts
-
-When JSR publishing is enabled later, also verify the JSR packages have the expected version.
+- JSR packages have the expected version
 
 ## 11. Prepare for the next cycle
 

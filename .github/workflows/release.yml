@@ -54,6 +54,16 @@ jobs:
         with:
           deno-version: ${{ env.DENO_VERSION }}
 
+      - name: Cache Deno dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/deno
+            js/node_modules
+          key: deno-${{ runner.os }}-${{ env.DENO_VERSION }}-${{ hashFiles('js/deno.lock') }}
+          restore-keys: |
+            deno-${{ runner.os }}-${{ env.DENO_VERSION }}-
+
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -61,14 +71,16 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: |
+            xtask -> target
             rust -> target
+            rust/xtask -> target
             rust/tools/generate -> target
 
       - name: Bootstrap generated SDK artifacts
-        run: cargo run --manifest-path rust/tools/generate/Cargo.toml -- prepare --no-npm .
+        run: time cargo run --manifest-path rust/tools/generate/Cargo.toml -- prepare --no-npm .
 
       - name: Prepare release version
-        run: cargo run --manifest-path xtask/Cargo.toml -- release prepare --tag "${RELEASE_TAG}"
+        run: time cargo run --manifest-path xtask/Cargo.toml -- release prepare --tag "${RELEASE_TAG}"
 
       - name: Capture release outputs
         id: release
@@ -94,17 +106,17 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${RELEASE_TAG}" ]; then
-            cargo run --manifest-path xtask/Cargo.toml -- release verify --version "${RELEASE_TAG#v}"
+            time cargo run --manifest-path xtask/Cargo.toml -- release verify --version "${RELEASE_TAG#v}"
           else
-            cargo run --manifest-path xtask/Cargo.toml -- release verify
+            time cargo run --manifest-path xtask/Cargo.toml -- release verify
           fi
 
       - name: Generate release SDK artifacts
-        run: cargo run --manifest-path rust/tools/generate/Cargo.toml -- prepare --no-npm .
+        run: time cargo run --manifest-path rust/tools/generate/Cargo.toml -- prepare --no-npm .
 
       - name: Write release notes
         if: env.RELEASE_TAG != ''
-        run: cargo run --manifest-path xtask/Cargo.toml -- release write-notes --tag "${RELEASE_TAG}" --output "${{ github.workspace }}/dist/release-notes.md"
+        run: time cargo run --manifest-path xtask/Cargo.toml -- release write-notes --tag "${RELEASE_TAG}" --output "${{ github.workspace }}/dist/release-notes.md"
 
       - name: Upload prepared release workspace
         uses: actions/upload-artifact@v4
@@ -158,7 +170,9 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: |
+            xtask -> target
             rust -> target
+            rust/xtask -> target
             rust/tools/generate -> target
 
       - name: Run Rust tests
@@ -166,11 +180,11 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${RELEASE_TAG}" ]; then
-            cargo test --workspace
-            cargo test --manifest-path tools/generate/Cargo.toml
+            time cargo test --workspace
+            time cargo test --manifest-path tools/generate/Cargo.toml
           else
-            cargo test --workspace --locked
-            cargo test --manifest-path tools/generate/Cargo.toml --locked
+            time cargo test --workspace --locked
+            time cargo test --manifest-path tools/generate/Cargo.toml --locked
           fi
         working-directory: rust
 
@@ -194,17 +208,27 @@ jobs:
         with:
           deno-version: ${{ env.DENO_VERSION }}
 
+      - name: Cache Deno dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/deno
+            js/node_modules
+          key: deno-${{ runner.os }}-${{ env.DENO_VERSION }}-${{ hashFiles('js/deno.lock') }}
+          restore-keys: |
+            deno-${{ runner.os }}-${{ env.DENO_VERSION }}-
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Build publishable npm packages
-        run: deno task packages:build:npm
+        run: time deno task packages:build:npm
         working-directory: js
 
       - name: Smoke test packed npm packages
-        run: deno task smoke:npm
+        run: time deno task smoke:npm
         working-directory: js
 
       - name: Dry-run npm publishing
@@ -215,6 +239,7 @@ jobs:
           if [[ "${RELEASE_TAG}" == *-* ]]; then
             npm_tag=rc
           fi
+          start_seconds=$SECONDS
           for pkg in \
             js/packages/result/npm \
             js/packages/trellis/npm \
@@ -222,6 +247,7 @@ jobs:
           do
             npm publish --dry-run --access public --tag "$npm_tag" "$pkg"
           done
+          printf 'npm dry-runs completed in %ss\n' "$((SECONDS - start_seconds))"
 
       - name: Dry-run JSR publishing
         shell: bash
@@ -231,7 +257,7 @@ jobs:
             js/packages/result \
             js/packages/trellis
           do
-            (cd "$pkg" && deno publish --dry-run --allow-slow-types --allow-dirty)
+            (cd "$pkg" && time deno publish --dry-run --allow-slow-types --allow-dirty)
           done
 
       - name: Upload npm package artifact
@@ -287,14 +313,16 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: |
+            xtask -> target
             rust -> target
+            rust/xtask -> target
             rust/tools/generate -> target
 
       - name: Refresh generated Rust SDK paths
         shell: bash
         run: |
           set -euo pipefail
-          cargo run --manifest-path rust/tools/generate/Cargo.toml -- -f prepare --no-npm .
+          time cargo run --manifest-path rust/tools/generate/Cargo.toml -- -f prepare --no-npm .
 
       - name: Build release binaries
         shell: bash
@@ -304,11 +332,11 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${RELEASE_TAG}" ]; then
-            cargo build -p trellis-cli --release --target ${{ matrix.target }}
-            cargo build --manifest-path tools/generate/Cargo.toml --release --target ${{ matrix.target }}
+            time cargo build -p trellis-cli --release --target ${{ matrix.target }}
+            time cargo build --manifest-path tools/generate/Cargo.toml --release --target ${{ matrix.target }}
           else
-            cargo build -p trellis-cli --release --locked --target ${{ matrix.target }}
-            cargo build --manifest-path tools/generate/Cargo.toml --release --locked --target ${{ matrix.target }}
+            time cargo build -p trellis-cli --release --locked --target ${{ matrix.target }}
+            time cargo build --manifest-path tools/generate/Cargo.toml --release --locked --target ${{ matrix.target }}
           fi
         working-directory: rust
 
@@ -474,7 +502,9 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: |
+            xtask -> target
             rust -> target
+            rust/xtask -> target
             rust/tools/generate -> target
 
       - name: Authenticate with crates.io
@@ -533,10 +563,10 @@ jobs:
             local output
             local status
 
-            cargo publish --allow-dirty --dry-run "$@"
+            time cargo publish --allow-dirty --dry-run "$@"
 
             set +e
-            output=$(cargo publish --allow-dirty "$@" 2>&1)
+            output=$(time cargo publish --allow-dirty "$@" 2>&1)
             status=$?
             set -e
 
@@ -715,6 +745,16 @@ jobs:
         with:
           deno-version: ${{ env.DENO_VERSION }}
 
+      - name: Cache Deno dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/deno
+            js/node_modules
+          key: deno-${{ runner.os }}-${{ env.DENO_VERSION }}-${{ hashFiles('js/deno.lock') }}
+          restore-keys: |
+            deno-${{ runner.os }}-${{ env.DENO_VERSION }}-
+
       - name: Publish JSR packages
         shell: bash
         run: |
@@ -765,7 +805,7 @@ jobs:
               return 0
             fi
 
-            (cd "$package_dir" && deno publish --allow-slow-types --allow-dirty)
+            (cd "$package_dir" && time deno publish --allow-slow-types --allow-dirty)
             published+=("${package_name}@${package_version}")
             wait_for_jsr_package "$package_name" "$package_version"
           }
