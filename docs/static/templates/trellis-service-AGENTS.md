@@ -1,7 +1,7 @@
 # AGENTS.md
 
-This repository contains an out-of-tree Trellis service. Follow these local
-rules before making changes.
+This repository contains a Trellis service. Follow these local rules before
+making changes.
 
 ## Trellis AI references
 
@@ -9,10 +9,14 @@ rules before making changes.
   https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt
 - Full Trellis AI guide:
   https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt
+- TypeScript Trellis AI guide:
+  https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-typescript.txt
+- Rust Trellis AI guide:
+  https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-rust.txt
 
 Read the short guide at the start of any Trellis task. Read the full guide
 before changing contracts, service handlers, events, operations, generated SDKs,
-or outbox/inbox code.
+or outbox/inbox code. Then read the language-specific guide for this repository.
 
 ## Local project rules
 
@@ -67,6 +71,7 @@ or outbox/inbox code.
 
 - Contract source:
 - Generated SDK/artifact command:
+- Language-specific Trellis AI guide:
 - Format command:
 - Typecheck or clippy command:
 - Test command:

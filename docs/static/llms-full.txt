@@ -1,6 +1,6 @@
-# Trellis AI guidance for out-of-tree services
+# Trellis AI guidance for services
 
-Last verified against Trellis v0.10.1 (2026-05-29).
+Last verified against Trellis v0.10.12 (2026-06-08).
 
 This file is for AI coding agents working in a service repository that consumes
 Trellis. The canonical URL is:
@@ -15,11 +15,9 @@ https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt
 
 - Trellis services are contract-driven participants. Contracts declare the public
   surfaces a participant owns and the external surfaces it uses.
-- Runtime authority comes from deployment authority and identity authority. Do
-  not describe current service development with older catalog-update or
-  legacy authority terminology.
+- Runtime authority comes from deployment authority and identity authority.
 - NATS is the transport boundary. Application code should use generated Trellis
-  APIs rather than hand-built subjects.
+  APIs rather than hand-built subjects or raw NATS connection handles.
 - The runtime owns authentication, authorization, authority validation,
   deployment approval, resource bindings, request context, and wire validation.
 - Use operations for caller-visible async workflows. Use jobs for service-private
@@ -35,341 +33,69 @@ https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt
 3. Declare cross-contract dependencies under `uses` with the smallest required
    surface selection.
 4. Regenerate SDKs and contract artifacts with the repository's Trellis tooling.
-5. Review and update deployment authority or local install metadata through the
-   normal Trellis CLI/runtime flow for the service.
+5. Review and update deployment authority through the normal Trellis CLI/runtime
+   flow for the service deployment.
 6. Compile and test the service against the generated APIs. Treat generated API
    errors as contract drift, not as places to add stringly typed shortcuts.
 
 Prefer source, generated SDKs, and generated API docs for exact signatures. Guides
 show patterns; generated packages define the current callable surface.
 
-## TypeScript service rules
+## Service repository setup
 
-### Use surface-first APIs
+Use this guidance for service repositories that consume Trellis.
 
-Use generated facades on the connected client:
+Rules:
 
-```ts
-const order = await client.rpc.orders.get({ orderId: "ord_123" }).orThrow();
+- generated SDKs, manifests, and package outputs belong under the service repo's
+  generated output locations; do not edit generated files by hand
+- TypeScript service repos should expose Trellis generation as
+  `deno task prepare`
+- Rust service repos should expose Trellis generation as `cargo xtask prepare`
+- the local `AGENTS.md` should record the contract source path, generated artifact
+  command, format command, typecheck/clippy command, test command, run command,
+  and migration command
 
-await client.event.orders.shipped.publish({
-  orderId: "ord_123",
-  customerId: "cust_456",
-  shippedAt: new Date().toISOString(),
-}).orThrow();
+The important pattern is that TypeScript services run `deno task prepare`, Rust
+services run `cargo xtask prepare`, and source contracts remain the input.
 
-const feed = await client.feed.orders.live({ customerId: "cust_456" }).orThrow();
+## Language-specific guides
 
-const op = await client.operation.orders.process
-  .start({ orderId: "ord_123" })
-  .orThrow();
-```
-
-Do not invent lower-level string RPC or event helpers when a generated facade
-exists. If the facade is missing, fix the contract generation path or check the
-current API reference.
-
-### Register handlers with `service.handle`
-
-Register providers through the generated `service.handle` tree. Handler code
-receives typed input and a scoped `client` for allowed outbound calls.
-
-```ts
-import { Result } from "@qlever-llc/trellis";
-
-await service.handle.rpc.orders.get(async ({ input, client }) => {
-  const row = await loadOrder(input.orderId);
-  if (!row) return Result.err(orderNotFound(input.orderId));
-
-  await client.event.orders.viewed.publish({
-    orderId: input.orderId,
-    viewedAt: new Date().toISOString(),
-  }).orThrow();
-
-  return Result.ok(row);
-});
-```
-
-Do not use unscoped runtime objects in handlers. The scoped `client` represents
-the service's allowed outbound dependencies. Register event listeners during
-service startup with `service.event`; handler-injected clients can publish and
-prepare events, but they cannot listen.
-
-### Schemas and errors
-
-- Use TypeBox for contract wire schemas: RPC input/output, event payloads, feed
-  input/events, operation input/output/progress, and resource declarations.
-- Use Zod for environment and local configuration parsing.
-- Return declared business errors through `Result` values. Use `.orThrow()` only
-  at process boundaries where throwing is intentional.
-
-### TypeScript do and don't
-
-Do use generated service and client surfaces:
-
-```ts
-await service.handle.rpc.orders.get(async ({ input, client }) => {
-  const order = await loadOrder(input.orderId);
-  await client.event.orders.viewed.publish({ orderId: input.orderId }).orThrow();
-  return Result.ok(order);
-});
-```
-
-Do not bypass those surfaces with ad hoc transport calls:
-
-```ts
-// Wrong shape for app/service code: skips generated contracts and runtime helpers.
-await rawTransport.send("orders.custom.subject", JSON.stringify(payload));
-```
-
-### Prepared events and outbox/inbox
-
-Direct publish is the default when no local transaction must be coupled to the
-event:
-
-```ts
-await client.event.orders.shipped.publish({
-  orderId: input.orderId,
-  customerId: input.customerId,
-  shippedAt: new Date().toISOString(),
-}).orThrow();
-```
-
-Use prepared events plus an outbox when a service-local database update and event
-enqueue must commit or roll back together:
-
-```ts
-import {
-  dispatchOutbox,
-  SqlOutboxRepository,
-  type SqlExecutor,
-} from "@qlever-llc/trellis/service";
-import { Result } from "@qlever-llc/trellis";
-
-await service.handle.rpc.orders.ship(async ({ input, client }) => {
-  const prepared = client.event.orders.shipped.prepare({
-    orderId: input.orderId,
-    customerId: input.customerId,
-    shippedAt: new Date().toISOString(),
-  }).orThrow();
-
-  await db.transaction(async (tx) => {
-    await markOrderShipped(tx, input.orderId);
-
-    const executor: SqlExecutor = drizzleTransactionExecutor(tx);
-    const outbox = new SqlOutboxRepository(executor, "postgres");
-    await outbox.enqueue(prepared);
-  });
-
-  return Result.ok({ accepted: true });
-});
-
-await dispatchOutbox(outboxRepository, client);
-```
-
-`PreparedTrellisEvent` freezes the subject, encoded payload, event header, and
-publish headers for later dispatch. It intentionally does not persist a contract
-id or contract digest, because outbox rows should not be coupled to the
-publisher's current deployment metadata.
-
-Use `SqlInboxRepository` only when replaying a message would repeat a
-non-idempotent side effect. Register the listener during service startup, not
-inside a handler:
-
-```ts
-import { SqlInboxRepository } from "@qlever-llc/trellis/service";
-
-await service.event.orders.shipped.listen(async (event) => {
-  const inbox = new SqlInboxRepository(db, "postgres");
-  if (!(await inbox.record(event.header.id))) return;
-
-  await applyNonIdempotentSideEffect(event);
-}, {}, { group: "shipmentProjection" }).orThrow();
-```
-
-Use `NatsKvOutboxRepository` and `NatsKvInboxRepository` for services that do not
-have SQL state. They are durable helpers, but they are not atomic with unrelated
-database transactions.
-
-## Rust service rules
-
-### Use generated descriptors and facades
-
-Prefer generated client wrappers and participant facades when available:
-
-```rust
-let order = orders_client
-    .rpc()
-    .orders()
-    .get(&orders_sdk::OrdersGetRequest {
-        order_id: "ord_123".into(),
-    })
-    .await?;
-```
-
-Descriptor APIs are the lower-level typed surface:
-
-```rust
-use orders_sdk::events::OrdersShippedEventDescriptor;
-use orders_sdk::OrdersShippedEvent;
-
-trellis_client
-    .publish::<OrdersShippedEventDescriptor>(&OrdersShippedEvent {
-        order_id: "ord_123".into(),
-        customer_id: "cust_456".into(),
-        shipped_at: now_iso(),
-    })
-    .await?;
-
-let mut events = trellis_client
-    .subscribe::<OrdersShippedEventDescriptor>()
-    .await?;
-```
-
-Operations use generated operation descriptors:
-
-```rust
-let op = trellis_client
-    .operation::<orders_sdk::operations::OrdersProcessOperation>()
-    .start(&orders_sdk::OrdersProcessInput {
-        order_id: "ord_123".into(),
-    })
-    .await?;
-
-let terminal = op.wait().await?;
-```
-
-Register service handlers through generated provider facades where they exist:
-
-```rust
-service.handle().rpc().orders().get(get_order_handler);
-service.handle().feed().orders().live(orders_live_stream);
-service.handle().operation().orders().process(orders_process_provider);
-```
-
-Do not hand-build NATS subjects or JSON envelopes in application service code.
-Use generated descriptors and runtime helpers.
-
-### Rust do and don't
-
-Do use generated descriptors or facades:
-
-```rust
-trellis_client
-    .publish::<orders_sdk::events::OrdersViewedEventDescriptor>(
-        &orders_sdk::OrdersViewedEvent {
-            order_id: "ord_123".into(),
-        },
-    )
-    .await?;
-```
-
-Do not bypass Trellis descriptors with ad hoc payloads:
-
-```rust
-// Wrong shape for app/service code: skips generated contracts and runtime helpers.
-raw_nats.publish("orders.custom.subject", bytes).await?;
-```
-
-### Prepared events and outbox/inbox
-
-Direct descriptor publish is the default. Use `prepare_event::<Descriptor>(...)`
-only when event enqueue must be coupled to local durable state:
-
-```rust
-use orders_sdk::events::OrdersShippedEventDescriptor;
-use orders_sdk::OrdersShippedEvent;
-use trellis_rs::client::{dispatch_outbox_once, OutboxStore, SqliteOutboxStore};
-
-let prepared = trellis_client.prepare_event::<OrdersShippedEventDescriptor>(
-    &OrdersShippedEvent {
-        order_id: "ord_123".into(),
-        customer_id: "cust_456".into(),
-        shipped_at: now_iso(),
-    },
-)?;
-
-let tx = sqlite.transaction()?;
-mark_order_shipped(&tx, "ord_123")?;
-
-{
-    let mut outbox = SqliteOutboxStore::new(&tx);
-    outbox.enqueue("outbox:ord_123:shipped", &prepared).await?;
-}
-
-tx.commit()?;
-
-let mut outbox = SqliteOutboxStore::new(&sqlite);
-dispatch_outbox_once(&mut outbox, |event| async {
-    trellis_client.publish_prepared(&event).await
-})
-.await?;
-```
-
-`PreparedTrellisEvent` stores the subject, encoded payload, and message metadata
-needed for later publishing. It intentionally carries no contract id or contract
-digest.
-
-Use an inbox store only for non-idempotent handlers:
-
-```rust
-use trellis_rs::client::{InboxReceipt, InboxStore, SqliteInboxStore};
-
-let mut inbox = SqliteInboxStore::new(&sqlite);
-match inbox.record_received(event.header.id.as_str()).await? {
-    InboxReceipt::Accepted => apply_non_idempotent_side_effect(&event).await?,
-    InboxReceipt::Duplicate => return Ok(()),
-}
-```
-
-Use `PostgresOutboxStore` and `PostgresInboxStore` for Postgres-backed services.
-Use `NatsKvOutboxStore` and `NatsKvInboxStore` for NATS KV durability when no SQL
-transaction must include the outbox or inbox record.
+- TypeScript services:
+  https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-typescript.txt
+- Rust services:
+  https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-rust.txt
 
 ## Service workflow
 
-1. Read local `AGENTS.md`, `README.md`, and package/crate docs first.
-2. Identify the service language, runtime, generated SDK package names, and
-   existing contract location.
+1. Read local `AGENTS.md`, `README.md`, package/crate docs, and local task
+   definitions first.
+2. Identify the participant kind, language runtime, contract source path,
+   generated SDK package names, generation command, and test/typecheck commands.
 3. Make the smallest contract change that exposes the required surface.
-4. Regenerate generated artifacts using the repository's documented command.
+4. Regenerate generated artifacts with `deno task prepare` for TypeScript
+   services or `cargo xtask prepare` for Rust services.
 5. Implement handlers with generated provider APIs.
-6. Use scoped clients for outbound calls.
+6. Use scoped handler `client` values for outbound calls and register long-lived
+   event listeners during startup.
 7. Add or update tests at the service boundary. For event-driven code, test the
    local handler logic and the outbox/inbox behavior separately when possible.
-8. Run formatting, type checks, and tests before reporting completion.
+8. Run formatting, type checks, generation checks, and tests before reporting
+   completion.
 
 ## Verification commands
 
-Use the commands configured by the service repository. Common examples are:
-
-```sh
-# TypeScript / Deno services
-deno fmt
-deno check **/*.ts
-deno test
-
-# TypeScript / Node services
-npm run format
-npm run typecheck
-npm test
-
-# Rust services
-cargo fmt
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-features
-```
-
-If contract artifacts or generated SDKs changed, also run the service repo's
-Trellis prepare/generate command and commit the generated outputs expected by that
-repo.
+Use the format, typecheck, lint, test, run, and migration commands configured by
+the service repository. If contract artifacts or generated SDKs changed, run
+`deno task prepare` or `cargo xtask prepare` and commit the generated outputs
+expected by that repo.
 
 ## Common mistakes to avoid
 
-- Referring to old catalog-update behavior instead of deployment authority and
-  identity authority.
 - Hand-building transport subjects, envelopes, headers, or JSON payloads instead
   of using generated Trellis APIs.
+- Trying to access raw NATS connections from Trellis clients or services. Use
+  generated surfaces and Trellis-owned lifecycle/resource handles.
 - Adding compatibility shims before confirming that compatibility is required.
 - Treating jobs as caller-visible workflows. Use operations for caller-visible
   async work.

@@ -1,0 +1,143 @@
+# Trellis AI guidance for Rust services
+
+Last verified against Trellis v0.10.12 (2026-06-08).
+
+Use this file for AI coding agents working in a Rust service repository that
+consumes Trellis. The language-neutral guide is:
+
+https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt
+
+## Service repository setup
+
+Rules:
+
+- Rust service repos should expose Trellis generation through
+  `cargo xtask prepare`
+- generated SDKs, manifests, and package outputs belong under the service repo's
+  generated output locations; do not edit generated files by hand
+- prefer generated descriptors and generated client/facade methods
+- prefer generated provider facades for service handler registration when they
+  are available
+
+## Use generated descriptors and facades
+
+Prefer generated client wrappers and participant facades when available:
+
+```rust
+let order = orders_client
+    .rpc()
+    .orders()
+    .get(&orders_sdk::OrdersGetRequest {
+        order_id: "ord_123".into(),
+    })
+    .await?;
+```
+
+Descriptor APIs are the lower-level typed surface:
+
+```rust
+use orders_sdk::events::OrdersShippedEventDescriptor;
+use orders_sdk::OrdersShippedEvent;
+
+trellis_client
+    .publish::<OrdersShippedEventDescriptor>(&OrdersShippedEvent {
+        order_id: "ord_123".into(),
+        customer_id: "cust_456".into(),
+        shipped_at: now_iso(),
+    })
+    .await?;
+
+let mut events = trellis_client
+    .subscribe::<OrdersShippedEventDescriptor>()
+    .await?;
+```
+
+Operations use generated operation descriptors:
+
+```rust
+let op = trellis_client
+    .operation::<orders_sdk::operations::OrdersProcessOperation>()
+    .start(&orders_sdk::OrdersProcessInput {
+        order_id: "ord_123".into(),
+    })
+    .await?;
+
+let terminal = op.wait().await?;
+```
+
+Register service handlers through generated provider facades where they exist:
+
+```rust
+service.handle().rpc().orders().get(get_order_handler);
+service.handle().feed().orders().live(orders_live_stream);
+service.handle().operation().orders().process(orders_process_provider);
+```
+
+Do not hand-build NATS subjects or JSON envelopes in application service code.
+Use generated descriptors and runtime helpers.
+
+Rust Trellis clients and service facades do not expose `async_nats::Client` as
+application API. Use generated descriptors/facades for communication and
+Trellis-owned lifecycle/resource helpers instead of extracting or constructing
+raw transport handles through Trellis.
+
+## Prepared events and outbox/inbox
+
+Direct descriptor publish is the default. Use `prepare_event::<Descriptor>(...)`
+only when event enqueue must be coupled to local durable state:
+
+```rust
+use orders_sdk::events::OrdersShippedEventDescriptor;
+use orders_sdk::OrdersShippedEvent;
+use trellis_rs::client::{dispatch_outbox_once, OutboxStore, SqliteOutboxStore};
+
+let prepared = trellis_client.prepare_event::<OrdersShippedEventDescriptor>(
+    &OrdersShippedEvent {
+        order_id: "ord_123".into(),
+        customer_id: "cust_456".into(),
+        shipped_at: now_iso(),
+    },
+)?;
+
+let tx = sqlite.transaction()?;
+mark_order_shipped(&tx, "ord_123")?;
+
+{
+    let mut outbox = SqliteOutboxStore::new(&tx);
+    outbox.enqueue("outbox:ord_123:shipped", &prepared).await?;
+}
+
+tx.commit()?;
+
+let mut outbox = SqliteOutboxStore::new(&sqlite);
+dispatch_outbox_once(&mut outbox, |event| async {
+    trellis_client.publish_prepared(&event).await
+})
+.await?;
+```
+
+`PreparedTrellisEvent` stores the subject, encoded payload, and message metadata
+needed for later publishing. It intentionally carries no contract id or contract
+digest.
+
+Use an inbox store only for non-idempotent handlers:
+
+```rust
+use trellis_rs::client::{InboxReceipt, InboxStore, SqliteInboxStore};
+
+let mut inbox = SqliteInboxStore::new(&sqlite);
+match inbox.record_received(event.header.id.as_str()).await? {
+    InboxReceipt::Accepted => apply_non_idempotent_side_effect(&event).await?,
+    InboxReceipt::Duplicate => return Ok(()),
+}
+```
+
+Use `PostgresOutboxStore` and `PostgresInboxStore` for Postgres-backed services.
+Use `NatsKvOutboxStore` and `NatsKvInboxStore` for NATS KV durability when no SQL
+transaction must include the outbox or inbox record.
+
+## Verification
+
+Use the format, clippy, test, run, and migration commands configured by the
+service repository. If contract artifacts or generated SDKs changed, run
+`cargo xtask prepare` and commit the generated outputs expected by that repo.

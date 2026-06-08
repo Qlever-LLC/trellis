@@ -1,66 +1,54 @@
 # Trellis AI guide
 
-Last verified against Trellis v0.10.1 (2026-05-29).
+Last verified against Trellis v0.10.12 (2026-06-08).
 
 Canonical full guide:
 https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt
 
-Use this file when generating code for an out-of-tree Trellis service. Prefer the
+Use this file when generating code for a Trellis service repository. Prefer the
 full guide when you need examples, contract workflow, prepared events, or
 verification commands.
 
 ## Current model
 
 - Trellis runtime authority comes from deployment authority and identity
-  authority. Do not describe service development with older catalog-update or
-  legacy authority terminology.
+  authority.
 - Caller-visible communication is contract-driven and runs through generated
   RPC, event, feed, and operation surfaces. Resources, state, files, and jobs are
   contract-declared runtime surfaces; jobs are service-private background work.
+- Trellis libraries do not expose raw NATS connection handles as application API.
+  Use generated surfaces, service resource handles, and `TrellisConnection` for
+  lifecycle status and shutdown.
 - Use operations for caller-visible async workflows. Use jobs for service-private
   background execution.
 - Model expected public failures with declared errors or `Result`-style values.
 
-## TypeScript rules
+## Service repo setup
 
-- Prefer generated, surface-first APIs: `client.rpc`, `client.event`,
-  `client.feed`, and `client.operation`.
-- Register providers through `service.handle`.
-- Inside handlers, use the scoped `client` argument for allowed outbound calls.
-- Register event listeners during startup with `service.event`; do not register
-  listeners inside handlers.
-- Use TypeBox for contract, RPC, event, feed, and operation wire schemas. Use Zod
-  for environment/config parsing.
-- Publish simple events with `client.event.<group>.<name>.publish(...)`.
-- If an event must commit with service-local SQL state, use
-  `client.event.<group>.<name>.prepare(...)`, persist the `PreparedTrellisEvent`
-  through an outbox such as `SqlOutboxRepository`, then dispatch with
-  `dispatchOutbox`.
-- Use `SqlInboxRepository` only when a handler is not naturally idempotent. Use
-  `NatsKvOutboxRepository` and `NatsKvInboxRepository` only when NATS KV durability
-  is sufficient and no unrelated database transaction must be atomic.
+- Keep Trellis-wide AI guidance in this file or `llms-full.txt`; keep local paths,
+  commands, secrets, and domain rules in the service repo's own `AGENTS.md`.
+- Put TypeScript service source next to a local `deno.json`, `deno.jsonc`, or
+  `package.json`. Single-contract services normally expose a top-level
+  `contract.ts`; multi-contract services use `contracts/*.ts`. Contract source
+  files should default-export the `define*Contract(...)` result.
+- Wrap TypeScript Trellis generation in `deno task prepare`.
+- Wrap Rust Trellis generation in `cargo xtask prepare`.
+- Record the local contract path, generation command, format command, typecheck
+  command, test command, run command, and database migration command in the local
+  `AGENTS.md`.
 
-## Rust rules
+## Language guides
 
-- Prefer generated descriptors and generated client/facade methods.
-- Use descriptor APIs such as `trellis_client.publish::<Descriptor>(...)`,
-  `trellis_client.subscribe::<Descriptor>()`, and
-  `trellis_client.operation::<Operation>().start(...)`.
-- Prefer generated client wrappers such as `.rpc().orders().get(...)` when
-  available.
-- Register service handlers through provider facades such as
-  `service.handle().rpc().orders().get(handler)` when generated.
-- For atomic event publication with local state, use
-  `prepare_event::<Descriptor>(...)`, persist `PreparedTrellisEvent` with an
-  outbox store such as `SqliteOutboxStore` or `PostgresOutboxStore`, then
-  dispatch with `dispatch_outbox_once`.
-- Use `SqliteInboxStore`, `PostgresInboxStore`, `NatsKvOutboxStore`, and
-  `NatsKvInboxStore` for the same idempotency and durability cases described in
-  the full guide.
+- TypeScript services:
+  https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-typescript.txt
+- Rust services:
+  https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-rust.txt
 
 ## Useful links
 
 - Full AI guide: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt
+- TypeScript AI guide: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-typescript.txt
+- Rust AI guide: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-rust.txt
 - Copyable AGENTS template: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/templates/trellis-service-AGENTS.md
 - Docs-site path for the human guide: `/guides/ai/developing-trellis-services`
 - Docs-site path for the API reference: `/api`

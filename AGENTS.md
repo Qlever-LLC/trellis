@@ -80,6 +80,15 @@
 - If changes make design/** or docs/** out of date with the implementation, then
   please propose changes to those documents and ask before applying them. This
   way we can catch accidental design drift.
+- Keep `docs/static/llms.txt`, `docs/static/llms-full.txt`,
+  `docs/static/llms-typescript.txt`, and `docs/static/llms-rust.txt` current
+  when Trellis features, service-author workflows, public TypeScript APIs,
+  public Rust APIs, generated SDK behavior, contract authoring, runtime
+  surfaces, operations, jobs, resources, state, files, events, or
+  prepare/tooling workflows change. These files are user-facing guidance for
+  service repos that consume Trellis; do not include Trellis-repo-only
+  instructions unless the same command or rule is also the intended service-repo
+  pattern.
 
 ## Frontend Rules
 
