@@ -1,6 +1,6 @@
 # Trellis AI guidance for services and browser apps
 
-Last verified against Trellis v0.10.12 (2026-06-08).
+Last verified against Trellis v0.10.13 (2026-06-10).
 
 This file is for AI coding agents working in a service or browser app repository
 that consumes Trellis. The canonical URL is:
@@ -30,6 +30,9 @@ https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt
 1. Define or update the service contract.
 2. Declare owned RPCs, events, feeds, operations, resources, state, files, and
    jobs in the contract shape supported by the language package.
+   For events with subject `params`, route only string, number, or
+   integer-compatible payload fields. If the event payload is an `anyOf` or
+   `oneOf` union, every branch must expose each routed pointer.
 3. Declare cross-contract dependencies under `uses` with the smallest required
    surface selection.
 4. Regenerate SDKs and contract artifacts with the repository's Trellis tooling.

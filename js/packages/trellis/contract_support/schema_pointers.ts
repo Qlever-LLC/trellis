@@ -62,7 +62,71 @@ function decodeJsonPointerSegment(segment: string): string {
   return segment.replaceAll("~1", "/").replaceAll("~0", "~");
 }
 
-function resolveSubschema(
+type PointerResolution = {
+  found: boolean;
+  schemas: unknown[];
+};
+
+function pointerResolution(
+  found: boolean,
+  schemas: unknown[],
+): PointerResolution {
+  return { found, schemas };
+}
+
+function collectSubschemas(
+  schema: unknown,
+  segments: readonly string[],
+): PointerResolution {
+  if (segments.length === 0) return pointerResolution(true, [schema]);
+  if (!isJsonObject(schema)) return pointerResolution(false, []);
+
+  const resolved: unknown[] = [];
+  let found = false;
+
+  const properties = schema.properties;
+  const segment = segments[0];
+  if (
+    segment !== undefined && isJsonObject(properties) &&
+    Object.hasOwn(properties, segment)
+  ) {
+    const direct = collectSubschemas(properties[segment], segments.slice(1));
+    found = found || direct.found;
+    resolved.push(...direct.schemas);
+  }
+
+  const allOf = schema.allOf;
+  if (Array.isArray(allOf)) {
+    for (const branch of allOf) {
+      const branchResult = collectSubschemas(branch, segments);
+      found = found || branchResult.found;
+      resolved.push(...branchResult.schemas);
+    }
+  }
+
+  for (const key of ["anyOf", "oneOf"] as const) {
+    const variants = schema[key];
+    if (!Array.isArray(variants) || variants.length === 0) continue;
+
+    const variantSchemas: unknown[] = [];
+    let everyVariantResolved = true;
+    for (const variant of variants) {
+      const variantResult = collectSubschemas(variant, segments);
+      if (!variantResult.found) {
+        everyVariantResolved = false;
+        break;
+      }
+      variantSchemas.push(...variantResult.schemas);
+    }
+
+    if (everyVariantResolved) found = true;
+    resolved.push(...variantSchemas);
+  }
+
+  return pointerResolution(found, resolved);
+}
+
+function resolveFirstSubschema(
   schema: unknown,
   segments: readonly string[],
 ): unknown | undefined {
@@ -73,7 +137,7 @@ function resolveSubschema(
     const variants = schema[key];
     if (!Array.isArray(variants)) continue;
     for (const variant of variants) {
-      const resolved = resolveSubschema(variant, segments);
+      const resolved = resolveFirstSubschema(variant, segments);
       if (resolved !== undefined) return resolved;
     }
   }
@@ -85,7 +149,7 @@ function resolveSubschema(
   if (!isJsonObject(properties) || !Object.hasOwn(properties, segment)) {
     return undefined;
   }
-  return resolveSubschema(properties[segment], segments.slice(1));
+  return resolveFirstSubschema(properties[segment], segments.slice(1));
 }
 
 function isTokenableSchema(schema: unknown): boolean {
@@ -131,30 +195,39 @@ function isTokenableSchema(schema: unknown): boolean {
   return false;
 }
 
+/**
+ * Returns the first schema node reachable by following a payload JSON Pointer.
+ */
 export function getSubschemaAtDataPointer(
   schema: unknown,
   pointer: string,
 ): unknown | undefined {
-  return resolveSubschema(
+  return resolveFirstSubschema(
     schema,
     pointer.slice(1).split("/").map(decodeJsonPointerSegment),
   );
 }
 
+/**
+ * Verifies that event subject parameter pointers resolve to tokenable schemas.
+ */
 export function assertDataPointersExistAndAreTokenable(
   name: string,
   schema: unknown,
   pointers: readonly string[],
 ): void {
   for (const pointer of pointers) {
-    const node = getSubschemaAtDataPointer(schema, pointer);
-    if (node === undefined) {
+    const resolved = collectSubschemas(
+      schema,
+      pointer.slice(1).split("/").map(decodeJsonPointerSegment),
+    );
+    if (!resolved.found) {
       throw new Error(
         `Invalid event subject param pointer '${pointer}' for event '${name}' (path not found in schema)`,
       );
     }
 
-    if (!isTokenableSchema(node)) {
+    if (!resolved.schemas.every(isTokenableSchema)) {
       throw new Error(
         `Invalid event subject param pointer '${pointer}' for event '${name}' (must resolve to string/number schema)`,
       );

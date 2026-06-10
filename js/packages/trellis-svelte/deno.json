@@ -1,7 +1,7 @@
 {
   "extends": "../../deno.json",
   "name": "@qlever-llc/trellis-svelte",
-  "version": "0.10.12",
+  "version": "0.10.13",
   "exports": "./src/index.ts",
   "tasks": {
     "build:npm": "deno run -A ./scripts/build_npm.ts"

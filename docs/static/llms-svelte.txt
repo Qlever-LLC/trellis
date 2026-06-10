@@ -1,6 +1,6 @@
 # Trellis AI guidance for Svelte browser apps
 
-Last verified against Trellis v0.10.12 (2026-06-08).
+Last verified against Trellis v0.10.13 (2026-06-10).
 
 Use this file for AI coding agents working in a Svelte or SvelteKit browser app
 repository that consumes Trellis. The language-neutral guide is:

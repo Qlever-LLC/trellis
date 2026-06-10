@@ -1,6 +1,6 @@
 # Trellis AI guidance for Rust services
 
-Last verified against Trellis v0.10.12 (2026-06-08).
+Last verified against Trellis v0.10.13 (2026-06-10).
 
 Use this file for AI coding agents working in a Rust service repository that
 consumes Trellis. The language-neutral guide is:
@@ -18,6 +18,9 @@ Rules:
 - prefer generated descriptors and generated client/facade methods
 - prefer generated provider facades for service handler registration when they
   are available
+- event subject params must point at string, number, or integer-compatible schema
+  fields; for `anyOf` or `oneOf` event payload schemas, every variant must expose
+  each routed pointer
 
 ## Use generated descriptors and facades
 

@@ -8,6 +8,25 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.13] - 2026-06-10
+
+### Added
+
+- Added language-specific LLM guidance files for TypeScript services, Rust
+  services, and Svelte browser apps that consume Trellis.
+
+### Changed
+
+- Updated service-development AI guidance and the service `AGENTS.md` template
+  to point agents at focused Trellis service, browser-app, and verification
+  rules.
+
+### Fixed
+
+- Fixed Trellis contract event subject parameter validation for union payload
+  schemas so `anyOf` and `oneOf` event variants are accepted only when every
+  branch exposes the routed JSON Pointer as a string, number, or integer token.
+
 ## [0.10.12] - 2026-06-07
 
 ### Added

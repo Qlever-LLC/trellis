@@ -1,6 +1,6 @@
 # Trellis AI guide
 
-Last verified against Trellis v0.10.12 (2026-06-08).
+Last verified against Trellis v0.10.13 (2026-06-10).
 
 Canonical full guide:
 https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt
@@ -23,6 +23,9 @@ commands.
 - Use operations for caller-visible async workflows. Use jobs for service-private
   background execution.
 - Model expected public failures with declared errors or `Result`-style values.
+- Event subject `params` must point at string, number, or integer-compatible
+  payload fields. For `anyOf` or `oneOf` event payload schemas, every variant must
+  contain each routed pointer.
 
 ## Service repo setup
 

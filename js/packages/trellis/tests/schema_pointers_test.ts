@@ -46,6 +46,30 @@ Deno.test("schema pointers", async (t) => {
   );
 
   await t.step(
+    "getSubschemaAtDataPointer returns first reachable union subschema",
+    () => {
+      const s = getSubschemaAtDataPointer({
+        anyOf: [
+          Type.Object({ origin: Type.String() }),
+          Type.Object({ id: Type.String() }),
+        ],
+      }, "/origin") as { type?: unknown };
+      assertEquals(s.type, "string");
+    },
+  );
+
+  await t.step(
+    "getSubschemaAtDataPointer keeps combinator-first traversal order",
+    () => {
+      const s = getSubschemaAtDataPointer({
+        anyOf: [Type.Object({ origin: Type.String() })],
+        properties: { origin: Type.Number() },
+      }, "/origin") as { type?: unknown };
+      assertEquals(s.type, "string");
+    },
+  );
+
+  await t.step(
     "assertDataPointersExistAndAreTokenable accepts string/number/integer",
     () => {
       assertDataPointersExistAndAreTokenable("Test.Event", eventSchema, [
@@ -111,6 +135,160 @@ Deno.test("schema pointers", async (t) => {
           assertDataPointersExistAndAreTokenable("Test.Event", eventSchema, [
             "/nullable",
           ]),
+        Error,
+        "must resolve to string/number",
+      );
+    },
+  );
+
+  await t.step(
+    "assertDataPointersExistAndAreTokenable accepts top-level anyOf when all variants contain tokenable pointer",
+    () => {
+      assertDataPointersExistAndAreTokenable("Test.Event", {
+        anyOf: [
+          Type.Object({ origin: Type.String() }),
+          Type.Object({ origin: Type.Number() }),
+        ],
+      }, ["/origin"]);
+    },
+  );
+
+  await t.step(
+    "assertDataPointersExistAndAreTokenable accepts top-level oneOf when all variants contain tokenable pointer",
+    () => {
+      assertDataPointersExistAndAreTokenable("Test.Event", {
+        oneOf: [
+          Type.Object({ origin: Type.String() }),
+          Type.Object({ origin: Type.Integer() }),
+        ],
+      }, ["/origin"]);
+    },
+  );
+
+  await t.step(
+    "assertDataPointersExistAndAreTokenable rejects anyOf when a variant is missing pointer",
+    () => {
+      assertThrows(
+        () =>
+          assertDataPointersExistAndAreTokenable("Test.Event", {
+            anyOf: [
+              Type.Object({ origin: Type.String() }),
+              Type.Object({ id: Type.String() }),
+            ],
+          }, ["/origin"]),
+        Error,
+        "path not found",
+      );
+    },
+  );
+
+  await t.step(
+    "assertDataPointersExistAndAreTokenable rejects oneOf when a variant is missing pointer",
+    () => {
+      assertThrows(
+        () =>
+          assertDataPointersExistAndAreTokenable("Test.Event", {
+            oneOf: [
+              Type.Object({ origin: Type.String() }),
+              Type.Object({ id: Type.String() }),
+            ],
+          }, ["/origin"]),
+        Error,
+        "path not found",
+      );
+    },
+  );
+
+  await t.step(
+    "assertDataPointersExistAndAreTokenable rejects union variants with non-tokenable pointer",
+    () => {
+      for (
+        const origin of [
+          Type.Object({ id: Type.String() }),
+          Type.Array(Type.String()),
+          Type.Boolean(),
+        ]
+      ) {
+        assertThrows(
+          () =>
+            assertDataPointersExistAndAreTokenable("Test.Event", {
+              anyOf: [
+                Type.Object({ origin: Type.String() }),
+                Type.Object({ origin }),
+              ],
+            }, ["/origin"]),
+          Error,
+          "must resolve to string/number",
+        );
+      }
+    },
+  );
+
+  await t.step(
+    "assertDataPointersExistAndAreTokenable accepts nested pointers through union variants",
+    () => {
+      assertDataPointersExistAndAreTokenable("Test.Event", {
+        anyOf: [
+          Type.Object({
+            partner: Type.Object({
+              id: Type.Object({ origin: Type.String() }),
+            }),
+          }),
+          Type.Object({
+            partner: Type.Object({
+              id: Type.Object({ origin: Type.Number() }),
+            }),
+          }),
+        ],
+      }, ["/partner/id/origin"]);
+    },
+  );
+
+  await t.step(
+    "assertDataPointersExistAndAreTokenable accepts allOf when one branch resolves pointer",
+    () => {
+      assertDataPointersExistAndAreTokenable("Test.Event", {
+        allOf: [
+          Type.Object({ origin: Type.String() }),
+          Type.Object({ id: Type.String() }),
+        ],
+      }, ["/origin"]);
+    },
+  );
+
+  await t.step(
+    "assertDataPointersExistAndAreTokenable rejects allOf when a resolving branch is non-tokenable",
+    () => {
+      assertThrows(
+        () =>
+          assertDataPointersExistAndAreTokenable("Test.Event", {
+            allOf: [
+              Type.Object({ origin: Type.String() }),
+              Type.Object({ origin: Type.Boolean() }),
+            ],
+          }, ["/origin"]),
+        Error,
+        "must resolve to string/number",
+      );
+    },
+  );
+
+  await t.step(
+    "assertDataPointersExistAndAreTokenable rejects nested union constraints inside allOf",
+    () => {
+      assertThrows(
+        () =>
+          assertDataPointersExistAndAreTokenable("Test.Event", {
+            allOf: [
+              Type.Object({ origin: Type.String() }),
+              {
+                anyOf: [
+                  Type.Object({ origin: Type.Number() }),
+                  Type.Object({ origin: Type.Boolean() }),
+                ],
+              },
+            ],
+          }, ["/origin"]),
         Error,
         "must resolve to string/number",
       );
