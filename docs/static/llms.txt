@@ -5,9 +5,10 @@ Last verified against Trellis v0.10.12 (2026-06-08).
 Canonical full guide:
 https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt
 
-Use this file when generating code for a Trellis service repository. Prefer the
-full guide when you need examples, contract workflow, prepared events, or
-verification commands.
+Use this file when generating code for a Trellis service repository or browser
+app repository. Prefer the full guide when you need examples, contract workflow,
+prepared events, browser-app wiring, generated SDK notes, or verification
+commands.
 
 ## Current model
 
@@ -33,6 +34,9 @@ verification commands.
   files should default-export the `define*Contract(...)` result.
 - Wrap TypeScript Trellis generation in `deno task prepare`.
 - Wrap Rust Trellis generation in `cargo xtask prepare`.
+- Browser app repos should read the Svelte AI guide before wiring
+  `createTrellisApp`, `TrellisProvider`, generated SDK aliases for contract
+  `uses`, Vite aliases, or `svelte-check` path maps.
 - Record the local contract path, generation command, format command, typecheck
   command, test command, run command, and database migration command in the local
   `AGENTS.md`.
@@ -41,6 +45,8 @@ verification commands.
 
 - TypeScript services:
   https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-typescript.txt
+- Svelte browser apps:
+  https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-svelte.txt
 - Rust services:
   https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-rust.txt
 
@@ -48,6 +54,7 @@ verification commands.
 
 - Full AI guide: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt
 - TypeScript AI guide: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-typescript.txt
+- Svelte AI guide: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-svelte.txt
 - Rust AI guide: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-rust.txt
 - Copyable AGENTS template: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/templates/trellis-service-AGENTS.md
 - Docs-site path for the human guide: `/guides/ai/developing-trellis-services`

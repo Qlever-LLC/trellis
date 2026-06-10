@@ -1,9 +1,9 @@
-# Trellis AI guidance for services
+# Trellis AI guidance for services and browser apps
 
 Last verified against Trellis v0.10.12 (2026-06-08).
 
-This file is for AI coding agents working in a service repository that consumes
-Trellis. The canonical URL is:
+This file is for AI coding agents working in a service or browser app repository
+that consumes Trellis. The canonical URL is:
 
 https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt
 
@@ -43,7 +43,7 @@ show patterns; generated packages define the current callable surface.
 
 ## Service repository setup
 
-Use this guidance for service repositories that consume Trellis.
+Use this guidance for service and browser app repositories that consume Trellis.
 
 Rules:
 
@@ -51,18 +51,27 @@ Rules:
   generated output locations; do not edit generated files by hand
 - TypeScript service repos should expose Trellis generation as
   `deno task prepare`
+- TypeScript browser app repos should expose Trellis generation through the local
+  workspace and keep generated SDK imports pointed at workspace output paths;
+  generated SDKs do not have a separate published package path
+- Svelte browser app repos should read the Svelte AI guide before wiring
+  `createTrellisApp`, `TrellisProvider`, generated SDK aliases for contract
+  `uses`, Vite aliases, or `svelte-check` path maps
 - Rust service repos should expose Trellis generation as `cargo xtask prepare`
 - the local `AGENTS.md` should record the contract source path, generated artifact
   command, format command, typecheck/clippy command, test command, run command,
   and migration command
 
-The important pattern is that TypeScript services run `deno task prepare`, Rust
-services run `cargo xtask prepare`, and source contracts remain the input.
+The important pattern is that TypeScript services and apps run
+`deno task prepare`, Rust services run `cargo xtask prepare`, and source
+contracts remain the input.
 
 ## Language-specific guides
 
 - TypeScript services:
   https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-typescript.txt
+- Svelte browser apps:
+  https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-svelte.txt
 - Rust services:
   https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-rust.txt
 
@@ -115,5 +124,6 @@ expected by that repo.
 
 - Docs-site path for the AI guide page: `/guides/ai/developing-trellis-services`
 - Docs-site path for TypeScript libraries: `/guides/libraries/typescript`
+- Docs-site path for SvelteKit apps: `/guides/writing-sveltekit-apps`
 - Docs-site path for Rust libraries: `/guides/libraries/rust`
 - Docs-site path for the API reference: `/api`

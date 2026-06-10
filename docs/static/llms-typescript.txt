@@ -7,6 +7,10 @@ that consumes Trellis. The language-neutral guide is:
 
 https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt
 
+For Svelte browser apps, use:
+
+https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-svelte.txt
+
 ## Service repository setup
 
 Recommended TypeScript service shape:
@@ -62,6 +66,10 @@ const op = await client.operation.orders.process
 
 If a generated facade is missing, check the contract generation path or the
 current API reference.
+
+For cross-contract calls, declare a narrow `uses` selection and call the other
+contract SDK's `use(spec)` helper with only the blocks needed by this service.
+Avoid broad selections just to make generated client types appear.
 
 Connected TypeScript clients, devices, and services do not expose raw NATS
 handles. Use generated `rpc`, `event`, `feed`, `operation`, `state`, and

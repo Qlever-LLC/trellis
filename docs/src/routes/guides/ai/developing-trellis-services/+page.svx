@@ -1,11 +1,12 @@
 This guide explains how to give AI coding agents current Trellis instructions
-when they work in a service repository.
+when they work in a service or browser app repository.
 
 Use the raw files as stable, pasteable references:
 
 - Short guide: <https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt>
 - Full guide: <https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt>
 - TypeScript guide: <https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-typescript.txt>
+- Svelte guide: <https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-svelte.txt>
 - Rust guide: <https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-rust.txt>
 - AGENTS template: `/templates/trellis-service-AGENTS.md`
 
@@ -16,12 +17,17 @@ agent at the current service model, generated surfaces, and language-specific
 guides.
 
 Use `llms-full.txt` when the agent will change a contract, generated SDK usage,
-service handlers, operations, event publication, or outbox/inbox code. It links
-to the language-specific TypeScript and Rust guides.
+service handlers, browser app wiring, operations, event publication, or
+outbox/inbox code. It links to the language-specific TypeScript, Svelte, and Rust
+guides.
 
 Use `llms-typescript.txt` for TypeScript service work and `llms-rust.txt` for
 Rust service work. Most service repositories should link one of these rather than
 asking agents to read both language stacks.
+
+Use `llms-svelte.txt` for Svelte or SvelteKit browser apps that need
+`createTrellisApp`, `TrellisProvider`, generated SDK aliases for contract
+`uses`, Vite aliases, or `svelte-check` path-map guidance.
 
 Copy `templates/trellis-service-AGENTS.md` into a service repository as
 `AGENTS.md`, then fill in the local commands and paths. Keep local rules in that
@@ -43,7 +49,7 @@ file; keep Trellis-wide rules linked to the raw guides.
    guide URL from any other AI-facing project instructions.
 4. Ask agents to read the short guide for all Trellis tasks, the full guide for
    contract or runtime-surface changes, and the relevant language guide before
-   editing service code.
+   editing service or browser app code.
 
 ## What to ask agents to verify
 
