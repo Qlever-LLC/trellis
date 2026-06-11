@@ -1,8 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 
 use miette::{miette, IntoDiagnostic, Result, WrapErr};
 
@@ -30,9 +31,19 @@ pub(crate) enum ReleaseCommand {
         tag: String,
         output: PathBuf,
     },
-    Verify {
+    CheckMetadata {
         version: Option<String>,
         since: Option<String>,
+    },
+    PretagCheck {
+        tag: String,
+        git_ref: String,
+    },
+    Verify {
+        version: String,
+        since: String,
+        skip_integration: bool,
+        keep_workdir: bool,
     },
 }
 
@@ -48,6 +59,8 @@ where
         Some("bump") => parse_bump(args),
         Some("changelog-check") => parse_changelog_check(args),
         Some("write-notes") => parse_write_notes(args),
+        Some("check-metadata") => parse_check_metadata(args),
+        Some("pretag-check") => parse_pretag_check(args),
         Some("verify") => parse_verify(args),
         Some(command) => Err(miette!(
             "unsupported release command `{command}`\n{}",
@@ -58,7 +71,7 @@ where
 }
 
 pub(crate) fn release_usage_text() -> &'static str {
-    "usage: cargo xtask release check-versions | cargo xtask release prepare [--tag <tag>] | cargo xtask release bump --from <version> --to <version> | cargo xtask release changelog-check --version <version> [--since <tag>] | cargo xtask release write-notes --tag <tag> --output <path> | cargo xtask release verify [--version <version>] [--since <tag>]"
+    "usage: cargo xtask release check-versions | cargo xtask release prepare [--tag <tag>] | cargo xtask release bump --from <version> --to <version> | cargo xtask release changelog-check --version <version> [--since <tag>] | cargo xtask release write-notes --tag <tag> --output <path> | cargo xtask release check-metadata [--version <version>] [--since <tag>] | cargo xtask release pretag-check --tag <tag> [--ref <ref>] | cargo xtask release verify --version <version> --since <tag> [--skip-integration] [--keep-workdir]"
 }
 
 pub(crate) fn run_release(repo_root: &Path, command: ReleaseCommand) -> Result<()> {
@@ -110,7 +123,7 @@ pub(crate) fn run_release(repo_root: &Path, command: ReleaseCommand) -> Result<(
             println!("Wrote release notes for {tag} to {}.", output.display());
             Ok(())
         }
-        ReleaseCommand::Verify { version, since } => {
+        ReleaseCommand::CheckMetadata { version, since } => {
             let checked_version = check_versions(repo_root)?;
             if let Some(version) = version {
                 let version_base = version_base(&version)?;
@@ -123,10 +136,17 @@ pub(crate) fn run_release(repo_root: &Path, command: ReleaseCommand) -> Result<(
             }
             println!("Release metadata verification passed for {checked_version}.");
             println!(
-                "Before the release commit, run formatting, type checks, unit tests, package checks, generated-artifact prepare, and the full integration harness."
+                "Before publishing, run `release verify` locally or use the GitHub release gate."
             );
             Ok(())
         }
+        ReleaseCommand::PretagCheck { tag, git_ref } => run_pretag_check(repo_root, &tag, &git_ref),
+        ReleaseCommand::Verify {
+            version,
+            since,
+            skip_integration,
+            keep_workdir,
+        } => run_verify(repo_root, &version, &since, skip_integration, keep_workdir),
     }
 }
 
@@ -170,15 +190,85 @@ where
     Ok(ReleaseCommand::WriteNotes { tag, output })
 }
 
-fn parse_verify<I>(args: I) -> Result<ReleaseCommand>
+fn parse_check_metadata<I>(args: I) -> Result<ReleaseCommand>
 where
     I: Iterator<Item = String>,
 {
     let options = parse_options(args, &["version", "since"])?;
-    Ok(ReleaseCommand::Verify {
+    Ok(ReleaseCommand::CheckMetadata {
         version: options.get("version").cloned(),
         since: options.get("since").cloned(),
     })
+}
+
+fn parse_pretag_check<I>(args: I) -> Result<ReleaseCommand>
+where
+    I: Iterator<Item = String>,
+{
+    let options = parse_options(args, &["tag", "ref"])?;
+    let tag = required_option(&options, "tag")?;
+    parse_release_tag(&tag)?;
+    Ok(ReleaseCommand::PretagCheck {
+        tag,
+        git_ref: options
+            .get("ref")
+            .filter(|value| !value.trim().is_empty())
+            .cloned()
+            .unwrap_or_else(|| "main".to_string()),
+    })
+}
+
+fn parse_verify<I>(args: I) -> Result<ReleaseCommand>
+where
+    I: Iterator<Item = String>,
+{
+    let mut version = None;
+    let mut since = None;
+    let mut skip_integration = false;
+    let mut keep_workdir = false;
+    let mut args = args.peekable();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--version" => version = Some(next_option_value(&mut args, &arg)?),
+            "--since" => since = Some(next_option_value(&mut args, &arg)?),
+            "--skip-integration" => skip_integration = true,
+            "--keep-workdir" => keep_workdir = true,
+            _ if arg.starts_with("--") => {
+                return Err(miette!("unknown option `{arg}`\n{}", release_usage_text()));
+            }
+            _ => {
+                return Err(miette!(
+                    "unexpected argument `{arg}`\n{}",
+                    release_usage_text()
+                ));
+            }
+        }
+    }
+
+    let version = version.ok_or_else(|| miette!("missing required option `--version`"))?;
+    version_base(&version)?;
+    let since = since.ok_or_else(|| miette!("missing required option `--since`"))?;
+    parse_release_tag(&since)?;
+    Ok(ReleaseCommand::Verify {
+        version,
+        since,
+        skip_integration,
+        keep_workdir,
+    })
+}
+
+fn next_option_value<I>(args: &mut std::iter::Peekable<I>, option: &str) -> Result<String>
+where
+    I: Iterator<Item = String>,
+{
+    let value = args
+        .next()
+        .ok_or_else(|| miette!("missing value for `{option}`"))?;
+    if value.starts_with("--") {
+        return Err(miette!("missing value for `{option}`"));
+    }
+    Ok(value)
 }
 
 fn parse_options<I>(mut args: I, allowed: &[&str]) -> Result<BTreeMap<String, String>>
@@ -479,10 +569,7 @@ fn collect_js_internal_npm_versions(
         }
         if let Some(version) = npm_dependency_spec_version(&spec) {
             versions.push(VersionEntry::new(
-                format!(
-                    "{} dependency {name}",
-                    display_repo_path(repo_root, path)
-                ),
+                format!("{} dependency {name}", display_repo_path(repo_root, path)),
                 version,
             ));
         }
@@ -904,6 +991,376 @@ fn print_changes_since(repo_root: &Path, since: &str) -> Result<()> {
     Ok(())
 }
 
+fn run_pretag_check(repo_root: &Path, tag: &str, git_ref: &str) -> Result<()> {
+    parse_release_tag(tag)?;
+    if let Err(error) = require_usable_gh(repo_root) {
+        print_pretag_fallback(tag, git_ref, true);
+        return Err(error);
+    }
+
+    let existing_run_ids: BTreeSet<_> = match list_pretag_workflow_run_ids(repo_root, git_ref) {
+        Ok(run_ids) => run_ids.into_iter().collect(),
+        Err(error) => {
+            print_pretag_fallback(tag, git_ref, true);
+            return Err(error);
+        }
+    };
+
+    let dispatch = pretag_dispatch_command(tag, git_ref);
+    if let Err(error) =
+        run_checked_command(repo_root, &dispatch, "failed to dispatch Release workflow")
+    {
+        print_pretag_fallback(tag, git_ref, true);
+        return Err(error);
+    }
+
+    let run_id = match resolve_new_pretag_workflow_run(repo_root, git_ref, &existing_run_ids) {
+        Ok(run_id) => run_id,
+        Err(error) => {
+            print_pretag_fallback(tag, git_ref, false);
+            return Err(error);
+        }
+    };
+    println!("Watching Release workflow run {run_id}.");
+    run_checked_command(
+        repo_root,
+        &pretag_watch_command(&run_id),
+        "Release workflow run failed",
+    )
+}
+
+fn require_usable_gh(repo_root: &Path) -> Result<()> {
+    for spec in gh_prerequisite_commands() {
+        let output = Command::new(&spec.program)
+            .args(&spec.args)
+            .current_dir(repo_root)
+            .output()
+            .into_diagnostic()
+            .wrap_err_with(|| format!("failed to run {}", command_text(&spec)))?;
+        if !output.status.success() {
+            return Err(miette!(
+                "GitHub CLI prerequisite failed: {}\n{}",
+                command_text(&spec),
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn resolve_new_pretag_workflow_run(
+    repo_root: &Path,
+    git_ref: &str,
+    existing_run_ids: &BTreeSet<String>,
+) -> Result<String> {
+    for attempt in 1..=12 {
+        let new_run_ids: Vec<_> = list_pretag_workflow_run_ids(repo_root, git_ref)?
+            .into_iter()
+            .filter(|run_id| !existing_run_ids.contains(run_id))
+            .collect();
+        if new_run_ids.len() == 1 {
+            return Ok(new_run_ids[0].clone());
+        }
+        if new_run_ids.len() > 1 {
+            return Err(miette!(
+                "found multiple newly dispatched Release workflow runs for ref `{git_ref}`: {}",
+                new_run_ids.join(", ")
+            ));
+        }
+
+        if attempt < 12 {
+            std::thread::sleep(Duration::from_secs(5));
+        }
+    }
+
+    Err(miette!(
+        "failed to resolve a newly dispatched workflow_dispatch Release run for ref `{git_ref}`"
+    ))
+}
+
+fn list_pretag_workflow_run_ids(repo_root: &Path, git_ref: &str) -> Result<Vec<String>> {
+    let spec = pretag_list_command(git_ref);
+    let output = run_output_command(repo_root, &spec)
+        .wrap_err("failed to list Release workflow dry-run candidates")?;
+    if !output.status.success() {
+        return Err(miette!(
+            "{} failed: {}",
+            command_text(&spec),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut run_ids = Vec::new();
+    for run_id in stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        if !run_id.chars().all(|ch| ch.is_ascii_digit()) {
+            return Err(miette!(
+                "resolved Release workflow run id `{run_id}` is not numeric"
+            ));
+        }
+        run_ids.push(run_id.to_string());
+    }
+    Ok(run_ids)
+}
+
+fn run_verify(
+    repo_root: &Path,
+    version: &str,
+    since: &str,
+    skip_integration: bool,
+    keep_workdir: bool,
+) -> Result<()> {
+    version_base(version)?;
+    parse_release_tag(since)?;
+    if skip_integration {
+        println!(
+            "WARNING: --skip-integration was set; release verification is incomplete until the full integration harness passes."
+        );
+    }
+
+    for spec in verify_command_specs(version, since, skip_integration, keep_workdir) {
+        run_checked_command(repo_root, &spec, "release verification command failed")?;
+    }
+    Ok(())
+}
+
+fn verify_command_specs(
+    version: &str,
+    since: &str,
+    skip_integration: bool,
+    keep_workdir: bool,
+) -> Vec<CommandSpec> {
+    let mut specs = vec![
+        CommandSpec::new(
+            "cargo",
+            vec![
+                "run",
+                "--manifest-path",
+                "xtask/Cargo.toml",
+                "--",
+                "release",
+                "check-metadata",
+                "--version",
+                version,
+                "--since",
+                since,
+            ],
+        ),
+        CommandSpec::new(
+            "cargo",
+            vec![
+                "run",
+                "--manifest-path",
+                "xtask/Cargo.toml",
+                "--",
+                "prepare",
+            ],
+        ),
+        CommandSpec::new("deno", vec!["fmt", "-c", "js/deno.json", "--check"]),
+        CommandSpec::new(
+            "cargo",
+            vec![
+                "fmt",
+                "--manifest-path",
+                "rust/Cargo.toml",
+                "--all",
+                "--check",
+            ],
+        ),
+        CommandSpec::new(
+            "cargo",
+            vec![
+                "fmt",
+                "--manifest-path",
+                "rust/tools/generate/Cargo.toml",
+                "--check",
+            ],
+        ),
+        CommandSpec::new(
+            "cargo",
+            vec!["fmt", "--manifest-path", "rust/xtask/Cargo.toml", "--check"],
+        ),
+        CommandSpec::new(
+            "deno",
+            vec![
+                "check",
+                "-c",
+                "js/deno.json",
+                "js/packages/trellis/index.ts",
+                "js/packages/trellis-svelte/src/index.ts",
+                "js/packages/trellis-svelte/src/context.svelte.ts",
+                "js/services/trellis/main.ts",
+            ],
+        ),
+        CommandSpec::new("deno", vec!["test", "-c", "js/deno.json", "-A"]),
+        CommandSpec::new(
+            "cargo",
+            vec!["test", "--manifest-path", "rust/Cargo.toml", "--workspace"],
+        ),
+        CommandSpec::new(
+            "cargo",
+            vec!["test", "--manifest-path", "rust/tools/generate/Cargo.toml"],
+        ),
+        CommandSpec::new(
+            "cargo",
+            vec!["test", "--manifest-path", "rust/xtask/Cargo.toml"],
+        ),
+        CommandSpec::new("cargo", vec!["test", "--manifest-path", "xtask/Cargo.toml"]),
+    ];
+
+    if !skip_integration {
+        let mut args = vec![
+            "run".to_string(),
+            "--manifest-path".to_string(),
+            "xtask/Cargo.toml".to_string(),
+            "--".to_string(),
+            "integration".to_string(),
+            "run".to_string(),
+            "--skip-prepare".to_string(),
+        ];
+        if keep_workdir {
+            args.push("--keep-workdir".to_string());
+        }
+        specs.push(CommandSpec::new("cargo", args));
+    }
+
+    specs
+}
+
+fn gh_prerequisite_commands() -> Vec<CommandSpec> {
+    vec![
+        CommandSpec::new("gh", vec!["--version"]),
+        CommandSpec::new("gh", vec!["auth", "status"]),
+    ]
+}
+
+fn pretag_dispatch_command(tag: &str, git_ref: &str) -> CommandSpec {
+    CommandSpec::new(
+        "gh",
+        vec![
+            "workflow".to_string(),
+            "run".to_string(),
+            ".github/workflows/release.yml".to_string(),
+            "--ref".to_string(),
+            git_ref.to_string(),
+            "-f".to_string(),
+            format!("tag={tag}"),
+            "-f".to_string(),
+            "publish=false".to_string(),
+        ],
+    )
+}
+
+fn pretag_list_command(git_ref: &str) -> CommandSpec {
+    CommandSpec::new(
+        "gh",
+        vec![
+            "run",
+            "list",
+            "--workflow",
+            ".github/workflows/release.yml",
+            "--event",
+            "workflow_dispatch",
+            "--branch",
+            git_ref,
+            "--limit",
+            "20",
+            "--json",
+            "databaseId",
+            "--jq",
+            ".[].databaseId",
+        ],
+    )
+}
+
+fn pretag_watch_command(run_id: &str) -> CommandSpec {
+    CommandSpec::new("gh", vec!["run", "watch", run_id, "--exit-status"])
+}
+
+fn print_pretag_fallback(tag: &str, git_ref: &str, dispatch_may_be_needed: bool) {
+    eprintln!("Unable to verify the pre-tag Release workflow with GitHub CLI (`gh`).");
+    eprintln!(
+        "Run this fallback manually and do not create or push the release tag until it passes:"
+    );
+    if dispatch_may_be_needed {
+        eprintln!("{}", command_text(&pretag_dispatch_command(tag, git_ref)));
+    } else {
+        eprintln!("A Release workflow dispatch may already have succeeded; inspect recent runs before dispatching another one.");
+    }
+    eprintln!("{}", command_text(&pretag_list_command(git_ref)));
+    eprintln!("{}", command_text(&pretag_watch_command("<run-id>")));
+}
+
+fn run_checked_command(repo_root: &Path, spec: &CommandSpec, context: &str) -> Result<()> {
+    println!("$ {}", command_text(spec));
+    let status = Command::new(&spec.program)
+        .args(&spec.args)
+        .current_dir(repo_root)
+        .status()
+        .into_diagnostic()
+        .wrap_err_with(|| format!("failed to run {}", command_text(spec)))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(miette!(
+            "{context}: {} exited with {status}",
+            command_text(spec)
+        ))
+    }
+}
+
+fn run_output_command(repo_root: &Path, spec: &CommandSpec) -> Result<std::process::Output> {
+    println!("$ {}", command_text(spec));
+    Command::new(&spec.program)
+        .args(&spec.args)
+        .current_dir(repo_root)
+        .output()
+        .into_diagnostic()
+        .wrap_err_with(|| format!("failed to run {}", command_text(spec)))
+}
+
+fn command_text(spec: &CommandSpec) -> String {
+    std::iter::once(spec.program.as_str())
+        .chain(spec.args.iter().map(String::as_str))
+        .map(shell_word)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn shell_word(word: &str) -> String {
+    if word
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '/' | '.' | '_' | '-' | '=' | ':'))
+    {
+        word.to_string()
+    } else {
+        format!("'{}'", word.replace('\'', "'\\''"))
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct CommandSpec {
+    program: String,
+    args: Vec<String>,
+}
+
+impl CommandSpec {
+    fn new<S, I>(program: &str, args: I) -> Self
+    where
+        S: Into<String>,
+        I: IntoIterator<Item = S>,
+    {
+        Self {
+            program: program.to_string(),
+            args: args.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 fn require_stable_version(version: &str, label: &str) -> Result<()> {
     if is_stable_semver(version) {
         Ok(())
@@ -1012,10 +1469,12 @@ impl VersionEntry {
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_versions, extract_changelog_section, parse_release_command,
+        collect_versions, command_text, extract_changelog_section, parse_release_command,
+        pretag_dispatch_command, pretag_list_command, pretag_watch_command,
         rewrite_cargo_manifest_versions, rewrite_cargo_manifest_versions_for_release,
         rewrite_js_internal_npm_dependency_versions, rewrite_json_manifest_version,
-        rewrite_json_manifest_version_for_release, version_base, ReleaseCommand,
+        rewrite_json_manifest_version_for_release, verify_command_specs, version_base,
+        ReleaseCommand,
     };
     use std::fs;
 
@@ -1073,6 +1532,174 @@ mod tests {
                 output: std::path::PathBuf::from("dist/notes.md")
             }
         );
+    }
+
+    #[test]
+    fn parse_release_pretag_check_defaults_ref() {
+        let command = parse_release_command(
+            ["pretag-check", "--tag", "v0.9.0-rc.1"]
+                .into_iter()
+                .map(str::to_string),
+        )
+        .expect("parse release pretag-check");
+        assert_eq!(
+            command,
+            ReleaseCommand::PretagCheck {
+                tag: "v0.9.0-rc.1".to_string(),
+                git_ref: "main".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_release_pretag_check_accepts_ref() {
+        let command = parse_release_command(
+            ["pretag-check", "--tag", "v0.9.0", "--ref", "release/v0.9"]
+                .into_iter()
+                .map(str::to_string),
+        )
+        .expect("parse release pretag-check ref");
+        assert_eq!(
+            command,
+            ReleaseCommand::PretagCheck {
+                tag: "v0.9.0".to_string(),
+                git_ref: "release/v0.9".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_release_pretag_check_rejects_invalid_tag() {
+        let error = parse_release_command(
+            ["pretag-check", "--tag", "0.9.0"]
+                .into_iter()
+                .map(str::to_string),
+        )
+        .expect_err("pretag-check should reject invalid tag");
+        assert!(error.to_string().contains("invalid release tag"));
+    }
+
+    #[test]
+    fn parse_release_check_metadata_command() {
+        let command = parse_release_command(
+            [
+                "check-metadata",
+                "--version",
+                "0.9.0-rc.1",
+                "--since",
+                "v0.8.2",
+            ]
+            .into_iter()
+            .map(str::to_string),
+        )
+        .expect("parse release check-metadata");
+        assert_eq!(
+            command,
+            ReleaseCommand::CheckMetadata {
+                version: Some("0.9.0-rc.1".to_string()),
+                since: Some("v0.8.2".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_release_verify_command() {
+        let command = parse_release_command(
+            [
+                "verify",
+                "--version",
+                "0.9.0-rc.1",
+                "--since",
+                "v0.8.2",
+                "--skip-integration",
+                "--keep-workdir",
+            ]
+            .into_iter()
+            .map(str::to_string),
+        )
+        .expect("parse release verify");
+        assert_eq!(
+            command,
+            ReleaseCommand::Verify {
+                version: "0.9.0-rc.1".to_string(),
+                since: "v0.8.2".to_string(),
+                skip_integration: true,
+                keep_workdir: true,
+            }
+        );
+    }
+
+    #[test]
+    fn parse_release_verify_requires_release_tag_since() {
+        let error = parse_release_command(
+            ["verify", "--version", "0.9.0", "--since", "0.8.2"]
+                .into_iter()
+                .map(str::to_string),
+        )
+        .expect_err("verify should reject non-tag since");
+        assert!(error.to_string().contains("invalid release tag"));
+    }
+
+    #[test]
+    fn parse_release_rejects_old_local_verify_command() {
+        let error = parse_release_command(
+            ["local-verify", "--version", "0.9.0", "--since", "v0.8.2"]
+                .into_iter()
+                .map(str::to_string),
+        )
+        .expect_err("local-verify should not be accepted");
+        assert!(error.to_string().contains("unsupported release command"));
+    }
+
+    #[test]
+    fn pretag_check_command_specs_construct_gh_invocations() {
+        assert_eq!(
+            command_text(&pretag_dispatch_command("v0.9.0", "main")),
+            "gh workflow run .github/workflows/release.yml --ref main -f tag=v0.9.0 -f publish=false"
+        );
+        assert_eq!(
+            command_text(&pretag_list_command("main")),
+            "gh run list --workflow .github/workflows/release.yml --event workflow_dispatch --branch main --limit 20 --json databaseId --jq '.[].databaseId'"
+        );
+        assert_eq!(
+            command_text(&pretag_watch_command("12345")),
+            "gh run watch 12345 --exit-status"
+        );
+    }
+
+    #[test]
+    fn verify_command_specs_include_checks_and_integration() {
+        let specs = verify_command_specs("0.9.0", "v0.8.2", false, true);
+        let commands: Vec<_> = specs.iter().map(command_text).collect();
+
+        assert!(commands.contains(&"cargo run --manifest-path xtask/Cargo.toml -- release check-metadata --version 0.9.0 --since v0.8.2".to_string()));
+        assert!(commands
+            .contains(&"cargo fmt --manifest-path rust/Cargo.toml --all --check".to_string()));
+        assert!(commands.contains(
+            &"cargo fmt --manifest-path rust/tools/generate/Cargo.toml --check".to_string()
+        ));
+        assert!(commands
+            .contains(&"cargo fmt --manifest-path rust/xtask/Cargo.toml --check".to_string()));
+        assert!(commands
+            .contains(&"cargo test --manifest-path rust/tools/generate/Cargo.toml".to_string()));
+        assert!(commands.contains(&"cargo test --manifest-path rust/xtask/Cargo.toml".to_string()));
+        assert!(commands.contains(&"cargo test --manifest-path xtask/Cargo.toml".to_string()));
+        assert_eq!(
+            commands.last().expect("last release verify command"),
+            "cargo run --manifest-path xtask/Cargo.toml -- integration run --skip-prepare --keep-workdir"
+        );
+    }
+
+    #[test]
+    fn verify_command_specs_skip_integration() {
+        let commands: Vec<_> = verify_command_specs("0.9.0", "v0.8.2", true, true)
+            .iter()
+            .map(command_text)
+            .collect();
+
+        assert!(!commands
+            .iter()
+            .any(|command| command.contains(" integration run ")));
     }
 
     #[test]

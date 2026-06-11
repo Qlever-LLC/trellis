@@ -40,7 +40,7 @@ connection walkthroughs, and exact public signatures belong in:
 | `@qlever-llc/trellis/auth/browser` | Browser-only auth and portal-flow helper facade                                                                                 | Browser apps, custom portals                           |
 | `@qlever-llc/trellis/contracts`    | Advanced contract-model, canonicalization, and low-level contract authoring surface                                             | SDK generation, docs, advanced tooling                 |
 | `@qlever-llc/trellis/sdk/*`        | First-party generated SDK modules for Trellis-owned contracts                                                                   | Apps and services that consume Trellis-owned contracts |
-| `@qlever-llc/trellis/tracing`      | Specialized Trellis tracing facade                                                                                              | Runtime libraries and services                         |
+| `@qlever-llc/trellis/telemetry`    | Specialized Trellis telemetry facade for tracing, propagation, and metrics                                                      | Runtime libraries and services                         |
 | `@qlever-llc/trellis-svelte`       | Svelte-specific Trellis browser integration with a Trellis-only public surface                                                  | Svelte applications                                    |
 
 ## Library Rules
@@ -179,11 +179,23 @@ browser-only portal/login helper facade also lives at
 - [../auth/auth-api.md](./../auth/auth-api.md)
 - `/api` in the guides site for exact TypeScript auth helpers and Rustdoc links
 
-## `@qlever-llc/trellis/tracing`
+## `@qlever-llc/trellis/telemetry`
 
-Provides the specialized Trellis tracing facade used by runtime libraries and
-services without widening the root package. See
-[observability-patterns.md](./observability-patterns.md).
+Provides the specialized Trellis telemetry facade used by runtime libraries and
+services without widening the root package. It owns trace propagation helpers,
+Trellis span helpers, telemetry initialization, and low-cardinality error metric
+recording. See [observability-patterns.md](./observability-patterns.md).
+
+Rules:
+
+- runtime code should import telemetry helpers from
+  `@qlever-llc/trellis/telemetry` or internal telemetry modules, not from a
+  public `./tracing` subpath
+- browser-safe entrypoints must not statically import OpenTelemetry SDK or
+  exporter packages
+- error metrics must use stable contract or runtime labels and must not include
+  raw NATS subjects, user/session identifiers, trace IDs, request IDs, payloads,
+  or error messages
 
 ## Jobs Surfaces
 

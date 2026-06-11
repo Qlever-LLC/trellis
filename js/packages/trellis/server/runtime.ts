@@ -20,8 +20,12 @@ export type NatsCredsAuthenticatorFn = (creds: Uint8Array) => unknown;
 
 export type ReadFileSyncFn = (path: string) => Uint8Array;
 
+/** Initializes telemetry for a service runtime. */
+export type InitTelemetryFn = (serviceName: string) => void;
+
 export type TrellisServiceRuntimeDeps = {
   connect: NatsConnectFn;
   credsAuthenticator?: NatsCredsAuthenticatorFn;
   readFileSync?: ReadFileSyncFn;
+  initTelemetry?: InitTelemetryFn;
 };

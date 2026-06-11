@@ -4,6 +4,7 @@ import {
   createMapCarrier,
   injectTraceContext,
 } from "../../telemetry/carrier.ts";
+import { recordTrellisError } from "../../telemetry/mod.ts";
 
 import {
   ActiveJob,
@@ -103,11 +104,22 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
   ): Promise<void> {
     const binding = this.#getQueueBinding(type);
     const headers = headersFromJobContext(event.context);
-    await this.#context.nc.publish(
-      `${binding.publishPrefix}.${jobId}.${event.eventType}`,
-      new TextEncoder().encode(JSON.stringify(event)),
-      { headers },
-    );
+    try {
+      await this.#context.nc.publish(
+        `${binding.publishPrefix}.${jobId}.${event.eventType}`,
+        new TextEncoder().encode(JSON.stringify(event)),
+        { headers },
+      );
+    } catch (error) {
+      recordTrellisError(error, {
+        surface: "job",
+        direction: "worker",
+        operation: type,
+        phase: "publish",
+        messagingSystem: "nats",
+      });
+      throw error;
+    }
   }
 
   async create(
@@ -247,6 +259,12 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
       if (error instanceof JobProcessError) {
         const detail = error.message;
         if (error.kind === "retryable") {
+          recordTrellisError(error, {
+            surface: "job",
+            direction: "worker",
+            operation: job.type,
+            phase: "handler_result",
+          });
           await this.#publishJobEvent(job.type, job.id, {
             jobId: job.id,
             service: job.service,
@@ -262,6 +280,12 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
           return { outcome: "retry", tries, error: detail };
         }
 
+        recordTrellisError(error, {
+          surface: "job",
+          direction: "worker",
+          operation: job.type,
+          phase: "handler_result",
+        });
         await this.#publishJobEvent(job.type, job.id, {
           jobId: job.id,
           service: job.service,
@@ -277,6 +301,12 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
         return { outcome: "failed", tries, error: detail };
       }
 
+      recordTrellisError(error, {
+        surface: "job",
+        direction: "worker",
+        operation: job.type,
+        phase: "runtime",
+      });
       throw error;
     }
   }

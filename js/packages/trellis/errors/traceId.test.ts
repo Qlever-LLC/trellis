@@ -17,7 +17,7 @@ import {
   getActiveSpan,
   getTracer,
   withSpan,
-} from "../tracing.ts";
+} from "../telemetry.ts";
 import { AuthError } from "./AuthError.ts";
 import { KVError } from "./KVError.ts";
 import { RemoteError } from "./RemoteError.ts";

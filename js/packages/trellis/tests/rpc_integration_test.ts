@@ -11,7 +11,7 @@ import {
   AuthSessionsMeResponseSchema,
   AuthSessionsMeSchema,
 } from "@qlever-llc/trellis/auth";
-import { assertEquals } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 
 import { Type } from "typebox";
 import { err, isErr, ok } from "../../result/mod.ts";
@@ -392,6 +392,72 @@ Deno.test({
     assertEquals(validateCalls, 2);
     await nc.close();
   },
+});
+
+Deno.test("RPC returned declared error keeps type and gains handler context", async () => {
+  const nc = createRoutedNatsConnection();
+
+  const authService = createClient(
+    authContract,
+    nc,
+    { sessionKey: "auth-context", sign: () => new Uint8Array(64) },
+    { name: "auth-service-context" },
+  );
+  await authService.handle.rpc.auth.requestsValidate(
+    async ({ input }: { input: unknown }) => {
+      const sessionKey = typeof input === "object" && input !== null
+        ? Reflect.get(input, "sessionKey")
+        : undefined;
+      if (typeof sessionKey !== "string") {
+        throw new Error("expected Auth.Requests.Validate session key");
+      }
+      return ok({
+        allowed: true,
+        inboxPrefix: `_INBOX.${sessionKey.slice(0, 16)}`,
+        caller: TEST_CALLER,
+      });
+    },
+  );
+
+  const meService = createClient(
+    authContract,
+    nc,
+    { sessionKey: "me-context", sign: () => new Uint8Array(64) },
+    { name: "me-service-context" },
+  );
+  await meService.handle.rpc.auth.sessionsMe(() =>
+    err(
+      new AuthError({
+        reason: "forbidden",
+        context: { subject: "rpc.v1.Auth.Sessions.Me" },
+      }),
+    )
+  );
+
+  const { auth } = await createTestAuth();
+  const client = createClient(authContract, nc, auth, {
+    name: "client-context",
+  });
+
+  const result = await client.rpc.auth.sessionsMe({}, { timeout: 500 });
+  const value = result.take();
+  assert(isErr(value), "expected Auth.Sessions.Me to fail");
+  assert(value.error instanceof AuthError);
+
+  const serialized = value.error.toSerializable();
+  assertEquals(serialized.type, "AuthError");
+  assertEquals(serialized.reason, "forbidden");
+  assertEquals(serialized.context?.method, "Auth.Sessions.Me");
+  assertEquals(serialized.context?.service, "me-service-context");
+  assertEquals(serialized.context?.contractId, authContract.CONTRACT_ID);
+  assertEquals(
+    serialized.context?.contractDigest,
+    authContract.CONTRACT_DIGEST,
+  );
+  assert(typeof serialized.context?.requestId === "string");
+  assert(!Object.hasOwn(serialized.context ?? {}, "subject"));
+
+  await nc.close();
 });
 
 Deno.test("RPC handle facade omits unknown RPC methods", async () => {

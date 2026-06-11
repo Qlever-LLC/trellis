@@ -77,7 +77,10 @@ import type {
   RpcHandlerContext,
   RpcHandlerErrorOf,
 } from "../trellis.ts";
-import { createTrellisInternal } from "../trellis.ts";
+import {
+  annotateHandlerBoundaryError,
+  createTrellisInternal,
+} from "../trellis.ts";
 import type {
   NatsConnectFn,
   NatsConnectOpts,
@@ -125,6 +128,7 @@ import {
   observeNatsTrellisConnection,
   type TrellisConnection,
 } from "../connection.ts";
+import { initTelemetry } from "../telemetry/init.ts";
 
 type ExtraNatsConnectOpts = Omit<
   NatsConnectOpts,
@@ -428,6 +432,7 @@ async function loadDefaultServiceRuntimeDeps(): Promise<
 > {
   const transport = await loadDefaultRuntimeTransport();
   return {
+    initTelemetry,
     connect: (
       { servers, token, authenticator, inboxPrefix, ...extraOptions },
     ) =>
@@ -439,6 +444,12 @@ async function loadDefaultServiceRuntimeDeps(): Promise<
         ...(inboxPrefix ? { inboxPrefix } : {}),
       }),
   };
+}
+
+function automaticTelemetryEnabled(
+  telemetry: TrellisServiceConnectTelemetryOpts | undefined,
+): boolean {
+  return telemetry !== false && telemetry?.enabled !== false;
 }
 
 const ServiceBootstrapReadySchema = Type.Object({
@@ -868,7 +879,18 @@ export type TrellisServiceConnectOpts<
   contract: ServiceContract<TOwnedApi, TTrellisApi>;
   name: string;
   sessionKeySeed: string;
+  /**
+   * Controls automatic telemetry initialization for this service connection.
+   * Enabled by default; pass `false` or `{ enabled: false }` to disable it.
+   */
+  telemetry?: TrellisServiceConnectTelemetryOpts;
   server?: TrellisServiceServerOpts;
+};
+
+/** Controls automatic telemetry initialization for `TrellisService.connect()`. */
+export type TrellisServiceConnectTelemetryOpts = false | {
+  /** Whether automatic telemetry initialization is enabled. Defaults to `true`. */
+  enabled?: boolean;
 };
 
 type ServiceKvFacade<TKv extends ContractKvMetadata> = {
@@ -1757,6 +1779,11 @@ export type TrellisServiceConnectArgs<
   contract: TContract;
   name: string;
   sessionKeySeed: string;
+  /**
+   * Controls automatic telemetry initialization for this service connection.
+   * Enabled by default; pass `false` or `{ enabled: false }` to disable it.
+   */
+  telemetry?: TrellisServiceConnectTelemetryOpts;
   server?: TrellisServiceServerOpts;
 };
 
@@ -1818,6 +1845,8 @@ export async function createConnectedService<
       stream: args.server.stream,
       noResponderRetry: args.server.noResponderRetry,
       api: runtimeApi,
+      contractId: args.contractId,
+      contractDigest: args.contractDigest,
       connection,
       transferSupport: {
         openOperationTransfer: (transferArgs) =>
@@ -1837,6 +1866,8 @@ export async function createConnectedService<
       stream: args.server.stream,
       noResponderRetry: args.server.noResponderRetry,
       api: runtimeApi,
+      contractId: args.contractId,
+      contractDigest: args.contractDigest,
       eventConsumers: {
         metadata: args.contractEventConsumers,
         bindings: args.bindings.eventConsumers,
@@ -2007,6 +2038,14 @@ function toUnexpectedError(cause: unknown): UnexpectedError {
   return cause instanceof UnexpectedError
     ? cause
     : new UnexpectedError({ cause });
+}
+
+function serializeJobHandlerError(error: BaseError): string {
+  try {
+    return JSON.stringify(error.toSerializable());
+  } catch {
+    return error.message;
+  }
 }
 
 function okVoid(): Result<void, never> {
@@ -2403,6 +2442,8 @@ function createJobsFacade<
   TKv extends ContractKvMetadata = ContractKvMetadata,
 >(args: {
   serviceName: string;
+  contractId?: string;
+  contractDigest?: string;
   nc: NatsConnection;
   contractJobs: TJobs;
   client: Trellis<TTrellisApi, TKv, TJobs>;
@@ -2566,9 +2607,35 @@ function createJobsFacade<
                   },
                 );
 
-                const handled = (await handler(publicJob)).take();
+                const jobErrorContext = {
+                  jobType: queueType,
+                  requestId: job.context().requestId,
+                  service: args.serviceName,
+                  contractId: args.contractId,
+                  contractDigest: args.contractDigest,
+                  traceId: job.context().traceId,
+                };
+
+                let handled: unknown | Result<never, BaseError>;
+                try {
+                  handled = (await handler(publicJob)).take();
+                } catch (cause) {
+                  const annotatedError = annotateHandlerBoundaryError(
+                    cause,
+                    jobErrorContext,
+                  );
+                  throw InternalJobProcessError.failed(
+                    serializeJobHandlerError(annotatedError),
+                  );
+                }
                 if (isErr(handled)) {
-                  throw InternalJobProcessError.failed(handled.error.message);
+                  const annotatedError = annotateHandlerBoundaryError(
+                    handled.error,
+                    jobErrorContext,
+                  );
+                  throw InternalJobProcessError.failed(
+                    serializeJobHandlerError(annotatedError),
+                  );
                 }
                 return handled;
               },
@@ -2756,6 +2823,8 @@ export class TrellisService<
     this.#operationTransfer = operationTransfer;
     const jobs = createJobsFacade<TJobs, TTrellisApi, TKv>({
       serviceName: name,
+      contractId: health.contractId,
+      contractDigest: health.contractDigest,
       nc,
       contractJobs,
       client: handlerTrellis,
@@ -3097,6 +3166,9 @@ export class TrellisService<
           ...(await loadDefaultServiceRuntimeDeps()),
           ...deps,
         } satisfies TrellisServiceRuntimeDeps;
+        if (automaticTelemetryEnabled(args.telemetry)) {
+          runtimeDeps.initTelemetry?.(args.name);
+        }
         const auth = await createAuth({ sessionKeySeed: args.sessionKeySeed });
         const bootstrapLog = resolveServiceLogger(args.server?.log);
         const bootstrap = await fetchServiceBootstrapInfo({

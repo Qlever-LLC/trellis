@@ -8,6 +8,76 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.13] - 2026-06-10
+
+### Added
+
+- Added language-specific LLM guidance files for TypeScript services, Rust
+  services, and Svelte browser apps that consume Trellis.
+
+### Changed
+
+- Updated service-development AI guidance and the service `AGENTS.md` template
+  to point agents at focused Trellis service, browser-app, and verification
+  rules.
+
+### Fixed
+
+- Fixed Trellis contract event subject parameter validation for union payload
+  schemas so `anyOf` and `oneOf` event variants are accepted only when every
+  branch exposes the routed JSON Pointer as a string, number, or integer token.
+
+## [0.10.12] - 2026-06-07
+
+### Added
+
+- Added Trellis OpenTelemetry error metrics, including the `trellis.errors`
+  counter, low-cardinality error attribute sanitization, public telemetry metric
+  helpers, and runtime instrumentation for RPCs, jobs, operations, events,
+  feeds, transfers, auth failures, and service lifecycle failures.
+- Added optional metrics export from the TypeScript telemetry runtime through
+  OTLP endpoints or `TRELLIS_METRICS_CONSOLE`, with metric export interval
+  support from `OTEL_METRIC_EXPORT_INTERVAL`.
+
+### Changed
+
+- Changed release publishing to use `release/v*` branch markers so GitHub
+  Actions creates the release tag only after the release gate passes and
+  publishes from the same verified artifacts.
+
+### Fixed
+
+- Fixed release verification so broad Deno tests run after npm package artifacts
+  are built, and made the Jobs integration fixture tolerate transient `Jobs.Get`
+  projection misses while the Jobs projector catches up.
+
+## [0.10.11] - 2026-06-07
+
+### Added
+
+- Added `release pretag-check` and `release local-verify` xtask commands so
+  release operators can run repeatable local verification and fail-closed
+  pre-tag GitHub Release workflow dry-runs from the CLI.
+- Added prepared Deno test partitions for faster focused package, service,
+  UI/tooling, and packaging verification loops after a single prepare step.
+
+### Changed
+
+- Updated the Release workflow with Deno dependency caching, broader Rust tool
+  cache coverage, and timing diagnostics for release verification phases.
+- Expanded the release guide with exact Git review commands, targeted
+  integration fixture guidance, corrected Rust formatter checks, and staged JSR
+  publish verification.
+
+### Fixed
+
+- Annotated TypeScript and Rust handler-boundary errors with service, contract,
+  surface, request, and trace metadata while preserving declared business error
+  types and omitting internal NATS subjects from serialized error contexts.
+- Fixed release verification type checks for cross-runtime timer handles and
+  Node stack-trace capture, and restored JS demo contract parity resolution with
+  local Trellis import mappings.
+
 ## [0.10.10] - 2026-06-06
 
 ### Added
@@ -842,7 +912,11 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.7...HEAD
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.11...HEAD
+[0.10.11]: https://github.com/Qlever-LLC/trellis/compare/v0.10.10...v0.10.11
+[0.10.10]: https://github.com/Qlever-LLC/trellis/compare/v0.10.9...v0.10.10
+[0.10.9]: https://github.com/Qlever-LLC/trellis/compare/v0.10.8...v0.10.9
+[0.10.8]: https://github.com/Qlever-LLC/trellis/compare/v0.10.7...v0.10.8
 [0.10.7]: https://github.com/Qlever-LLC/trellis/compare/v0.10.6...v0.10.7
 [0.10.6]: https://github.com/Qlever-LLC/trellis/compare/v0.10.5...v0.10.6
 [0.10.5]: https://github.com/Qlever-LLC/trellis/compare/v0.10.4...v0.10.5

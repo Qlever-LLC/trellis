@@ -115,6 +115,10 @@ export {
   type StoreResourceBinding,
   StoreResourceBindingSchema,
 } from "./protocol.ts";
+export {
+  assertDataPointersExistAndAreTokenable,
+  getSubschemaAtDataPointer,
+} from "./schema_pointers.ts";
 
 export const CONTRACT_FORMAT_V1 = "trellis.contract.v1" as const;
 export const CATALOG_FORMAT_V1 = "trellis.catalog.v1" as const;

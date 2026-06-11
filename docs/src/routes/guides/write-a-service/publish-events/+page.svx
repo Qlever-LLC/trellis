@@ -40,6 +40,8 @@ import * as schemas from "../schemas.ts";
 
 The `capabilities` here mean: only `service`-tier principals may publish or subscribe. Other services that list `Orders.Shipped` in their own `uses` blocks will receive the events automatically.
 
+If an event subject includes payload tokens through `params`, each JSON Pointer must resolve to a string, number, or integer-compatible schema. When the event payload schema is an `anyOf` or `oneOf` union, every variant must contain the pointer; otherwise some valid payloads could not produce the declared subject token.
+
 Now publish the event from `main.ts`. Here we call it after marking an order as fulfilled. You would do this wherever your fulfillment logic lives:
 
 ```ts

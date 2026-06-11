@@ -1,12 +1,12 @@
 import { Hono } from "@hono/hono";
-import { initTracing } from "@qlever-llc/trellis/tracing";
+import { initTelemetry } from "@qlever-llc/trellis/telemetry";
 import { startControlPlaneBackgroundTasks } from "./bootstrap/control_plane.ts";
 import { createRuntimeGlobals } from "./bootstrap/globals.ts";
 import { registerControlPlane } from "./bootstrap/register.ts";
 import { loadConfig } from "./config.ts";
 import { registerVersionRoute } from "./version.ts";
 
-initTracing("trellis");
+initTelemetry("trellis");
 
 const config = loadConfig();
 const app = new Hono();
@@ -30,7 +30,7 @@ function aggregateStartupFailure(error: unknown, cleanupResults: unknown[]) {
 async function waitForServerDrain(
   server: ReturnType<typeof Deno.serve>,
 ): Promise<void> {
-  let timeoutId: number | undefined;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
   try {
     await Promise.race([
@@ -170,7 +170,7 @@ function shutdown(signal: string): Promise<void> {
 }
 
 async function shutdownForSignal(signal: ShutdownSignal): Promise<void> {
-  let timeoutId: number | undefined;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
   try {
     await Promise.race([

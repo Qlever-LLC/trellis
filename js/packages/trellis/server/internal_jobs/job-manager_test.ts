@@ -1,7 +1,11 @@
 import { assertEquals, assertExists, assertMatch } from "@std/assert";
 import type { MsgHdrs } from "@nats-io/nats-core";
 
-import { JobCancellationToken, JobManager } from "./job-manager.ts";
+import {
+  JobCancellationToken,
+  JobManager,
+  JobProcessError,
+} from "./job-manager.ts";
 
 type PublishedMessage = {
   subject: string;
@@ -84,4 +88,74 @@ Deno.test("JobManager creates and publishes job context", async () => {
     assertEquals(message.headers.get("request-id"), job.context.requestId);
     assertEquals(message.headers.get("traceparent"), job.context.traceparent);
   }
+});
+
+Deno.test("JobManager preserves structured failure error string", async () => {
+  const published: PublishedMessage[] = [];
+  const manager = new JobManager<{ siteId: string }, { ok: boolean }>({
+    nc: {
+      publish(subject, payload, opts) {
+        published.push({ subject, payload, headers: opts?.headers });
+      },
+    },
+    jobs: {
+      namespace: "svc",
+      queues: {
+        refresh: {
+          queueType: "refresh",
+          publishPrefix: "trellis.jobs.svc.refresh",
+          workSubject: "trellis.work.svc.refresh",
+          consumerName: "svc-refresh",
+          payload: { schema: "RefreshPayload" },
+          result: { schema: "RefreshResult" },
+          maxDeliver: 1,
+          backoffMs: [],
+          ackWaitMs: 1_000,
+          progress: false,
+          logs: false,
+          dlq: false,
+          concurrency: 1,
+        },
+      },
+    },
+    meta: {
+      nextJobId: () => "job-structured-failure",
+      nowIso: () => "2024-01-01T00:00:00.000Z",
+    },
+  });
+  const job = await manager.create("refresh", { siteId: "site-1" });
+  const serializedError = JSON.stringify({
+    id: "err-1",
+    type: "AuthError",
+    message: "Auth failed: forbidden",
+    context: {
+      jobType: "refresh",
+      service: "svc",
+      contractId: "jobs.test@v1",
+      contractDigest: "digest-1",
+      requestId: job.context.requestId,
+    },
+    traceId: job.context.traceId,
+    reason: "forbidden",
+  });
+
+  const outcome = await manager.process(
+    job,
+    new JobCancellationToken(),
+    async () => {
+      throw JobProcessError.failed(serializedError);
+    },
+  );
+
+  assertEquals(outcome.outcome, "failed");
+  if (outcome.outcome !== "failed") return;
+  assertEquals(JSON.parse(outcome.error), JSON.parse(serializedError));
+
+  const failedEvent = JSON.parse(
+    new TextDecoder().decode(published[published.length - 1]!.payload),
+  ) as { error?: string };
+  assertEquals(
+    JSON.parse(failedEvent.error ?? ""),
+    JSON.parse(serializedError),
+  );
 });

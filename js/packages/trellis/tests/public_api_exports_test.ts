@@ -182,3 +182,15 @@ Deno.test("root public API stays browser-safe and excludes server runtime export
   assertEquals("openDeviceActivationStateStore" in trellis, false);
   assertEquals("resolveDeviceActivationStatePath" in trellis, false);
 });
+
+Deno.test("telemetry subpath is public and tracing subpath is not", async () => {
+  const packageConfig = JSON.parse(
+    await Deno.readTextFile(new URL("../deno.json", import.meta.url)),
+  ) as { exports?: Record<string, string> };
+  const telemetry = await import("../telemetry.ts");
+
+  assertEquals(packageConfig.exports?.["./telemetry"], "./telemetry.ts");
+  assertEquals(packageConfig.exports?.["./tracing"], undefined);
+  assertEquals(typeof telemetry.initTelemetry, "function");
+  assertEquals(typeof telemetry.recordTrellisError, "function");
+});

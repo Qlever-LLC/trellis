@@ -5,6 +5,7 @@ import type {
 } from "@qlever-llc/trellis/contracts";
 
 import {
+  assertDataPointersExistAndAreTokenable,
   canonicalizeJson,
   digestContractManifest,
   isJsonValue,
@@ -185,34 +186,6 @@ function isJsonPointer(pointer: string): boolean {
   return true;
 }
 
-function decodeJsonPointerSegment(segment: string): string {
-  return segment.replaceAll("~1", "/").replaceAll("~0", "~");
-}
-
-function isJsonObject(value: JsonValue): value is Record<string, JsonValue> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function getDirectSchemaProperties(
-  schema: JsonValue,
-): Record<string, JsonValue> | undefined {
-  if (!isJsonObject(schema)) return undefined;
-  const properties = schema.properties;
-  if (!isJsonObject(properties)) return undefined;
-  return properties;
-}
-
-function schemaPointerResolves(schema: JsonValue, pointer: string): boolean {
-  let current = schema;
-  for (const rawSegment of pointer.slice(1).split("/")) {
-    const segment = decodeJsonPointerSegment(rawSegment);
-    const properties = getDirectSchemaProperties(current);
-    if (!properties || !Object.hasOwn(properties, segment)) return false;
-    current = properties[segment];
-  }
-  return true;
-}
-
 function extractSubjectTemplatePointers(
   subject: string,
   context: string,
@@ -273,14 +246,12 @@ function validateEventTemplateParams(contract: TrellisContractV1): void {
     }
 
     const payloadSchema = contract.schemas?.[event.event.schema];
-    if (!payloadSchema) continue;
-    for (const pointer of templatePointers) {
-      if (!schemaPointerResolves(payloadSchema, pointer)) {
-        throw new Error(
-          `${context} param '${pointer}' does not resolve against event payload schema`,
-        );
-      }
-    }
+    if (payloadSchema === undefined) continue;
+    assertDataPointersExistAndAreTokenable(
+      name,
+      payloadSchema,
+      templatePointers,
+    );
   }
 }
 

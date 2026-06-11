@@ -851,9 +851,17 @@ Rules:
 - template tokens use the form `{<json-pointer>}` and MUST reference values in
   the event payload
 - if `params` is present, it MUST list the template pointers in subject order
-- every template pointer MUST resolve through direct object-schema `properties`
-  from the referenced event payload schema; pointers through arrays, non-object
-  schemas, or missing properties fail contract validation
+- every template pointer MUST resolve to a string, number, or integer-compatible
+  schema from the referenced event payload schema; pointers through arrays,
+  object schemas, boolean schemas, non-object schemas, or missing properties
+  fail contract validation
+- for event payload schemas with `anyOf` or `oneOf`, every possible variant MUST
+  expose the template pointer and every resolved variant schema MUST be
+  tokenable, because any valid payload variant must be able to produce the
+  declared subject token
+- for event payload schemas with `allOf`, a pointer MAY resolve through the
+  composed schema; if multiple `allOf` branches constrain the pointer, every
+  resolved constraint MUST be tokenable
 - `event` is a required schema ref into the contract-level `schemas` map
 - `capabilities.publish` and `capabilities.subscribe` are independent all-of
   requirements

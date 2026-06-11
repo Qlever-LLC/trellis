@@ -1,9 +1,8 @@
 import { configureErrorTraceId } from "./result.ts";
-import { initTelemetry } from "./runtime.ts";
+import { initTelemetryRuntime } from "./runtime.ts";
 
-export function initTracing(serviceName: string): void {
+/** Initializes Trellis telemetry for a service runtime. */
+export function initTelemetry(serviceName: string): void {
   configureErrorTraceId();
-  initTelemetry(serviceName);
+  initTelemetryRuntime(serviceName);
 }
-
-export { initTelemetry };

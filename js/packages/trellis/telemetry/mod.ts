@@ -16,6 +16,13 @@ export {
   withSpanAsync,
 } from "./core.ts";
 export { getEnv } from "./env.ts";
+export { initTelemetry } from "./init.ts";
+export {
+  buildTrellisErrorMetricAttributes,
+  getTrellisMeter,
+  recordTrellisError,
+} from "./metrics.ts";
+export type { TrellisErrorMetricAttributes } from "./metrics.ts";
 export type { NatsHeadersLike } from "./nats.ts";
 export { createNatsHeaderCarrier } from "./nats.ts";
 export { configureErrorTraceId } from "./result.ts";

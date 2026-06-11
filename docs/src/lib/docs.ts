@@ -706,7 +706,7 @@ export const guideDocs: DocEntry[] = [
   {
     title: "Develop Trellis services with AI agents",
     description:
-      "Use llms.txt, llms-full.txt, and a service AGENTS.md template to guide AI agents working in out-of-tree Trellis service repos.",
+      "Use llms.txt, llms-full.txt, language-specific LLM guides, and a service AGENTS.md template to guide AI agents working in Trellis service repos.",
     href: "/guides/ai/developing-trellis-services",
     section: "Advanced",
   },

@@ -13,6 +13,8 @@ Common packages are:
   operations, transfers, state, jobs, and errors.
 - `@qlever-llc/trellis/service/deno`: service runtime entrypoint for Deno.
 - `@qlever-llc/trellis/service/node`: service runtime entrypoint for Node.js.
+- `@qlever-llc/trellis/telemetry`: OpenTelemetry helpers for tracing,
+  propagation, initialization, and Trellis error metrics.
 - `@qlever-llc/trellis-svelte`: Svelte and SvelteKit integration helpers.
 - generated SDK packages under `generated/packages/jsr/` and
   `generated/packages/npm/` for contracts in your project.
@@ -74,6 +76,52 @@ await service.wait();
 
 For Node.js, import from `@qlever-llc/trellis/service/node` and use your normal
 environment variable loader.
+
+### Service telemetry
+
+`TrellisService.connect(...)` initializes Trellis telemetry by default using the
+service `name`. This configures trace IDs on Trellis errors and, when the
+environment configures OpenTelemetry exporters, installs tracing and metrics
+runtime support.
+
+```ts
+const service = await TrellisService.connect({
+  trellisUrl: Deno.env.get("TRELLIS_URL")!,
+  contract: ordersService,
+  name: "orders-service",
+  sessionKeySeed: Deno.env.get("ORDERS_SERVICE_SESSION_KEY_SEED")!,
+}).orThrow();
+```
+
+Disable automatic telemetry only when your process owns OpenTelemetry setup and
+will initialize Trellis telemetry explicitly.
+
+```ts
+import { initTelemetry } from "@qlever-llc/trellis/telemetry";
+import { TrellisService } from "@qlever-llc/trellis/service/deno";
+
+initTelemetry("orders-service");
+
+const service = await TrellisService.connect({
+  trellisUrl: Deno.env.get("TRELLIS_URL")!,
+  contract: ordersService,
+  name: "orders-service",
+  sessionKeySeed: Deno.env.get("ORDERS_SERVICE_SESSION_KEY_SEED")!,
+  telemetry: false,
+}).orThrow();
+```
+
+The telemetry subpath also exports trace propagation helpers such as
+`injectTraceContext(...)`, `extractTraceContext(...)`, `getTracer(...)`, and
+`getActiveSpan(...)` for advanced runtime integration. The old
+`@qlever-llc/trellis/tracing` subpath is no longer published; use
+`@qlever-llc/trellis/telemetry`.
+
+Trellis records runtime error metrics with a `trellis.errors` OpenTelemetry
+counter. Metrics are low-cardinality by design: labels describe stable surfaces,
+directions, operations, phases, and Trellis error types. Do not attach user IDs,
+session keys, trace IDs, request IDs, payloads, raw NATS subjects, or error
+messages as metric attributes in application code.
 
 ## Connect as a device
 
@@ -422,6 +470,69 @@ export function getTrellis(): AppClient {
   return trellisApp.getTrellis();
 }
 ```
+
+Mount the same app owner with `TrellisProvider` near the Svelte app root. Read
+connection status from `trellisApp.getConnection()`, which returns a
+Svelte-reactive `SvelteTrellisConnection`.
+
+Browser apps should pass the app source contract default export to Trellis
+helpers. The source contract returned by `defineAppContract(...)` already has the
+module shape Trellis needs: `CONTRACT`, `CONTRACT_DIGEST`, `API.trellis`, and
+contract metadata.
+
+```ts
+import { defineAppContract } from "@qlever-llc/trellis/contracts";
+import { sdk as orders } from "#trellis-generated-sdk/orders";
+
+const contract = defineAppContract(() => ({
+  id: "acme.dashboard@v1",
+  displayName: "Acme Dashboard",
+  description: "Browser app for order workflows.",
+  uses: {
+    required: {
+      orders: orders.use({
+        rpc: { call: ["Orders.Get"] },
+      }),
+    },
+  },
+}));
+
+export default contract;
+```
+
+If TypeScript reports that a contract is missing `API` or related contract
+properties, check whether the app passed the generated `CONTRACT` manifest
+constant instead of the app source contract default export. Avoid manually
+composing `{ CONTRACT, API: { owned: OWNED_API } }` for normal Svelte app
+bootstrap; that partial shape can lose `API.trellis`, `CONTRACT_DIGEST`, state
+metadata, and clean inferred client types.
+
+Generated SDKs are workspace artifacts. There is no separate published path for
+an app's generated SDK; use them from source contracts for `sdk.use(spec)` and
+keep imports pointed at the local generated output or an import-map alias owned by
+the consuming repo.
+
+For cross-contract app calls, declare the narrow `uses` selection the app needs
+and call the other contract SDK's `sdk.use(spec)` helper. Do not depend on broad
+generated surfaces just to make client types appear.
+
+## Vite, npm, JSR, and `svelte-check`
+
+Browser apps often combine Deno generation, JSR-style generated SDKs, npm
+packages, and Vite. Keep each resolver layer explicit:
+
+- Mirror `@nats-io/*` specifiers in `deno.json` so Deno generation and Vite/npm
+  builds resolve the same transport packages.
+- Preserve generated npm literals such as `npm:/typebox@^1.1.33/value`; do not
+  hand-normalize them to a different TypeBox entrypoint unless generation changes
+  the source.
+- If Vite aliases an `npm:` Trellis specifier, use a regex `find` that catches
+  subpaths as well as the package root, for example both
+  `npm:@qlever-llc/trellis` and `npm:@qlever-llc/trellis/...`.
+- If `svelte-check` cannot find Trellis types from the npm artifact, add a
+  `compilerOptions.paths` mapping in the app's typecheck config to the installed
+  package `mod.ts` and its subpath `.ts` files. The npm artifact is not the
+  source of generated app SDK types.
 
 See [Writing SvelteKit Apps](/guides/writing-sveltekit-apps) for the full app
 flow, including login pages, providers, and local workspace aliases.

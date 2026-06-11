@@ -241,7 +241,7 @@ async function waitForInFlightHandlers(
 ): Promise<"drained" | "timed_out"> {
   if (inFlight.size === 0) return "drained";
 
-  let timeoutId: number | undefined;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       Promise.allSettled([...inFlight]).then(() => "drained" as const),

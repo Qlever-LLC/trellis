@@ -1,0 +1,113 @@
+# Trellis AI guidance for Svelte browser apps
+
+Last verified against Trellis v0.10.13 (2026-06-10).
+
+Use this file for AI coding agents working in a Svelte or SvelteKit browser app
+repository that consumes Trellis. The language-neutral guide is:
+
+https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt
+
+The TypeScript service guide is:
+
+https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-typescript.txt
+
+## Browser app setup
+
+Svelte browser apps are contract-driven clients. Use the app source contract's
+default export as the app contract.
+
+```ts
+import {
+  createTrellisApp,
+  type TrellisClientFor,
+} from "@qlever-llc/trellis-svelte";
+import contract from "../../contract.ts";
+
+type AppClient = TrellisClientFor<typeof contract>;
+
+export const trellisApp = createTrellisApp({
+  contract,
+  trellisUrl: "http://localhost:3000",
+});
+```
+
+Rules:
+
+- `createTrellisApp(...)`, `TrellisProvider`, `SvelteTrellisConnection`, and
+  browser client auth mode `"browser"` are the intended browser-app wiring.
+- `TrellisClientFor<typeof contract>` and
+  `createTrellisApp(...)` require a module-shaped contract with `CONTRACT`,
+  `CONTRACT_DIGEST`, and `API.trellis`. The source contract returned by
+  `defineAppContract(...)` already has that shape.
+- Do not pass the generated `CONTRACT` manifest constant to `createTrellisApp`.
+  `CONTRACT` alone is only the manifest and will fail with missing `API`, digest,
+  or metadata properties.
+- Do not manually compose `{ CONTRACT, API: { owned: OWNED_API } }` for normal
+  Svelte app bootstrap. That partial shape can lose `API.trellis`,
+  `CONTRACT_DIGEST`, state metadata, and clean inferred client types.
+- Generated SDKs are workspace delivery artifacts used by contract authoring and
+  generated clients. There is no separate published path for an app's generated
+  SDK; keep imports pointed at the local generated workspace output or an
+  import-map alias owned by the consuming repo.
+
+## Svelte integration
+
+Mount the app owner with `TrellisProvider` near the Svelte app root, then read
+the typed client with `trellisApp.getTrellis()` and connection status with
+`trellisApp.getConnection()`. The connection accessor returns a Svelte-reactive
+`SvelteTrellisConnection`.
+
+Use Svelte context, not module-global mutable state, for app-scoped Trellis
+clients. `@qlever-llc/trellis-svelte` owns the app context created by
+`createTrellisApp(...)`.
+
+## Cross-contract clients
+
+For cross-contract app calls, declare the narrow `uses` selection the app needs
+inside the app's source contract and call the other contract SDK's `sdk.use(spec)`
+helper there. Do not depend on broad generated surfaces just to make client types
+appear.
+
+```ts
+import { defineAppContract } from "@qlever-llc/trellis/contracts";
+import { sdk as orders } from "#trellis-generated-sdk/orders";
+
+const contract = defineAppContract(() => ({
+  id: "acme.dashboard@v1",
+  displayName: "Acme Dashboard",
+  description: "Browser app for order workflows.",
+  uses: {
+    required: {
+      orders: orders.use({
+        rpc: { call: ["Orders.Get"] },
+      }),
+    },
+  },
+}));
+
+export default contract;
+```
+
+## Vite, npm, JSR, and `svelte-check`
+
+Trellis Svelte apps often combine Deno generation, JSR-style generated SDKs, npm
+packages, and Vite. Keep those resolver layers explicit:
+
+- Mirror `@nats-io/*` specifiers in `deno.json` so Deno generation and Vite/npm
+  builds resolve the same transport packages.
+- Preserve generated npm literals such as `npm:/typebox@^1.1.33/value`; do not
+  hand-normalize them to a different TypeBox entrypoint unless generation changes
+  the source.
+- If Vite aliases an `npm:` Trellis specifier, use a regex `find` that catches
+  subpaths as well as the package root, for example both
+  `npm:@qlever-llc/trellis` and `npm:@qlever-llc/trellis/...`.
+- If `svelte-check` cannot find Trellis types from the npm artifact, add a
+  `compilerOptions.paths` mapping in the app's typecheck config to the installed
+  package `mod.ts` and its subpath `.ts` files. The npm artifact is not the
+  source of generated app SDK types.
+
+## Verification
+
+Use the format, typecheck, lint, test, run, and migration commands configured by
+the app repository. If contract artifacts or generated SDKs changed, run
+`deno task prepare` and commit the generated outputs expected by that repo.

@@ -208,7 +208,7 @@ split by concern:
 - [service-development.md](./service-development.md) - service layout,
   lifecycle, and jobs vs operations usage
 - [observability-patterns.md](./observability-patterns.md) - health, stats,
-  docs, tracing, and request correlation
+  docs, telemetry, and request correlation
 - [frontend-svelte-patterns.md](./frontend-svelte-patterns.md) - Svelte frontend
   guidance
 - [capability-patterns.md](./capability-patterns.md) - capability naming and

@@ -1,7 +1,7 @@
 {
   "extends": "../../deno.json",
   "name": "@qlever-llc/trellis",
-  "version": "0.10.10",
+  "version": "0.10.13",
   "license": "Apache-2.0",
   "exports": {
     ".": "./index.ts",
@@ -24,7 +24,7 @@
     "./service": "./service/mod.ts",
     "./service/deno": "./service/deno.ts",
     "./service/node": "./service/node.ts",
-    "./tracing": "./tracing.ts",
+    "./telemetry": "./telemetry.ts",
     "./errors": "./errors/index.ts"
   },
   "publish": {

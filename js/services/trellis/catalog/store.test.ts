@@ -122,6 +122,21 @@ function makeEventContract(
   };
 }
 
+type ContractSchema = NonNullable<TrellisContractV1["schemas"]>[string];
+
+function makeEventContractWithPayloadSchema(
+  subject: string,
+  params: string[],
+  payloadSchema: ContractSchema,
+): TrellisContractV1 {
+  return {
+    ...makeEventContract(subject, params),
+    schemas: {
+      PartnerChanged: payloadSchema,
+    },
+  };
+}
+
 function makeStoreContract(
   id: string,
   displayName = "Store",
@@ -652,6 +667,168 @@ Deno.test("contract store accepts event template params in subject order", async
   );
 });
 
+Deno.test("contract store accepts top-level anyOf event params when all variants contain origin", async () => {
+  const store = createTestContracts();
+
+  const validated = await store.validateContract(
+    makeEventContractWithPayloadSchema(
+      "events.v1.Partner.Changed.{/origin}",
+      ["/origin"],
+      {
+        anyOf: [
+          { type: "object", properties: { origin: { type: "string" } } },
+          { type: "object", properties: { origin: { type: "number" } } },
+        ],
+      },
+    ),
+  );
+
+  assertEquals(validated.contract.events?.["Partner.Changed"]?.params, [
+    "/origin",
+  ]);
+});
+
+Deno.test("contract store accepts top-level oneOf event params when all variants contain origin", async () => {
+  const store = createTestContracts();
+
+  const validated = await store.validateContract(
+    makeEventContractWithPayloadSchema(
+      "events.v1.Partner.Changed.{/origin}",
+      ["/origin"],
+      {
+        oneOf: [
+          { type: "object", properties: { origin: { type: "string" } } },
+          { type: "object", properties: { origin: { type: "integer" } } },
+        ],
+      },
+    ),
+  );
+
+  assertEquals(validated.contract.events?.["Partner.Changed"]?.params, [
+    "/origin",
+  ]);
+});
+
+Deno.test("contract store rejects top-level anyOf event params when a variant is missing origin", async () => {
+  const store = createTestContracts();
+
+  await assertRejects(
+    () =>
+      store.validateContract(
+        makeEventContractWithPayloadSchema(
+          "events.v1.Partner.Changed.{/origin}",
+          ["/origin"],
+          {
+            anyOf: [
+              { type: "object", properties: { origin: { type: "string" } } },
+              { type: "object", properties: { id: { type: "string" } } },
+            ],
+          },
+        ),
+      ),
+    Error,
+    "path not found",
+  );
+});
+
+Deno.test("contract store rejects top-level oneOf event params when a variant is missing origin", async () => {
+  const store = createTestContracts();
+
+  await assertRejects(
+    () =>
+      store.validateContract(
+        makeEventContractWithPayloadSchema(
+          "events.v1.Partner.Changed.{/origin}",
+          ["/origin"],
+          {
+            oneOf: [
+              { type: "object", properties: { origin: { type: "string" } } },
+              { type: "object", properties: { id: { type: "string" } } },
+            ],
+          },
+        ),
+      ),
+    Error,
+    "path not found",
+  );
+});
+
+Deno.test("contract store rejects event params when a union variant origin is non-tokenable", async () => {
+  const store = createTestContracts();
+  const invalidOrigins: Array<[string, ContractSchema]> = [
+    ["object", { type: "object", properties: { id: { type: "string" } } }],
+    ["array", { type: "array", items: { type: "string" } }],
+    ["boolean", { type: "boolean" }],
+  ];
+
+  for (const [label, origin] of invalidOrigins) {
+    await assertRejects(
+      () =>
+        store.validateContract(
+          makeEventContractWithPayloadSchema(
+            `events.v1.Partner.Changed.${label}.{/origin}`,
+            ["/origin"],
+            {
+              anyOf: [
+                { type: "object", properties: { origin: { type: "string" } } },
+                { type: "object", properties: { origin } },
+              ],
+            },
+          ),
+        ),
+      Error,
+      "must resolve to string/number",
+    );
+  }
+});
+
+Deno.test("contract store accepts nested event params through union variants", async () => {
+  const store = createTestContracts();
+
+  const validated = await store.validateContract(
+    makeEventContractWithPayloadSchema(
+      "events.v1.Partner.Changed.{/partner/id/origin}",
+      ["/partner/id/origin"],
+      {
+        anyOf: [
+          {
+            type: "object",
+            properties: {
+              partner: {
+                type: "object",
+                properties: {
+                  id: {
+                    type: "object",
+                    properties: { origin: { type: "string" } },
+                  },
+                },
+              },
+            },
+          },
+          {
+            type: "object",
+            properties: {
+              partner: {
+                type: "object",
+                properties: {
+                  id: {
+                    type: "object",
+                    properties: { origin: { type: "number" } },
+                  },
+                },
+              },
+            },
+          },
+        ],
+      },
+    ),
+  );
+
+  assertEquals(validated.contract.events?.["Partner.Changed"]?.params, [
+    "/partner/id/origin",
+  ]);
+});
+
 Deno.test("contract store rejects malformed event subject template tokens", async () => {
   const store = createTestContracts();
 
@@ -727,7 +904,24 @@ Deno.test("contract store rejects event template params missing from payload sch
         ),
       ),
     Error,
-    "event 'Partner.Changed' param '/partner/missing' does not resolve against event payload schema",
+    "path not found",
+  );
+});
+
+Deno.test("contract store rejects event template params against boolean false payload schemas", async () => {
+  const store = createTestContracts();
+
+  await assertRejects(
+    () =>
+      store.validateContract(
+        makeEventContractWithPayloadSchema(
+          "events.v1.Partner.Changed.{/origin}",
+          ["/origin"],
+          false,
+        ),
+      ),
+    Error,
+    "path not found",
   );
 });
 
@@ -743,7 +937,7 @@ Deno.test("contract store rejects event template params through non-object paylo
         ),
       ),
     Error,
-    "event 'Partner.Changed' param '/partner/id/origin/value' does not resolve against event payload schema",
+    "path not found",
   );
 });
 

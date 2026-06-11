@@ -153,7 +153,7 @@ Trellis does not silently upgrade or guess metadata for old KV values.
 
 ### Startup flow
 
-1. `main.ts` initializes tracing, loads config, creates runtime globals, and
+1. `main.ts` initializes telemetry, loads config, creates runtime globals, and
    creates the Hono app.
 2. `bootstrap/control_plane.ts` resolves builtin contracts for the catalog.
 3. `catalog/`, `state/`, and `auth/registration/` register the control-plane RPC

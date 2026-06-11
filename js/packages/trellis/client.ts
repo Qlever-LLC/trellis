@@ -50,6 +50,8 @@ type ClientContractManifest = {
 };
 
 type ClientContractShape = {
+  CONTRACT_ID?: string;
+  CONTRACT_DIGEST?: string;
   CONTRACT: ClientContractManifest;
   API: {
     owned?: TrellisAPI;
@@ -120,6 +122,8 @@ export function createClient<
       noResponderRetry: opts?.noResponderRetry,
       api,
       state: contract[CONTRACT_STATE_METADATA],
+      contractId: contract.CONTRACT_ID,
+      contractDigest: contract.CONTRACT_DIGEST,
     },
   );
 }

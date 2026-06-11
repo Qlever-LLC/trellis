@@ -102,6 +102,25 @@ function summarizeHealthChecks(
   return `${failedCount} check${failedCount === 1 ? "" : "s"} failing`;
 }
 
+function annotateServiceHealthCheck(
+  result: HealthCheckResult,
+  metadata: { service: string; contractId: string; contractDigest: string },
+): HealthCheckResult {
+  if (result.status !== "failed") {
+    return result;
+  }
+
+  return {
+    ...result,
+    info: {
+      ...(result.info ?? {}),
+      service: metadata.service,
+      contractId: metadata.contractId,
+      contractDigest: metadata.contractDigest,
+    },
+  };
+}
+
 function normalizeLegacyHealthCheck(
   check: HealthCheckFn,
 ): ServiceHealthCheckFn {
@@ -112,6 +131,10 @@ function normalizeLegacyHealthCheck(
         status: "failed",
         error: result.error.message,
         summary: result.error.message,
+        info: {
+          errorType: result.error.name,
+          errorId: result.error.id,
+        },
       };
     }
 
@@ -204,6 +227,9 @@ export async function runServiceHealthCheck(
       status: "failed",
       error: message,
       summary: message,
+      info: {
+        errorType: error instanceof Error ? error.name : typeof error,
+      },
       latencyMs,
     };
   }
@@ -348,16 +374,28 @@ export class ServiceHealth {
   }
 
   async checks(): Promise<HealthCheckResult[]> {
-    return await Promise.all(
+    const results = await Promise.all(
       Array.from(this.#checks.entries()).map(([name, check]) =>
         runServiceHealthCheck(name, check)
       ),
     );
+    return results.map((result) =>
+      annotateServiceHealthCheck(result, {
+        service: this.serviceName,
+        contractId: this.contractId,
+        contractDigest: this.contractDigest,
+      })
+    );
   }
 
   async response(): Promise<HealthResponse> {
-    const checks = Object.fromEntries(this.#checks.entries());
-    return await runAllServiceHealthChecks(this.serviceName, checks);
+    const results = await this.checks();
+    return {
+      status: summarizeHealthStatus(results),
+      service: this.serviceName,
+      timestamp: new Date().toISOString(),
+      checks: results,
+    };
   }
 
   async heartbeat(): Promise<Omit<HealthHeartbeat, "header">> {

@@ -28,7 +28,7 @@ const runtimeImports = [
   "@qlever-llc/trellis/sdk/state",
   "@qlever-llc/trellis/service",
   "@qlever-llc/trellis/service/node",
-  "@qlever-llc/trellis/tracing",
+  "@qlever-llc/trellis/telemetry",
 ] as const;
 
 type PackageJson = {
