@@ -356,11 +356,8 @@ Then verify the downstream publishes you care about:
 
 ## 9. Prepare for the next cycle
 
-After publication, delete the release marker branch:
-
-```sh
-git push origin --delete release/$RELEASE_TAG
-```
+After publication, keep the `release/$RELEASE_TAG` branch. It remains the
+durable base for hotfixes against that released line.
 
 After a stable release, start the next development cycle by adding or reopening the `Unreleased` section in `CHANGELOG.md`.
 
