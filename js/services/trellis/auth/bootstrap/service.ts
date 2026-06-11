@@ -806,6 +806,7 @@ async function acceptedServiceOfferRecord(input: {
   );
   if (
     latestAccepted && latestAccepted.offerId !== offerId &&
+    latestAccepted.contractDigest !== input.digest &&
     latestAccepted.staleAt === null
   ) {
     await input.storage.put({

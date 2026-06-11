@@ -714,6 +714,32 @@ Deno.test("POST /bootstrap/service accepts first start when contract fits author
   }]);
 });
 
+Deno.test("POST /bootstrap/service keeps same-digest sibling service offers active", async () => {
+  const contract = await validatedContract(baseContract());
+  const setup = await createApp({
+    initialOffers: [
+      serviceOffer(contract, {
+        instanceId: "svc_sibling",
+        acceptedAt: "2026-01-01T00:00:00.000Z",
+      }),
+    ],
+  });
+
+  const response = await setup.bootstrap({
+    contractId: setup.contract.contract.id,
+    contractDigest: setup.contract.digest,
+    contract: setup.contract.contract,
+  });
+
+  assertEquals(response.status, 200);
+  const siblingOffer = setup.offers.find((offer) =>
+    offer.instanceId === "svc_sibling"
+  );
+  assertEquals(siblingOffer?.staleAt, null);
+  assertEquals(siblingOffer?.liveness, "healthy");
+  assertEquals(setup.offers.length, 2);
+});
+
 Deno.test("POST /bootstrap/service returns only requested materialized bindings", async () => {
   const setup = await createApp({
     initialBindings: [kvBinding("cache"), kvBinding("secondary")],
