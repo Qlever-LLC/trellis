@@ -20,6 +20,8 @@ and this project adheres to
 - Added package artifact smoke coverage for the Trellis browser graph and the
   `@qlever-llc/trellis-svelte` package output, including declaration files,
   public export declarations, and JSR publish targets.
+- Added Auth0 organization support to OIDC provider configuration and login
+  routing.
 
 ### Changed
 
@@ -34,6 +36,9 @@ and this project adheres to
   staged JSR packages.
 - Updated the release guide to preserve release marker branches after
   publication.
+- Refreshed built-in capability definitions and admin capability projections so
+  deployment authority planning and Console capability-group editing use the
+  current materialized capability metadata.
 
 ### Fixed
 
@@ -47,6 +52,8 @@ and this project adheres to
 - Ignored generated package declaration outputs from local Trellis package
   builds so release and package smoke checks do not leave untracked `.d.ts`
   files behind.
+- Fixed expired browser auth callbacks so stale callback state is reported
+  cleanly instead of reusing an invalid browser flow.
 
 ## [0.10.13] - 2026-06-10
 
