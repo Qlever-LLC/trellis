@@ -1,8 +1,3 @@
-#![expect(
-    dead_code,
-    reason = "low-level runtime helpers are internal to the curated trellis_rs facade"
-)]
-
 use super::request_loop::{run_nats_request_loop, RequestHandler};
 use super::{bootstrap_service_host, BootstrapBinding, RequestValidator, Router, ServerError};
 

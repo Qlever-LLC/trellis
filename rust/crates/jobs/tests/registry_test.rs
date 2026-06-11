@@ -1,5 +1,5 @@
 use trellis_jobs::registry::{new_worker_heartbeat, ActiveJobCancellationRegistry};
-use trellis_jobs::runtime_worker::JobCancellationToken;
+use trellis_jobs::JobCancellationToken;
 
 #[test]
 fn new_worker_heartbeat_sets_expected_fields() {

@@ -8,6 +8,7 @@ use trellis_jobs::manager::{
 };
 use trellis_jobs::publisher::{JobEventHeaders, JobEventPublisher};
 use trellis_jobs::types::{Job, JobContext, JobEvent, JobEventType, JobState};
+use trellis_jobs::JobCancellationToken;
 
 #[derive(Default)]
 struct RecordingPublisher {
@@ -143,7 +144,7 @@ async fn process_errors_when_queue_binding_missing() {
     let error = manager
         .process(
             sample_job(0, 2),
-            trellis_jobs::runtime_worker::JobCancellationToken::new(),
+            JobCancellationToken::new(),
             |_job| async { Ok::<_, JobProcessError<&'static str>>(json!({ "ok": true })) },
         )
         .await
@@ -170,7 +171,7 @@ async fn process_success_publishes_started_then_completed_and_returns_completed(
     let outcome = manager
         .process(
             sample_job(0, 2),
-            trellis_jobs::runtime_worker::JobCancellationToken::new(),
+            JobCancellationToken::new(),
             |_job| async { Ok::<_, JobProcessError<&'static str>>(json!({ "pages": 3 })) },
         )
         .await
@@ -216,7 +217,7 @@ async fn process_failure_below_max_publishes_started_then_retry_and_returns_retr
     let outcome = manager
         .process(
             sample_job(0, 2),
-            trellis_jobs::runtime_worker::JobCancellationToken::new(),
+            JobCancellationToken::new(),
             |_job| async {
                 Err::<serde_json::Value, _>(JobProcessError::retryable("transient failure"))
             },
@@ -259,7 +260,7 @@ async fn process_failure_publishes_started_then_failed_and_returns_failed() {
     let outcome = manager
         .process(
             sample_job(1, 2),
-            trellis_jobs::runtime_worker::JobCancellationToken::new(),
+            JobCancellationToken::new(),
             |_job| async { Err::<serde_json::Value, _>(JobProcessError::failed("final failure")) },
         )
         .await
@@ -296,7 +297,7 @@ async fn process_propagates_publish_error() {
     let error = manager
         .process(
             sample_job(0, 2),
-            trellis_jobs::runtime_worker::JobCancellationToken::new(),
+            JobCancellationToken::new(),
             |_job| async { Ok::<_, JobProcessError<&'static str>>(json!({ "ok": true })) },
         )
         .await
@@ -313,7 +314,7 @@ async fn process_returns_cancelled_when_token_is_cancelled_before_completion() {
         sample_bindings(),
         SequenceMetaSource::new("job-1", vec!["2026-03-28T12:00:00.000Z"]),
     );
-    let cancellation = trellis_jobs::runtime_worker::JobCancellationToken::new();
+    let cancellation = JobCancellationToken::new();
     cancellation.cancel();
 
     let outcome = manager
@@ -337,7 +338,7 @@ async fn process_returns_interrupted_when_token_is_cancelled_for_host_shutdown()
         sample_bindings(),
         SequenceMetaSource::new("job-1", vec!["2026-03-28T12:00:00.000Z"]),
     );
-    let cancellation = trellis_jobs::runtime_worker::JobCancellationToken::new();
+    let cancellation = JobCancellationToken::new();
     cancellation.cancel_for_shutdown();
 
     let outcome = manager
@@ -364,7 +365,7 @@ async fn process_returns_interrupted_when_shutdown_happens_before_job_cancel() {
         sample_bindings(),
         SequenceMetaSource::new("job-1", vec!["2026-03-28T12:00:00.000Z"]),
     );
-    let cancellation = trellis_jobs::runtime_worker::JobCancellationToken::new();
+    let cancellation = JobCancellationToken::new();
     cancellation.cancel_for_shutdown();
     cancellation.cancel();
 
@@ -389,7 +390,7 @@ async fn process_returns_interrupted_when_shutdown_happens_after_job_cancel() {
         sample_bindings(),
         SequenceMetaSource::new("job-1", vec!["2026-03-28T12:00:00.000Z"]),
     );
-    let cancellation = trellis_jobs::runtime_worker::JobCancellationToken::new();
+    let cancellation = JobCancellationToken::new();
     cancellation.cancel();
     cancellation.cancel_for_shutdown();
 

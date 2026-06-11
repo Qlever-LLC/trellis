@@ -329,14 +329,6 @@ pub struct ContractFeed {
     pub docs: Option<ContractDocs>,
 }
 
-/// One subscribed event surface included in a durable event consumer group.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ContractEventConsumerEvent {
-    #[serde(rename = "use")]
-    pub use_alias: String,
-    pub event: String,
-}
-
 /// Replay policy for a durable event consumer group.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -361,7 +353,10 @@ fn default_event_consumer_concurrency() -> i64 {
 /// One durable event consumer group declared by a contract manifest.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ContractEventConsumerGroup {
-    pub events: Vec<ContractEventConsumerEvent>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub uses: BTreeMap<String, Vec<String>>,
+    #[serde(rename = "self", default, skip_serializing_if = "Vec::is_empty")]
+    pub self_events: Vec<String>,
     #[serde(default)]
     pub replay: ContractEventConsumerReplay,
     #[serde(default)]

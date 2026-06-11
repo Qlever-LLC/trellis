@@ -6,13 +6,15 @@ use std::{
 use bytes::Bytes;
 use futures_util::future::{ready, BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
-use trellis_service::{
+use trellis_service::internal::{
     connect_service, connect_service_with_options, dispatch_one,
-    AuthenticatedServiceConnectOptions, BootstrapBinding, BootstrapBindingInfo,
-    BootstrapContractRef, ConnectServiceError, ConnectedServiceParts, CoreBootstrapPort,
-    InboundRequest, JobsQueueResourceBinding, JobsResourceBinding, JobsSchemaRef,
-    KvResourceBinding, RequestContext, RequestValidation, RequestValidator, Router, RpcDescriptor,
-    ServerError, ServiceResourceBindings,
+    AuthenticatedServiceConnectOptions, ConnectServiceError, ConnectedServiceParts, InboundRequest,
+};
+use trellis_service::{
+    BootstrapBinding, BootstrapBindingInfo, BootstrapContractRef, CoreBootstrapPort,
+    JobsQueueResourceBinding, JobsResourceBinding, JobsSchemaRef, KvResourceBinding,
+    RequestContext, RequestValidation, RequestValidator, Router, RpcDescriptor, ServerError,
+    ServiceResourceBindings,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -353,7 +355,7 @@ async fn connect_service_with_options_passes_authenticated_bootstrap_inputs() {
 
     assert_eq!(connected.service_name(), "jobs-service");
     assert_eq!(connected.binding().bootstrap_binding(), matching_binding());
-    assert_eq!(connected.runtime_client(), "runtime-client");
+    assert_eq!(connected.internal_runtime_client(), "runtime-client");
     assert_eq!(
         seen_url.lock().expect("lock seen url").as_deref(),
         Some("https://trellis.example.test")

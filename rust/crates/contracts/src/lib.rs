@@ -35,10 +35,10 @@ pub use manifest::{
 };
 pub use model::{
     Catalog, CatalogEntry, CatalogPack, ContractCapabilities, ContractCapabilityMetadata,
-    ContractDocs, ContractErrorDecl, ContractErrorRef, ContractEvent, ContractEventConsumerEvent,
-    ContractEventConsumerGroup, ContractEventConsumerOrdering, ContractEventConsumerReplay,
-    ContractExports, ContractFeed, ContractJobQueueResource, ContractKind, ContractKvResource,
-    ContractManifest, ContractOperation, ContractOperationSignal, ContractOperationTransfer,
+    ContractDocs, ContractErrorDecl, ContractErrorRef, ContractEvent, ContractEventConsumerGroup,
+    ContractEventConsumerOrdering, ContractEventConsumerReplay, ContractExports, ContractFeed,
+    ContractJobQueueResource, ContractKind, ContractKvResource, ContractManifest,
+    ContractOperation, ContractOperationSignal, ContractOperationTransfer,
     ContractOperationTransferDirection, ContractResources, ContractRpcMethod, ContractRpcTransfer,
     ContractRpcTransferDirection, ContractSchemaRef, ContractStateKind, ContractStateStore,
     ContractStoreResource, ContractUseFeed, ContractUseOperation, ContractUsePubSub,

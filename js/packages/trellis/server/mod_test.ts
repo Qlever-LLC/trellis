@@ -21,9 +21,9 @@ import type {
   RpcResult,
   StoreError,
   TrellisFor,
-  TypedKV,
-  TypedStore,
 } from "@qlever-llc/trellis";
+import type { TypedKV } from "../kv.ts";
+import type { TypedStore } from "../store.ts";
 
 // Import the module under test
 import {

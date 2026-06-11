@@ -2,9 +2,10 @@ use bytes::Bytes;
 use futures_util::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use trellis_service::internal::{dispatch_one, InboundRequest};
 use trellis_service::{
-    control_subject, dispatch_one, InMemoryOperationRuntime, InboundRequest, OperationDescriptor,
-    OperationFailure, OperationRefData, OperationState, RequestContext, Router, ServerError,
+    control_subject, InMemoryOperationRuntime, OperationDescriptor, OperationFailure,
+    OperationRefData, OperationState, RequestContext, Router, ServerError,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

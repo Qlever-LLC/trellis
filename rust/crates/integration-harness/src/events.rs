@@ -190,7 +190,7 @@ fn harness_service_consumer_contract_json() -> Result<String> {
         "eventConsumers".to_string(),
         json!({
             SERVICE_EVENT_CONSUMER_GROUP: {
-                "events": [{ "use": "harness", "event": "Harness.Rust.Event" }],
+                "uses": { "harness": ["Harness.Rust.Event"] },
                 "replay": "new",
                 "ordering": "strict",
                 "concurrency": 1,

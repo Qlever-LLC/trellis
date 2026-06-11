@@ -769,6 +769,14 @@ fn validate_schema_refs(manifest: &ContractManifest) -> Result<(), ContractsErro
 
 fn validate_event_consumers(manifest: &ContractManifest) -> Result<(), ContractsError> {
     for (group_name, group) in &manifest.event_consumers {
+        if group.uses.values().all(Vec::is_empty) && group.self_events.is_empty() {
+            return Err(ContractsError::SchemaValidation {
+                kind: "contract",
+                details: format!(
+                    "eventConsumers.{group_name}: must declare at least one dependency or self event"
+                ),
+            });
+        }
         if group.ordering == crate::ContractEventConsumerOrdering::Strict && group.concurrency != 1
         {
             return Err(ContractsError::SchemaValidation {
@@ -778,28 +786,44 @@ fn validate_event_consumers(manifest: &ContractManifest) -> Result<(), Contracts
                 ),
             });
         }
-        for event in &group.events {
-            let Some(use_ref) = manifest.uses.get(&event.use_alias) else {
+        for (use_alias, events) in &group.uses {
+            if events.is_empty() {
                 return Err(ContractsError::SchemaValidation {
                     kind: "contract",
                     details: format!(
-                        "eventConsumers.{group_name}: unknown use alias '{}'",
-                        event.use_alias
+                        "eventConsumers.{group_name}: use alias '{use_alias}' must declare events"
+                    ),
+                });
+            }
+            let Some(use_ref) = manifest.uses.get(use_alias) else {
+                return Err(ContractsError::SchemaValidation {
+                    kind: "contract",
+                    details: format!(
+                        "eventConsumers.{group_name}: unknown use alias '{use_alias}'"
                     ),
                 });
             };
-            if !use_ref
-                .events
-                .as_ref()
-                .and_then(|events| events.subscribe.as_ref())
-                .is_some_and(|events| events.iter().any(|name| name == &event.event))
-            {
+            for event in events {
+                if !use_ref
+                    .events
+                    .as_ref()
+                    .and_then(|events| events.subscribe.as_ref())
+                    .is_some_and(|events| events.iter().any(|name| name == event))
+                {
+                    return Err(ContractsError::SchemaValidation {
+                        kind: "contract",
+                        details: format!(
+                            "eventConsumers.{group_name}: event '{event}' is not subscribed through use alias '{use_alias}'"
+                        ),
+                    });
+                }
+            }
+        }
+        for event in &group.self_events {
+            if !manifest.events.contains_key(event) {
                 return Err(ContractsError::SchemaValidation {
                     kind: "contract",
-                    details: format!(
-                        "eventConsumers.{group_name}: event '{}' is not subscribed through use alias '{}'",
-                        event.event, event.use_alias
-                    ),
+                    details: format!("eventConsumers.{group_name}: unknown owned event '{event}'"),
                 });
             }
         }

@@ -75,7 +75,7 @@ const consumer = defineServiceContract({ schemas }, (ref) => ({
   },
   eventConsumers: {
     serviceEvents: {
-      events: [{ use: "harness", event: "Harness.Rust.Event" }],
+      uses: { harness: ["Harness.Rust.Event"] },
       replay: "new",
       ordering: "strict",
       concurrency: 1,

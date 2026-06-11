@@ -10,11 +10,12 @@ use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
 use time::OffsetDateTime;
 use tokio::sync::{mpsc, Mutex};
+use trellis_service::internal::ConnectedService;
 use trellis_service::{
-    BootstrapBinding, BootstrapBindingInfo, ConnectedService, JobsQueueResourceBinding,
-    JobsResourceBinding, JobsSchemaRef, KvResourceBinding, KvResourceClient, KvResourceEntry,
-    KvResourceOperation, ResourceRuntimeClient, ServerError, ServiceResourceBindings,
-    StoreResourceBinding, StoreResourceClient, StoreWaitOptions,
+    BootstrapBinding, BootstrapBindingInfo, JobsQueueResourceBinding, JobsResourceBinding,
+    JobsSchemaRef, KvResourceBinding, KvResourceClient, KvResourceEntry, KvResourceOperation,
+    ResourceRuntimeClient, ServerError, ServiceResourceBindings, StoreResourceBinding,
+    StoreResourceClient, StoreWaitOptions,
 };
 
 #[derive(Debug, Clone)]

@@ -2,9 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use futures_util::future::{BoxFuture, FutureExt};
-use trellis_service::{
-    dispatch_one, InboundRequest, OutboundReply, RequestContext, RequestHandler, ServerError,
-};
+use trellis_service::internal::{dispatch_one, InboundRequest, OutboundReply, RequestHandler};
+use trellis_service::{RequestContext, ServerError};
 
 #[derive(Clone)]
 struct RecordingHandler {

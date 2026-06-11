@@ -16,7 +16,10 @@ import type {
   RuntimeOperationRecord,
 } from "../trellis.ts";
 import type { NatsConnectFn } from "./runtime.ts";
-import { TrellisService } from "./service.ts";
+import {
+  connectTrellisServiceWithRuntimeDeps,
+  TrellisService,
+} from "./service.ts";
 
 const billingCapabilities = {
   "billing.refund": {
@@ -333,7 +336,7 @@ Deno.test({
         );
       }) as typeof fetch;
 
-      const service = await TrellisService.connect({
+      const service = await connectTrellisServiceWithRuntimeDeps({
         trellisUrl: "https://trellis.example.com",
         contract: billing,
         name: "billing-service",
@@ -442,7 +445,7 @@ Deno.test({
         );
       }) as typeof fetch;
 
-      const service = await TrellisService.connect({
+      const service = await connectTrellisServiceWithRuntimeDeps({
         trellisUrl: "https://trellis.example.com",
         contract: billing,
         name: "billing-service",
@@ -522,7 +525,7 @@ Deno.test({
         contractDigest: billing.CONTRACT_DIGEST,
       });
 
-      const service = await TrellisService.connect({
+      const service = await connectTrellisServiceWithRuntimeDeps({
         trellisUrl: "https://trellis.example.com",
         contract: billing,
         name: "billing-service",
@@ -587,7 +590,7 @@ Deno.test({
         contractDigest: billing.CONTRACT_DIGEST,
       });
 
-      const service1 = await TrellisService.connect({
+      const service1 = await connectTrellisServiceWithRuntimeDeps({
         trellisUrl: "https://trellis.example.com",
         contract: billing,
         name: "billing-service",
@@ -606,7 +609,7 @@ Deno.test({
       await accepted.started().orThrow();
       await service1.stop();
 
-      const service2 = await TrellisService.connect({
+      const service2 = await connectTrellisServiceWithRuntimeDeps({
         trellisUrl: "https://trellis.example.com",
         contract: billing,
         name: "billing-service",
@@ -666,7 +669,7 @@ Deno.test({
         contractDigest: billingWithStatus.CONTRACT_DIGEST,
       });
 
-      const service = await TrellisService.connect({
+      const service = await connectTrellisServiceWithRuntimeDeps({
         trellisUrl: "https://trellis.example.com",
         contract: billingWithStatus,
         name: "billing-service",
@@ -777,7 +780,7 @@ Deno.test({
         contractId: billingV2.CONTRACT_ID,
         contractDigest: billingV2.CONTRACT_DIGEST,
       });
-      const otherService = await TrellisService.connect({
+      const otherService = await connectTrellisServiceWithRuntimeDeps({
         trellisUrl: "https://trellis.example.com",
         contract: billingV2,
         name: "other-billing-service",
@@ -857,7 +860,7 @@ Deno.test({
         );
       }) as typeof fetch;
 
-      const service = await TrellisService.connect({
+      const service = await connectTrellisServiceWithRuntimeDeps({
         trellisUrl: "https://trellis.example.com",
         contract: billing,
         name: "billing-service",

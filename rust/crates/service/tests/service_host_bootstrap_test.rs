@@ -2,10 +2,10 @@ use bytes::Bytes;
 use futures_util::future::{ready, BoxFuture, FutureExt};
 use futures_util::stream;
 use serde::{Deserialize, Serialize};
+use trellis_service::internal::{dispatch_one, HandlerResponse, InboundRequest, RequestHandler};
 use trellis_service::{
-    bootstrap_service_host, dispatch_one, BootstrapBinding, HandlerResponse, InboundRequest,
-    RequestContext, RequestHandler, RequestValidation, RequestValidator, Router, RpcDescriptor,
-    ServerError, ServiceHost,
+    bootstrap_service_host, BootstrapBinding, RequestContext, RequestValidation, RequestValidator,
+    Router, RpcDescriptor, ServerError, ServiceHost,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

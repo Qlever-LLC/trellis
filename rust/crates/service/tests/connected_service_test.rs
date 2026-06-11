@@ -3,9 +3,10 @@ use std::sync::{Arc, Mutex};
 use bytes::Bytes;
 use futures_util::future::{ready, BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
+use trellis_service::internal::{dispatch_one, ConnectedService, InboundRequest};
 use trellis_service::{
-    dispatch_one, BootstrapBinding, ConnectedService, InboundRequest, RequestContext,
-    RequestValidation, RequestValidator, Router, RpcDescriptor, ServerError,
+    BootstrapBinding, RequestContext, RequestValidation, RequestValidator, Router, RpcDescriptor,
+    ServerError,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

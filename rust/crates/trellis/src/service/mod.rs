@@ -68,8 +68,16 @@ pub use transfer::{
 #[doc(hidden)]
 pub mod internal {
     pub use super::connected::{
-        connect_service, AsyncConnector, ConnectServiceError, ConnectedService,
-        ConnectedServiceHostWithValidator, ConnectedServiceParts,
+        connect_service, connect_service_with_options, AsyncConnector,
+        AuthenticatedServiceConnectOptions, ConnectServiceError, ConnectedService,
+        ConnectedServiceHostWithValidator, ConnectedServiceParts, SingleSubjectServiceRunner,
     };
-    pub use super::runtime::run_multi_subject_service;
+    pub use super::request_loop::{
+        dispatch_one, encode_error_reply, encode_success_reply, HandlerResponse, InboundRequest,
+        OutboundReply, RequestHandler, ResponseStream,
+    };
+    pub use super::runtime::{
+        bootstrap_and_run_single_subject_service, run_multi_subject_service,
+        run_single_subject_service, subscribe_subject,
+    };
 }

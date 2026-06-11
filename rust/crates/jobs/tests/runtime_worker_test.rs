@@ -5,12 +5,13 @@ use futures_util::future::BoxFuture;
 use serde_json::json;
 use trellis_jobs::bindings::{JobsBinding, JobsQueueBinding};
 use trellis_jobs::events::{created_event, retried_event};
+use trellis_jobs::internal::{
+    process_work_payload, process_work_payload_with_context,
+    process_work_payload_with_context_and_heartbeat,
+};
 use trellis_jobs::manager::{JobManager, JobMetaSource, JobProcessError, JobProcessOutcome};
 use trellis_jobs::publisher::{JobEventHeaders, JobEventPublisher};
-use trellis_jobs::runtime_worker::{
-    process_work_payload, process_work_payload_with_context,
-    process_work_payload_with_context_and_heartbeat, JobCancellationToken, NatsJobEventPublisher,
-};
+use trellis_jobs::{JobCancellationToken, TrellisJobEventPublisher};
 
 #[derive(Default)]
 struct RecordingPublisher {
@@ -237,7 +238,7 @@ async fn process_work_payload_returns_none_for_invalid_json_payload() {
 #[test]
 fn nats_publisher_type_implements_job_event_publisher_trait() {
     fn assert_publisher_trait<T: JobEventPublisher<Error = String>>() {}
-    assert_publisher_trait::<NatsJobEventPublisher>();
+    assert_publisher_trait::<TrellisJobEventPublisher>();
 }
 
 #[tokio::test]

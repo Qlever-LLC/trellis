@@ -2,7 +2,8 @@ use bytes::Bytes;
 use futures_util::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use trellis_service::{FeedDescriptor, HandlerResponse, RequestContext, Router};
+use trellis_service::internal::HandlerResponse;
+use trellis_service::{FeedDescriptor, RequestContext, Router};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct FeedInput {

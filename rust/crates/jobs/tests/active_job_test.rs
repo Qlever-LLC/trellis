@@ -5,8 +5,9 @@ use trellis_jobs::active_job::ActiveJobRuntimeError;
 use trellis_jobs::bindings::{JobsBinding, JobsQueueBinding};
 use trellis_jobs::manager::{JobManager, JobManagerError, JobMetaSource};
 use trellis_jobs::publisher::{JobEventHeaders, JobEventPublisher};
-use trellis_jobs::runtime_worker::JobCancellationToken;
-use trellis_jobs::{Job, JobContext, JobEvent, JobEventType, JobLogLevel, JobState};
+use trellis_jobs::{
+    Job, JobCancellationToken, JobContext, JobEvent, JobEventType, JobLogLevel, JobState,
+};
 
 #[derive(Default)]
 struct RecordingPublisher {

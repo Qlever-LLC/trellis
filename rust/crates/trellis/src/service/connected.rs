@@ -1,8 +1,3 @@
-#![expect(
-    dead_code,
-    reason = "low-level connected-service helpers are internal to the curated trellis_rs facade"
-)]
-
 use std::future::Future;
 
 use super::resources::{

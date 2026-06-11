@@ -4,8 +4,9 @@ use serde_json::json;
 use trellis_jobs::api::{
     ActiveJob, JobIdentity, JobRef, JobSnapshot, JobWorkerHost, JobsError, JobsFacade, JobsService,
 };
-use trellis_jobs::runtime_worker::JobCancellationToken;
-use trellis_jobs::{Job, JobContext, JobLogEntry, JobLogLevel, JobProgress, JobState};
+use trellis_jobs::{
+    Job, JobCancellationToken, JobContext, JobLogEntry, JobLogLevel, JobProgress, JobState,
+};
 
 fn sample_context() -> JobContext {
     JobContext {

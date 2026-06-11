@@ -429,29 +429,30 @@
         }
       }
     },
-    "eventConsumerEvent": {
-      "type": "object",
-      "required": ["use", "event"],
-      "properties": {
-        "use": {
-          "type": "string",
-          "minLength": 1
-        },
-        "event": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
     "eventConsumerGroup": {
       "type": "object",
-      "required": ["events"],
       "properties": {
-        "events": {
+        "uses": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "self": {
           "type": "array",
           "minItems": 1,
           "items": {
-            "$ref": "#/$defs/eventConsumerEvent"
+            "type": "string",
+            "minLength": 1
           }
         },
         "replay": {

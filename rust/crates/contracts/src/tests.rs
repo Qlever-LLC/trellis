@@ -938,7 +938,7 @@ fn contract_docs_normalize_but_do_not_affect_digest() {
         },
         "eventConsumers": {
             "auditProjection": {
-                "events": [{"use": "audit", "event": "Audit.Changed"}],
+                "uses": {"audit": ["Audit.Changed"]},
                 "replay": "new",
                 "ordering": "strict",
                 "concurrency": 1
@@ -1057,7 +1057,7 @@ fn contract_docs_normalize_but_do_not_affect_digest() {
         },
         "eventConsumers": {
             "auditProjection": {
-                "events": [{"use": "audit", "event": "Audit.Changed"}],
+                "uses": {"audit": ["Audit.Changed"]},
                 "replay": "new",
                 "ordering": "strict",
                 "concurrency": 1,
@@ -1221,7 +1221,7 @@ fn manifest_parses_event_consumers_with_defaults_and_projects_digest() {
         },
         "eventConsumers": {
             "projection": {
-                "events": [{"use": "billing", "event": "Billing.Paid"}],
+                "uses": {"billing": ["Billing.Paid"]},
                 "ackWaitMs": 30000,
                 "maxDeliver": 5,
                 "backoffMs": [1000, 5000]
@@ -1237,6 +1237,11 @@ fn manifest_parses_event_consumers_with_defaults_and_projects_digest() {
     assert_eq!(group.replay, ContractEventConsumerReplay::New);
     assert_eq!(group.ordering, ContractEventConsumerOrdering::Strict);
     assert_eq!(group.concurrency, 1);
+    assert_eq!(
+        group.uses.get("billing").expect("billing event use"),
+        &vec!["Billing.Paid".to_string()]
+    );
+    assert!(group.self_events.is_empty());
 
     let normalized = normalize_manifest_value(manifest).expect("normalize manifest");
     assert_eq!(
@@ -1275,7 +1280,7 @@ fn manifest_validation_rejects_event_consumer_without_subscribed_use() {
         },
         "eventConsumers": {
             "projection": {
-                "events": [{"use": "billing", "event": "Billing.Refunded"}]
+                "uses": {"billing": ["Billing.Refunded"]}
             }
         }
     }))

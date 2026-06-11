@@ -1,8 +1,3 @@
-#![expect(
-    dead_code,
-    reason = "low-level request-loop helpers are internal to the curated trellis_rs facade"
-)]
-
 use async_nats::header::HeaderMap;
 use bytes::Bytes;
 use futures_util::future::BoxFuture;
