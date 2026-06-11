@@ -39,6 +39,7 @@ const declarationSourceFiles = sourceFiles.filter((sourceFile) =>
 const denoConfig = JSON.parse(await Deno.readTextFile("./deno.json"));
 const name = denoConfig.name as string;
 const version = resolvePackageBuildVersion(denoConfig.version as string);
+const jsrTrellisDependencyVersion = previousPublishedPatchVersion(version);
 const dependencies = resolveInternalNpmDependenciesForBuild(
   {
     "@nats-io/nats-core": "^3.3.1",
@@ -49,6 +50,15 @@ const dependencies = resolveInternalNpmDependenciesForBuild(
   },
   version,
 );
+
+function previousPublishedPatchVersion(version: string): string {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+  if (!match) return version;
+  const [, major, minor, patch] = match;
+  const patchNumber = Number(patch);
+  if (patchNumber === 0) return version;
+  return `${major}.${minor}.${patchNumber - 1}`;
+}
 const peerDependencies = resolveInternalNpmDependenciesForBuild(
   {
     svelte: "^5.0.0",
@@ -380,6 +390,7 @@ await writeJson(
     name,
     version,
     license: "Apache-2.0",
+    workspace: [],
     exports: {
       ".": "./dist/index.js",
     },
@@ -387,11 +398,14 @@ await writeJson(
       exclude: ["!dist/**", "!README.md", "!deno.json"],
     },
     imports: {
-      "@qlever-llc/result": `jsr:@qlever-llc/result@^${version}`,
-      "@qlever-llc/trellis": `jsr:@qlever-llc/trellis@^${version}`,
-      "@qlever-llc/trellis/auth": `jsr:@qlever-llc/trellis@^${version}/auth`,
+      "@qlever-llc/result":
+        `jsr:@qlever-llc/result@^${jsrTrellisDependencyVersion}`,
+      "@qlever-llc/trellis":
+        `jsr:@qlever-llc/trellis@^${jsrTrellisDependencyVersion}`,
+      "@qlever-llc/trellis/auth":
+        `jsr:@qlever-llc/trellis@^${jsrTrellisDependencyVersion}/auth`,
       "@qlever-llc/trellis/auth/browser":
-        `jsr:@qlever-llc/trellis@^${version}/auth/browser`,
+        `jsr:@qlever-llc/trellis@^${jsrTrellisDependencyVersion}/auth/browser`,
       "svelte": "npm:svelte@^5.0.0",
       "svelte/internal/client": "npm:svelte@^5.0.0/internal/client",
       "svelte/internal/disclose-version":
