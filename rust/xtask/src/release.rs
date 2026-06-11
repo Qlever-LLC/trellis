@@ -404,7 +404,7 @@ fn collect_versions(repo_root: &Path) -> Result<Vec<VersionEntry>> {
             .wrap_err_with(|| format!("failed to read {}", path.display()))?;
         if is_json_manifest(&path) {
             if let Some(version) = json_manifest_version(&contents) {
-                if version != "0.0.0" {
+                if !is_non_release_sentinel_version(&version) {
                     versions.push(VersionEntry::new(
                         display_repo_path(repo_root, &path),
                         version,
@@ -510,12 +510,15 @@ fn rewrite_json_manifest_version(
     let Some(version) = json_manifest_version(contents) else {
         return Ok(contents.to_string());
     };
-    if version == "0.0.0" {
+    if is_non_release_sentinel_version(&version) {
+        return Ok(contents.to_string());
+    }
+    if version == to {
         return Ok(contents.to_string());
     }
     if version != from {
         return Err(miette!(
-            "{} uses version {}, expected {from}",
+            "{} uses version {}, expected {from} or {to}",
             path.display(),
             version
         ));
@@ -532,10 +535,10 @@ fn rewrite_json_manifest_version_for_release(
     let Some(version) = json_manifest_version(contents) else {
         return Ok(contents.to_string());
     };
-    let actual_base_version = version_base(&version)?;
-    if actual_base_version == "0.0.0" {
+    if is_non_release_sentinel_version(&version) {
         return Ok(contents.to_string());
     }
+    let actual_base_version = version_base(&version)?;
     if actual_base_version != expected_base_version {
         return Err(miette!(
             "{} uses version {}, but release tag requires base version {expected_base_version}",
@@ -599,8 +602,12 @@ fn rewrite_js_internal_npm_dependency_versions(
             continue;
         };
         if version != from {
+            if version == to {
+                lines.push(line.to_string());
+                continue;
+            }
             return Err(miette!(
-                "{} dependency {name} uses version {}, expected {from}",
+                "{} dependency {name} uses version {}, expected {from} or {to}",
                 path.display(),
                 version
             ));
@@ -728,8 +735,12 @@ fn rewrite_cargo_manifest_versions(
         if should_update_package_version {
             if let Some(version) = cargo_version_assignment(trimmed) {
                 if version != from {
+                    if version == to {
+                        lines.push(line.to_string());
+                        continue;
+                    }
                     return Err(miette!(
-                        "{} uses version {}, expected {from}",
+                        "{} uses version {}, expected {from} or {to}",
                         path.display(),
                         version
                     ));
@@ -742,8 +753,12 @@ fn rewrite_cargo_manifest_versions(
         if let Some((name, version)) = cargo_inline_dependency_version(trimmed) {
             if is_internal_rust_crate(&name) {
                 if version != from {
+                    if version == to {
+                        lines.push(line.to_string());
+                        continue;
+                    }
                     return Err(miette!(
-                        "{} dependency {name} uses version {}, expected {from}",
+                        "{} dependency {name} uses version {}, expected {from} or {to}",
                         path.display(),
                         version
                     ));
@@ -1447,6 +1462,10 @@ fn is_stable_semver(version: &str) -> bool {
             .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
 }
 
+fn is_non_release_sentinel_version(version: &str) -> bool {
+    version == "0.0.0" || version.starts_with("0.0.0-")
+}
+
 fn display_repo_path(repo_root: &Path, path: &Path) -> String {
     path.strip_prefix(repo_root)
         .unwrap_or(path)
@@ -1719,6 +1738,19 @@ mod tests {
     }
 
     #[test]
+    fn rewrite_json_manifest_allows_already_bumped_target_version() {
+        let original = "{\n  \"name\": \"@qlever-llc/trellis\",\n  \"version\": \"0.9.0\"\n}\n";
+        let updated = rewrite_json_manifest_version(
+            original,
+            "0.8.2",
+            "0.9.0",
+            std::path::Path::new("deno.json"),
+        )
+        .expect("rewrite json version");
+        assert_eq!(updated, original);
+    }
+
+    #[test]
     fn rewrite_json_manifest_for_release_accepts_base_version() {
         let original = "{\n  \"name\": \"@qlever-llc/trellis\",\n  \"version\": \"0.8.2\"\n}\n";
         let updated = rewrite_json_manifest_version_for_release(
@@ -1748,6 +1780,19 @@ mod tests {
             updated,
             "[workspace.package]\nversion = \"0.9.0\"\n\n[dependencies]\ntrellis-rs = { path = \"../trellis\", version = \"0.9.0\" }\ntrellis-client = { path = \"../client\", version = \"0.9.0\" }\nserde = { version = \"1.0\" }\n"
         );
+    }
+
+    #[test]
+    fn rewrite_cargo_manifest_allows_already_bumped_target_version() {
+        let original = "[package]\nname = \"trellis-rs\"\nversion = \"0.9.0\"\n\n[dependencies]\ntrellis-contracts = { path = \"../contracts\", version = \"0.9.0\" }\n";
+        let updated = rewrite_cargo_manifest_versions(
+            original,
+            "0.8.2",
+            "0.9.0",
+            std::path::Path::new("Cargo.toml"),
+        )
+        .expect("rewrite cargo versions");
+        assert_eq!(updated, original);
     }
 
     #[test]
@@ -1783,6 +1828,19 @@ mod tests {
     }
 
     #[test]
+    fn rewrite_js_internal_npm_dependency_versions_allows_already_bumped_target_version() {
+        let original = "const dependencies = {\n  \"@qlever-llc/result\": \"^0.9.0\",\n  \"@qlever-llc/trellis\": \"~0.9.0\",\n};\n";
+        let updated = rewrite_js_internal_npm_dependency_versions(
+            original,
+            "0.8.2",
+            "0.9.0",
+            std::path::Path::new("build_npm.ts"),
+        )
+        .expect("rewrite js internal npm dependencies");
+        assert_eq!(updated, original);
+    }
+
+    #[test]
     fn collect_versions_includes_internal_npm_dependency_specs() {
         let root = temp_repo_root();
         let script = root.join("js/packages/trellis/scripts/build_npm.ts");
@@ -1812,6 +1870,8 @@ mod tests {
         let root = temp_repo_root();
         fs::create_dir_all(root.join("js/packages/trellis")).expect("mkdir package");
         fs::create_dir_all(root.join("js/apps/console")).expect("mkdir app");
+        fs::create_dir_all(root.join("generated/packages/jsr/portal-activation"))
+            .expect("mkdir generated shell package");
         fs::create_dir_all(root.join("rust")).expect("mkdir rust");
         fs::write(
             root.join("js/packages/trellis/deno.json"),
@@ -1823,6 +1883,11 @@ mod tests {
             "{\"version\":\"0.0.0\"}\n",
         )
         .expect("write app manifest");
+        fs::write(
+            root.join("generated/packages/jsr/portal-activation/deno.json"),
+            "{\"version\":\"0.0.0-shell\"}\n",
+        )
+        .expect("write generated shell manifest");
         fs::write(
             root.join("rust/Cargo.toml"),
             "[workspace.package]\nversion = \"0.8.2\"\n",

@@ -8,6 +8,20 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.15] - 2026-06-11
+
+### Changed
+
+- Changed generated TypeScript package import maps for out-of-tree SDK shells to
+  depend on the JSR Trellis runtime package instead of the npm package.
+- Exposed service event publishing on bound TypeScript service clients so
+  generated service event surfaces can publish prepared Trellis events.
+
+### Fixed
+
+- Fixed release JSR publish availability checks to probe exact immutable version
+  metadata instead of the lagging package index used by `deno info`.
+
 ## [0.10.14] - 2026-06-11
 
 ### Added
