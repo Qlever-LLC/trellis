@@ -998,7 +998,7 @@ jobs:
           jsr_package_exists() {
             local package_name="$1"
             local package_version="$2"
-            deno info "jsr:${package_name}@${package_version}" >/dev/null 2>&1
+            curl -fsL -o /dev/null "https://jsr.io/${package_name}/${package_version}_meta.json"
           }
 
           wait_for_jsr_package() {

@@ -1472,6 +1472,7 @@ export type BoundTrellisService<
     | "connection"
     | "createTransfer"
     | "completeOperation"
+    | "publishPrepared"
     | "wait"
     | "stop"
   >
@@ -3020,10 +3021,18 @@ export class TrellisService<
       createTransfer: (args) => this.createTransfer(args),
       completeOperation: (operationId, output) =>
         this.completeOperation(operationId, output),
+      publishPrepared: (event) => this.publishPrepared(event),
       wait: () => this.wait(),
       stop: () => this.stop(),
       with: (nextDeps) => this.with(nextDeps),
     };
+  }
+
+  /** Publishes a prepared event through the service runtime connection. */
+  publishPrepared(
+    event: PreparedTrellisEvent,
+  ): AsyncResult<void, UnexpectedError> {
+    return this.#handlerTrellis.publishPrepared(event);
   }
 
   #createBoundHealth<TDeps>(deps: TDeps): BoundServiceHealth<TDeps> {

@@ -497,7 +497,7 @@ fn ts_shell_deno_json(
         let mut imports = serde_json::Map::new();
         imports.insert(
             "@qlever-llc/trellis".to_string(),
-            serde_json::Value::String(format!("npm:@qlever-llc/trellis@^{}", runtime_deps.version)),
+            serde_json::Value::String(format!("jsr:@qlever-llc/trellis@^{}", runtime_deps.version)),
         );
         root.insert("imports".to_string(), serde_json::Value::Object(imports));
     }

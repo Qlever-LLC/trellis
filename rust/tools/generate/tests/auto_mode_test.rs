@@ -189,10 +189,10 @@ fn explicit_generate_all_defaults_out_of_tree_package_to_trellis_sdk_scope() {
     let deno = fs::read_to_string(ts_out.join("deno.json")).unwrap();
     assert!(deno.contains("\"name\": \"@trellis-sdk/krishi-cloud\""));
     assert!(deno.contains(&format!(
-        "npm:@qlever-llc/trellis@^{}",
+        "jsr:@qlever-llc/trellis@^{}",
         trellis_package_version()
     )));
-    assert!(!deno.contains("jsr:@qlever-llc/trellis"));
+    assert!(!deno.contains("npm:@qlever-llc/trellis"));
     assert!(!deno.contains("@qlever-llc/trellis-generated-krishi-cloud"));
 }
 

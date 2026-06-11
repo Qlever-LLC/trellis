@@ -170,7 +170,7 @@ fn deno_json(
         imports.insert(
             "@qlever-llc/trellis".to_string(),
             Value::String(format!(
-                "npm:@qlever-llc/trellis@^{}",
+                "jsr:@qlever-llc/trellis@^{}",
                 opts.runtime_deps.version
             )),
         );
@@ -2999,7 +2999,7 @@ mod tests {
         let imports = deno.get("imports").and_then(Value::as_object).unwrap();
         assert_eq!(
             imports.get("@qlever-llc/trellis").unwrap(),
-            "npm:@qlever-llc/trellis@^0.2.3"
+            "jsr:@qlever-llc/trellis@^0.2.3"
         );
         assert_eq!(imports.len(), 1);
         assert!(deno.get("extends").is_none());
