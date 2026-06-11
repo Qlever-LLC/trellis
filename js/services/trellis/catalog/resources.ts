@@ -25,7 +25,8 @@ const TRELLIS_EVENT_STREAM = "trellis";
 const DEFAULT_REDELIVERY_BACKOFF_MS = [5000, 30000, 120000, 600000, 1800000];
 
 type ContractEventConsumerGroup = {
-  events: Array<{ use: string; event: string }>;
+  uses?: Record<string, string[]>;
+  self?: string[];
   replay?: "new" | "all";
   ordering?: "strict";
   concurrency?: number;
@@ -34,12 +35,16 @@ type ContractEventConsumerGroup = {
   backoffMs?: number[];
 };
 
-type ContractWithEventConsumers = TrellisContractV1 & {
+type ContractWithEventConsumers = Omit<TrellisContractV1, "eventConsumers"> & {
   eventConsumers?: Record<string, ContractEventConsumerGroup>;
 };
 type ContractUseMap = NonNullable<
   NonNullable<TrellisContractV1["uses"]>["required"]
 >;
+
+type EventConsumerEventRef =
+  | { use: string; event: string }
+  | { self: true; event: string };
 
 type AuthorityNeedSet = {
   surfaces: DeploymentAuthoritySurface[];
@@ -1542,8 +1547,19 @@ function eventConsumerBackoffMs(
   );
 }
 
+function eventConsumerEventRefs(
+  group: ContractEventConsumerGroup,
+): EventConsumerEventRef[] {
+  return [
+    ...Object.entries(group.uses ?? {}).flatMap(([use, events]) =>
+      events.map((event) => ({ use, event }))
+    ),
+    ...(group.self ?? []).map((event) => ({ self: true as const, event })),
+  ];
+}
+
 export function getEventConsumerGroupRequests(
-  contract: TrellisContractV1,
+  contract: TrellisContractV1 | ContractWithEventConsumers,
   options: Pick<
     ResourceProvisioningOptions,
     "knownContractEntries" | "authorityNeeds"
@@ -1563,7 +1579,17 @@ export function getEventConsumerGroupRequests(
   return Object.entries(groups)
     .map(([alias, group]) => {
       const maxDeliver = eventConsumerMaxDeliver(group);
-      const filterSubjects = group.events.map((eventRef) => {
+      const filterSubjects = eventConsumerEventRefs(group).map((eventRef) => {
+        if ("self" in eventRef) {
+          const event = contract.events?.[eventRef.event];
+          if (!event) {
+            throw new Error(
+              `event consumer group '${alias}' references unknown owned event '${eventRef.event}'`,
+            );
+          }
+          return templateToWildcard(event.subject);
+        }
+
         const resolvedEvent = resolved.eventSubscribes.find((event) =>
           event.alias === eventRef.use && event.key === eventRef.event &&
           authorityAllowsEventSubscribe(
@@ -1597,17 +1623,19 @@ export function getEventConsumerGroupRequests(
 }
 
 function contractWithOnlyEventConsumerUses(
-  contract: TrellisContractV1,
+  contract: TrellisContractV1 | ContractWithEventConsumers,
   groups: Record<string, ContractEventConsumerGroup>,
 ): TrellisContractV1 {
   const aliases = new Set(
-    Object.values(groups).flatMap((group) =>
-      group.events.map((eventRef) => eventRef.use)
-    ),
+    Object.values(groups).flatMap((group) => Object.keys(group.uses ?? {})),
   );
   const required = pickContractUses(contract.uses?.required, aliases);
   const optional = pickContractUses(contract.uses?.optional, aliases);
-  const scopedContract: TrellisContractV1 = { ...contract };
+  const { eventConsumers: _eventConsumers, ...contractWithoutEventConsumers } =
+    contract;
+  const scopedContract: TrellisContractV1 = {
+    ...contractWithoutEventConsumers,
+  };
   if (required || optional) {
     scopedContract.uses = {
       ...(required ? { required } : {}),

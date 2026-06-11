@@ -17,6 +17,11 @@ commands.
 - Caller-visible communication is contract-driven and runs through generated
   RPC, event, feed, and operation surfaces. Resources, state, files, and jobs are
   contract-declared runtime surfaces; jobs are service-private background work.
+- Durable event processing uses contract-declared `eventConsumers` resources;
+  `eventConsumers.<group>.uses` selects dependency events by top-level `uses`
+  alias, and `eventConsumers.<group>.self` selects events owned by the same
+  contract. Dependency durable consumption remains authority-backed by top-level
+  `uses`; runtime durable consumers are Trellis-provisioned only.
 - Trellis libraries do not expose raw NATS connection handles as application API.
   Use generated surfaces, service resource handles, and `TrellisConnection` for
   lifecycle status and shutdown.

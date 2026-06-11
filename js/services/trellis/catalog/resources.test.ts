@@ -1,4 +1,7 @@
-import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
+import {
+  parseContractManifest,
+  type TrellisContractV1,
+} from "@qlever-llc/trellis/contracts";
 import { assertEquals, assertRejects } from "@std/assert";
 import { CONTRACT as TRELLIS_JOBS_CONTRACT } from "#trellis-generated-sdk/jobs";
 
@@ -181,17 +184,14 @@ Deno.test("event consumer requests resolve approved subscribe filters", () => {
     },
     eventConsumers: {
       ingest: {
-        events: [
-          { use: "events", event: "Changed" },
-          { use: "events", event: "Deleted" },
-        ],
-        replay: "all",
+        uses: { events: ["Changed", "Deleted"] },
+        replay: "all" as const,
         ackWaitMs: 1000,
         maxDeliver: 2,
         backoffMs: [100, 200],
       },
     },
-  } as TrellisContractV1;
+  };
 
   assertEquals(
     getEventConsumerGroupRequests(contract, {
@@ -233,6 +233,104 @@ Deno.test("event consumer requests resolve approved subscribe filters", () => {
   );
 });
 
+Deno.test("event consumer requests resolve owned event filters without dependency authority", () => {
+  const contract = parseContractManifest({
+    ...CONTRACT,
+    events: {
+      Created: {
+        version: "v1",
+        subject: "events.v1.Audit.Created.{/id}",
+        params: ["/id"],
+        event: { schema: "AuditEntry" },
+      },
+    },
+    uses: {
+      required: {
+        unused: {
+          contract: "events.example@v1",
+          events: { subscribe: ["Changed"] },
+        },
+      },
+    },
+    eventConsumers: {
+      ingest: {
+        self: ["Created"],
+      },
+    },
+  });
+
+  assertEquals(getEventConsumerGroupRequests(contract), [{
+    alias: "ingest",
+    stream: "trellis",
+    filterSubjects: ["events.v1.Audit.Created.*"],
+    replay: "new",
+    ordering: "strict",
+    concurrency: 1,
+    ackWaitMs: 300000,
+    maxDeliver: 6,
+    backoffMs: [5000, 30000, 120000, 600000, 1800000],
+  }]);
+});
+
+Deno.test("event consumer requests resolve mixed owned and dependency filters", () => {
+  const contract = parseContractManifest({
+    ...CONTRACT,
+    events: {
+      Created: {
+        version: "v1",
+        subject: "events.v1.Audit.Created.{/id}",
+        params: ["/id"],
+        event: { schema: "AuditEntry" },
+      },
+    },
+    uses: {
+      required: {
+        events: {
+          contract: "events.example@v1",
+          events: { subscribe: ["Changed"] },
+        },
+      },
+    },
+    eventConsumers: {
+      ingest: {
+        uses: { events: ["Changed"] },
+        self: ["Created"],
+      },
+    },
+  });
+
+  assertEquals(
+    getEventConsumerGroupRequests(contract, {
+      knownContractEntries: [{
+        digest: "events-digest",
+        contract: eventDependencyContract(),
+      }],
+      authorityNeeds: {
+        surfaces: [{
+          contractId: "events.example@v1",
+          kind: "event",
+          name: "Changed",
+          action: "subscribe",
+        }],
+      },
+    }),
+    [{
+      alias: "ingest",
+      stream: "trellis",
+      filterSubjects: [
+        "events.v1.Audit.Created.*",
+        "events.v1.Example.Changed.*",
+      ],
+      replay: "new",
+      ordering: "strict",
+      concurrency: 1,
+      ackWaitMs: 300000,
+      maxDeliver: 6,
+      backoffMs: [5000, 30000, 120000, 600000, 1800000],
+    }],
+  );
+});
+
 Deno.test("event consumer requests ignore incompatible unused dependency schemas", () => {
   const currentDependency = eventDependencyContract();
   const staleDependency = {
@@ -267,10 +365,10 @@ Deno.test("event consumer requests ignore incompatible unused dependency schemas
     },
     eventConsumers: {
       ingest: {
-        events: [{ use: "events", event: "Changed" }],
+        uses: { events: ["Changed"] },
       },
     },
-  } as TrellisContractV1;
+  };
 
   assertEquals(
     getEventConsumerGroupRequests(contract, {
@@ -321,10 +419,10 @@ Deno.test("event consumer requests ignore unrelated uses during dependency resol
     },
     eventConsumers: {
       ingest: {
-        events: [{ use: "events", event: "Changed" }],
+        uses: { events: ["Changed"] },
       },
     },
-  } as TrellisContractV1;
+  };
 
   assertEquals(
     getEventConsumerGroupRequests(contract, {

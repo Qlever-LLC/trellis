@@ -21,6 +21,11 @@ Rules:
 - event subject params must point at string, number, or integer-compatible schema
   fields; for `anyOf` or `oneOf` event payload schemas, every variant must expose
   each routed pointer
+- durable event processing is a Trellis-provisioned `eventConsumers` resource;
+  `eventConsumers.<group>.uses` selects dependency events by top-level `uses`
+  alias, and `eventConsumers.<group>.self` selects events owned by the same
+  contract. Dependency durable consumption remains authority-backed by top-level
+  `uses`; runtime durable consumers are Trellis-provisioned only.
 
 ## Use generated descriptors and facades
 

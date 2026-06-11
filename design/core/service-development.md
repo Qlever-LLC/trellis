@@ -297,9 +297,12 @@ Rules:
   invalid, and services must not hand-write remote contract ids or raw method
   strings
 - if the service needs durable event processing, declare an explicit
-  `eventConsumers` group for the subscribed dependency events. A bare
-  `uses.events.subscribe` grant authorizes live/ephemeral listening only; it
-  does not create a durable cursor.
+  `eventConsumers` group. Use `eventConsumers.<group>.uses` to select subscribed
+  dependency events by top-level `uses.required` or `uses.optional` alias, and
+  use `eventConsumers.<group>.self` to select events owned by the same contract.
+  A bare `uses.events.subscribe` grant authorizes live/ephemeral listening only;
+  it does not create a durable cursor, but dependency durable consumption
+  remains authority-backed by the top-level `uses` declaration.
 
 Behavior:
 
@@ -369,7 +372,7 @@ Behavior:
   `service.event.<group>.<leaf>.listen(..., { group })`; handler-injected
   clients are outbound-only and cannot register long-lived listeners. Service
   code must not choose or create a JetStream `durableName` for contract event
-  processing.
+  processing; runtime durable consumers are Trellis-provisioned only.
 - grouped durable event consumers start only after every event in the group has
   a registered handler, preserving the contract-declared group as the unit of
   ordering and replay.

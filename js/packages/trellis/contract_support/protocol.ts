@@ -99,17 +99,26 @@ export const ContractJobsSchema = Type.Record(
 
 export type ContractJobs = Static<typeof ContractJobsSchema>;
 
-export const ContractEventConsumerEventSchema = Type.Object({
-  use: Type.String({ minLength: 1 }),
-  event: Type.String({ minLength: 1 }),
-});
+export const ContractEventConsumerUsesSchema = Type.Record(
+  Type.String({ minLength: 1 }),
+  Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+);
 
-export type ContractEventConsumerEvent = Static<
-  typeof ContractEventConsumerEventSchema
+export type ContractEventConsumerUses = Static<
+  typeof ContractEventConsumerUsesSchema
+>;
+
+export const ContractEventConsumerSelfSchema = Type.Array(
+  Type.String({ minLength: 1 }),
+);
+
+export type ContractEventConsumerSelf = Static<
+  typeof ContractEventConsumerSelfSchema
 >;
 
 export const ContractEventConsumerGroupSchema = Type.Object({
-  events: Type.Array(ContractEventConsumerEventSchema, { minItems: 1 }),
+  uses: Type.Optional(ContractEventConsumerUsesSchema),
+  self: Type.Optional(ContractEventConsumerSelfSchema),
   replay: Type.Optional(Type.Union([
     Type.Literal("new"),
     Type.Literal("all"),

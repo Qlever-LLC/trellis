@@ -15,6 +15,12 @@ https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt
 
 - Trellis services are contract-driven participants. Contracts declare the public
   surfaces a participant owns and the external surfaces it uses.
+- Durable `eventConsumers` are contract-declared deployment resources. A group
+  selects subscribed dependency events with `uses: { alias: ["Event"] }`, where
+  `alias` comes from top-level `uses`, and self-owned events with
+  `self: ["Event"]`. Dependency durable consumption remains authority-backed by
+  top-level `uses`; runtime listeners consume only reconciled Trellis bindings,
+  and runtime durable consumers are Trellis-provisioned only.
 - Runtime authority comes from deployment authority and identity authority.
 - NATS is the transport boundary. Application code should use generated Trellis
   APIs rather than hand-built subjects or raw NATS connection handles.

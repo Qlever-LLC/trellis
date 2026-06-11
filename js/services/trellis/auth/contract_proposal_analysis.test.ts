@@ -494,6 +494,14 @@ Deno.test("analyzeContractProposal derives event consumer resources", async () =
     displayName: "Example Service",
     description: "Service contract",
     kind: "service",
+    schemas,
+    events: {
+      Internal: {
+        version: "v1",
+        subject: "events.v1.service.Internal",
+        event: { schema: "Empty" },
+      },
+    },
     uses: {
       required: {
         api: {
@@ -504,7 +512,8 @@ Deno.test("analyzeContractProposal derives event consumer resources", async () =
     },
     eventConsumers: {
       ingest: {
-        events: [{ use: "api", event: "Changed" }],
+        uses: { api: ["Changed"] },
+        self: ["Internal"],
         replay: "all",
         concurrency: 1,
         ackWaitMs: 45000,
@@ -522,8 +531,14 @@ Deno.test("analyzeContractProposal derives event consumer resources", async () =
       definition: {
         type: "event-consumer",
         stream: "trellis",
-        filterSubjects: ["events.v1.example.Changed"],
-        eventRefs: [{ use: "api", event: "Changed" }],
+        filterSubjects: [
+          "events.v1.example.Changed",
+          "events.v1.service.Internal",
+        ],
+        eventRefs: [
+          { use: "api", event: "Changed" },
+          { self: true, event: "Internal" },
+        ],
         replay: "all",
         ordering: "strict",
         concurrency: 1,
@@ -536,6 +551,47 @@ Deno.test("analyzeContractProposal derives event consumer resources", async () =
   assertEquals(analysis.required.resources, [
     analysis.resources[0],
   ]);
+});
+
+Deno.test("analyzeContractProposal preserves owned event consumer refs", async () => {
+  const analysis = await analyzeContractProposal(createTestContracts(), {
+    format: "trellis.contract.v1",
+    id: "example.service@v1",
+    displayName: "Example Service",
+    description: "Service contract",
+    kind: "service",
+    schemas,
+    events: {
+      Changed: {
+        version: "v1",
+        subject: "events.v1.example.Changed",
+        event: { schema: "Empty" },
+      },
+    },
+    eventConsumers: {
+      ingest: {
+        self: ["Changed"],
+      },
+    },
+  });
+
+  assertEquals(analysis.resources, [{
+    kind: "event-consumer",
+    alias: "ingest",
+    required: true,
+    definition: {
+      type: "event-consumer",
+      stream: "trellis",
+      filterSubjects: ["events.v1.example.Changed"],
+      eventRefs: [{ self: true, event: "Changed" }],
+      replay: "new",
+      ordering: "strict",
+      concurrency: 1,
+      ackWaitMs: 300000,
+      maxDeliver: 6,
+      backoffMs: [5000, 30000, 120000, 600000, 1800000],
+    },
+  }]);
 });
 
 Deno.test("analyzeContractProposal includes operation control and open cancel needs", async () => {

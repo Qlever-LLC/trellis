@@ -265,8 +265,16 @@ Contracts that need non-baseline auth surfaces still declare them with
 ### 3b) Event consumer groups
 
 TypeScript service contracts declare durable event processing with the top-level
-`eventConsumers` map. The events in a group must reference events that the same
-contract already subscribed to through `uses.required` or `uses.optional`.
+`eventConsumers` map. Each group selects dependency events through
+`eventConsumers.<group>.uses` and owned events through
+`eventConsumers.<group>.self`.
+
+Dependency selections use the same aliases declared at top-level `uses.required`
+or `uses.optional`; `eventConsumers.<group>.uses` does not name a remote
+contract by itself. A top-level `uses` subscription grants live subscribe
+authority, while `eventConsumers` asks Trellis to materialize a durable cursor
+over selected authorized dependency events and/or events owned by the same
+contract.
 
 Example:
 
@@ -284,9 +292,9 @@ const contract = defineServiceContract({ schemas }, () => ({
   },
   eventConsumers: {
     workspaceBilling: {
-      events: [
-        { use: "billing", event: "Billing.SubscriptionConfirmed" },
-      ],
+      uses: {
+        billing: ["Billing.SubscriptionConfirmed"],
+      },
       replay: "new",
       ordering: "strict",
       concurrency: 1,
@@ -298,15 +306,45 @@ const contract = defineServiceContract({ schemas }, () => ({
 }));
 ```
 
+For durable self-consumption, list owned events in `self`:
+
+```ts
+const contract = defineServiceContract({ schemas }, (ref) => ({
+  id: "entity@v1",
+  displayName: "Entity",
+  description: "Owns and durably processes entity ingest events.",
+  events: {
+    "Entity.Observation": {
+      version: "v1",
+      event: ref.schema("Observation"),
+    },
+  },
+  eventConsumers: {
+    ingest: {
+      self: ["Entity.Observation"],
+    },
+  },
+}));
+```
+
 Rules:
 
 - `replay` defaults to `"new"`; use `"all"` only when a new deployment should
   project all retained historical events
 - `ordering` defaults to `"strict"`, and strict ordering requires
   `concurrency: 1`
+- each group must declare at least one selected dependency event in `uses` or
+  one owned event in `self`
 - group names are logical aliases; service code passes the alias as
   `opts.group`, while Trellis provisions the physical durable consumer name
+- `eventConsumers.<group>.uses.<alias>` must point at a top-level
+  `uses.required` or `uses.optional` alias, and each listed event must be
+  present in that alias's `events.subscribe` selection
+- `eventConsumers.<group>.self` names events from the same contract's `events`
+  map
 - callers must not pass `durableName` for service event processing
+- runtime durable consumers are Trellis-provisioned only; service code consumes
+  reconciled bindings and must not create arbitrary JetStream durable consumers
 - one event may appear in multiple groups when the service intentionally wants
   independent durable cursors and duplicate delivery
 - docs metadata may describe the group for review UIs, but nested docs do not

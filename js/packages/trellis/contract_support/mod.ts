@@ -57,7 +57,6 @@ import {
   type SubjectParam,
 } from "./schema_pointers.ts";
 import {
-  type ContractEventConsumerEvent,
   type ContractEventConsumerGroup,
   type ContractEventConsumers,
   ContractEventConsumersSchema,
@@ -70,12 +69,14 @@ import {
 export {
   buildCursorPage,
   buildPageResponse,
-  type ContractEventConsumerEvent,
-  ContractEventConsumerEventSchema,
   type ContractEventConsumerGroup,
   ContractEventConsumerGroupSchema,
   type ContractEventConsumers,
+  type ContractEventConsumerSelf,
+  ContractEventConsumerSelfSchema,
   ContractEventConsumersSchema,
+  type ContractEventConsumerUses,
+  ContractEventConsumerUsesSchema,
   ContractJobQueueSchema,
   ContractJobsSchema,
   ContractKvResourceSchema,
@@ -968,13 +969,9 @@ export type ContractSourceJobs<TSchemaName extends string = string> = Record<
   ContractSourceJobQueue<TSchemaName>
 >;
 
-export type ContractSourceEventConsumerEvent = {
-  use: string;
-  event: string;
-};
-
 export type ContractSourceEventConsumerGroup = {
-  events: readonly ContractSourceEventConsumerEvent[];
+  uses?: Record<string, readonly string[]>;
+  self?: readonly string[];
   replay?: "new" | "all";
   ordering?: "strict";
   concurrency?: number;
@@ -2641,7 +2638,9 @@ function projectDigestJobs(
 function projectDigestEventConsumers(
   eventConsumers: ContractEventConsumers | undefined,
 ): ContractEventConsumers | undefined {
-  return eventConsumers ? mapValues(eventConsumers, omitDocs) : undefined;
+  return eventConsumers
+    ? mapValues(eventConsumers, projectDigestEventConsumerGroup)
+    : undefined;
 }
 
 function projectDigestUsesFlat(
@@ -3072,25 +3071,31 @@ function feed(feed: ContractFeed): ContractFeed {
   };
 }
 
-function eventConsumerEvent(
-  event: ContractEventConsumerEvent,
-): ContractEventConsumerEvent {
-  return { use: event.use, event: event.event };
-}
-
-function sortEventConsumerEvents(
-  events: readonly ContractEventConsumerEvent[],
-): ContractEventConsumerEvent[] {
-  return events.map(eventConsumerEvent).sort((left, right) =>
-    left.use.localeCompare(right.use) || left.event.localeCompare(right.event)
+function sortEventConsumerUses(
+  uses: Record<string, readonly string[]> | undefined,
+): Record<string, string[]> | undefined {
+  if (!uses) {
+    return undefined;
+  }
+  return Object.fromEntries(
+    Object.entries(uses)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([alias, events]) => [alias, sortedUnique(events)]),
   );
 }
 
+function sortEventConsumerSelf(
+  self: readonly string[] | undefined,
+): string[] | undefined {
+  return self ? sortedUnique(self) : undefined;
+}
+
 function eventConsumerGroup(
-  group: ContractEventConsumerGroup,
+  group: ContractSourceEventConsumerGroup,
 ): ContractEventConsumerGroup {
   return {
-    events: sortEventConsumerEvents(group.events),
+    ...(group.uses ? { uses: sortEventConsumerUses(group.uses) } : {}),
+    ...(group.self ? { self: sortEventConsumerSelf(group.self) } : {}),
     replay: group.replay ?? "new",
     ordering: group.ordering ?? "strict",
     concurrency: group.concurrency ?? 1,
@@ -3099,6 +3104,12 @@ function eventConsumerGroup(
     ...(group.backoffMs ? { backoffMs: [...group.backoffMs] } : {}),
     ...(group.docs ? { docs: contractDocs(group.docs) } : {}),
   };
+}
+
+function projectDigestEventConsumerGroup(
+  group: ContractEventConsumerGroup,
+): ContractEventConsumerGroup {
+  return omitDocs(eventConsumerGroup(group));
 }
 
 function errorDecl(error: ContractErrorDecl): ContractErrorDecl {
@@ -3244,7 +3255,11 @@ export function parseContractManifest(value: unknown): TrellisContractV1 {
     );
   }
   const contract = normalizeContractManifest(parsed);
-  assertValidEventConsumers(contract.eventConsumers, contract.uses);
+  assertValidEventConsumers(
+    contract.eventConsumers,
+    contract.uses,
+    contract.events,
+  );
   return contract;
 }
 
@@ -3412,20 +3427,7 @@ function emitEventConsumers(
   return Object.fromEntries(
     Object.entries(eventConsumers).map(([groupName, group]) => [
       groupName,
-      {
-        events: sortEventConsumerEvents(group.events),
-        replay: group.replay ?? "new",
-        ordering: group.ordering ?? "strict",
-        concurrency: group.concurrency ?? 1,
-        ...(group.ackWaitMs !== undefined
-          ? { ackWaitMs: group.ackWaitMs }
-          : {}),
-        ...(group.maxDeliver !== undefined
-          ? { maxDeliver: group.maxDeliver }
-          : {}),
-        ...(group.backoffMs ? { backoffMs: [...group.backoffMs] } : {}),
-        ...(group.docs ? { docs: contractDocs(group.docs) } : {}),
-      } satisfies ContractEventConsumerGroup,
+      eventConsumerGroup(group),
     ]),
   );
 }
@@ -3844,7 +3846,7 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
   const state = emitState(source.state);
   const resources = emitResources(source.resources);
   const uses = emitUses(source.uses);
-  assertValidEventConsumers(eventConsumers, uses);
+  assertValidEventConsumers(eventConsumers, uses, events);
 
   return {
     format: CONTRACT_FORMAT_V1,
@@ -4155,15 +4157,20 @@ function contractUseByAlias(
 function assertValidEventConsumers(
   eventConsumers: ContractEventConsumers | undefined,
   uses: ContractUses | undefined,
+  ownedEvents: Record<string, ContractEvent> | undefined,
 ): void {
   if (!eventConsumers) {
     return;
   }
 
   for (const [groupName, group] of Object.entries(eventConsumers)) {
-    if (group.events.length === 0) {
+    const hasDependencyEvents = Object.values(group.uses ?? {}).some(
+      (eventNames) => eventNames.length > 0,
+    );
+    const hasSelfEvents = (group.self?.length ?? 0) > 0;
+    if (!hasDependencyEvents && !hasSelfEvents) {
       throw new Error(
-        `event consumer group '${groupName}' must declare events`,
+        `event consumer group '${groupName}' must declare at least one dependency or self event`,
       );
     }
     if ((group.ordering ?? "strict") === "strict" && group.concurrency !== 1) {
@@ -4172,16 +4179,33 @@ function assertValidEventConsumers(
       );
     }
 
-    for (const eventRef of group.events) {
-      const use = contractUseByAlias(uses, eventRef.use);
-      if (!use) {
+    for (const [alias, eventNames] of Object.entries(group.uses ?? {})) {
+      if (eventNames.length === 0) {
         throw new Error(
-          `event consumer group '${groupName}' references unknown use '${eventRef.use}'`,
+          `event consumer group '${groupName}' use '${alias}' must declare events`,
         );
       }
-      if (!use.events?.subscribe?.includes(eventRef.event)) {
+
+      const use = contractUseByAlias(uses, alias);
+      if (!use) {
         throw new Error(
-          `event consumer group '${groupName}' references event '${eventRef.event}' that use '${eventRef.use}' does not subscribe to`,
+          `event consumer group '${groupName}' references unknown use '${alias}'`,
+        );
+      }
+
+      for (const eventName of eventNames) {
+        if (!use.events?.subscribe?.includes(eventName)) {
+          throw new Error(
+            `event consumer group '${groupName}' references event '${eventName}' that use '${alias}' does not subscribe to`,
+          );
+        }
+      }
+    }
+
+    for (const eventName of group.self ?? []) {
+      if (!ownedEvents || !Object.hasOwn(ownedEvents, eventName)) {
+        throw new Error(
+          `event consumer group '${groupName}' references unknown owned event '${eventName}'`,
         );
       }
     }

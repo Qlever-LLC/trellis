@@ -22,7 +22,6 @@ import {
   CONTRACT_JOBS_METADATA,
   CONTRACT_KV_METADATA,
   CONTRACT_STATE_METADATA,
-  type ContractEventConsumers,
   type ContractJobsMetadata,
   type ContractKvMetadata,
   type EventConsumerResourceBinding,
@@ -1117,9 +1116,27 @@ function createEventListenerContext(args: {
 }
 
 type RuntimeEventConsumers = {
-  metadata?: ContractEventConsumers;
+  metadata?: RuntimeEventConsumerGroups;
   bindings?: Record<string, EventConsumerResourceBinding>;
 };
+
+type RuntimeEventConsumerGroup = {
+  uses?: Readonly<Record<string, readonly string[]>>;
+  self?: readonly string[];
+};
+
+type RuntimeEventConsumerGroups = Readonly<
+  Record<string, RuntimeEventConsumerGroup>
+>;
+
+function eventConsumerGroupEvents(group: RuntimeEventConsumerGroup): string[] {
+  const events = new Set<string>();
+  for (const groupEvents of Object.values(group.uses ?? {})) {
+    for (const event of groupEvents) events.add(event);
+  }
+  for (const event of group.self ?? []) events.add(event);
+  return [...events].sort();
+}
 
 type TrellisInternalOpts<TA extends AnyTrellisAPI> = TrellisOpts<TA> & {
   eventConsumers?: RuntimeEventConsumers;
@@ -1472,7 +1489,6 @@ export type ClientTrellis<
   readonly api: TA;
   readonly state: StateFacade<TState>;
   readonly connection: TrellisConnection;
-  readonly natsConnection: NatsConnection;
   readonly rpc: ActiveRpcFacade<TA>;
   readonly event: ActiveEventFacade<TA>;
   readonly feed: ActiveFeedFacade<TA>;
@@ -2075,13 +2091,6 @@ export class Trellis<
     this.event = this.#createEventFacade();
     this.feed = this.#createFeedFacade();
     this.operation = this.#createOperationFacade();
-  }
-
-  /**
-   * Returns the underlying NATS connection.
-   */
-  get natsConnection(): NatsConnection {
-    return this.nats;
   }
 
   #createStateFacade(state: TState | undefined): StateFacade<TState> {
@@ -4215,7 +4224,7 @@ export class Trellis<
     const bindings = this.#eventConsumers.bindings ?? {};
     const groups = Object.entries(metadata ?? {})
       .filter(([, group]) =>
-        group.events.some((entry) => entry.event === String(event))
+        eventConsumerGroupEvents(group).includes(String(event))
       )
       .map(([group]) => group);
 
@@ -4339,9 +4348,9 @@ export class Trellis<
   ): boolean {
     const metadata = this.#eventConsumers.metadata?.[group];
     if (!metadata) return false;
-    return metadata.events.every((entry) =>
+    return eventConsumerGroupEvents(metadata).every((event) =>
       loop.registrations.some((registration) =>
-        String(registration.event) === entry.event
+        String(registration.event) === event
       )
     );
   }

@@ -198,7 +198,9 @@ database transactions.
 Direct `uses.events.subscribe` grants only live or ephemeral listening. A service
 that needs replay, ordered processing, or a durable cursor must declare a
 top-level `eventConsumers` group in its contract and register the startup
-listener with that group.
+listener with that group. `eventConsumers.<group>.uses` selects dependency events
+by top-level `uses.required` or `uses.optional` alias;
+`eventConsumers.<group>.self` selects events owned by the same contract.
 
 ```ts
 const contract = defineServiceContract({ schemas }, () => ({
@@ -214,7 +216,9 @@ const contract = defineServiceContract({ schemas }, () => ({
   },
   eventConsumers: {
     shipmentProjection: {
-      events: [{ use: "orders", event: "Orders.Shipped" }],
+      uses: {
+        orders: ["Orders.Shipped"],
+      },
       replay: "new",
       ordering: "strict",
       concurrency: 1,
@@ -226,6 +230,12 @@ await service.event.orders.shipped.listen(handleShipment, {}, {
   group: "shipmentProjection",
 }).orThrow();
 ```
+
+Dependency durable consumption remains authority-backed by the top-level `uses`
+subscription. For durable self-consumption of events owned by the same service,
+use `self: ["Entity.Observation"]`. Runtime durable consumers are
+Trellis-provisioned only; service code should not create or name arbitrary
+JetStream durable consumers.
 
 ## Verification
 

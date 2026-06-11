@@ -369,68 +369,73 @@ const eventConsumerSourceContract = defineServiceContract(
   }),
 );
 
-const eventConsumerTestContract = defineServiceContract(
-  {},
-  () => ({
-    id: "trellis.client.event-consumer-test@v1",
-    displayName: "Event Consumer Test",
-    description: "Covers durable event consumer binding behavior.",
-    uses: {
-      required: {
-        source: eventConsumerSourceContract.use({
-          events: { subscribe: ["Test.Ping", "Test.Pong"] },
+const eventConsumerMetadata = {
+  primary: {
+    uses: { source: ["Test.Ping"] },
+    replay: "new",
+    ordering: "strict",
+    concurrency: 1,
+  },
+  secondary: {
+    uses: { source: ["Test.Ping"] },
+    replay: "new",
+    ordering: "strict",
+    concurrency: 1,
+  },
+  pong: {
+    uses: { source: ["Test.Pong"] },
+    replay: "new",
+    ordering: "strict",
+    concurrency: 1,
+  },
+} as const;
+
+const groupedEventConsumerMetadata = {
+  paired: {
+    uses: { source: ["Test.Ping", "Test.Pong"] },
+    replay: "new",
+    ordering: "strict",
+    concurrency: 1,
+  },
+} as const;
+
+const selfGroupedEventConsumerTestContract = defineServiceContract(
+  {
+    schemas: {
+      EventPayload: Type.Object({
+        header: Type.Object({
+          id: Type.String(),
+          time: Type.String(),
         }),
-      },
+        value: Type.String(),
+      }),
     },
-    eventConsumers: {
-      primary: {
-        events: [{ use: "source", event: "Test.Ping" }],
-        replay: "new",
-        ordering: "strict",
-        concurrency: 1,
+  },
+  (ref) => ({
+    id: "trellis.client.self-grouped-event-consumer-test@v1",
+    displayName: "Self Grouped Event Consumer Test",
+    description: "Covers durable grouped self-event consumer behavior.",
+    events: {
+      "Test.Ping": {
+        version: "v1",
+        event: ref.schema("EventPayload"),
       },
-      secondary: {
-        events: [{ use: "source", event: "Test.Ping" }],
-        replay: "new",
-        ordering: "strict",
-        concurrency: 1,
-      },
-      pong: {
-        events: [{ use: "source", event: "Test.Pong" }],
-        replay: "new",
-        ordering: "strict",
-        concurrency: 1,
+      "Test.Pong": {
+        version: "v1",
+        event: ref.schema("EventPayload"),
       },
     },
   }),
 );
 
-const groupedEventConsumerTestContract = defineServiceContract(
-  {},
-  () => ({
-    id: "trellis.client.grouped-event-consumer-test@v1",
-    displayName: "Grouped Event Consumer Test",
-    description: "Covers durable grouped event consumer behavior.",
-    uses: {
-      required: {
-        source: eventConsumerSourceContract.use({
-          events: { subscribe: ["Test.Ping", "Test.Pong"] },
-        }),
-      },
-    },
-    eventConsumers: {
-      paired: {
-        events: [
-          { use: "source", event: "Test.Ping" },
-          { use: "source", event: "Test.Pong" },
-        ],
-        replay: "new",
-        ordering: "strict",
-        concurrency: 1,
-      },
-    },
-  }),
-);
+const selfGroupedEventConsumerMetadata = {
+  paired: {
+    self: ["Test.Ping", "Test.Pong"],
+    replay: "new",
+    ordering: "strict",
+    concurrency: 1,
+  },
+} as const;
 
 const eventConsumerBinding = {
   stream: "EVENTS",
@@ -571,7 +576,7 @@ Deno.test("Trellis durable event listen requires group for ambiguous event consu
     {
       api: eventConsumerSourceContract.API.owned,
       eventConsumers: {
-        metadata: eventConsumerTestContract.CONTRACT.eventConsumers,
+        metadata: eventConsumerMetadata,
         bindings: {
           primary: eventConsumerBinding,
           secondary: eventConsumerBinding,
@@ -602,7 +607,7 @@ Deno.test("Trellis durable event listen rejects caller-provided durableName", as
     {
       api: eventConsumerSourceContract.API.owned,
       eventConsumers: {
-        metadata: eventConsumerTestContract.CONTRACT.eventConsumers,
+        metadata: eventConsumerMetadata,
         bindings: { pong: eventConsumerBinding },
       },
     },
@@ -635,7 +640,7 @@ Deno.test("Trellis durable event listen uses bound consumer without creating con
     {
       api: eventConsumerSourceContract.API.owned,
       eventConsumers: {
-        metadata: eventConsumerTestContract.CONTRACT.eventConsumers,
+        metadata: eventConsumerMetadata,
         bindings: { pong: eventConsumerBinding },
       },
     },
@@ -668,6 +673,41 @@ Deno.test("Trellis durable event listen uses bound consumer without creating con
   );
 });
 
+Deno.test("Trellis durable event listen accepts self-owned event metadata", async () => {
+  const { connection, requestCalls } =
+    createDurableSubscriptionTestConnection();
+  const trellis = createTrellisInternal(
+    "durable-self-owned-consumer",
+    connection,
+    createMockAuth(),
+    {
+      api: selfGroupedEventConsumerTestContract.API.owned,
+      eventConsumers: {
+        metadata: selfGroupedEventConsumerMetadata,
+        bindings: { paired: eventConsumerBinding },
+      },
+    },
+  );
+  const controller = new AbortController();
+
+  const result = await trellis.listenEvent(
+    "Test.Ping",
+    {},
+    () => ok(undefined),
+    { group: "paired", signal: controller.signal },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  controller.abort();
+
+  assertEquals(isErr(result.take()), false);
+  assertEquals(
+    requestCalls.some((subject) =>
+      subject.includes("CONSUMER.INFO.EVENTS.bound-consumer")
+    ),
+    false,
+  );
+});
+
 Deno.test("Trellis durable event listen starts one pull loop for a shared group", async () => {
   const { connection, requestCalls } =
     createDurableSubscriptionTestConnection();
@@ -678,7 +718,7 @@ Deno.test("Trellis durable event listen starts one pull loop for a shared group"
     {
       api: eventConsumerSourceContract.API.owned,
       eventConsumers: {
-        metadata: eventConsumerTestContract.CONTRACT.eventConsumers,
+        metadata: eventConsumerMetadata,
         bindings: { pong: eventConsumerBinding },
       },
     },
@@ -724,7 +764,7 @@ Deno.test("Trellis durable event loop restarts after handlers are removed", asyn
     {
       api: eventConsumerSourceContract.API.owned,
       eventConsumers: {
-        metadata: eventConsumerTestContract.CONTRACT.eventConsumers,
+        metadata: eventConsumerMetadata,
         bindings: { pong: eventConsumerBinding },
       },
     },
@@ -770,7 +810,58 @@ Deno.test("Trellis durable grouped event listener waits for all group handlers",
     {
       api: eventConsumerSourceContract.API.owned,
       eventConsumers: {
-        metadata: groupedEventConsumerTestContract.CONTRACT.eventConsumers,
+        metadata: groupedEventConsumerMetadata,
+        bindings: { paired: eventConsumerBinding },
+      },
+    },
+  );
+  const controller = new AbortController();
+
+  const first = await trellis.listenEvent(
+    "Test.Ping",
+    {},
+    () => ok(undefined),
+    { group: "paired", signal: controller.signal },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assertEquals(isErr(first.take()), false);
+  assertEquals(
+    requestCalls.some((subject) =>
+      subject.includes("CONSUMER.INFO.EVENTS.bound-consumer")
+    ),
+    false,
+  );
+
+  const second = await trellis.listenEvent(
+    "Test.Pong",
+    {},
+    () => ok(undefined),
+    { group: "paired", signal: controller.signal },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  controller.abort();
+
+  assertEquals(isErr(second.take()), false);
+  assertEquals(
+    requestCalls.some((subject) =>
+      subject.includes("CONSUMER.INFO.EVENTS.bound-consumer")
+    ),
+    true,
+  );
+});
+
+Deno.test("Trellis durable grouped self-event listener waits for all group handlers", async () => {
+  const { connection, requestCalls } =
+    createDurableSubscriptionTestConnection();
+  const trellis = createTrellisInternal(
+    "durable-self-group-waits",
+    connection,
+    createMockAuth(),
+    {
+      api: selfGroupedEventConsumerTestContract.API.owned,
+      eventConsumers: {
+        metadata: selfGroupedEventConsumerMetadata,
         bindings: { paired: eventConsumerBinding },
       },
     },
@@ -821,7 +912,7 @@ Deno.test("Trellis durable grouped event listener pauses when readiness is lost"
     {
       api: eventConsumerSourceContract.API.owned,
       eventConsumers: {
-        metadata: groupedEventConsumerTestContract.CONTRACT.eventConsumers,
+        metadata: groupedEventConsumerMetadata,
         bindings: { paired: eventConsumerBinding },
       },
     },
@@ -864,7 +955,7 @@ Deno.test("Trellis durable event loop restarts after immediate re-register", asy
     {
       api: eventConsumerSourceContract.API.owned,
       eventConsumers: {
-        metadata: eventConsumerTestContract.CONTRACT.eventConsumers,
+        metadata: eventConsumerMetadata,
         bindings: { pong: eventConsumerBinding },
       },
     },

@@ -159,6 +159,8 @@ A `trellis.contract.v1` manifest has this top-level structure:
   "operations": {},
   "rpc": {},
   "events": {},
+  "feeds": {},
+  "eventConsumers": {},
   "state": {},
   "resources": {
     "kv": {
@@ -177,26 +179,27 @@ A `trellis.contract.v1` manifest has this top-level structure:
 
 Top-level fields:
 
-| Field          | Required | Type   | Meaning                                                            |
-| -------------- | -------- | ------ | ------------------------------------------------------------------ |
-| `format`       | yes      | string | MUST equal `trellis.contract.v1`                                   |
-| `id`           | yes      | string | Stable contract identifier such as `trellis.core@v1` or `graph@v1` |
-| `displayName`  | yes      | string | Human-facing contract name shown in tooling and review UIs         |
-| `description`  | yes      | string | Human-facing explanation of the contract's purpose                 |
-| `docs`         | no       | object | Optional authored documentation metadata                           |
-| `kind`         | yes      | string | Contract role such as `service`, `app`, `agent`, or `device`       |
-| `capabilities` | no       | object | Human-facing metadata for contract-owned capability keys           |
-| `schemas`      | no       | object | Reusable self-contained JSON Schema values keyed by schema name    |
-| `exports`      | no       | object | Canonical public exports made available to dependent contracts     |
-| `uses`         | no       | object | Explicit cross-contract operation/RPC/event dependencies           |
-| `jobs`         | no       | object | Map of first-class service-private job queue descriptors           |
-| `operations`   | no       | object | Map of logical operation names to operation descriptors            |
-| `rpc`          | no       | object | Map of logical RPC names to RPC operation descriptors              |
-| `events`       | no       | object | Map of logical event names to event descriptors                    |
-| `feeds`        | no       | object | Map of logical feed names to feed descriptors                      |
-| `state`        | no       | object | Map of named Trellis-managed state stores                          |
-| `resources`    | no       | object | Map of declarative cloud resource requests                         |
-| `errors`       | no       | object | Map of declared error types to error descriptors                   |
+| Field            | Required | Type   | Meaning                                                            |
+| ---------------- | -------- | ------ | ------------------------------------------------------------------ |
+| `format`         | yes      | string | MUST equal `trellis.contract.v1`                                   |
+| `id`             | yes      | string | Stable contract identifier such as `trellis.core@v1` or `graph@v1` |
+| `displayName`    | yes      | string | Human-facing contract name shown in tooling and review UIs         |
+| `description`    | yes      | string | Human-facing explanation of the contract's purpose                 |
+| `docs`           | no       | object | Optional authored documentation metadata                           |
+| `kind`           | yes      | string | Contract role such as `service`, `app`, `agent`, or `device`       |
+| `capabilities`   | no       | object | Human-facing metadata for contract-owned capability keys           |
+| `schemas`        | no       | object | Reusable self-contained JSON Schema values keyed by schema name    |
+| `exports`        | no       | object | Canonical public exports made available to dependent contracts     |
+| `uses`           | no       | object | Explicit cross-contract operation/RPC/event dependencies           |
+| `jobs`           | no       | object | Map of first-class service-private job queue descriptors           |
+| `operations`     | no       | object | Map of logical operation names to operation descriptors            |
+| `rpc`            | no       | object | Map of logical RPC names to RPC operation descriptors              |
+| `events`         | no       | object | Map of logical event names to event descriptors                    |
+| `feeds`          | no       | object | Map of logical feed names to feed descriptors                      |
+| `eventConsumers` | no       | object | Map of durable event consumer group descriptors                    |
+| `state`          | no       | object | Map of named Trellis-managed state stores                          |
+| `resources`      | no       | object | Map of declarative cloud resource requests                         |
+| `errors`         | no       | object | Map of declared error types to error descriptors                   |
 
 Rules:
 
@@ -247,8 +250,8 @@ Rules:
 - `docs.markdown` is required when `docs` is present; `docs.summary` is
   optional.
 - `docs` MAY appear at the contract level and on owned RPCs, operations,
-  operation signals, events, feeds, jobs, state stores, KV resources, and store
-  resources.
+  operation signals, events, feeds, jobs, event consumer groups, state stores,
+  KV resources, and store resources.
 - `docs` is normalized supported metadata. It is preserved in normalized
   manifests for generated documentation and tooling.
 - `docs` is excluded from the contract digest projection. Documentation-only
@@ -301,8 +304,8 @@ The digest projection includes:
 - reachable schemas referenced by state, RPCs, operations, operation signals,
   events, feeds, jobs, schema-backed KV resources, and declared RPC error
   schemas
-- state, `uses`, RPCs, operations, events, feeds, jobs, declared RPC errors, and
-  KV/store resource requests
+- state, `uses`, RPCs, operations, events, feeds, jobs, `eventConsumers`,
+  declared RPC errors, and KV/store resource requests
 - sorted and deduplicated capability and `uses` selector lists
 
 The digest projection excludes:
@@ -880,13 +883,21 @@ Example wildcard derivation:
 
 The optional top-level `eventConsumers` map declares service-owned durable event
 consumer groups. These groups are not public event surfaces. They are deployment
-resources that tell Trellis which subscribed events a service processes with a
-Trellis-provisioned JetStream pull consumer.
+resources that tell Trellis which subscribed dependency events or owned events a
+service processes with a Trellis-provisioned JetStream pull consumer.
+
+Dependency events are selected with `eventConsumers.<group>.uses`, keyed by
+top-level `uses.required` or `uses.optional` aliases. Owned events are selected
+with `eventConsumers.<group>.self` and must belong to the declaring contract's
+own `events` map.
 
 Example:
 
 ```json
 {
+  "schemas": {
+    "ProjectionRebuilt": { "type": "object" }
+  },
   "uses": {
     "required": {
       "billing": {
@@ -895,11 +906,19 @@ Example:
       }
     }
   },
+  "events": {
+    "BillingProjection.Rebuilt": {
+      "version": "v1",
+      "subject": "events.v1.BillingProjection.Rebuilt",
+      "event": { "schema": "ProjectionRebuilt" }
+    }
+  },
   "eventConsumers": {
     "workspaceBilling": {
-      "events": [
-        { "use": "billing", "event": "Billing.SubscriptionConfirmed" }
-      ],
+      "uses": {
+        "billing": ["Billing.SubscriptionConfirmed"]
+      },
+      "self": ["BillingProjection.Rebuilt"],
       "replay": "new",
       "ordering": "strict",
       "concurrency": 1,
@@ -915,7 +934,8 @@ Fields:
 
 | Field         | Required | Meaning                                                                  |
 | ------------- | -------- | ------------------------------------------------------------------------ |
-| `events`      | yes      | Subscribed dependency events included in this consumer group             |
+| `uses`        | no       | Dependency events, keyed by top-level `uses` alias                       |
+| `self`        | no       | Events owned by the same contract                                        |
 | `replay`      | no       | `"new"` or `"all"`; defaults to `"new"`                                  |
 | `ordering`    | no       | Ordering mode; v1 supports `"strict"` and defaults to `"strict"`         |
 | `concurrency` | no       | Handler concurrency; defaults to `1`; strict ordering requires `1`       |
@@ -925,10 +945,16 @@ Fields:
 
 Rules:
 
-- every `eventConsumers.<group>.events[]` entry references a `uses` alias and a
-  logical event name from that dependency
-- the referenced `uses` alias MUST be present under `uses.required` or
-  `uses.optional` and MUST include that event in `events.subscribe`
+- each group MUST include at least one selected dependency event in `uses` or
+  one owned event in `self`
+- every `eventConsumers.<group>.uses.<alias>` key MUST be present under
+  top-level `uses.required` or `uses.optional`; each listed event MUST be
+  present in that alias's `events.subscribe` selection
+- `eventConsumers.<group>.uses.<alias>` is an alias selector, not a remote
+  contract id; dependency durable consumption remains authority-backed through
+  the top-level `uses` declaration and accepted/active dependency resolution
+- every `eventConsumers.<group>.self[]` entry MUST name an event in the same
+  contract's `events` map; `self` never grants dependency authority
 - durable service event processing is explicit-only; Trellis does not create an
   implicit consumer group from `uses.events.subscribe`
 - the same event MAY appear in multiple groups; each group is an independent
@@ -936,9 +962,10 @@ Rules:
 - group names are logical contract aliases; Trellis owns the physical stream,
   durable consumer name, filter subjects, and runtime binding payload
 - `eventConsumers` is part of digest identity except for nested `docs` metadata
-- authority planning validates the referenced subscribed event surfaces against
+- authority planning validates referenced dependency event surfaces against
   effective active dependency offers and requested deployment authority before
-  acceptance
+  acceptance. Owned-event entries resolve directly against the same contract's
+  event subjects.
 - durable event consumer desired state is accepted into deployment authority;
   reconciliation creates or adopts consumers before exposing materialized
   authority to runtimes
@@ -950,6 +977,9 @@ Rules:
 - event consumer bindings are deployment resources. Service code consumes the
   binding through the connected runtime, not by constructing or naming a
   JetStream durable consumer itself
+- runtime durable consumers are Trellis-provisioned only. `.listen()` may attach
+  to a reconciled contract group, but it MUST NOT create arbitrary durable
+  consumers.
 - service principals MUST NOT receive broad event-processing grants such as
   `$JS.API.CONSUMER.DURABLE.CREATE.trellis.>`; auth grants only the exact bound
   consumer subjects required for info, pull-next, and acknowledgements
@@ -1068,11 +1098,11 @@ Resource change classification:
 - reducing TTL, history, size limits, or retention; changing a KV schema in a
   way that may reject existing values; changing a store's semantics; removing a
   resource alias; or renaming an event consumer group is an authority migration
-- event consumers treat adding a new subscribed event to an existing group as an
-  authority update only when replay and ordering remain compatible; removing a
-  subscribed event, changing group identity, narrowing replay, or changing
-  delivery settings in a way that may skip or duplicate work is an authority
-  migration
+- event consumers treat adding a new dependency or owned event to an existing
+  group as an authority update only when replay and ordering remain compatible;
+  removing a dependency or owned event, changing group identity, narrowing
+  replay, or changing delivery settings in a way that may skip or duplicate work
+  is an authority migration
 
 ### 10a) First-class jobs
 
@@ -1246,8 +1276,8 @@ Digest rules for v1:
 - encoding: base64url without padding
 - the digest projection includes runtime identity and behavior: `format`, `id`,
   `kind`, `capabilities`, `state`, `uses`, `rpc`, `operations`, `events`,
-  `feeds`, `jobs`, `resources.kv`, `resources.store`, reachable schemas, and
-  RPC-declared reachable errors
+  `feeds`, `jobs`, `eventConsumers`, `resources.kv`, `resources.store`,
+  reachable schemas, and RPC-declared reachable errors
 - resource `required` flags participate in the digest because they change
   install, activation, and binding behavior
 - the digest projection excludes contract-level `displayName`, `description`,
@@ -1519,7 +1549,8 @@ conditions is true:
 - any declared resource request cannot be reconciled according to platform
   policy
 - any declared event consumer group cannot be resolved to accepted subscribed
-  dependency events or reconciled as a bound JetStream consumer
+  dependency events, declared owned events, or reconciled as a bound JetStream
+  consumer
 - reconciliation returns pending or waiting after creating any NATS resource but
   before persisting the corresponding materialized authority and binding state
 

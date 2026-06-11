@@ -1885,7 +1885,7 @@ Deno.test("defineServiceContract emits top-level jobs with defaults", () => {
   assertEquals("jobs" in (contract.CONTRACT.resources ?? {}), false);
 });
 
-Deno.test("defineServiceContract emits event consumer groups with defaults", () => {
+Deno.test("defineServiceContract emits dependency event consumer groups", () => {
   const source = defineServiceContract(
     { schemas: baseSchemas },
     () => ({
@@ -1920,10 +1920,9 @@ Deno.test("defineServiceContract emits event consumer groups with defaults", () 
       },
       eventConsumers: {
         ingest: {
-          events: [
-            { use: "source", event: "Source.Updated" },
-            { use: "source", event: "Source.Created" },
-          ],
+          uses: {
+            source: ["Source.Updated", "Source.Created"],
+          },
           ackWaitMs: 1_000,
           maxDeliver: 3,
           backoffMs: [0, 100],
@@ -1934,10 +1933,9 @@ Deno.test("defineServiceContract emits event consumer groups with defaults", () 
   );
 
   assertEquals(contract.CONTRACT.eventConsumers?.ingest, {
-    events: [
-      { use: "source", event: "Source.Created" },
-      { use: "source", event: "Source.Updated" },
-    ],
+    uses: {
+      source: ["Source.Created", "Source.Updated"],
+    },
     replay: "new",
     ordering: "strict",
     concurrency: 1,
@@ -1979,6 +1977,217 @@ Deno.test("defineServiceContract emits event consumer groups with defaults", () 
   );
 });
 
+Deno.test("defineServiceContract emits self-owned event consumer groups", () => {
+  const first = defineServiceContract(
+    { schemas: baseSchemas },
+    (ref) => ({
+      id: "events.self-consumer@v1",
+      displayName: "Self Consumer",
+      description: "Consume owned events without a dependency use alias.",
+      events: {
+        "Self.Created": {
+          version: "v1",
+          event: ref.schema("StringValue"),
+        },
+        "Self.Updated": {
+          version: "v1",
+          event: ref.schema("StringValue"),
+        },
+      },
+      eventConsumers: {
+        ingest: {
+          self: ["Self.Updated", "Self.Created"],
+        },
+      },
+    }),
+  );
+
+  const second = defineServiceContract(
+    { schemas: baseSchemas },
+    (ref) => ({
+      id: "events.self-consumer@v1",
+      displayName: "Self Consumer",
+      description: "Consume owned events without a dependency use alias.",
+      events: {
+        "Self.Updated": {
+          version: "v1",
+          event: ref.schema("StringValue"),
+        },
+        "Self.Created": {
+          version: "v1",
+          event: ref.schema("StringValue"),
+        },
+      },
+      eventConsumers: {
+        ingest: {
+          self: ["Self.Created", "Self.Updated"],
+        },
+      },
+    }),
+  );
+
+  assertEquals(first.CONTRACT.eventConsumers?.ingest.self, [
+    "Self.Created",
+    "Self.Updated",
+  ]);
+  assertEquals(first.CONTRACT_DIGEST, digestContractManifest(first.CONTRACT));
+  assertEquals(first.CONTRACT_DIGEST, second.CONTRACT_DIGEST);
+});
+
+Deno.test("defineServiceContract emits mixed dependency and self event consumer groups", () => {
+  const source = defineServiceContract(
+    { schemas: baseSchemas },
+    (ref) => ({
+      id: "events.mixed-source@v1",
+      displayName: "Mixed Source",
+      description: "Expose dependency events for mixed consumer tests.",
+      events: {
+        "Source.Created": {
+          version: "v1",
+          event: ref.schema("StringValue"),
+        },
+      },
+    }),
+  );
+
+  const contract = defineServiceContract(
+    { schemas: baseSchemas },
+    (ref) => ({
+      id: "events.mixed-consumer@v1",
+      displayName: "Mixed Consumer",
+      description: "Consume dependency and owned events in one group.",
+      uses: {
+        required: {
+          source: source.use({
+            events: { subscribe: ["Source.Created"] },
+          }),
+        },
+      },
+      events: {
+        "Self.Created": {
+          version: "v1",
+          event: ref.schema("StringValue"),
+        },
+      },
+      eventConsumers: {
+        ingest: {
+          uses: { source: ["Source.Created"] },
+          self: ["Self.Created"],
+        },
+      },
+    }),
+  );
+
+  assertEquals(contract.CONTRACT.eventConsumers?.ingest, {
+    uses: { source: ["Source.Created"] },
+    self: ["Self.Created"],
+    replay: "new",
+    ordering: "strict",
+    concurrency: 1,
+  });
+});
+
+Deno.test("defineServiceContract sorts event consumer aliases and arrays stably", () => {
+  const sourceA = defineServiceContract(
+    { schemas: baseSchemas },
+    (ref) => ({
+      id: "events.sorted-a@v1",
+      displayName: "Sorted A",
+      description: "Expose A events for sorting tests.",
+      events: {
+        "A.Created": { version: "v1", event: ref.schema("StringValue") },
+        "A.Updated": { version: "v1", event: ref.schema("StringValue") },
+      },
+    }),
+  );
+  const sourceB = defineServiceContract(
+    { schemas: baseSchemas },
+    (ref) => ({
+      id: "events.sorted-b@v1",
+      displayName: "Sorted B",
+      description: "Expose B events for sorting tests.",
+      events: {
+        "B.Created": { version: "v1", event: ref.schema("StringValue") },
+        "B.Updated": { version: "v1", event: ref.schema("StringValue") },
+      },
+    }),
+  );
+
+  const first = defineServiceContract(
+    { schemas: baseSchemas },
+    (ref) => ({
+      id: "events.sorted-consumer@v1",
+      displayName: "Sorted Consumer",
+      description: "Normalize grouped event consumer order.",
+      uses: {
+        required: {
+          b: sourceB.use({
+            events: { subscribe: ["B.Updated", "B.Created"] },
+          }),
+          a: sourceA.use({
+            events: { subscribe: ["A.Updated", "A.Created"] },
+          }),
+        },
+      },
+      events: {
+        "Self.Z": { version: "v1", event: ref.schema("StringValue") },
+        "Self.A": { version: "v1", event: ref.schema("StringValue") },
+      },
+      eventConsumers: {
+        ingest: {
+          uses: {
+            b: ["B.Updated", "B.Created", "B.Updated"],
+            a: ["A.Updated", "A.Created"],
+          },
+          self: ["Self.Z", "Self.A", "Self.Z"],
+        },
+      },
+    }),
+  );
+
+  const second = defineServiceContract(
+    { schemas: baseSchemas },
+    (ref) => ({
+      id: "events.sorted-consumer@v1",
+      displayName: "Sorted Consumer",
+      description: "Normalize grouped event consumer order.",
+      uses: {
+        required: {
+          a: sourceA.use({
+            events: { subscribe: ["A.Created", "A.Updated"] },
+          }),
+          b: sourceB.use({
+            events: { subscribe: ["B.Created", "B.Updated"] },
+          }),
+        },
+      },
+      events: {
+        "Self.A": { version: "v1", event: ref.schema("StringValue") },
+        "Self.Z": { version: "v1", event: ref.schema("StringValue") },
+      },
+      eventConsumers: {
+        ingest: {
+          uses: {
+            a: ["A.Created", "A.Updated"],
+            b: ["B.Created", "B.Updated"],
+          },
+          self: ["Self.A", "Self.Z"],
+        },
+      },
+    }),
+  );
+
+  assertEquals(first.CONTRACT.eventConsumers?.ingest.uses, {
+    a: ["A.Created", "A.Updated"],
+    b: ["B.Created", "B.Updated"],
+  });
+  assertEquals(first.CONTRACT.eventConsumers?.ingest.self, [
+    "Self.A",
+    "Self.Z",
+  ]);
+  assertEquals(first.CONTRACT_DIGEST, second.CONTRACT_DIGEST);
+});
+
 Deno.test("defineServiceContract validates event consumer group uses", () => {
   const source = defineServiceContract(
     { schemas: baseSchemas },
@@ -2000,11 +2209,28 @@ Deno.test("defineServiceContract validates event consumer group uses", () => {
       defineServiceContract(
         { schemas: baseSchemas },
         () => ({
+          id: "events.empty-group@v1",
+          displayName: "Empty Group",
+          description: "Reject event consumers without uses or self.",
+          eventConsumers: {
+            ingest: {},
+          },
+        }),
+      ),
+    Error,
+    "must declare at least one dependency or self event",
+  );
+
+  assertThrows(
+    () =>
+      defineServiceContract(
+        { schemas: baseSchemas },
+        () => ({
           id: "events.unknown-use@v1",
           displayName: "Unknown Use",
           description: "Reject event consumers with unknown uses.",
           eventConsumers: {
-            ingest: { events: [{ use: "source", event: "Source.Created" }] },
+            ingest: { uses: { source: ["Source.Created"] } },
           },
         }),
       ),
@@ -2026,7 +2252,7 @@ Deno.test("defineServiceContract validates event consumer group uses", () => {
             },
           },
           eventConsumers: {
-            ingest: { events: [{ use: "source", event: "Source.Updated" }] },
+            ingest: { uses: { source: ["Source.Updated"] } },
           },
         }),
       ),
@@ -2049,7 +2275,7 @@ Deno.test("defineServiceContract validates event consumer group uses", () => {
           },
           eventConsumers: {
             ingest: {
-              events: [{ use: "source", event: "Source.Created" }],
+              uses: { source: ["Source.Created"] },
               concurrency: 2,
             },
           },
@@ -2057,6 +2283,32 @@ Deno.test("defineServiceContract validates event consumer group uses", () => {
       ),
     Error,
     "requires concurrency 1",
+  );
+});
+
+Deno.test("defineServiceContract rejects unknown owned event consumer refs", () => {
+  assertThrows(
+    () =>
+      defineServiceContract(
+        { schemas: baseSchemas },
+        (ref) => ({
+          id: "events.unknown-owned@v1",
+          displayName: "Unknown Owned Event",
+          description:
+            "Reject event consumers that reference unknown owned events.",
+          events: {
+            "Self.Created": {
+              version: "v1",
+              event: ref.schema("StringValue"),
+            },
+          },
+          eventConsumers: {
+            ingest: { self: ["Self.Missing"] },
+          },
+        }),
+      ),
+    Error,
+    "references unknown owned event 'Self.Missing'",
   );
 });
 

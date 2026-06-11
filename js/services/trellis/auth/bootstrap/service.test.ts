@@ -45,7 +45,7 @@ type AuthorityUpdateRequest = {
   delta: AuthorityNeedSet;
 };
 
-type ContractWithEventConsumers = TrellisContractV1 & {
+type ContractWithEventConsumers = Omit<TrellisContractV1, "eventConsumers"> & {
   eventConsumers?: Record<string, unknown>;
 };
 
@@ -243,7 +243,7 @@ function eventDependencyContract(): TrellisContractV1 {
   };
 }
 
-function eventConsumerContract(): TrellisContractV1 {
+function eventConsumerContract(): ContractWithEventConsumers {
   const contract: ContractWithEventConsumers = {
     ...baseContract(),
     resources: {},
@@ -257,14 +257,30 @@ function eventConsumerContract(): TrellisContractV1 {
     },
     eventConsumers: {
       ingest: {
-        events: [
-          { use: "dep", event: "Changed" },
-          { use: "dep", event: "Synced" },
-        ],
+        uses: { dep: ["Changed", "Synced"] },
       },
     },
   };
   return contract;
+}
+
+function selfEventConsumerContract(): unknown {
+  return {
+    ...baseContract(),
+    resources: {},
+    events: {
+      Changed: {
+        version: "v1",
+        subject: "events.v1.svc.Changed",
+        event: { schema: "Empty" },
+      },
+    },
+    eventConsumers: {
+      ingest: {
+        self: ["Changed"],
+      },
+    },
+  };
 }
 
 function serviceUsingDependencyContract(): TrellisContractV1 {
@@ -295,7 +311,7 @@ function serviceUsingMissingDependencyOperationContract(): TrellisContractV1 {
   };
 }
 
-async function validatedContract(contract: TrellisContractV1) {
+async function validatedContract(contract: unknown) {
   return await createTestContracts().validateContract(contract);
 }
 
@@ -1545,12 +1561,46 @@ Deno.test("POST /bootstrap/service returns event consumer bindings", async () =>
   ]);
 });
 
+Deno.test("POST /bootstrap/service returns self-owned event consumer bindings", async () => {
+  const contract = await validatedContract(selfEventConsumerContract());
+  const binding = {
+    stream: "trellis",
+    consumerName: "svc_deployment_1_svc_example_ingest_abcd",
+    filterSubjects: ["events.v1.svc.Changed"],
+    replay: "new" as const,
+    ordering: "strict" as const,
+    concurrency: 1,
+    ackWaitMs: 300000,
+    maxDeliver: 6,
+    backoffMs: [5000, 30000, 120000, 600000, 1800000],
+  };
+  const setup = await createApp({
+    knownContracts: [{ digest: contract.digest, contract: contract.contract }],
+    initialBindings: [eventConsumerBindingRecord("ingest", binding)],
+  });
+  setup.desiredAuthority.needs = await contractBoundary(
+    setup.contracts,
+    contract.contract,
+  );
+
+  const response = await setup.bootstrap({
+    contractId: contract.contract.id,
+    contractDigest: contract.digest,
+    contract: contract.contract,
+  });
+
+  assertEquals(response.status, 200);
+  assertEquals((await response.json()).binding.resources, {
+    eventConsumers: { ingest: binding },
+  });
+});
+
 Deno.test("POST /bootstrap/service returns independent event consumer groups", async () => {
   const contract = await validatedContract({
     ...eventConsumerContract(),
     eventConsumers: {
-      ingest: { events: [{ use: "dep", event: "Changed" }] },
-      audit: { events: [{ use: "dep", event: "Changed" }] },
+      ingest: { uses: { dep: ["Changed"] } },
+      audit: { uses: { dep: ["Changed"] } },
     },
   } as ContractWithEventConsumers);
   const dependency = await validatedContract(eventDependencyContract());

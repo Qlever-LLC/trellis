@@ -655,17 +655,31 @@ function jobsDefinition(queue: JobsQueueRequest): Record<string, unknown> {
 function eventConsumerEventRefs(
   contract: TrellisContractV1,
   alias: string,
-): Array<{ use: string; event: string }> {
+): Array<{ use: string; event: string } | { self: true; event: string }> {
   const group = validatedEventConsumers(contract)[alias];
-  if (!isRecord(group) || !Array.isArray(group.events)) return [];
-  return group.events.flatMap((eventRef) => {
-    if (!isRecord(eventRef)) return [];
-    if (
-      typeof eventRef.use !== "string" || typeof eventRef.event !== "string"
-    ) {
-      return [];
+  if (!isRecord(group)) return [];
+
+  const refs: Array<
+    { use: string; event: string } | { self: true; event: string }
+  > = [];
+  if (isRecord(group.uses)) {
+    for (const [use, events] of Object.entries(group.uses)) {
+      if (!Array.isArray(events)) continue;
+      for (const event of events) {
+        if (typeof event === "string") refs.push({ use, event });
+      }
     }
-    return [{ use: eventRef.use, event: eventRef.event }];
+  }
+  if (Array.isArray(group.self)) {
+    for (const event of group.self) {
+      if (typeof event === "string") refs.push({ self: true, event });
+    }
+  }
+  return refs.sort((left, right) => {
+    const leftUse = "use" in left ? left.use : "\uffff";
+    const rightUse = "use" in right ? right.use : "\uffff";
+    return leftUse.localeCompare(rightUse) ||
+      left.event.localeCompare(right.event);
   });
 }
 
