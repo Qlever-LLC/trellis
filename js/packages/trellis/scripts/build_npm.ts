@@ -677,6 +677,9 @@ await buildDntPackage({
   denoConfigPath: "./deno.npm.json",
   importMap: "./import_map.npm.json",
   skipNpmInstall: true,
+  compilerOptions: {
+    stripInternal: true,
+  },
   entryPoints: [
     "./js/packages/trellis/index.ts",
     "./js/packages/trellis/auth.ts",

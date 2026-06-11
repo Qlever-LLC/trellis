@@ -28,6 +28,7 @@ use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
 use crate::deno_fixture::{deno_fixture_log_paths, deno_fixture_path};
 use crate::deployment_authority::plan_accept_reconcile_deployment_authority;
+use crate::nats::connect_service_nats_with_retry;
 use crate::rpc::{trace_context_response, HarnessTraceContextResponse};
 use crate::workspace::repo_root;
 
@@ -458,9 +459,16 @@ pub(crate) async fn run_operations_fixture(
             .await
             .into_diagnostic()?,
     );
+    let service_nats = connect_service_nats_with_retry(
+        trellis_url,
+        HARNESS_CONTRACT_ID,
+        &contract_digest,
+        &rust_service_seed,
+    )
+    .await?;
 
     let rust_operation_store =
-        RustOperationDurableStore::open(service_client.nats().clone(), &rust_service_key).await?;
+        RustOperationDurableStore::open(service_nats, &rust_service_key).await?;
     let mut rust_runtime = InMemoryOperationRuntime::new(HARNESS_RUST_SERVICE_NAME);
     assert_rust_provider_invalid_control(&rust_runtime).await?;
     let mut service_task = spawn_rust_operations_service(

@@ -161,6 +161,34 @@ function assertEqual<T>(actual: T, expected: T, message: string) {
   }
 }
 
+type ConnectionLike = typeof client.connection;
+
+async function waitForConnectionPhase(
+  connection: ConnectionLike,
+  phase: ConnectionLike["status"]["phase"],
+  message: string,
+) {
+  if (connection.status.phase === phase) return;
+
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      unsubscribe?.();
+      reject(
+        new Error(
+          `${message}: ${connection.status.phase} !== ${phase}`,
+        ),
+      );
+    }, 5_000);
+    let unsubscribe: (() => void) | undefined;
+    unsubscribe = connection.subscribe((status) => {
+      if (status.phase !== phase) return;
+      clearTimeout(timer);
+      unsubscribe?.();
+      resolve();
+    });
+  });
+}
+
 async function assertPing(
   method: "Harness.Rust.Ping" | "Harness.Ts.Ping",
   message: string,
@@ -342,8 +370,8 @@ async function assertServiceStopLifecycle(
     server: { log: undefined },
   }).orThrow();
   assertEqual(
-    service.nc.isClosed(),
-    false,
+    service.connection.status.phase,
+    "connected",
     `${name} connection should start open`,
   );
 
@@ -356,9 +384,9 @@ async function assertServiceStopLifecycle(
     await Promise.all([service.stop(), service.stop()]);
   }
 
-  assertEqual(
-    service.nc.isClosed(),
-    true,
+  await waitForConnectionPhase(
+    service.connection,
+    "closed",
     `${name} connection should be closed after stop`,
   );
 }

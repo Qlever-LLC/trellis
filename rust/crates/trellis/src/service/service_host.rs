@@ -1,9 +1,9 @@
 use bytes::Bytes;
 use futures_util::future::BoxFuture;
 
+use super::request_loop::{HandlerResponse, RequestHandler};
 use super::{
-    AuthenticatedRouter, BootstrapBinding, HandlerResponse, RequestContext, RequestHandler,
-    RequestValidator, Router, ServerError,
+    AuthenticatedRouter, BootstrapBinding, RequestContext, RequestValidator, Router, ServerError,
 };
 
 /// A bootstrap-validated host wrapper for one service router.

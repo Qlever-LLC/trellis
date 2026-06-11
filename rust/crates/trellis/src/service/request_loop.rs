@@ -1,3 +1,8 @@
+#![expect(
+    dead_code,
+    reason = "low-level request-loop helpers are internal to the curated trellis_rs facade"
+)]
+
 use async_nats::header::HeaderMap;
 use bytes::Bytes;
 use futures_util::future::BoxFuture;
@@ -242,7 +247,7 @@ where
 }
 
 /// Decode one inbound NATS message into host request fields.
-pub fn decode_nats_request(message: &async_nats::Message) -> InboundRequest {
+pub(crate) fn decode_nats_request(message: &async_nats::Message) -> InboundRequest {
     let subject = message.subject.to_string();
     let reply_to = message.reply.as_ref().map(ToString::to_string);
     let session_key = message

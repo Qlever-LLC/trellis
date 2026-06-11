@@ -1,14 +1,20 @@
+#![expect(
+    dead_code,
+    reason = "low-level connected-service helpers are internal to the curated trellis_rs facade"
+)]
+
 use std::future::Future;
 
 use super::resources::{
     validate_kv_binding, validate_store_binding, KvResourceHandle, ResourceRuntimeClient,
     StoreResourceHandle,
 };
+use super::runtime::run_single_subject_service;
 use super::{
-    bootstrap_service_host, resolve_bootstrap_binding, run_single_subject_service,
-    AuthenticatedRouter, BootstrapBinding, BootstrapBindingInfo, BootstrapContractRef,
-    CoreBootstrapPort, JobsResourceBinding, KvResourceBinding, RequestValidator, Router,
-    ServerError, ServiceHost, ServiceResourceBindings, StoreResourceBinding,
+    bootstrap_service_host, resolve_bootstrap_binding, AuthenticatedRouter, BootstrapBinding,
+    BootstrapBindingInfo, BootstrapContractRef, CoreBootstrapPort, JobsResourceBinding,
+    KvResourceBinding, RequestValidator, Router, ServerError, ServiceHost, ServiceResourceBindings,
+    StoreResourceBinding,
 };
 
 /// Generic service host returned after auth-aware bootstrap.
@@ -145,6 +151,11 @@ where
         &self.resources
     }
 
+    #[doc(hidden)]
+    pub fn internal_runtime_client(&self) -> &Rc {
+        &self.runtime_client
+    }
+
     /// Return one KV/state resource binding by contract-local resource name.
     pub fn kv_binding(&self, name: &str) -> Result<&KvResourceBinding, ServerError> {
         self.resources
@@ -179,11 +190,6 @@ where
                 resource_kind: "jobs".to_string(),
                 resource_name: "jobs".to_string(),
             })
-    }
-
-    /// Return the runtime client passed to the connected service.
-    pub fn runtime_client(&self) -> &Rc {
-        &self.runtime_client
     }
 
     /// Open a high-level KV resource handle by contract-local resource name.

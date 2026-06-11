@@ -1,4 +1,3 @@
-import type { NatsConnection } from "@nats-io/nats-core";
 import { type AsyncResult, type BaseError, isErr } from "@qlever-llc/result";
 import { type StaticDecode, Type } from "typebox";
 import type { PreparedTrellisEvent, Trellis } from "../trellis.ts";
@@ -387,19 +386,6 @@ export type KvOutboxRecord = StaticDecode<typeof KvOutboxRecordSchema>;
 export class NatsKvOutboxRepository implements OutboxRepository {
   constructor(readonly kv: OutboxKvStore) {}
 
-  /** Opens or creates the KV bucket used for durable outbox records. */
-  static async open(
-    nats: NatsConnection,
-    bucket = "trellis_outbox",
-  ): Promise<NatsKvOutboxRepository> {
-    const opened = await TypedKV.open(nats, bucket, KvOutboxRecordSchema, {
-      history: 1,
-    });
-    const value = opened.take();
-    if (isErr(value)) throw value.error;
-    return new NatsKvOutboxRepository(value);
-  }
-
   async enqueue(event: PreparedTrellisEvent): Promise<OutboxMessage> {
     const now = new Date().toISOString();
     const record: KvOutboxRecord = {
@@ -500,20 +486,7 @@ export class NatsKvOutboxRepository implements OutboxRepository {
 
 /** Durable NATS KV inbox repository for event-id duplicate suppression. */
 export class NatsKvInboxRepository implements InboxRepository {
-  private constructor(readonly kv: TypedKV<typeof KvInboxRecordSchema>) {}
-
-  /** Opens or creates the KV bucket used for durable inbox records. */
-  static async open(
-    nats: NatsConnection,
-    bucket = "trellis_inbox",
-  ): Promise<NatsKvInboxRepository> {
-    const opened = await TypedKV.open(nats, bucket, KvInboxRecordSchema, {
-      history: 1,
-    });
-    const value = opened.take();
-    if (isErr(value)) throw value.error;
-    return new NatsKvInboxRepository(value);
-  }
+  constructor(readonly kv: TypedKV<typeof KvInboxRecordSchema>) {}
 
   async record(messageId: string, now: Date = new Date()): Promise<boolean> {
     // Durable NATS KV dedupe is useful for event handlers without SQL state, but

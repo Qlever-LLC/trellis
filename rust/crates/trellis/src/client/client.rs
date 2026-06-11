@@ -918,19 +918,12 @@ pub struct TrellisClient {
 }
 
 impl TrellisClient {
-    /// Construct a client from an existing NATS connection and session auth.
-    pub fn from_native(nats: async_nats::Client, auth: SessionAuth, timeout_ms: u64) -> Self {
-        Self {
-            nats,
-            auth,
-            timeout_ms,
-            service_bootstrap_binding: None,
-            health_heartbeat_task: None,
-        }
+    pub(crate) fn nats(&self) -> &async_nats::Client {
+        &self.nats
     }
 
-    /// Expose the underlying NATS client for advanced use.
-    pub fn nats(&self) -> &async_nats::Client {
+    #[doc(hidden)]
+    pub fn internal_nats(&self) -> &async_nats::Client {
         &self.nats
     }
 
@@ -942,6 +935,17 @@ impl TrellisClient {
     /// Return the request timeout configured for this client.
     pub fn timeout_ms(&self) -> u64 {
         self.timeout_ms
+    }
+
+    /// Flush pending client protocol operations to the runtime.
+    pub async fn flush(&self) -> Result<(), TrellisClientError> {
+        timeout(
+            std::time::Duration::from_millis(self.timeout_ms),
+            self.nats.flush(),
+        )
+        .await
+        .map_err(|_| TrellisClientError::Timeout)?
+        .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))
     }
 
     /// Return the resource binding supplied by service HTTP bootstrap, if this is a service client.

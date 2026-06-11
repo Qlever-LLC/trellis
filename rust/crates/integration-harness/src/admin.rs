@@ -27,6 +27,7 @@ use trellis_rs::sdk::core::{
 use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
 use crate::deployment_authority::plan_accept_reconcile_deployment_authority;
+use crate::nats::connect_admin_nats;
 
 const ADMIN_API_PASSING_CASES: usize = 40;
 const PASSWORD_CHANGE_PASSING_CASES: usize = 3;
@@ -42,6 +43,7 @@ pub(crate) async fn run_admin_api_fixture(
     let admin_client = connect_admin_client_async(&setup_login.state)
         .await
         .into_diagnostic()?;
+    let admin_nats = connect_admin_nats(&setup_login.state).await?;
     let auth_client = SdkAuthClient::new(&admin_client);
     let core_client = CoreClient::new(&admin_client);
 
@@ -64,10 +66,15 @@ pub(crate) async fn run_admin_api_fixture(
             me.participant_kind
         ));
     }
-    assert_traced_auth_sessions_me(&admin_client, &setup_login.user.user_id).await?;
+    assert_traced_auth_sessions_me(&admin_client, &admin_nats, &setup_login.user.user_id).await?;
 
     let suffix = unique_suffix();
-    assert_traced_auth_users_get_error(&admin_client, &format!("missing-user-{suffix}")).await?;
+    assert_traced_auth_users_get_error(
+        &admin_client,
+        &admin_nats,
+        &format!("missing-user-{suffix}"),
+    )
+    .await?;
 
     let health = auth_client.rpc().auth().health().await.into_diagnostic()?;
     if health.service != "trellis-auth" && health.service != "trellis" {
@@ -944,9 +951,10 @@ fn value_string(value: &Value, key: &str) -> Result<String> {
 
 async fn assert_traced_auth_sessions_me(
     client: &trellis_rs::client::TrellisClient,
+    nats: &async_nats::Client,
     expected_user_id: &str,
 ) -> Result<()> {
-    let response = raw_traced_admin_rpc(client, "rpc.v1.Auth.Sessions.Me", json!({})).await?;
+    let response = raw_traced_admin_rpc(client, nats, "rpc.v1.Auth.Sessions.Me", json!({})).await?;
     if response
         .headers
         .as_ref()
@@ -975,10 +983,12 @@ async fn assert_traced_auth_sessions_me(
 
 async fn assert_traced_auth_users_get_error(
     client: &trellis_rs::client::TrellisClient,
+    nats: &async_nats::Client,
     missing_user_id: &str,
 ) -> Result<()> {
     let response = raw_traced_admin_rpc(
         client,
+        nats,
         "rpc.v1.Auth.Users.Get",
         json!({ "userId": missing_user_id }),
     )
@@ -1011,6 +1021,7 @@ async fn assert_traced_auth_users_get_error(
 
 async fn raw_traced_admin_rpc(
     client: &trellis_rs::client::TrellisClient,
+    nats: &async_nats::Client,
     subject: &str,
     body: Value,
 ) -> Result<async_nats::Message> {
@@ -1027,9 +1038,7 @@ async fn raw_traced_admin_rpc(
     headers.insert("request-id", request_id.as_str());
     headers.insert("traceparent", AUTH_ADMIN_TRACEPARENT);
     headers.insert("tracestate", "harness=auth-admin");
-    client
-        .nats()
-        .request_with_headers(subject.to_string(), headers, payload)
+    nats.request_with_headers(subject.to_string(), headers, payload)
         .await
         .into_diagnostic()
 }

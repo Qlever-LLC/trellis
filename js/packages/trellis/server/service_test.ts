@@ -23,6 +23,7 @@ import type { NatsConnectFn } from "./runtime.ts";
 import { HealthResponseSchema, HealthRpcSchema } from "./health_schemas.ts";
 import { connectTrellisServiceInternal } from "./internal_connect.ts";
 import {
+  connectTrellisServiceWithRuntimeDeps,
   StoreHandle,
   TrellisService,
   type TrellisServiceConnectArgs,
@@ -225,21 +226,22 @@ async function connectJobsHandlerTestService(opts?: {
     )) as typeof fetch;
 
   try {
-    const service = await TrellisService.connect({
+    const connection = createFakeNatsConnection({
+      deferClosed: opts?.deferClosed,
+      published: opts?.published,
+    });
+    const service = await connectTrellisServiceWithRuntimeDeps({
       trellisUrl: "https://trellis.example.com",
       contract: jobsHandlerTestContract,
       name: "svc",
       sessionKeySeed: TEST_SEED,
       server: { log: false },
     }, {
-      connect: async () =>
-        createFakeNatsConnection({
-          deferClosed: opts?.deferClosed,
-          published: opts?.published,
-        }),
+      connect: async () => connection,
     }).orThrow();
 
     return {
+      connection,
       service,
       restore() {
         globalThis.fetch = originalFetch;
@@ -294,17 +296,19 @@ async function connectHandlerSurfaceTestService() {
     )) as typeof fetch;
 
   try {
-    const service = await TrellisService.connect({
+    const connection = createFakeNatsConnection();
+    const service = await connectTrellisServiceWithRuntimeDeps({
       trellisUrl: "https://trellis.example.com",
       contract: handlerSurfaceTestContract,
       name: "svc",
       sessionKeySeed: TEST_SEED,
       server: { log: false },
     }, {
-      connect: async () => createFakeNatsConnection(),
+      connect: async () => connection,
     }).orThrow();
 
     return {
+      connection,
       service,
       restore() {
         globalThis.fetch = originalFetch;
@@ -359,17 +363,19 @@ async function connectHealthEndpointTestService() {
     )) as typeof fetch;
 
   try {
-    const service = await TrellisService.connect({
+    const connection = createFakeNatsConnection();
+    const service = await connectTrellisServiceWithRuntimeDeps({
       trellisUrl: "https://trellis.example.com",
       contract: healthEndpointTestContract,
       name: "svc",
       sessionKeySeed: TEST_SEED,
       server: { log: false },
     }, {
-      connect: async () => createFakeNatsConnection(),
+      connect: async () => connection,
     }).orThrow();
 
     return {
+      connection,
       service,
       restore() {
         globalThis.fetch = originalFetch;
@@ -820,7 +826,7 @@ Deno.test("TrellisService.connect uses bootstrap response transport details", as
 
     const error = await assertRejects(
       () =>
-        TrellisService.connect({
+        connectTrellisServiceWithRuntimeDeps({
           trellisUrl: "https://trellis.example.com",
           contract: core,
           name: "svc",
@@ -851,7 +857,7 @@ Deno.test("TrellisService.connect initializes telemetry by default", async () =>
   try {
     await assertRejects(
       () =>
-        TrellisService.connect({
+        connectTrellisServiceWithRuntimeDeps({
           trellisUrl: "https://trellis.example.com",
           contract: core,
           name: "svc",
@@ -881,7 +887,7 @@ Deno.test("TrellisService.connect skips telemetry when disabled", async () => {
   try {
     await assertRejects(
       () =>
-        TrellisService.connect({
+        connectTrellisServiceWithRuntimeDeps({
           trellisUrl: "https://trellis.example.com",
           contract: core,
           name: "svc",
@@ -978,7 +984,7 @@ Deno.test("TrellisService.connect retries once on iat_out_of_range using server 
 
     const error = await assertRejects(
       () =>
-        TrellisService.connect({
+        connectTrellisServiceWithRuntimeDeps({
           trellisUrl: "https://trellis.example.com",
           contract: core,
           name: "svc",
@@ -1053,7 +1059,7 @@ Deno.test("TrellisService.connect retries bootstrap with manifest when required"
 
     await assertRejects(
       () =>
-        TrellisService.connect({
+        connectTrellisServiceWithRuntimeDeps({
           trellisUrl: "https://trellis.example.com",
           contract: core,
           name: "svc",
@@ -1127,7 +1133,7 @@ Deno.test("TrellisService.connect retries when bootstrap endpoint is unavailable
 
     await assertRejects(
       () =>
-        TrellisService.connect({
+        connectTrellisServiceWithRuntimeDeps({
           trellisUrl: "https://trellis.example.com",
           contract: core,
           name: "svc",
@@ -1288,7 +1294,7 @@ Deno.test("TrellisService.connect surfaces bootstrap failure reasons", async () 
 
     await assertRejects(
       () =>
-        TrellisService.connect({
+        connectTrellisServiceWithRuntimeDeps({
           trellisUrl: "https://trellis.example.com",
           contract: core,
           name: "svc",
@@ -1371,7 +1377,7 @@ Deno.test("TrellisService.connect waits for pending authority update", async () 
 
     await assertRejects(
       () =>
-        TrellisService.connect({
+        connectTrellisServiceWithRuntimeDeps({
           trellisUrl: "https://trellis.example.com",
           contract: core,
           name: "svc",
@@ -1429,7 +1435,7 @@ Deno.test("TrellisService.connect treats failed authority reconciliation as term
 
     await assertRejects(
       () =>
-        TrellisService.connect({
+        connectTrellisServiceWithRuntimeDeps({
           trellisUrl: "https://trellis.example.com",
           contract: core,
           name: "svc",
@@ -1516,7 +1522,7 @@ Deno.test("TrellisService.connect waits for pending contract activation", async 
 
     await assertRejects(
       () =>
-        TrellisService.connect({
+        connectTrellisServiceWithRuntimeDeps({
           trellisUrl: "https://trellis.example.com",
           contract: core,
           name: "svc",
@@ -1621,7 +1627,7 @@ Deno.test("TrellisService.connect waits for pending contract catalog issue", asy
 
     await assertRejects(
       () =>
-        TrellisService.connect({
+        connectTrellisServiceWithRuntimeDeps({
           trellisUrl: "https://trellis.example.com",
           contract: core,
           name: "svc",
@@ -1918,7 +1924,7 @@ Deno.test("service heartbeat publishing stops after terminal NATS close", async 
     const requestsBeforeClose = publishRequests;
     assertEquals(requestsBeforeClose > 0, true);
 
-    await service.nc.close();
+    await connection.close();
     await delay(30);
 
     assertEquals(publishRequests, requestsBeforeClose);
@@ -2006,7 +2012,8 @@ Deno.test("internal service connect cleans up the connection when bootstrap prob
 });
 
 Deno.test("bound service event listeners receive object args with deps", async () => {
-  const { service, restore } = await connectHandlerSurfaceTestService();
+  const { connection, service, restore } =
+    await connectHandlerSurfaceTestService();
   const deps = { prefix: "dep" };
   let observed:
     | {
@@ -2041,7 +2048,7 @@ Deno.test("bound service event listeners receive object args with deps", async (
 
     const prepared = service.event.test.pinged.prepare({ value: "one" })
       .orThrow();
-    service.nc.publish(prepared.subject, prepared.encodedPayload);
+    connection.publish(prepared.subject, prepared.encodedPayload);
     await delay(10);
 
     assertEquals(observed, {
@@ -2060,7 +2067,8 @@ Deno.test("bound service event listeners receive object args with deps", async (
 });
 
 Deno.test("bound service RPC handlers receive isolated deps", async () => {
-  const { service, restore } = await connectHandlerSurfaceTestService();
+  const { connection, service, restore } =
+    await connectHandlerSurfaceTestService();
   const observed: string[] = [];
   let unboundHadDeps = true;
 
@@ -2082,15 +2090,15 @@ Deno.test("bound service RPC handlers receive isolated deps", async () => {
       return Result.ok({ ok: true });
     });
 
-    const first = await service.nc.request(
+    const first = await connection.request(
       "rpc.v1.Test.BoundOne",
       JSON.stringify({ value: "a" }),
     );
-    const second = await service.nc.request(
+    const second = await connection.request(
       "rpc.v1.Test.BoundTwo",
       JSON.stringify({ value: "b" }),
     );
-    const unbound = await service.nc.request(
+    const unbound = await connection.request(
       "rpc.v1.Test.Unbound",
       JSON.stringify({ value: "c" }),
     );
@@ -2107,7 +2115,8 @@ Deno.test("bound service RPC handlers receive isolated deps", async () => {
 });
 
 Deno.test("bound service health checks receive deps through standard health RPC", async () => {
-  const { service, restore } = await connectHealthEndpointTestService();
+  const { connection, service, restore } =
+    await connectHealthEndpointTestService();
 
   try {
     service.with({ summary: "from deps" }).health.add(
@@ -2115,7 +2124,7 @@ Deno.test("bound service health checks receive deps through standard health RPC"
       ({ deps }) => ({ status: "ok", summary: deps.summary }),
     );
 
-    const response = await service.nc.request(
+    const response = await connection.request(
       "rpc.v1.Svc.Health",
       JSON.stringify({}),
     );
@@ -2200,7 +2209,7 @@ Deno.test("service jobs reject duplicate handler registration immediately", asyn
 });
 
 Deno.test("service wait starts managed job workers before waiting", async () => {
-  const { service, restore } = await connectJobsHandlerTestService({
+  const { connection, service, restore } = await connectJobsHandlerTestService({
     includeWorkStream: false,
     deferClosed: true,
   });
@@ -2224,7 +2233,7 @@ Deno.test("service wait starts managed job workers before waiting", async () => 
       Error,
       "An unexpected error has occurred",
     );
-    assertEquals(service.nc.isClosed(), true);
+    assertEquals(connection.isClosed(), true);
   } finally {
     await service.stop();
     restore();
@@ -2232,7 +2241,7 @@ Deno.test("service wait starts managed job workers before waiting", async () => 
 });
 
 Deno.test("service wait resolves after service stop when no job handlers are registered", async () => {
-  const { service, restore } = await connectJobsHandlerTestService({
+  const { connection, service, restore } = await connectJobsHandlerTestService({
     deferClosed: true,
   });
 
@@ -2252,7 +2261,7 @@ Deno.test("service wait resolves after service stop when no job handlers are reg
 
 Deno.test("service-local JobRef wait observes scoped lifecycle events", async () => {
   const published: PublishedNatsMessage[] = [];
-  const { service, restore } = await connectJobsHandlerTestService({
+  const { connection, service, restore } = await connectJobsHandlerTestService({
     published,
   });
 
@@ -2264,7 +2273,7 @@ Deno.test("service-local JobRef wait observes scoped lifecycle events", async ()
     const waiting = ref.wait().orThrow();
 
     await delay(5);
-    service.nc.publish(
+    connection.publish(
       `trellis.jobs.jobs_handler_test.refreshSummaries.${ref.id}.completed`,
       new TextEncoder().encode(JSON.stringify({
         jobId: ref.id,
@@ -2294,7 +2303,8 @@ Deno.test("service-local JobRef wait observes scoped lifecycle events", async ()
 });
 
 Deno.test("service-local JobRef wait observes terminal event before wait starts", async () => {
-  const { service, restore } = await connectJobsHandlerTestService();
+  const { connection, service, restore } =
+    await connectJobsHandlerTestService();
 
   try {
     const ref = await service.jobs.refreshSummaries.create({
@@ -2302,7 +2312,7 @@ Deno.test("service-local JobRef wait observes terminal event before wait starts"
     }).orThrow();
     const context = (await ref.get().orThrow()).context;
 
-    service.nc.publish(
+    connection.publish(
       `trellis.jobs.jobs_handler_test.refreshSummaries.${ref.id}.completed`,
       new TextEncoder().encode(JSON.stringify({
         jobId: ref.id,
@@ -2334,7 +2344,7 @@ Deno.test("service-local JobRef wait observes terminal event before wait starts"
 
 Deno.test("service-local JobRef cancel publishes scoped cancelled lifecycle event", async () => {
   const published: PublishedNatsMessage[] = [];
-  const { service, restore } = await connectJobsHandlerTestService({
+  const { connection, service, restore } = await connectJobsHandlerTestService({
     published,
   });
 
@@ -2387,7 +2397,7 @@ Deno.test("service-local JobRef cancel publishes scoped cancelled lifecycle even
 
 Deno.test("service-local JobRef cancel is a no-op after terminal completion", async () => {
   const published: PublishedNatsMessage[] = [];
-  const { service, restore } = await connectJobsHandlerTestService({
+  const { connection, service, restore } = await connectJobsHandlerTestService({
     published,
   });
 
@@ -2396,7 +2406,7 @@ Deno.test("service-local JobRef cancel is a no-op after terminal completion", as
       siteId: "site-1",
     }).orThrow();
     const context = (await ref.get().orThrow()).context;
-    service.nc.publish(
+    connection.publish(
       `trellis.jobs.jobs_handler_test.refreshSummaries.${ref.id}.completed`,
       new TextEncoder().encode(JSON.stringify({
         jobId: ref.id,

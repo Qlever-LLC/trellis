@@ -5,14 +5,13 @@ import {
   type NatsConnection,
   type Subscription,
 } from "@nats-io/nats-core";
+import type { KVError, StoreError } from "../errors/index.ts";
+import { TypedKV } from "../kv.ts";
 import {
-  type KVError,
-  type StoreError,
   type StoreWaitOptions,
-  TypedKV,
   TypedStore,
   TypedStoreEntry,
-} from "../index.ts";
+} from "../store.ts";
 import { sdk as trellisAuth } from "../sdk/auth.ts";
 import {
   TrellisServiceRuntime,
@@ -745,7 +744,21 @@ async function fetchServiceBootstrapInfo(args: {
   }
 }
 
-export class StoreHandle {
+export abstract class StoreHandle {
+  abstract readonly binding: ResourceBindingStore;
+
+  abstract open(): AsyncResult<TypedStore, StoreError>;
+
+  /**
+   * Waits for a staged object to appear in the bound store and returns its entry.
+   */
+  abstract waitFor(
+    key: string,
+    options?: StoreWaitOptions,
+  ): AsyncResult<TypedStoreEntry, StoreError>;
+}
+
+class InternalStoreHandle extends StoreHandle {
   readonly binding: ResourceBindingStore;
   readonly #nc: NatsConnection;
 
@@ -754,6 +767,7 @@ export class StoreHandle {
     binding: ResourceBindingStore,
     token: typeof storeHandleConstructorToken,
   ) {
+    super();
     if (token !== storeHandleConstructorToken) {
       throw new TypeError(
         "StoreHandle instances are created by TrellisService",
@@ -1453,7 +1467,6 @@ export type BoundTrellisService<
     TrellisService<TOwnedApi, TTrellisApi, TJobs, TKv>,
     | "name"
     | "auth"
-    | "nc"
     | "kv"
     | "store"
     | "connection"
@@ -1797,6 +1810,9 @@ export type TrellisServiceInternalConnectArgs<
   contractKv?: TKv;
 };
 
+/**
+ * @internal Shared by Trellis-owned service bootstrap paths.
+ */
 export async function createConnectedService<
   TOwnedApi extends TrellisAPI,
   TTrellisApi extends TrellisAPI,
@@ -1991,12 +2007,12 @@ export async function createConnectedService<
     stores: Object.fromEntries(
       Object.entries(args.bindings.store ?? {}).map(([alias, binding]) => [
         alias,
-        new StoreHandle(args.nc, binding, storeHandleConstructorToken),
+        new InternalStoreHandle(args.nc, binding, storeHandleConstructorToken),
       ]),
     ),
   });
 
-  const service = new TrellisService<TOwnedApi, TTrellisApi, TJobs, TKv>(
+  const service = Reflect.construct(TrellisService, [
     args.name,
     args.auth,
     args.nc,
@@ -2011,7 +2027,7 @@ export async function createConnectedService<
     stopHealthPublishing,
     connection,
     trellisServiceConstructorToken,
-  );
+  ]) as TrellisService<TOwnedApi, TTrellisApi, TJobs, TKv>;
   handlerResources = {
     kv: service.kv,
     store: service.store,
@@ -2757,6 +2773,143 @@ function createBoundJobsFacade<
   return boundJobs as BoundJobsFacadeOf<TJobs, TTrellisApi, TKv, TDeps>;
 }
 
+/**
+ * Connects a service with caller-supplied runtime dependencies for tests and
+ * Trellis-owned internals. This helper is intentionally not re-exported from
+ * public package subpaths.
+ *
+ * @internal
+ */
+export function connectTrellisServiceWithRuntimeDeps<
+  const TContract extends ServiceContract<
+    TrellisAPI,
+    TrellisAPI | undefined,
+    ContractJobsMetadata,
+    ContractKvMetadata
+  >,
+>(
+  args: TrellisServiceConnectArgs<TContract>,
+  deps: Partial<TrellisServiceRuntimeDeps>,
+): AsyncResult<
+  TrellisService<
+    ContractOwnedApi<TContract>,
+    ContractTrellisApi<TContract>,
+    ContractJobsOf<TContract>,
+    ContractKvOf<TContract>
+  >,
+  TransportError | UnexpectedError
+> {
+  return AsyncResult.from((async () => {
+    try {
+      type TOwnedApi = ContractOwnedApi<TContract>;
+      type TTrellisApi = ContractTrellisApi<TContract>;
+
+      const runtimeDeps = {
+        ...(await loadDefaultServiceRuntimeDeps()),
+        ...deps,
+      } satisfies TrellisServiceRuntimeDeps;
+      if (automaticTelemetryEnabled(args.telemetry)) {
+        runtimeDeps.initTelemetry?.(args.name);
+      }
+      const auth = await createAuth({ sessionKeySeed: args.sessionKeySeed });
+      const bootstrapLog = resolveServiceLogger(args.server?.log);
+      const bootstrap = await fetchServiceBootstrapInfo({
+        trellisUrl: args.trellisUrl,
+        serviceName: args.name,
+        contractId: args.contract.CONTRACT_ID,
+        contractDigest: args.contract.CONTRACT_DIGEST,
+        contract: args.contract.CONTRACT,
+        auth,
+        log: bootstrapLog,
+      });
+      const { authenticator: authTokenAuthenticator, inboxPrefix } = await auth
+        .natsConnectOptions({
+          contractDigest: args.contract.CONTRACT_DIGEST,
+        });
+
+      let nc: NatsConnection;
+      try {
+        nc = await runtimeDeps.connect({
+          servers: selectRuntimeTransportServers(
+            bootstrap.connectInfo.transports,
+          ),
+          maxReconnectAttempts: DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS,
+          waitOnFirstConnect: DEFAULT_SERVICE_RUNTIME_WAIT_ON_FIRST_CONNECT,
+          inboxPrefix,
+          authenticator: [
+            authTokenAuthenticator,
+            jwtAuthenticator(
+              bootstrap.connectInfo.transport.sentinel.jwt,
+              new TextEncoder().encode(
+                bootstrap.connectInfo.transport.sentinel.seed,
+              ),
+            ),
+          ],
+        });
+      } catch (cause) {
+        throw new TransportError({
+          code: "trellis.runtime.connect_failed",
+          message: "Trellis could not open the service runtime connection.",
+          hint:
+            "Retry the connection. If it keeps failing, check Trellis transport availability.",
+          cause,
+          context: {
+            trellisUrl: args.trellisUrl,
+            contractId: args.contract.CONTRACT_ID,
+            contractDigest: args.contract.CONTRACT_DIGEST,
+          },
+        });
+      }
+
+      try {
+        const server = args.contract.API.trellis
+          ? {
+            ...(args.server ?? {}),
+            api: args.contract.API.owned,
+            trellisApi: args.contract.API.trellis as TTrellisApi,
+          }
+          : {
+            ...(args.server ?? {}),
+            api: args.contract.API.owned,
+          };
+
+        return Result.ok(
+          await createConnectedService<
+            TOwnedApi,
+            TTrellisApi,
+            ContractJobsOf<TContract>,
+            ContractKvOf<TContract>
+          >({
+            name: args.name,
+            auth,
+            nc,
+            contractId: args.contract.CONTRACT_ID,
+            contractDigest: args.contract.CONTRACT_DIGEST,
+            contractJobs:
+              (args.contract[CONTRACT_JOBS_METADATA] ?? {}) as ContractJobsOf<
+                TContract
+              >,
+            contractKv:
+              (args.contract[CONTRACT_KV_METADATA] ?? {}) as ContractKvOf<
+                TContract
+              >,
+            contractEventConsumers: args.contract.CONTRACT.eventConsumers,
+            server,
+            bindings: bootstrap.binding.resources,
+          }),
+        );
+      } catch (cause) {
+        await closeFailedServiceBootstrapConnection(nc);
+        throw cause;
+      }
+    } catch (cause) {
+      return Result.err(
+        cause instanceof TransportError ? cause : toUnexpectedError(cause),
+      );
+    }
+  })());
+}
+
 export class TrellisService<
   TOwnedApi extends TrellisAPI = TrellisAPI,
   TTrellisApi extends TrellisAPI = TOwnedApi,
@@ -2765,8 +2918,8 @@ export class TrellisService<
 > {
   readonly name: string;
   readonly auth: SessionAuth;
-  readonly nc: NatsConnection;
   readonly #server: TrellisServiceRuntimeFor<TOwnedApi & TTrellisApi>;
+  readonly #nc: NatsConnection;
   readonly #handlerTrellis: Trellis<TTrellisApi, TKv, TJobs>;
   /** Event lifecycle surface for service startup listeners and publishers. */
   readonly event: ActiveEventFacade<TTrellisApi>;
@@ -2783,7 +2936,7 @@ export class TrellisService<
   #waitPromise?: Promise<void>;
   #stopPromise?: Promise<void>;
 
-  constructor(
+  private constructor(
     name: string,
     auth: SessionAuth,
     nc: NatsConnection,
@@ -2806,7 +2959,7 @@ export class TrellisService<
 
     this.name = name;
     this.auth = auth;
-    this.nc = nc;
+    this.#nc = nc;
     this.#server = server;
     Object.defineProperty(this, "server", {
       value: server,
@@ -2818,7 +2971,10 @@ export class TrellisService<
     this.store = Object.fromEntries(
       Object.entries(storeBindings).map((
         [alias, binding],
-      ) => [alias, new StoreHandle(nc, binding, storeHandleConstructorToken)]),
+      ) => [
+        alias,
+        new InternalStoreHandle(nc, binding, storeHandleConstructorToken),
+      ]),
     );
     this.#operationTransfer = operationTransfer;
     const jobs = createJobsFacade<TJobs, TTrellisApi, TKv>({
@@ -2854,7 +3010,6 @@ export class TrellisService<
     return {
       name: this.name,
       auth: this.auth,
-      nc: this.nc,
       event: this.#createBoundEventFacade(deps),
       kv: this.kv,
       store: this.store,
@@ -3147,7 +3302,6 @@ export class TrellisService<
     >,
   >(
     args: TrellisServiceConnectArgs<TContract>,
-    deps?: Partial<TrellisServiceRuntimeDeps>,
   ): AsyncResult<
     TrellisService<
       ContractOwnedApi<TContract>,
@@ -3157,123 +3311,14 @@ export class TrellisService<
     >,
     TransportError | UnexpectedError
   > {
-    return AsyncResult.from((async () => {
-      try {
-        type TOwnedApi = ContractOwnedApi<TContract>;
-        type TTrellisApi = ContractTrellisApi<TContract>;
-
-        const runtimeDeps = {
-          ...(await loadDefaultServiceRuntimeDeps()),
-          ...deps,
-        } satisfies TrellisServiceRuntimeDeps;
-        if (automaticTelemetryEnabled(args.telemetry)) {
-          runtimeDeps.initTelemetry?.(args.name);
-        }
-        const auth = await createAuth({ sessionKeySeed: args.sessionKeySeed });
-        const bootstrapLog = resolveServiceLogger(args.server?.log);
-        const bootstrap = await fetchServiceBootstrapInfo({
-          trellisUrl: args.trellisUrl,
-          serviceName: args.name,
-          contractId: args.contract.CONTRACT_ID,
-          contractDigest: args.contract.CONTRACT_DIGEST,
-          contract: args.contract.CONTRACT,
-          auth,
-          log: bootstrapLog,
-        });
-        const { authenticator: authTokenAuthenticator, inboxPrefix } =
-          await auth
-            .natsConnectOptions({
-              contractDigest: args.contract.CONTRACT_DIGEST,
-            });
-
-        let nc: NatsConnection;
-        try {
-          nc = await runtimeDeps.connect({
-            servers: selectRuntimeTransportServers(
-              bootstrap.connectInfo.transports,
-            ),
-            maxReconnectAttempts: DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS,
-            waitOnFirstConnect: DEFAULT_SERVICE_RUNTIME_WAIT_ON_FIRST_CONNECT,
-            inboxPrefix,
-            authenticator: [
-              authTokenAuthenticator,
-              jwtAuthenticator(
-                bootstrap.connectInfo.transport.sentinel.jwt,
-                new TextEncoder().encode(
-                  bootstrap.connectInfo.transport.sentinel.seed,
-                ),
-              ),
-            ],
-          });
-        } catch (cause) {
-          throw new TransportError({
-            code: "trellis.runtime.connect_failed",
-            message: "Trellis could not open the service runtime connection.",
-            hint:
-              "Retry the connection. If it keeps failing, check Trellis transport availability.",
-            cause,
-            context: {
-              trellisUrl: args.trellisUrl,
-              contractId: args.contract.CONTRACT_ID,
-              contractDigest: args.contract.CONTRACT_DIGEST,
-            },
-          });
-        }
-
-        try {
-          const server = args.contract.API.trellis
-            ? {
-              ...(args.server ?? {}),
-              api: args.contract.API.owned,
-              trellisApi: args.contract.API.trellis as TTrellisApi,
-            }
-            : {
-              ...(args.server ?? {}),
-              api: args.contract.API.owned,
-            };
-
-          return Result.ok(
-            await createConnectedService<
-              TOwnedApi,
-              TTrellisApi,
-              ContractJobsOf<TContract>,
-              ContractKvOf<TContract>
-            >({
-              name: args.name,
-              auth,
-              nc,
-              contractId: args.contract.CONTRACT_ID,
-              contractDigest: args.contract.CONTRACT_DIGEST,
-              contractJobs:
-                (args.contract[CONTRACT_JOBS_METADATA] ?? {}) as ContractJobsOf<
-                  TContract
-                >,
-              contractKv:
-                (args.contract[CONTRACT_KV_METADATA] ?? {}) as ContractKvOf<
-                  TContract
-                >,
-              contractEventConsumers: args.contract.CONTRACT.eventConsumers,
-              server,
-              bindings: bootstrap.binding.resources,
-            }),
-          );
-        } catch (cause) {
-          await closeFailedServiceBootstrapConnection(nc);
-          throw cause;
-        }
-      } catch (cause) {
-        return Result.err(
-          cause instanceof TransportError ? cause : toUnexpectedError(cause),
-        );
-      }
-    })());
+    return connectTrellisServiceWithRuntimeDeps(args, {});
   }
 
   async wait(): Promise<void> {
     this.#waitPromise ??= (async () => {
       try {
         await this.#managedJobWorkers.start().orThrow();
-        const closed = await this.nc.closed();
+        const closed = await this.#nc.closed();
         if (closed instanceof Error) {
           throw closed;
         }
@@ -3299,6 +3344,12 @@ export class TrellisService<
             await this.#operationTransfer.stop();
           } finally {
             await this.#server.stop();
+            this.connection.setStatus({
+              kind: this.connection.status.kind,
+              phase: "closed",
+              observedAt: new Date(),
+              transport: { name: "nats" },
+            });
           }
         }
       }

@@ -8,9 +8,70 @@ use async_nats::jetstream;
 use async_nats::jetstream::stream;
 use async_nats::ConnectOptions;
 use miette::{miette, IntoDiagnostic, Result, WrapErr};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use trellis_rs::auth::AdminSessionState;
+use trellis_rs::client::SessionAuth;
 
 use crate::container::{unique_container_name, ContainerBackend, IntegrationWorkdir};
 use crate::process::{command_output_failure_message, CommandSpec, ProcessRunner};
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ServiceBootstrapRequest<'a> {
+    session_key: &'a str,
+    contract_id: &'a str,
+    contract_digest: &'a str,
+    iat: u64,
+    sig: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ServiceBootstrapResponse {
+    status: String,
+    connect_info: ServiceBootstrapConnectInfo,
+    #[allow(dead_code)]
+    binding: Value,
+    server_now: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ServiceBootstrapFailure {
+    reason: String,
+    server_now: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ServiceBootstrapConnectInfo {
+    contract_digest: String,
+    transports: ServiceBootstrapTransports,
+    transport: ServiceBootstrapTransport,
+}
+
+#[derive(Debug, Deserialize)]
+struct ServiceBootstrapTransports {
+    native: Option<ServiceBootstrapNatsTransport>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ServiceBootstrapNatsTransport {
+    nats_servers: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ServiceBootstrapTransport {
+    sentinel: ServiceBootstrapSentinel,
+}
+
+#[derive(Debug, Deserialize)]
+struct ServiceBootstrapSentinel {
+    jwt: String,
+    seed: String,
+}
 
 #[derive(Debug)]
 pub(crate) struct NatsContainer {
@@ -189,6 +250,198 @@ pub(crate) fn wait_for_tcp_ready(port: u16, timeout: Duration) -> Result<()> {
             Err(_) => thread::sleep(Duration::from_millis(100)),
         }
     }
+}
+
+pub(crate) async fn connect_admin_nats(state: &AdminSessionState) -> Result<async_nats::Client> {
+    let auth = SessionAuth::from_seed_base64url(&state.session_seed).into_diagnostic()?;
+    connect_authenticated_nats(
+        state.nats_servers.clone(),
+        state.sentinel_jwt.clone(),
+        state.sentinel_seed.clone(),
+        auth,
+        state.contract_digest.clone(),
+        0,
+    )
+    .await
+}
+
+pub(crate) async fn connect_service_nats_with_retry(
+    trellis_url: &str,
+    contract_id: &str,
+    contract_digest: &str,
+    service_seed: &str,
+) -> Result<async_nats::Client> {
+    let mut last_error = None;
+    for _ in 0..10 {
+        match connect_service_nats(trellis_url, contract_id, contract_digest, service_seed).await {
+            Ok(client) => return Ok(client),
+            Err(error) => {
+                last_error = Some(error);
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+        }
+    }
+
+    Err(miette!(
+        "failed to connect service-owned raw NATS client: {}",
+        last_error
+            .map(|error| error.to_string())
+            .unwrap_or_else(|| "no connection attempt recorded".to_string())
+    ))
+}
+
+async fn connect_service_nats(
+    trellis_url: &str,
+    contract_id: &str,
+    contract_digest: &str,
+    service_seed: &str,
+) -> Result<async_nats::Client> {
+    let auth = SessionAuth::from_seed_base64url(service_seed).into_diagnostic()?;
+    let bootstrap =
+        fetch_service_bootstrap(trellis_url, contract_id, contract_digest, &auth).await?;
+    if bootstrap.status != "ready" {
+        return Err(miette!(
+            "service bootstrap returned unexpected status `{}`",
+            bootstrap.status
+        ));
+    }
+    if bootstrap.connect_info.contract_digest != contract_digest {
+        return Err(miette!(
+            "service bootstrap contract digest mismatch: expected `{contract_digest}`, got `{}`",
+            bootstrap.connect_info.contract_digest
+        ));
+    }
+    let native = bootstrap
+        .connect_info
+        .transports
+        .native
+        .ok_or_else(|| miette!("service bootstrap did not include native NATS transport"))?;
+    if native.nats_servers.is_empty() {
+        return Err(miette!("service bootstrap returned no NATS servers"));
+    }
+    connect_authenticated_nats(
+        native.nats_servers,
+        bootstrap.connect_info.transport.sentinel.jwt,
+        bootstrap.connect_info.transport.sentinel.seed,
+        auth,
+        bootstrap.connect_info.contract_digest,
+        bootstrap
+            .server_now
+            .map(|server_now| server_now as i64 - current_iat() as i64)
+            .unwrap_or_default(),
+    )
+    .await
+}
+
+async fn fetch_service_bootstrap(
+    trellis_url: &str,
+    contract_id: &str,
+    contract_digest: &str,
+    auth: &SessionAuth,
+) -> Result<ServiceBootstrapResponse> {
+    let mut url = reqwest::Url::parse(trellis_url)
+        .map_err(|error| miette!("invalid Trellis URL `{trellis_url}`: {error}"))?;
+    url.set_path("/bootstrap/service");
+    url.set_query(None);
+    url.set_fragment(None);
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .into_diagnostic()?;
+    let mut iat_offset = 0_i64;
+
+    for _ in 0..2 {
+        let iat = adjusted_iat(iat_offset);
+        let request = ServiceBootstrapRequest {
+            session_key: &auth.session_key,
+            contract_id,
+            contract_digest,
+            iat,
+            sig: auth.sign_sha256_domain("nats-connect", &format!("{iat}:{contract_digest}")),
+        };
+        let response = client
+            .post(url.clone())
+            .json(&request)
+            .send()
+            .await
+            .into_diagnostic()?;
+        let status = response.status();
+        let body = response.text().await.into_diagnostic()?;
+        if let Ok(failure) = serde_json::from_str::<ServiceBootstrapFailure>(&body) {
+            if failure.reason == "iat_out_of_range" {
+                if let Some(server_now) = failure.server_now {
+                    iat_offset = server_now as i64 - current_iat() as i64;
+                    continue;
+                }
+            }
+            return Err(miette!(
+                "service bootstrap failed with reason `{}`: {body}",
+                failure.reason
+            ));
+        }
+        if !status.is_success() {
+            return Err(miette!(
+                "service bootstrap failed with HTTP {}: {body}",
+                status.as_u16()
+            ));
+        }
+        return serde_json::from_str(&body)
+            .map_err(|error| miette!("failed to decode service bootstrap response: {error}"));
+    }
+
+    Err(miette!("service bootstrap failed after iat retry"))
+}
+
+async fn connect_authenticated_nats(
+    servers: impl async_nats::ToServerAddrs,
+    sentinel_jwt: String,
+    sentinel_seed: String,
+    auth: SessionAuth,
+    contract_digest: String,
+    iat_offset: i64,
+) -> Result<async_nats::Client> {
+    let inbox_prefix = auth.inbox_prefix();
+    let auth = std::sync::Arc::new(auth);
+    let key_pair = std::sync::Arc::new(
+        nkeys::KeyPair::from_seed(&sentinel_seed)
+            .map_err(|error| miette!("failed to parse sentinel seed: {error}"))?,
+    );
+    ConnectOptions::with_auth_callback(move |nonce| {
+        let auth = auth.clone();
+        let key_pair = key_pair.clone();
+        let sentinel_jwt = sentinel_jwt.clone();
+        let contract_digest = contract_digest.clone();
+        async move {
+            let mut credentials = async_nats::Auth::new();
+            credentials.jwt = Some(sentinel_jwt);
+            credentials.signature =
+                Some(key_pair.sign(&nonce).map_err(async_nats::AuthError::new)?);
+            credentials.token =
+                Some(auth.nats_connect_user_token(adjusted_iat(iat_offset), &contract_digest));
+            Ok(credentials)
+        }
+    })
+    .custom_inbox_prefix(inbox_prefix)
+    .connect(servers)
+    .await
+    .into_diagnostic()
+}
+
+fn adjusted_iat(offset_seconds: i64) -> u64 {
+    let now = current_iat();
+    if offset_seconds >= 0 {
+        now.saturating_add(offset_seconds as u64)
+    } else {
+        now.saturating_sub(offset_seconds.unsigned_abs())
+    }
+}
+
+fn current_iat() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
 }
 
 pub(crate) async fn ensure_event_stream(servers: &str, trellis_creds: &Path) -> Result<()> {

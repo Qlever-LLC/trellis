@@ -8,7 +8,6 @@ import {
   defineAppContract,
   defineDeviceContract,
   defineServiceContract,
-  type Trellis as RootTrellis,
   TrellisClient,
   TrellisDevice,
 } from "../index.ts";
@@ -23,6 +22,9 @@ import { sdk as jobs } from "../sdk/jobs.ts";
 import { TrellisService } from "../service/deno.ts";
 import { StoreHandle } from "../server/mod.ts";
 import { Trellis, type TrellisAuth, type TrellisOpts } from "../trellis.ts";
+
+// @ts-expect-error root package does not expose the raw runtime class.
+import type { Trellis as RootTrellis } from "../index.ts";
 
 const selectionSchemas = {
   Empty: Type.Object({}),
@@ -122,13 +124,14 @@ const serviceContract = defineServiceContract(
 );
 
 declare const connectedAppClient: ConnectedTrellisClient<typeof appContract>;
-declare const rootAppTrellis: RootTrellis<typeof appContract.API.trellis>;
 declare const coreClient: CoreClient;
 declare const natsConnection: NatsConnection;
 declare const trellisAuth: TrellisAuth;
 
 async function typecheckClientConnectRequestSurface() {
   const connected = connectedAppClient;
+  // @ts-expect-error connected clients do not expose raw NATS handles
+  const rawNats = connected.natsConnection;
 
   const me = await connected.request("Auth.Sessions.Me", {}).orThrow();
   const deviceId: string | undefined = me.device?.deviceId;
@@ -184,42 +187,7 @@ async function typecheckClientConnectRequestSurface() {
     selectedMethod,
     selectedOutputCheck,
     selectedValue,
-  };
-}
-
-async function typecheckRootTrellisRequestSurface() {
-  const selected = await rootAppTrellis.request(
-    "Selection.Selected",
-    {},
-  ).orThrow();
-  const selectedValue: string = selected.value;
-  const jobsResult = await rootAppTrellis.request("Jobs.List", {
-    limit: 8,
-  }).orThrow();
-  const jobCount: number = jobsResult.entries.length;
-  type RootMethod = Parameters<typeof rootAppTrellis.request>[0];
-  const selectedMethod: RootMethod = "Selection.Selected";
-
-  // @ts-expect-error root Trellis must preserve concrete request output typing.
-  const selectedOutputCheck: number = selected;
-  // @ts-expect-error root Trellis generated SDK output must be concrete, not any.
-  const jobsOutputCheck: number = jobsResult;
-  // @ts-expect-error unselected dependency RPCs must not typecheck on root Trellis
-  const hiddenMethod: RootMethod = "Selection.Hidden";
-  // @ts-expect-error unselected dependency RPCs must not be callable on root Trellis
-  const hiddenResult = rootAppTrellis.request("Selection.Hidden", {});
-  // @ts-expect-error unselected generated SDK RPCs must not be callable on root Trellis
-  const hiddenJobsResult = rootAppTrellis.request("Jobs.Cancel", { id: "job" });
-
-  return {
-    hiddenMethod,
-    hiddenResult,
-    hiddenJobsResult,
-    jobCount,
-    jobsOutputCheck,
-    selectedMethod,
-    selectedOutputCheck,
-    selectedValue,
+    rawNats,
   };
 }
 
@@ -228,6 +196,8 @@ async function typecheckTrellisClientConnectRequestSurface() {
     trellisUrl: "https://trellis.example",
     contract: appContract,
   }).orThrow();
+  // @ts-expect-error connected clients do not expose raw NATS handles
+  const rawNats = connected.natsConnection;
 
   const me = await connected.request("Auth.Sessions.Me", {}).orThrow();
   const participantKind: "app" | "agent" | "device" | "service" =
@@ -272,6 +242,7 @@ async function typecheckTrellisClientConnectRequestSurface() {
     jobCount,
     jobsOutputCheck,
     participantKind,
+    rawNats,
     selectedMethod,
     selectedOutputCheck,
     selectedValue,
@@ -284,6 +255,8 @@ async function typecheckDeviceConnectRequestSurface() {
     contract: deviceContract,
     rootSecret: new Uint8Array([1]),
   }).orThrow();
+  // @ts-expect-error connected devices do not expose raw NATS handles
+  const rawNats = connected.natsConnection;
 
   const me = await connected.request("Auth.Sessions.Me", {}).orThrow();
   const deviceId: string | undefined = me.device?.deviceId;
@@ -292,7 +265,7 @@ async function typecheckDeviceConnectRequestSurface() {
   type DeviceMethod = Parameters<typeof connected.request>[0];
   const authMeMethod: DeviceMethod = "Auth.Sessions.Me";
 
-  return { authMeMethod, deviceId, participantKind };
+  return { authMeMethod, deviceId, participantKind, rawNats };
 }
 
 async function typecheckDeviceActivationSurface() {
@@ -344,6 +317,8 @@ async function typecheckServiceConnectSurface() {
     sessionKeySeed: "test-session-seed",
     server: {},
   }).orThrow();
+  // @ts-expect-error connected services do not expose raw NATS handles
+  const rawNats = service.nc;
 
   await service.event.service.changed.listen(
     () => Result.ok(undefined),
@@ -370,6 +345,8 @@ async function typecheckServiceConnectSurface() {
   });
 
   const bound = service.with({ label: "bound" });
+  // @ts-expect-error bound services do not expose raw NATS handles
+  const boundRawNats = bound.nc;
   await bound.handle.rpc.service.ping(({ input, deps, client }) => {
     const value: string = input.value;
     const label: string = deps.label;
@@ -388,7 +365,7 @@ async function typecheckServiceConnectSurface() {
     { mode: "ephemeral" },
   );
 
-  return service.name;
+  return { boundRawNats, rawNats, serviceName: service.name };
 }
 
 function typecheckGeneratedServiceHandlerClientSurface(
@@ -445,6 +422,15 @@ function typecheckResolvedRuntimeBindingsAreNotPublicAuthoringSurface() {
   // @ts-expect-error TrellisService instances are created by connect/bootstrap
   new TrellisService();
 
+  TrellisService.connect({
+    trellisUrl: "https://trellis.example",
+    contract: serviceContract,
+    name: "svc",
+    sessionKeySeed: "test-session-seed",
+    server: {},
+    // @ts-expect-error public TrellisService.connect does not expose runtime deps injection
+  }, { connect: async () => natsConnection });
+
   return publicOpts;
 }
 
@@ -456,7 +442,6 @@ function typecheckGeneratedCoreInternalRpcSurface() {
 }
 
 void typecheckClientConnectRequestSurface;
-void typecheckRootTrellisRequestSurface;
 void typecheckTrellisClientConnectRequestSurface;
 void typecheckDeviceConnectRequestSurface;
 void typecheckDeviceActivationSurface;

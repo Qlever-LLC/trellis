@@ -1,7 +1,10 @@
-use super::{
-    bootstrap_service_host, run_nats_request_loop, BootstrapBinding, RequestHandler,
-    RequestValidator, Router, ServerError,
-};
+#![expect(
+    dead_code,
+    reason = "low-level runtime helpers are internal to the curated trellis_rs facade"
+)]
+
+use super::request_loop::{run_nats_request_loop, RequestHandler};
+use super::{bootstrap_service_host, BootstrapBinding, RequestValidator, Router, ServerError};
 
 /// Queue-subscribe to one RPC subject for service request handling.
 ///

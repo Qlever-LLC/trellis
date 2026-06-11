@@ -16,15 +16,20 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 pub use super::core_bootstrap::CoreBootstrapBinding;
+use super::request_loop::RequestHandler;
+use super::runtime::run_multi_subject_service;
+use super::transfer::{
+    spawn_download_transfer_endpoint, spawn_upload_transfer_endpoint_with_completion,
+    spawn_upload_transfer_endpoint_with_progress,
+};
 use super::{
-    bootstrap_service_host, control_subject, run_multi_subject_service,
-    spawn_download_transfer_endpoint, spawn_upload_transfer_endpoint_with_progress,
-    AcceptedOperation, BootstrapBindingInfo, DownloadTransferGrantPlan, EventPublisher,
-    FeedDescriptor, HandlerResult, JobsResourceBinding, KvResourceBinding, NatsKvResourceClient,
-    NatsStoreResourceClient, OperationDescriptor, OperationProvider, OperationSignalAccepted,
-    OperationSnapshot, OperationTransferProgress, RequestContext, RequestHandler,
-    RequestValidation, RequestValidator, ResourceRuntimeClient, Router, RpcDescriptor, ServerError,
-    ServiceResourceBindings, StoreResourceBinding, StoreResourceClient, UploadTransferSession,
+    bootstrap_service_host, control_subject, AcceptedOperation, BootstrapBindingInfo,
+    DownloadTransferGrantPlan, EventPublisher, FeedDescriptor, HandlerResult, JobsResourceBinding,
+    KvResourceBinding, NatsKvResourceClient, NatsStoreResourceClient, OperationDescriptor,
+    OperationProvider, OperationSignalAccepted, OperationSnapshot, OperationTransferProgress,
+    RequestContext, RequestValidation, RequestValidator, ResourceRuntimeClient, Router,
+    RpcDescriptor, ServerError, ServiceResourceBindings, StoreResourceBinding, StoreResourceClient,
+    UploadTransferCompletion, UploadTransferSession,
 };
 use crate::client::{ServiceConnectWithContractOptions, TrellisClient, TrellisClientError};
 use crate::sdk::auth::types::{AuthRequestsValidateRequest, AuthRequestsValidateResponse};
@@ -343,6 +348,26 @@ impl ServiceHandle {
             store,
             validator,
             on_progress,
+        )
+        .await
+    }
+
+    /// Subscribe and run an upload transfer endpoint that can be awaited until durable storage.
+    pub async fn spawn_upload_transfer_endpoint_with_completion<C, V>(
+        &self,
+        session: UploadTransferSession,
+        store: C,
+        validator: V,
+    ) -> Result<UploadTransferCompletion, ServerError>
+    where
+        C: StoreResourceClient,
+        V: RequestValidator + 'static,
+    {
+        spawn_upload_transfer_endpoint_with_completion(
+            self.client().nats().clone(),
+            session,
+            store,
+            validator,
         )
         .await
     }

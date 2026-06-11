@@ -7,12 +7,14 @@ use trellis_rs::client::{
     ServiceConnectOptions, ServiceConnectWithContractOptions, TrellisClient, TrellisClientError,
 };
 use trellis_rs::sdk::core::{types::TrellisBindingsGetResponseBinding, CoreClient};
+use trellis_rs::service::internal::{
+    connect_service as connect_bound_service, run_multi_subject_service, ConnectServiceError,
+    ConnectedService, ConnectedServiceHostWithValidator, ConnectedServiceParts,
+};
 use trellis_rs::service::{
-    bootstrap_service_host, connect_service as connect_bound_service, run_multi_subject_service,
-    BootstrapBindingInfo, ConnectServiceError, ConnectedService, ConnectedServiceHostWithValidator,
-    ConnectedServiceParts, CoreBootstrapAdapter, CoreBootstrapBinding, CoreBootstrapClientPort,
-    DefaultRequestValidator, DefaultRequestValidatorClientPort, Router, ServerError,
-    DEFAULT_AUTHORITY_PENDING_TIMEOUT_MS, DEFAULT_RETRY_DELAY_MS,
+    bootstrap_service_host, BootstrapBindingInfo, CoreBootstrapAdapter, CoreBootstrapBinding,
+    CoreBootstrapClientPort, DefaultRequestValidator, DefaultRequestValidatorClientPort, Router,
+    ServerError, DEFAULT_AUTHORITY_PENDING_TIMEOUT_MS, DEFAULT_RETRY_DELAY_MS,
 };
 
 use crate::advisory::{start_advisory_loop, AdvisoryHandle};
@@ -172,13 +174,13 @@ impl ConnectedJobsService {
 
     /// Return the underlying authenticated NATS client.
     pub fn nats(&self) -> &async_nats::Client {
-        self.client.nats()
+        self.client.internal_nats()
     }
 
     /// Bootstrap an authenticated service host without starting background loops.
     pub async fn bootstrap(&self) -> Result<JobsServiceHost<'_>, ServerError> {
         let (_, router, _) = build_jobs_runtime(
-            self.client.nats().clone(),
+            self.client.internal_nats().clone(),
             self.binding(),
             self.jobs_store.clone(),
         )?;
@@ -198,7 +200,7 @@ impl ConnectedJobsService {
     /// Run the Jobs admin service with an explicit loop ownership mode.
     pub async fn run_with_mode(&self, mode: JobsServiceMode) -> Result<(), ServerError> {
         let (resources, router, store) = build_jobs_runtime(
-            self.client.nats().clone(),
+            self.client.internal_nats().clone(),
             self.binding(),
             self.jobs_store.clone(),
         )?;
@@ -209,11 +211,11 @@ impl ConnectedJobsService {
             DefaultRequestValidator::new(AuthClient::new(&self.client)),
         );
         run_jobs_service_runtime(
-            self.client.nats().clone(),
+            self.client.internal_nats().clone(),
             resources,
             store,
             mode,
-            run_multi_subject_service(self.client.nats().clone(), JOBS_RPC_SUBJECTS, host),
+            run_multi_subject_service(self.client.internal_nats().clone(), JOBS_RPC_SUBJECTS, host),
         )
         .await
     }
@@ -312,7 +314,7 @@ fn build_parts_from_client(
     async_nats::Client,
 > {
     ConnectedServiceParts {
-        runtime_client: client.nats().clone(),
+        runtime_client: client.internal_nats().clone(),
         core_port: CoreBootstrapAdapter::new(CoreClient::new(client)),
         validator: DefaultRequestValidator::new(AuthClient::new(client)),
     }
@@ -338,7 +340,7 @@ async fn connect_jobs_service<'meta, Conn, BuildParts, C, V>(
     build_parts: BuildParts,
 ) -> Result<ConnectedService<'meta, C::Binding, V, async_nats::Client>, ServerError>
 where
-    Conn: trellis_rs::service::AsyncConnector<Error = std::convert::Infallible>,
+    Conn: trellis_rs::service::internal::AsyncConnector<Error = std::convert::Infallible>,
     BuildParts: FnOnce(Conn::Output) -> ConnectedServiceParts<C, V, async_nats::Client>,
     C: trellis_rs::service::CoreBootstrapPort,
     V: trellis_rs::service::RequestValidator,
@@ -356,7 +358,7 @@ where
     V: trellis_rs::service::RequestValidator,
 {
     let (_, router, _) = build_jobs_runtime(
-        connected.runtime_client().clone(),
+        connected.internal_runtime_client().clone(),
         connected.binding().as_ref(),
         open_jobs_store_from_env()?,
     )?;
@@ -408,17 +410,17 @@ where
     V: trellis_rs::service::RequestValidator,
 {
     let (resources, router, store) = build_jobs_runtime(
-        connected.runtime_client().clone(),
+        connected.internal_runtime_client().clone(),
         connected.binding().as_ref(),
         open_jobs_store_from_env()?,
     )?;
     run_jobs_service_runtime(
-        connected.runtime_client().clone(),
+        connected.internal_runtime_client().clone(),
         resources,
         store,
         mode,
         {
-            let runtime_client = connected.runtime_client().clone();
+            let runtime_client = connected.internal_runtime_client().clone();
             let host = connected.bootstrap(router)?;
             run_multi_subject_service(runtime_client, JOBS_RPC_SUBJECTS, host)
         },

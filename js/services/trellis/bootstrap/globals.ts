@@ -1,6 +1,8 @@
 import { connect, credsAuthenticator } from "@nats-io/transport-deno";
-import { createAuth, isErr, Trellis, TypedKV } from "@qlever-llc/trellis";
+import { createAuth, isErr } from "@qlever-llc/trellis";
 import { connectTrellisServiceInternal } from "../../../packages/trellis/server/internal_connect.ts";
+import { Trellis as InternalTrellis } from "../../../packages/trellis/trellis.ts";
+import { TypedKV } from "../../../packages/trellis/kv.ts";
 import { pino } from "pino";
 import { Value } from "typebox/value";
 import type { Config } from "../config.ts";
@@ -256,7 +258,7 @@ export async function createRuntimeGlobals(config: Config) {
       },
     });
 
-    const activeTrellis = new Trellis("trellis", natsTrellis, auth, {
+    const activeTrellis = new InternalTrellis("trellis", natsTrellis, auth, {
       log: logger,
       api: trellisControlPlaneApi.trellis,
     });

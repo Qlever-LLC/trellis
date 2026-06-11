@@ -21,8 +21,7 @@ use trellis_rs::contracts::{
 };
 use trellis_rs::sdk::auth::client::AuthClient as SdkAuthClient;
 use trellis_rs::service::{
-    plan_download_transfer_grant, plan_upload_transfer_grant, spawn_download_transfer_endpoint,
-    spawn_upload_transfer_endpoint_with_completion, ConnectedServiceRuntime,
+    plan_download_transfer_grant, plan_upload_transfer_grant, ConnectedServiceRuntime,
     DefaultRequestValidator, FileTransferInfo, InMemoryOperationRuntime, OperationFailure,
     RequestContext, RequestValidation, RequestValidator, ServerError, ServiceResourceBindings,
     StoreResourceBinding, StoreResourceClient, TransferDownloadGrantArgs, TransferUploadGrantArgs,
@@ -449,6 +448,7 @@ pub(crate) async fn run_transfer_fixture(
                 let rust_store = rust_store.clone();
                 let resources = resources.clone();
                 async move {
+                    let handle = ctx.handle().clone();
                     let ctx = ctx.into_request_context();
                     let operation_id = format!("harness-transfer-{}", unique_suffix());
                     let mut accepted = operations.accept(operation_id.clone()).await?;
@@ -476,24 +476,24 @@ pub(crate) async fn run_transfer_fixture(
                     let grant = plan.grant.clone();
                     accepted.transfer = Some(grant);
                     let completion = if traced_transfer {
-                        spawn_upload_transfer_endpoint_with_completion(
-                            service_client.nats().clone(),
+                        handle
+                            .spawn_upload_transfer_endpoint_with_completion(
                             UploadTransferSession::new(plan, "2026-05-11T00:00:00.000Z"),
                             rust_store.clone(),
                             RecordingTransferValidator::new(
                                 DefaultRequestValidator::new(Arc::clone(&service_client)),
                                 Arc::clone(&chunk_traceparent),
                             ),
-                        )
-                        .await?
+                            )
+                            .await?
                     } else {
-                        spawn_upload_transfer_endpoint_with_completion(
-                            service_client.nats().clone(),
+                        handle
+                            .spawn_upload_transfer_endpoint_with_completion(
                             UploadTransferSession::new(plan, "2026-05-11T00:00:00.000Z"),
                             rust_store.clone(),
                             DefaultRequestValidator::new(Arc::clone(&service_client)),
-                        )
-                        .await?
+                            )
+                            .await?
                     };
                     let control = operations.control(operation_id).await?;
                     let traceparent = if traced_transfer {
@@ -570,6 +570,7 @@ pub(crate) async fn run_transfer_fixture(
             let rust_store = rust_store.clone();
             let resources = resources.clone();
             async move {
+                let handle = ctx.handle().clone();
                 let ctx = ctx.into_request_context();
                 let bytes = Bytes::from(format!("rust-download:{}", input.key));
                 rust_store.write(&input.key, bytes.clone()).await?;
@@ -597,13 +598,13 @@ pub(crate) async fn run_transfer_fixture(
                     },
                 })?;
                 let grant = plan.grant.clone();
-                spawn_download_transfer_endpoint(
-                    service_client.nats().clone(),
-                    plan,
-                    rust_store,
-                    DefaultRequestValidator::new(Arc::clone(&service_client)),
-                )
-                .await?;
+                handle
+                    .spawn_download_transfer_endpoint(
+                        plan,
+                        rust_store,
+                        DefaultRequestValidator::new(Arc::clone(&service_client)),
+                    )
+                    .await?;
                 serde_json::to_value(grant).map_err(ServerError::Json)
             }
         }

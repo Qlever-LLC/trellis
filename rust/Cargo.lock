@@ -3768,6 +3768,7 @@ dependencies = [
  "clap",
  "futures-util",
  "miette",
+ "nkeys",
  "reqwest",
  "serde",
  "serde_json",

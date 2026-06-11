@@ -9,8 +9,7 @@ pub struct EventPublisher {
 }
 
 impl EventPublisher {
-    /// Wrap an existing NATS client.
-    pub fn new(client: async_nats::Client) -> Self {
+    pub(crate) fn new(client: async_nats::Client) -> Self {
         Self { client }
     }
 

@@ -19,9 +19,9 @@ use trellis_rs::contracts::{
     ContractManifestBuilder,
 };
 use trellis_rs::jobs::{
-    completed_event, created_event, dead_event, failed_event, start_worker_host_from_binding,
-    started_event, JobCancellationToken, JobManager, JobMetaSource, JobProcessError,
-    JobProcessOutcome, JobsRuntimeBinding, NatsJobEventPublisher, WorkerHostOptions,
+    completed_event, created_event, dead_event, failed_event, start_worker_host_from_client,
+    started_event, JobCancellationToken, JobEventHeaders, JobEventPublisher, JobManager,
+    JobMetaSource, JobProcessError, JobProcessOutcome, JobsRuntimeBinding, WorkerHostOptions,
 };
 use trellis_rs::jobs::{
     job_event_subject, worker_heartbeat_subject, Job, JobContext, JobEvent, JobLogLevel,
@@ -40,6 +40,7 @@ use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
 use crate::deno_fixture::{deno_fixture_log_paths, deno_fixture_path};
 use crate::deployment_authority::plan_accept_reconcile_deployment_authority;
+use crate::nats::connect_service_nats_with_retry;
 use crate::workspace::repo_root;
 
 const JOBS_DEPLOYMENT_ID: &str = "harness.jobs-admin";
@@ -167,9 +168,15 @@ pub(crate) async fn run_jobs_fixture(
         JobsAdminServiceMode::Owner,
         &jobs_db_path,
     )?;
-    let jobs_runtime_client =
+    let _jobs_runtime_client =
         connect_jobs_service_client_with_retry(trellis_url, &jobs_service_seed).await?;
-    let jobs_nats = jobs_runtime_client.nats().clone();
+    let jobs_nats = connect_service_nats_with_retry(
+        trellis_url,
+        trellis_rs::sdk::jobs::CONTRACT_ID,
+        trellis_rs::sdk::jobs::CONTRACT_DIGEST,
+        &jobs_service_seed,
+    )
+    .await?;
     let local_jobs_services =
         setup_service_local_jobs(trellis_url, &auth_client, &admin_client).await?;
 
@@ -401,7 +408,47 @@ fn jobs_caller_contract_json(read: bool, mutate: bool) -> Result<String> {
 
 struct LocalJobsServices {
     rust_client: TrellisClient,
+    rust_nats: async_nats::Client,
     ts_process: TsLocalJobsServiceProcess,
+}
+
+#[derive(Clone)]
+struct HarnessJobEventPublisher {
+    nats: async_nats::Client,
+}
+
+impl HarnessJobEventPublisher {
+    fn new(nats: async_nats::Client) -> Self {
+        Self { nats }
+    }
+}
+
+impl JobEventPublisher for HarnessJobEventPublisher {
+    type Error = String;
+
+    fn publish(
+        &self,
+        subject: String,
+        headers: JobEventHeaders,
+        payload: Vec<u8>,
+    ) -> impl std::future::Future<Output = std::result::Result<(), Self::Error>> + Send {
+        let nats = self.nats.clone();
+        async move {
+            let mut nats_headers = async_nats::HeaderMap::new();
+            nats_headers.insert("request-id", headers.request_id.as_str());
+            nats_headers.insert("traceparent", headers.traceparent.as_str());
+            if let Some(tracestate) = headers.tracestate.as_deref() {
+                nats_headers.insert("tracestate", tracestate);
+            }
+            nats.publish_with_headers(subject, nats_headers, payload.into())
+                .await
+                .map_err(|error| error.to_string())
+        }
+    }
+}
+
+fn job_publisher(nats: &async_nats::Client) -> HarnessJobEventPublisher {
+    HarnessJobEventPublisher::new(nats.clone())
 }
 
 async fn setup_service_local_jobs(
@@ -449,12 +496,20 @@ async fn setup_service_local_jobs(
     let rust_client =
         connect_local_jobs_service_with_retry(trellis_url, &contract_digest, &rust_service_seed)
             .await?;
+    let rust_nats = connect_service_nats_with_retry(
+        trellis_url,
+        LOCAL_JOBS_CONTRACT_ID,
+        &contract_digest,
+        &rust_service_seed,
+    )
+    .await?;
     let ts_process =
         TsLocalJobsServiceProcess::start(trellis_url, &contract_digest, &ts_service_seed)?;
     ts_process.wait_ready().await?;
 
     Ok(LocalJobsServices {
         rust_client,
+        rust_nats,
         ts_process,
     })
 }
@@ -464,7 +519,8 @@ async fn run_service_local_jobs_fixture(
     services: LocalJobsServices,
 ) -> Result<()> {
     let (rust_job_id, rust_cancelled_job_id) =
-        run_rust_service_local_jobs(jobs_client, &services.rust_client).await?;
+        run_rust_service_local_jobs(jobs_client, &services.rust_client, &services.rust_nats)
+            .await?;
     let rust_job = await_job_state(jobs_client, &rust_job_id, "completed").await?;
     assert_job_result(&rust_job, "rust-service-local", "rust", "Rust JobManager")?;
     assert_job_result_echoed_context(&rust_job, "Rust JobManager")?;
@@ -481,8 +537,13 @@ async fn run_service_local_jobs_fixture(
     assert_job_result_echoed_context(&ts_job, "TS service.jobs")?;
 
     let ts_created_rust_job_id = services.ts_process.wait_ts_created_rust_created().await?;
-    process_ts_created_rust_job(jobs_client, &services.rust_client, &ts_created_rust_job_id)
-        .await?;
+    process_ts_created_rust_job(
+        jobs_client,
+        &services.rust_client,
+        &services.rust_nats,
+        &ts_created_rust_job_id,
+    )
+    .await?;
     services.ts_process.wait_ts_created_rust_completed().await?;
     let ts_created_rust_job =
         await_job_state(jobs_client, &ts_created_rust_job_id, "completed").await?;
@@ -494,7 +555,8 @@ async fn run_service_local_jobs_fixture(
     )?;
     assert_job_result_echoed_context(&ts_created_rust_job, "TS-created Rust-handled job")?;
 
-    let rust_created_ts_job_id = create_rust_created_ts_job(&services.rust_client).await?;
+    let rust_created_ts_job_id =
+        create_rust_created_ts_job(&services.rust_client, &services.rust_nats).await?;
     let rust_created_ts_job =
         await_job_state(jobs_client, &rust_created_ts_job_id, "completed").await?;
     assert_job_result(
@@ -512,16 +574,20 @@ async fn run_service_local_jobs_fixture(
         "cancelled",
         "TS service.jobs active cancel",
     )?;
-    assert_cancelled_before_worker_start(jobs_client, &services.rust_client).await?;
-    assert_queue_concurrency(jobs_client, &services.rust_client).await?;
-    assert_worker_shutdown_requeues(jobs_client, &services.rust_client).await?;
-    assert_natural_max_deliveries_dead(jobs_client, &services.rust_client).await?;
+    assert_cancelled_before_worker_start(jobs_client, &services.rust_client, &services.rust_nats)
+        .await?;
+    assert_queue_concurrency(jobs_client, &services.rust_client, &services.rust_nats).await?;
+    assert_worker_shutdown_requeues(jobs_client, &services.rust_client, &services.rust_nats)
+        .await?;
+    assert_natural_max_deliveries_dead(jobs_client, &services.rust_client, &services.rust_nats)
+        .await?;
     Ok(())
 }
 
 async fn run_rust_service_local_jobs(
     jobs_client: &JobsClient<'_>,
     rust_client: &TrellisClient,
+    rust_nats: &async_nats::Client,
 ) -> Result<(String, String)> {
     let binding_value = rust_client
         .service_bootstrap_binding()
@@ -532,7 +598,7 @@ async fn run_rust_service_local_jobs(
     let runtime_binding = JobsRuntimeBinding::try_from(&binding)
         .map_err(|error| miette!("failed to decode service-local Jobs runtime binding: {error}"))?;
     let complete_manager = JobManager::new(
-        NatsJobEventPublisher::new(rust_client.nats().clone()),
+        job_publisher(rust_nats),
         runtime_binding.jobs.clone(),
         FixedJobMetaSource::new(
             "job-rust-service-local-1",
@@ -581,7 +647,7 @@ async fn run_rust_service_local_jobs(
     }
 
     let cancel_create_manager = JobManager::new(
-        NatsJobEventPublisher::new(rust_client.nats().clone()),
+        job_publisher(rust_nats),
         runtime_binding.jobs.clone(),
         FixedJobMetaSource::new(
             "job-rust-service-local-cancel-1",
@@ -602,7 +668,7 @@ async fn run_rust_service_local_jobs(
     let cancellation = JobCancellationToken::new();
     let process_cancellation = cancellation.clone();
     let process_manager = JobManager::new(
-        NatsJobEventPublisher::new(rust_client.nats().clone()),
+        job_publisher(rust_nats),
         runtime_binding.jobs.clone(),
         FixedJobMetaSource::new(
             "ignored-rust-cancel-process",
@@ -630,7 +696,7 @@ async fn run_rust_service_local_jobs(
         return Err(error);
     }
     let cancel_manager = JobManager::new(
-        NatsJobEventPublisher::new(rust_client.nats().clone()),
+        job_publisher(rust_nats),
         runtime_binding.jobs,
         FixedJobMetaSource::new(
             "ignored-rust-cancel-event",
@@ -660,6 +726,7 @@ async fn run_rust_service_local_jobs(
 async fn process_ts_created_rust_job(
     jobs_client: &JobsClient<'_>,
     rust_client: &TrellisClient,
+    rust_nats: &async_nats::Client,
     job_id: &str,
 ) -> Result<()> {
     let projected = await_job_state(jobs_client, job_id, "pending").await?;
@@ -670,7 +737,7 @@ async fn process_ts_created_rust_job(
     .map_err(|error| miette!("failed to decode TS-created Rust job: {error}"))?;
     let binding = service_local_runtime_binding(rust_client)?;
     let manager = JobManager::new(
-        NatsJobEventPublisher::new(rust_client.nats().clone()),
+        job_publisher(rust_nats),
         binding.jobs,
         FixedJobMetaSource::new(
             "ignored-ts-created-rust-process",
@@ -706,10 +773,13 @@ async fn process_ts_created_rust_job(
     Ok(())
 }
 
-async fn create_rust_created_ts_job(rust_client: &TrellisClient) -> Result<String> {
+async fn create_rust_created_ts_job(
+    rust_client: &TrellisClient,
+    rust_nats: &async_nats::Client,
+) -> Result<String> {
     let binding = service_local_runtime_binding(rust_client)?;
     let manager = JobManager::new(
-        NatsJobEventPublisher::new(rust_client.nats().clone()),
+        job_publisher(rust_nats),
         binding.jobs,
         FixedJobMetaSource::new(
             "job-rust-created-ts-worker-1",
@@ -1129,6 +1199,7 @@ async fn assert_janitor_expiry(
 async fn assert_natural_max_deliveries_dead(
     jobs_client: &JobsClient<'_>,
     rust_client: &TrellisClient,
+    rust_nats: &async_nats::Client,
 ) -> Result<()> {
     let binding = service_local_runtime_binding(rust_client)?;
     binding
@@ -1138,7 +1209,7 @@ async fn assert_natural_max_deliveries_dead(
         .ok_or_else(|| miette!("service-local Rust natural-dead queue binding is missing"))?;
 
     let manager = JobManager::new(
-        NatsJobEventPublisher::new(rust_client.nats().clone()),
+        job_publisher(rust_nats),
         binding.jobs.clone(),
         FixedJobMetaSource::new("job-local-natural-dead-1", vec!["2026-03-28T12:04:00.000Z"]),
     );
@@ -1151,14 +1222,10 @@ async fn assert_natural_max_deliveries_dead(
         .map_err(|error| miette!("failed to create natural max-deliveries job: {error}"))?;
 
     await_job_state(jobs_client, &job.id, "pending").await?;
-    let worker = start_worker_host_from_binding(
-        rust_client.nats().clone(),
+    let worker = start_worker_host_from_client(
+        rust_client,
         binding,
         "harness-jobs-natural-dead-worker".to_string(),
-        {
-            let nats = rust_client.nats().clone();
-            move || NatsJobEventPublisher::new(nats.clone())
-        },
         |_queue_type, worker_index| {
             FixedJobMetaSource::new(
                 format!("ignored-natural-dead-worker-{worker_index}"),
@@ -1210,6 +1277,7 @@ async fn assert_natural_max_deliveries_dead(
 async fn assert_cancelled_before_worker_start(
     jobs_client: &JobsClient<'_>,
     rust_client: &TrellisClient,
+    rust_nats: &async_nats::Client,
 ) -> Result<()> {
     let binding = service_local_runtime_binding(rust_client)?;
     binding
@@ -1218,7 +1286,7 @@ async fn assert_cancelled_before_worker_start(
         .get(LOCAL_RUST_QUEUE)
         .ok_or_else(|| miette!("service-local Rust queue binding is missing"))?;
     let manager = JobManager::new(
-        NatsJobEventPublisher::new(rust_client.nats().clone()),
+        job_publisher(rust_nats),
         binding.jobs.clone(),
         FixedJobMetaSource::new(
             "job-local-cancel-before-worker-1",
@@ -1248,14 +1316,10 @@ async fn assert_cancelled_before_worker_start(
 
     let handler_calls = Arc::new(AtomicUsize::new(0));
     let cancelled_job_id = job.id.clone();
-    let worker = start_worker_host_from_binding(
-        rust_client.nats().clone(),
+    let worker = start_worker_host_from_client(
+        rust_client,
         binding,
         "harness-jobs-cancel-before-worker".to_string(),
-        {
-            let nats = rust_client.nats().clone();
-            move || NatsJobEventPublisher::new(nats.clone())
-        },
         |_queue_type, worker_index| {
             FixedJobMetaSource::new(
                 format!("ignored-cancel-before-worker-{worker_index}"),
@@ -1303,6 +1367,7 @@ async fn assert_cancelled_before_worker_start(
 async fn assert_queue_concurrency(
     jobs_client: &JobsClient<'_>,
     rust_client: &TrellisClient,
+    rust_nats: &async_nats::Client,
 ) -> Result<()> {
     let binding = service_local_runtime_binding(rust_client)?;
     binding
@@ -1311,14 +1376,10 @@ async fn assert_queue_concurrency(
         .get(LOCAL_RUST_CONCURRENCY_QUEUE)
         .ok_or_else(|| miette!("service-local Rust concurrency queue binding is missing"))?;
 
-    let worker = start_worker_host_from_binding(
-        rust_client.nats().clone(),
+    let worker = start_worker_host_from_client(
+        rust_client,
         binding.clone(),
         "harness-jobs-concurrency-worker".to_string(),
-        {
-            let nats = rust_client.nats().clone();
-            move || NatsJobEventPublisher::new(nats.clone())
-        },
         |_queue_type, worker_index| {
             FixedJobMetaSource::new(
                 format!("ignored-concurrency-worker-{worker_index}"),
@@ -1355,7 +1416,7 @@ async fn assert_queue_concurrency(
     }
 
     let manager = JobManager::new(
-        NatsJobEventPublisher::new(rust_client.nats().clone()),
+        job_publisher(rust_nats),
         binding.jobs.clone(),
         FixedJobMetaSource::new("job-local-concurrency-a", vec!["2026-03-28T12:06:00.000Z"]),
     );
@@ -1367,7 +1428,7 @@ async fn assert_queue_concurrency(
         .await
         .map_err(|error| miette!("failed to create concurrency job A: {error}"))?;
     let manager = JobManager::new(
-        NatsJobEventPublisher::new(rust_client.nats().clone()),
+        job_publisher(rust_nats),
         binding.jobs.clone(),
         FixedJobMetaSource::new("job-local-concurrency-b", vec!["2026-03-28T12:06:00.100Z"]),
     );
@@ -1393,6 +1454,7 @@ async fn assert_queue_concurrency(
 async fn assert_worker_shutdown_requeues(
     jobs_client: &JobsClient<'_>,
     rust_client: &TrellisClient,
+    rust_nats: &async_nats::Client,
 ) -> Result<()> {
     let binding = service_local_runtime_binding(rust_client)?;
     binding
@@ -1402,7 +1464,7 @@ async fn assert_worker_shutdown_requeues(
         .ok_or_else(|| miette!("service-local Rust shutdown queue binding is missing"))?;
 
     let manager = JobManager::new(
-        NatsJobEventPublisher::new(rust_client.nats().clone()),
+        job_publisher(rust_nats),
         binding.jobs.clone(),
         FixedJobMetaSource::new(
             "job-local-shutdown-requeue-1",
@@ -1417,14 +1479,10 @@ async fn assert_worker_shutdown_requeues(
         .await
         .map_err(|error| miette!("failed to create shutdown requeue job: {error}"))?;
 
-    let worker_a = start_worker_host_from_binding(
-        rust_client.nats().clone(),
+    let worker_a = start_worker_host_from_client(
+        rust_client,
         binding,
         "harness-jobs-shutdown-worker-a".to_string(),
-        {
-            let nats = rust_client.nats().clone();
-            move || NatsJobEventPublisher::new(nats.clone())
-        },
         |_queue_type, worker_index| {
             FixedJobMetaSource::new(
                 format!("ignored-shutdown-worker-a-{worker_index}"),
@@ -1465,14 +1523,10 @@ async fn assert_worker_shutdown_requeues(
         .queues
         .get(LOCAL_RUST_SHUTDOWN_QUEUE)
         .ok_or_else(|| miette!("service-local Rust shutdown queue binding is missing"))?;
-    let worker_b = start_worker_host_from_binding(
-        rust_client.nats().clone(),
+    let worker_b = start_worker_host_from_client(
+        rust_client,
         binding,
         "harness-jobs-shutdown-worker-b".to_string(),
-        {
-            let nats = rust_client.nats().clone();
-            move || NatsJobEventPublisher::new(nats.clone())
-        },
         |_queue_type, worker_index| {
             FixedJobMetaSource::new(
                 format!("ignored-shutdown-worker-b-{worker_index}"),

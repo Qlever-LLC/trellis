@@ -66,7 +66,7 @@ async fn assert_generated_health_publish_subscribe(client: &TrellisClient) -> Re
         .subscribe::<HealthHeartbeatEventDescriptor>()
         .await
         .into_diagnostic()?;
-    client.nats().flush().await.into_diagnostic()?;
+    client.flush().await.into_diagnostic()?;
 
     let heartbeat = heartbeat_event("health-sdk-positive")?;
     SdkHealthClient::new(client)
@@ -76,7 +76,7 @@ async fn assert_generated_health_publish_subscribe(client: &TrellisClient) -> Re
         .publish(&heartbeat)
         .await
         .into_diagnostic()?;
-    client.nats().flush().await.into_diagnostic()?;
+    client.flush().await.into_diagnostic()?;
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
@@ -108,7 +108,7 @@ async fn assert_generated_health_denied_publish(client: &TrellisClient) -> Resul
             .publish(&heartbeat_event("health-sdk-denied")?)
             .await
             .into_diagnostic()?;
-        client.nats().flush().await.into_diagnostic()
+        client.flush().await.into_diagnostic()
     }
     .await;
     if result.is_ok() {

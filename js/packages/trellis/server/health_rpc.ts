@@ -10,7 +10,7 @@ import {
 type HealthRpcServer = {
   name: string;
   api: TrellisAPI;
-  natsConnection: { isClosed(): boolean };
+  connection?: { status: { phase: string } };
   mount<M extends keyof TrellisAPI["rpc"] & string>(
     method: M,
     handler: (...args: unknown[]) => unknown,
@@ -40,10 +40,15 @@ export async function mountStandardHealthRpc(
 
   const method = rpcName as keyof TrellisAPI["rpc"] & string;
   await server.mount(method, async () => {
+    const connection = server.connection;
     const response = opts?.response
       ? await opts.response()
       : await runAllHealthChecks(server.name, {
-        nats: async () => Result.ok(!server.natsConnection.isClosed()),
+        ...(connection
+          ? {
+            nats: async () => Result.ok(connection.status.phase !== "closed"),
+          }
+          : {}),
         ...(opts?.checks ?? {}),
       });
     return Result.ok(response);

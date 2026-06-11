@@ -2,7 +2,8 @@ use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use serde_json::Value;
 
-use super::{HandlerResponse, RequestContext, Router, ServerError};
+use super::request_loop::HandlerResponse;
+use super::{RequestContext, Router, ServerError};
 
 /// Result returned by request validators after checking caller authorization.
 #[derive(Debug, Clone, Default, PartialEq)]

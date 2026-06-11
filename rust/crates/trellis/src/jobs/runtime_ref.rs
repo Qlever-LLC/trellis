@@ -12,7 +12,7 @@ const JOBS_STREAM: &str = "JOBS";
 
 /// NATS-backed implementation of Trellis service-local job waiting.
 #[derive(Clone)]
-pub struct NatsJobWaiter {
+pub(crate) struct NatsJobWaiter {
     nats: async_nats::Client,
     queue: JobsQueueBinding,
     timeout: Duration,
@@ -20,7 +20,11 @@ pub struct NatsJobWaiter {
 
 impl NatsJobWaiter {
     /// Create a waiter for one bound service-local jobs queue.
-    pub fn new(nats: async_nats::Client, queue: JobsQueueBinding, timeout: Duration) -> Self {
+    pub(crate) fn new(
+        nats: async_nats::Client,
+        queue: JobsQueueBinding,
+        timeout: Duration,
+    ) -> Self {
         Self {
             nats,
             queue,

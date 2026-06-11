@@ -30,6 +30,7 @@ type BuildDntPackageOptions = {
   denoShims?: boolean;
   externalizePackageDirs?: Record<string, string>;
   mappings?: DntSpecifierMappings;
+  compilerOptions?: Record<string, unknown>;
 };
 
 const repositoryUrl = "git+https://github.com/Qlever-LLC/trellis.git";
@@ -174,6 +175,7 @@ export async function buildDntPackage(options: BuildDntPackageOptions) {
         peerDependencies,
       },
       mappings: options.mappings,
+      compilerOptions: options.compilerOptions,
       importMap: options.importMap
         ? join(packageDir, options.importMap)
         : undefined,

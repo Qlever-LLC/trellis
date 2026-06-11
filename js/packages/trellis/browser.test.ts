@@ -14,29 +14,22 @@ import {
   RemoteError,
   StoreError,
   TransferError,
-  // Core Trellis class
-  Trellis,
   type TrellisAuth,
   type TrellisErrorInstance,
-  // KV exports
-  TypedKV,
   TypedKVEntry,
-  TypedStore,
   TypedStoreEntry,
   UnexpectedError,
   ValidationError,
   type WatchEvent,
   type WatchOptions,
 } from "./browser.ts";
+import * as browser from "./browser.ts";
 
-Deno.test("browser exports - Trellis class is exported", () => {
-  assertExists(Trellis, "Trellis class should be exported");
-  assertEquals(typeof Trellis, "function", "Trellis should be a constructor");
-});
-
-Deno.test("browser exports - TypedKV class is exported", () => {
-  assertExists(TypedKV, "TypedKV class should be exported");
-  assertEquals(typeof TypedKV, "function", "TypedKV should be a constructor");
+Deno.test("browser exports exclude raw runtime constructors", () => {
+  assertEquals("Trellis" in browser, false);
+  assertEquals("TypedKV" in browser, false);
+  assertEquals("TypedStore" in browser, false);
+  assertEquals("createTransferHandle" in browser, false);
 });
 
 Deno.test("browser exports - TypedKVEntry class is exported", () => {
@@ -45,15 +38,6 @@ Deno.test("browser exports - TypedKVEntry class is exported", () => {
     typeof TypedKVEntry,
     "function",
     "TypedKVEntry should be a constructor",
-  );
-});
-
-Deno.test("browser exports - TypedStore class is exported", () => {
-  assertExists(TypedStore, "TypedStore class should be exported");
-  assertEquals(
-    typeof TypedStore,
-    "function",
-    "TypedStore should be a constructor",
   );
 });
 

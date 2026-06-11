@@ -1,3 +1,8 @@
+#![expect(
+    dead_code,
+    reason = "low-level NATS worker helpers are internal behind start_worker_host_from_client"
+)]
+
 use std::future::Future;
 use std::sync::{
     atomic::{AtomicU8, Ordering},
@@ -15,7 +20,7 @@ use crate::jobs::bindings::{JobsQueueBinding, JobsRuntimeBinding};
 use crate::jobs::job_key;
 use crate::jobs::manager::{JobManager, JobMetaSource, JobProcessError, JobProcessOutcome};
 use crate::jobs::projection::job_from_work_event;
-use crate::jobs::publisher::{JobEventHeaders, JobEventPublisher};
+use crate::jobs::publisher::JobEventPublisher;
 use crate::jobs::registry::{
     start_worker_heartbeat_loop, ActiveJobCancellationRegistry, ServiceRegistryError,
     WorkerHeartbeatHandle,
@@ -101,43 +106,6 @@ impl JobCancellationToken {
             if self.is_cancelled() {
                 return;
             }
-        }
-    }
-}
-
-/// [`JobEventPublisher`] backed by a NATS client.
-#[derive(Clone)]
-pub struct NatsJobEventPublisher {
-    nats: async_nats::Client,
-}
-
-impl NatsJobEventPublisher {
-    /// Create a publisher that writes encoded job events to NATS.
-    pub fn new(nats: async_nats::Client) -> Self {
-        Self { nats }
-    }
-}
-
-impl JobEventPublisher for NatsJobEventPublisher {
-    type Error = String;
-
-    fn publish(
-        &self,
-        subject: String,
-        headers: JobEventHeaders,
-        payload: Vec<u8>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        let nats = self.nats.clone();
-        async move {
-            let mut nats_headers = async_nats::HeaderMap::new();
-            nats_headers.insert("request-id", headers.request_id.as_str());
-            nats_headers.insert("traceparent", headers.traceparent.as_str());
-            if let Some(tracestate) = headers.tracestate.as_deref() {
-                nats_headers.insert("tracestate", tracestate);
-            }
-            nats.publish_with_headers(subject, nats_headers, payload.into())
-                .await
-                .map_err(|error| error.to_string())
         }
     }
 }

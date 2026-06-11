@@ -23,6 +23,7 @@ use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
 use crate::deno_fixture::{deno_fixture_log_paths, deno_fixture_path};
 use crate::deployment_authority::plan_accept_reconcile_deployment_authority;
+use crate::nats::connect_admin_nats;
 use crate::workspace::repo_root;
 
 const HARNESS_DEPLOYMENT_ID: &str = "harness.events";
@@ -410,8 +411,9 @@ pub(crate) async fn run_events_fixture(
     let caller_client = connect_admin_client_async(&caller_login.state)
         .await
         .into_diagnostic()?;
+    let caller_nats = connect_admin_nats(&caller_login.state).await?;
 
-    assert_rust_publish_rust_subscribe(&caller_client)
+    assert_rust_publish_rust_subscribe(&caller_client, &caller_nats)
         .await
         .map_err(|error| miette!("rust publish -> rust subscribe failed: {error}"))?;
     assert_rust_publish_ts_subscribe(
@@ -432,6 +434,7 @@ pub(crate) async fn run_events_fixture(
         trellis_url,
         &caller_login.state.session_seed,
         &caller_client,
+        &caller_nats,
     )
     .await
     .map_err(|error| miette!("TS traced publish -> rust subscribe failed: {error}"))?;
@@ -472,7 +475,7 @@ pub(crate) async fn run_events_fixture(
     assert_rust_invalid_payload_terminates(
         nats_server,
         trellis_creds,
-        &caller_client,
+        &caller_nats,
         RUST_INVALID_TERM_GROUP,
     )
     .await
@@ -487,7 +490,7 @@ pub(crate) async fn run_events_fixture(
     )
     .await
     .map_err(|error| miette!("TS invalid event termination failed: {error}"))?;
-    assert_rust_ephemeral_abort(&caller_client)
+    assert_rust_ephemeral_abort(&caller_client, &caller_nats)
         .await
         .map_err(|error| miette!("Rust ephemeral event abort failed: {error}"))?;
     run_ts_event_behavior(
@@ -500,7 +503,7 @@ pub(crate) async fn run_events_fixture(
     )
     .await
     .map_err(|error| miette!("TS ephemeral event abort failed: {error}"))?;
-    assert_rust_prepared_outbox_inbox(&caller_client, nats_server, trellis_creds)
+    assert_rust_prepared_outbox_inbox(&caller_client, &caller_nats, nats_server, trellis_creds)
         .await
         .map_err(|error| miette!("Rust prepared outbox/inbox case failed: {error}"))?;
     open_events_kv_store(nats_server, trellis_creds, "inbox_prepared_outbox_inbox")
@@ -644,9 +647,12 @@ async fn reauth_contract(
     }
 }
 
-async fn assert_rust_publish_rust_subscribe(client: &TrellisClient) -> Result<()> {
-    let mut events = subscribe_live_messages::<HarnessRustEvent>(client).await?;
-    client.nats().flush().await.into_diagnostic()?;
+async fn assert_rust_publish_rust_subscribe(
+    client: &TrellisClient,
+    nats: &async_nats::Client,
+) -> Result<()> {
+    let mut events = subscribe_live_messages::<HarnessRustEvent>(nats).await?;
+    client.flush().await.into_diagnostic()?;
     let expected = HarnessEventPayload {
         message: "rust-publish-rust-subscribe".to_string(),
         header: Some(event_header("rust-publish-rust-subscribe")),
@@ -655,7 +661,7 @@ async fn assert_rust_publish_rust_subscribe(client: &TrellisClient) -> Result<()
         .publish::<HarnessRustEvent>(&expected)
         .await
         .into_diagnostic()?;
-    client.nats().flush().await.into_diagnostic()?;
+    client.flush().await.into_diagnostic()?;
     let event = expect_live_message::<HarnessRustEvent>(&mut events).await?;
     if decode_live_message::<HarnessRustEvent>(&event)? != expected {
         return Err(miette!("{} event mismatch", HarnessRustEvent::KEY));
@@ -683,7 +689,7 @@ async fn assert_rust_publish_ts_subscribe(
         })
         .await
         .into_diagnostic()?;
-    client.nats().flush().await.into_diagnostic()?;
+    client.flush().await.into_diagnostic()?;
     ts_subscriber.wait_ok().await
 }
 
@@ -696,7 +702,7 @@ async fn assert_ts_publish_rust_subscribe(
         .subscribe::<HarnessTsEvent>()
         .await
         .into_diagnostic()?;
-    client.nats().flush().await.into_diagnostic()?;
+    client.flush().await.into_diagnostic()?;
     let expected = HarnessEventPayload {
         message: "ts-publish-rust-subscribe".to_string(),
         header: None,
@@ -709,9 +715,10 @@ async fn assert_ts_trace_publish_rust_subscribe(
     trellis_url: &str,
     caller_session_seed: &str,
     client: &TrellisClient,
+    nats: &async_nats::Client,
 ) -> Result<()> {
-    let mut events = subscribe_live_messages::<HarnessTsEvent>(client).await?;
-    client.nats().flush().await.into_diagnostic()?;
+    let mut events = subscribe_live_messages::<HarnessTsEvent>(nats).await?;
+    client.flush().await.into_diagnostic()?;
     let expected_message = "ts-trace-publish-rust-subscribe";
     let trace_id =
         run_ts_trace_publisher(trellis_url, caller_session_seed, expected_message).await?;
@@ -771,7 +778,7 @@ async fn assert_rust_handler_nak_redelivery(
         .publish::<HarnessRustEvent>(&expected)
         .await
         .into_diagnostic()?;
-    publisher_client.nats().flush().await.into_diagnostic()?;
+    publisher_client.flush().await.into_diagnostic()?;
 
     let first = expect_jetstream_message::<HarnessRustEvent>(&mut events).await?;
     if decode_jetstream_message::<HarnessRustEvent>(&first)? != expected {
@@ -794,13 +801,13 @@ async fn assert_rust_handler_nak_redelivery(
 async fn assert_rust_invalid_payload_terminates(
     nats_server: &str,
     trellis_creds: &Path,
-    publisher_client: &TrellisClient,
+    publisher_nats: &async_nats::Client,
     durable_name: &str,
 ) -> Result<()> {
     let consumer = open_harness_durable_consumer(nats_server, trellis_creds, durable_name).await?;
     let mut events = consumer.messages().await.into_diagnostic()?;
     publish_raw_event(
-        publisher_client,
+        publisher_nats,
         HARNESS_RUST_EVENT_SUBJECT,
         &json!({ "header": { "id": "invalid", "time": "2026-05-13T00:00:00.000Z" } }),
     )
@@ -816,9 +823,12 @@ async fn assert_rust_invalid_payload_terminates(
     expect_no_jetstream_message::<HarnessRustEvent>(&mut events).await
 }
 
-async fn assert_rust_ephemeral_abort(client: &TrellisClient) -> Result<()> {
-    let mut events = subscribe_live_messages::<HarnessRustEvent>(client).await?;
-    client.nats().flush().await.into_diagnostic()?;
+async fn assert_rust_ephemeral_abort(
+    client: &TrellisClient,
+    nats: &async_nats::Client,
+) -> Result<()> {
+    let mut events = subscribe_live_messages::<HarnessRustEvent>(nats).await?;
+    client.flush().await.into_diagnostic()?;
     client
         .publish::<HarnessRustEvent>(&HarnessEventPayload {
             message: "rust-ephemeral-first".to_string(),
@@ -838,19 +848,20 @@ async fn assert_rust_ephemeral_abort(client: &TrellisClient) -> Result<()> {
         })
         .await
         .into_diagnostic()?;
-    client.nats().flush().await.into_diagnostic()?;
+    client.flush().await.into_diagnostic()?;
 
-    let mut fresh = subscribe_live_messages::<HarnessRustEvent>(client).await?;
+    let mut fresh = subscribe_live_messages::<HarnessRustEvent>(nats).await?;
     expect_no_live_message::<HarnessRustEvent>(&mut fresh).await
 }
 
 async fn assert_rust_prepared_outbox_inbox(
     client: &TrellisClient,
+    nats: &async_nats::Client,
     nats_server: &str,
     trellis_creds: &Path,
 ) -> Result<()> {
-    let mut events = subscribe_live_messages::<HarnessRustEvent>(client).await?;
-    client.nats().flush().await.into_diagnostic()?;
+    let mut events = subscribe_live_messages::<HarnessRustEvent>(nats).await?;
+    client.flush().await.into_diagnostic()?;
 
     let expected = HarnessEventPayload {
         message: "rust-prepared-outbox-inbox".to_string(),
@@ -941,7 +952,7 @@ async fn assert_rust_denied_publish(client: &TrellisClient) -> Result<()> {
             .publish::<HarnessRustEvent>(&event)
             .await
             .into_diagnostic()?;
-        client.nats().flush().await.into_diagnostic()
+        client.flush().await.into_diagnostic()
     }
     .await;
     if result.is_ok() {
@@ -994,7 +1005,7 @@ async fn assert_rust_denied_subscribe(client: &TrellisClient) -> Result<()> {
         .subscribe::<HarnessRustEvent>()
         .await
         .into_diagnostic()?;
-    client.nats().flush().await.into_diagnostic()?;
+    client.flush().await.into_diagnostic()?;
     client
         .publish::<HarnessRustEvent>(&HarnessEventPayload {
             message: "rust-denied-subscribe".to_string(),
@@ -1002,7 +1013,7 @@ async fn assert_rust_denied_subscribe(client: &TrellisClient) -> Result<()> {
         })
         .await
         .into_diagnostic()?;
-    client.nats().flush().await.into_diagnostic()?;
+    client.flush().await.into_diagnostic()?;
     if let Ok(Some(Ok(_))) = tokio::time::timeout(Duration::from_millis(500), events.next()).await {
         return Err(miette!(
             "Rust event subscribe unexpectedly received an event without subscribe permission"
@@ -1011,13 +1022,11 @@ async fn assert_rust_denied_subscribe(client: &TrellisClient) -> Result<()> {
     Ok(())
 }
 
-async fn subscribe_live_messages<D>(client: &TrellisClient) -> Result<async_nats::Subscriber>
+async fn subscribe_live_messages<D>(nats: &async_nats::Client) -> Result<async_nats::Subscriber>
 where
     D: trellis_rs::client::EventDescriptor<Event = HarnessEventPayload>,
 {
-    client
-        .nats()
-        .subscribe(D::SUBJECT.to_string())
+    nats.subscribe(D::SUBJECT.to_string())
         .await
         .into_diagnostic()
 }
@@ -1142,8 +1151,12 @@ where
     }
 }
 
-async fn publish_raw_event(client: &TrellisClient, subject: &str, payload: &Value) -> Result<()> {
-    let jetstream = async_nats::jetstream::new(client.nats().clone());
+async fn publish_raw_event(
+    nats: &async_nats::Client,
+    subject: &str,
+    payload: &Value,
+) -> Result<()> {
+    let jetstream = async_nats::jetstream::new(nats.clone());
     let ack = jetstream
         .publish(
             subject.to_string(),

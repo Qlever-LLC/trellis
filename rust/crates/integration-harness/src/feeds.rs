@@ -22,6 +22,7 @@ use crate::app::admin_setup_contract_json;
 use crate::browser::{complete_local_login, BrowserContainer};
 use crate::deno_fixture::{deno_fixture_log_paths, deno_fixture_path};
 use crate::deployment_authority::plan_accept_reconcile_deployment_authority;
+use crate::nats::connect_admin_nats;
 use crate::workspace::repo_root;
 
 const HARNESS_DEPLOYMENT_ID: &str = "harness.feeds";
@@ -231,6 +232,7 @@ pub(crate) async fn run_feeds_fixture(
         let caller_client = connect_admin_client_async(&caller_login.state)
             .await
             .into_diagnostic()?;
+        let caller_nats = connect_admin_nats(&caller_login.state).await?;
         assert_rust_feed::<HarnessRustFeed>(
             &caller_client,
             "rust-client-rust-feed",
@@ -245,12 +247,14 @@ pub(crate) async fn run_feeds_fixture(
         .await?;
         assert_ready_frame_then_event::<HarnessRustFeed>(
             &caller_client,
+            &caller_nats,
             "rust-client-rust-ready-feed",
             "rust-feed:rust-client-rust-ready-feed",
         )
         .await?;
         assert_ready_frame_then_event::<HarnessTsFeed>(
             &caller_client,
+            &caller_nats,
             "rust-client-ts-ready-feed",
             "ts-feed:rust-client-ts-ready-feed",
         )
@@ -267,7 +271,7 @@ pub(crate) async fn run_feeds_fixture(
             "ts-feed",
         )
         .await?;
-        assert_invalid_feed_proof_denied(&caller_client).await?;
+        assert_invalid_feed_proof_denied(&caller_client, &caller_nats).await?;
         run_ts_client(trellis_url, &caller_login.state.session_seed).await?;
         Ok(PASSING_CASES)
     }
@@ -334,6 +338,7 @@ where
 
 async fn assert_ready_frame_then_event<F>(
     client: &TrellisClient,
+    nats: &async_nats::Client,
     topic: &str,
     expected_message: &str,
 ) -> Result<()>
@@ -359,17 +364,11 @@ where
         client.auth().inbox_prefix(),
         unique_suffix()
     );
-    let mut subscriber = client
-        .nats()
-        .subscribe(inbox.clone())
+    let mut subscriber = nats.subscribe(inbox.clone()).await.into_diagnostic()?;
+    nats.publish_with_reply_and_headers(F::SUBJECT.to_string(), inbox, headers, payload)
         .await
         .into_diagnostic()?;
-    client
-        .nats()
-        .publish_with_reply_and_headers(F::SUBJECT.to_string(), inbox, headers, payload)
-        .await
-        .into_diagnostic()?;
-    client.nats().flush().await.into_diagnostic()?;
+    client.flush().await.into_diagnostic()?;
 
     let ready = tokio::time::timeout(Duration::from_secs(10), subscriber.next())
         .await
@@ -401,11 +400,14 @@ where
         return Err(miette!("{} raw event mismatch: {event:?}", F::KEY));
     }
     drop(subscriber);
-    client.nats().flush().await.into_diagnostic()?;
+    client.flush().await.into_diagnostic()?;
     Ok(())
 }
 
-async fn assert_invalid_feed_proof_denied(client: &TrellisClient) -> Result<()> {
+async fn assert_invalid_feed_proof_denied(
+    client: &TrellisClient,
+    nats: &async_nats::Client,
+) -> Result<()> {
     let input = HarnessFeedInput {
         topic: "invalid-proof-rust-feed".to_string(),
     };
@@ -422,22 +424,16 @@ async fn assert_invalid_feed_proof_denied(client: &TrellisClient) -> Result<()> 
         client.auth().inbox_prefix(),
         unique_suffix()
     );
-    let mut subscriber = client
-        .nats()
-        .subscribe(inbox.clone())
-        .await
-        .into_diagnostic()?;
-    client
-        .nats()
-        .publish_with_reply_and_headers(
-            HARNESS_RUST_FEED_SUBJECT.to_string(),
-            inbox,
-            headers,
-            payload,
-        )
-        .await
-        .into_diagnostic()?;
-    client.nats().flush().await.into_diagnostic()?;
+    let mut subscriber = nats.subscribe(inbox.clone()).await.into_diagnostic()?;
+    nats.publish_with_reply_and_headers(
+        HARNESS_RUST_FEED_SUBJECT.to_string(),
+        inbox,
+        headers,
+        payload,
+    )
+    .await
+    .into_diagnostic()?;
+    nats.flush().await.into_diagnostic()?;
 
     let denial = tokio::time::timeout(Duration::from_secs(10), subscriber.next())
         .await

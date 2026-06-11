@@ -10,6 +10,8 @@ const dntShimDenoRuntimeDetectionPattern = /"Deno" in dntShim\.dntGlobalThis/;
 const generatedSdkRootRelativeImportPattern =
   /\.\.\/\.\.\/\.\.\/(?:contract|contracts|index)\.js/;
 const generatedSdkCoreAliasImportPattern = /\.\.\/core\/mod\.js/;
+const rawTransportDeclarationPattern =
+  /NatsConnection|natsConnection|nc: NatsConnection|createConnectedService|connectTrellisServiceWithRuntimeDeps|connectDeviceWithDeps/;
 const forbiddenBrowserArtifactPattern =
   /_dnt\.shims|@deno\/shim-deno|node:(?:fs|os|module)/;
 const moduleSpecifierPattern =
@@ -226,6 +228,35 @@ Deno.test("trellis npm browser graph excludes DNT and Node shims", async () => {
       false,
       fileHref,
     );
+  }
+});
+
+Deno.test("trellis npm public export declarations hide raw NATS handles", async () => {
+  const packageJsonUrl = new URL("../npm/package.json", import.meta.url);
+  try {
+    await Deno.stat(packageJsonUrl);
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) return;
+    throw error;
+  }
+
+  const packageJson = JSON.parse(await Deno.readTextFile(packageJsonUrl));
+  for (
+    const exportTarget of Object.values(packageJson.exports) as Array<
+      Record<"import" | "require", string>
+    >
+  ) {
+    for (const target of Object.values(exportTarget)) {
+      const declarationTarget = target.replace(/\.js$/, ".d.ts");
+      const source = await Deno.readTextFile(
+        new URL(`../npm/${declarationTarget}`, import.meta.url),
+      );
+      assertEquals(
+        rawTransportDeclarationPattern.test(source),
+        false,
+        declarationTarget,
+      );
+    }
   }
 });
 

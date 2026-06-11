@@ -25,6 +25,7 @@ use trellis_rs::service::{ConnectedServiceRuntime, DeclaredRpcError, HandlerResu
 use crate::browser::{complete_local_login, BrowserContainer};
 use crate::deno_fixture::{deno_fixture_log_paths, deno_fixture_path};
 use crate::deployment_authority::plan_accept_reconcile_deployment_authority;
+use crate::nats::{connect_admin_nats, connect_service_nats_with_retry};
 use crate::workspace::repo_root;
 
 pub(crate) const HARNESS_DEPLOYMENT_ID: &str = "harness.rpc";
@@ -374,6 +375,13 @@ pub(crate) async fn run_rpc_fixture(
             .into_diagnostic()
             .wrap_err("failed to connect RPC fixture Rust service")?,
     );
+    let service_nats = connect_service_nats_with_retry(
+        trellis_url,
+        HARNESS_CONTRACT_ID,
+        &contract_digest,
+        &rust_service_seed,
+    )
+    .await?;
 
     let mut service = ConnectedServiceRuntime::<()>::from_connected_client(
         HARNESS_RUST_SERVICE_NAME,
@@ -421,13 +429,20 @@ pub(crate) async fn run_rpc_fixture(
         let caller_client = connect_admin_client_async(&caller_login.state)
             .await
             .into_diagnostic()?;
+        let caller_nats = connect_admin_nats(&caller_login.state).await?;
         assert_auth_requests_validate_round_trip(
             service_client.as_ref(),
             &caller_client,
             &caller_login.user.user_id,
         )
         .await?;
-        assert_auth_protocol_matrix(service_client.as_ref(), &caller_client).await?;
+        assert_auth_protocol_matrix(
+            service_client.as_ref(),
+            &service_nats,
+            &caller_client,
+            &caller_nats,
+        )
+        .await?;
         assert_rust_client_ping::<HarnessRustPingRpc>(&caller_client, "rust-client-rust-service")
             .await?;
         assert_rust_client_ping::<HarnessTsPingRpc>(&caller_client, "rust-client-ts-service")
@@ -444,9 +459,18 @@ pub(crate) async fn run_rpc_fixture(
             &caller_login.user.user_id,
         )
         .await?;
-        assert_rust_client_trace_context::<HarnessRustTraceContextRpc>(&caller_client, "rust")
-            .await?;
-        assert_rust_client_trace_context::<HarnessTsTraceContextRpc>(&caller_client, "ts").await?;
+        assert_rust_client_trace_context::<HarnessRustTraceContextRpc>(
+            &caller_client,
+            &caller_nats,
+            "rust",
+        )
+        .await?;
+        assert_rust_client_trace_context::<HarnessTsTraceContextRpc>(
+            &caller_client,
+            &caller_nats,
+            "ts",
+        )
+        .await?;
         expect_rust_client_handler_error::<HarnessRustPingRpc>(&caller_client).await?;
         expect_rust_client_handler_error::<HarnessTsPingRpc>(&caller_client).await?;
         expect_rust_client_not_found_error::<HarnessRustPingRpc>(&caller_client).await?;
@@ -616,7 +640,9 @@ async fn assert_auth_requests_validate_round_trip(
 
 async fn assert_auth_protocol_matrix(
     validator_client: &TrellisClient,
+    validator_nats: &async_nats::Client,
     caller_client: &TrellisClient,
+    caller_nats: &async_nats::Client,
 ) -> Result<()> {
     let input = HarnessPingRequest {
         message: "auth-protocol-matrix".to_string(),
@@ -854,14 +880,18 @@ async fn assert_auth_protocol_matrix(
 
     assert_raw_rpc_denial(
         caller_client,
+        caller_nats,
         validator_client,
+        validator_nats,
         &payload,
         RawRpcDenial::MissingProof,
     )
     .await?;
     assert_raw_rpc_denial(
         caller_client,
+        caller_nats,
         validator_client,
+        validator_nats,
         &payload,
         RawRpcDenial::ReplyInboxMismatch,
     )
@@ -877,7 +907,9 @@ enum RawRpcDenial {
 
 async fn assert_raw_rpc_denial(
     caller_client: &TrellisClient,
+    caller_nats: &async_nats::Client,
     observer_client: &TrellisClient,
+    observer_nats: &async_nats::Client,
     payload: &[u8],
     case: RawRpcDenial,
 ) -> Result<()> {
@@ -893,12 +925,11 @@ async fn assert_raw_rpc_denial(
             unique_suffix()
         ),
     };
-    let subscriber_client = match case {
-        RawRpcDenial::MissingProof => caller_client,
-        RawRpcDenial::ReplyInboxMismatch => observer_client,
+    let subscriber_nats = match case {
+        RawRpcDenial::MissingProof => caller_nats,
+        RawRpcDenial::ReplyInboxMismatch => observer_nats,
     };
-    let mut subscriber = subscriber_client
-        .nats()
+    let mut subscriber = subscriber_nats
         .subscribe(reply_inbox.clone())
         .await
         .into_diagnostic()?;
@@ -917,8 +948,7 @@ async fn assert_raw_rpc_denial(
         headers.insert("request-id", request_id.as_str());
     }
 
-    caller_client
-        .nats()
+    caller_nats
         .publish_with_reply_and_headers(
             HARNESS_RUST_PING_SUBJECT.to_string(),
             reply_inbox,
@@ -927,7 +957,7 @@ async fn assert_raw_rpc_denial(
         )
         .await
         .into_diagnostic()?;
-    caller_client.nats().flush().await.into_diagnostic()?;
+    caller_nats.flush().await.into_diagnostic()?;
 
     let denial = tokio::time::timeout(Duration::from_secs(10), subscriber.next())
         .await
@@ -1190,6 +1220,7 @@ fn trace_id_from_traceparent(traceparent: &str) -> Option<&str> {
 
 pub(crate) async fn assert_rust_client_trace_context<R>(
     client: &TrellisClient,
+    nats: &async_nats::Client,
     provider: &str,
 ) -> Result<()>
 where
@@ -1198,7 +1229,7 @@ where
         Output = HarnessTraceContextResponse,
     >,
 {
-    let output = call_with_traceparent::<R>(client, HARNESS_TRACEPARENT).await?;
+    let output = call_with_traceparent::<R>(client, nats, HARNESS_TRACEPARENT).await?;
     if output.provider != provider
         || output.trace_id != HARNESS_RUST_TRACE_ID
         || !output.traceparent.contains(HARNESS_RUST_TRACE_ID)
@@ -1216,6 +1247,7 @@ where
 
 async fn call_with_traceparent<R>(
     client: &TrellisClient,
+    nats: &async_nats::Client,
     traceparent: &str,
 ) -> Result<HarnessTraceContextResponse>
 where
@@ -1236,8 +1268,7 @@ where
     headers.insert("iat", iat.to_string().as_str());
     headers.insert("request-id", request_id.as_str());
     headers.insert("traceparent", traceparent);
-    let response = client
-        .nats()
+    let response = nats
         .request_with_headers(R::SUBJECT.to_string(), headers, payload)
         .await
         .into_diagnostic()?;

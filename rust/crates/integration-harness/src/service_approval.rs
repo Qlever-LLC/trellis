@@ -11,6 +11,7 @@ use trellis_rs::service::{ConnectedServiceRuntime, HandlerResult, ServerError};
 use crate::app::admin_setup_contract_json;
 use crate::browser::BrowserContainer;
 use crate::deployment_authority::plan_accept_reconcile_deployment_authority;
+use crate::nats::connect_admin_nats;
 use crate::rpc::{
     assert_rust_client_caller_context, assert_rust_client_ping, assert_rust_client_trace_context,
     caller_context_response, harness_caller_contract_json, harness_service_contract_json,
@@ -142,6 +143,7 @@ pub(crate) async fn run_service_approval_fixture(
         let caller_client = connect_admin_client_async(&caller_login.state)
             .await
             .into_diagnostic()?;
+        let caller_nats = connect_admin_nats(&caller_login.state).await?;
         assert_rust_client_ping::<HarnessRustPingRpc>(&caller_client, "approval-rust-rust").await?;
         assert_rust_client_ping::<HarnessTsPingRpc>(&caller_client, "approval-rust-ts").await?;
         assert_rust_client_caller_context::<HarnessRustCallerContextRpc>(
@@ -156,9 +158,18 @@ pub(crate) async fn run_service_approval_fixture(
             &caller_login.user.user_id,
         )
         .await?;
-        assert_rust_client_trace_context::<HarnessRustTraceContextRpc>(&caller_client, "rust")
-            .await?;
-        assert_rust_client_trace_context::<HarnessTsTraceContextRpc>(&caller_client, "ts").await?;
+        assert_rust_client_trace_context::<HarnessRustTraceContextRpc>(
+            &caller_client,
+            &caller_nats,
+            "rust",
+        )
+        .await?;
+        assert_rust_client_trace_context::<HarnessTsTraceContextRpc>(
+            &caller_client,
+            &caller_nats,
+            "ts",
+        )
+        .await?;
         run_ts_client(
             trellis_url,
             &caller_login.state.session_seed,

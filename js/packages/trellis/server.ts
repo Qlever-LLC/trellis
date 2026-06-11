@@ -1799,12 +1799,12 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
 
   async stop(): Promise<void> {
     this.#stopPromise ??= (async () => {
-      if (this.natsConnection.isClosed()) {
+      if (this.nats.isClosed()) {
         return;
       }
 
       try {
-        await this.natsConnection.drain();
+        await this.nats.drain();
       } catch (cause) {
         if (
           !(cause instanceof Error) ||
@@ -1813,7 +1813,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
           throw cause;
         }
 
-        await this.natsConnection.closed().catch(() => undefined);
+        await this.nats.closed().catch(() => undefined);
       }
     })();
 

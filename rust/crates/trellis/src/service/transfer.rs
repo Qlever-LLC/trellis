@@ -1,3 +1,8 @@
+#![expect(
+    dead_code,
+    reason = "low-level transfer endpoints are internal behind generated operation helpers"
+)]
+
 use std::collections::BTreeMap;
 use std::time::Duration;
 
@@ -8,8 +13,9 @@ use serde::{Deserialize, Serialize};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tokio::sync::oneshot;
 
+use super::request_loop::encode_error_reply;
 use super::{
-    encode_error_reply, OperationTransferProgress, RequestContext, RequestValidator, ServerError,
+    OperationTransferProgress, RequestContext, RequestValidator, ServerError,
     ServiceResourceBindings, StoreResourceBinding, StoreResourceClient,
 };
 

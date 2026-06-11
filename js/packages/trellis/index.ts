@@ -157,9 +157,9 @@ export type {
   TerminalJob,
   WorkerInfo,
 } from "./jobs.ts";
-export { TypedKV, TypedKVEntry } from "./kv.ts";
+export { TypedKVEntry } from "./kv.ts";
 export type { WatchEvent, WatchOptions } from "./kv.ts";
-export { TypedStore, TypedStoreEntry } from "./store.ts";
+export { TypedStoreEntry } from "./store.ts";
 export type {
   StoreBody,
   StoreInfo,
@@ -168,7 +168,7 @@ export type {
   StoreStatus,
   StoreWaitOptions,
 } from "./store.ts";
-export { createTransferHandle, FileInfoSchema } from "./transfer.ts";
+export { FileInfoSchema } from "./transfer.ts";
 export type {
   FileInfo,
   ReceiveTransferGrant,
@@ -248,5 +248,4 @@ export type {
   TrellisFor,
   ValueStateStoreClient,
 } from "./trellis.ts";
-export { Trellis } from "./trellis.ts";
 export type { TrellisDeviceConnection } from "./device.ts";

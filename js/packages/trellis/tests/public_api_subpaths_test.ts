@@ -26,6 +26,8 @@ import { TrellisService as NodeTrellisService } from "@qlever-llc/trellis/servic
 type ServiceServerField = TrellisServiceType["server"];
 // @ts-expect-error Service runtime internals must not be public fields.
 type ServiceOperationsField = TrellisServiceType["operations"];
+// @ts-expect-error Raw NATS handles must not be public service fields.
+type ServiceNatsField = TrellisServiceType["nc"];
 
 Deno.test("service, health, and SDK subpaths expose the canonical wrapper API", () => {
   assertEquals("TrellisServer" in serviceSurface, false);

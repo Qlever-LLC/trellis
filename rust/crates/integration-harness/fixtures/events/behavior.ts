@@ -10,8 +10,8 @@ import {
 } from "@qlever-llc/trellis";
 import {
   dispatchOutbox,
-  NatsKvInboxRepository,
-  NatsKvOutboxRepository,
+  MemoryInboxRepository,
+  MemoryOutboxRepository,
 } from "@qlever-llc/trellis/service";
 import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
 import { Type } from "typebox";
@@ -167,12 +167,22 @@ if (testCase === "durable-resubscribe") {
   const durable = await openHarnessConsumer(
     `ts-events-invalid-${Deno.env.get("HARNESS_MESSAGE")}`,
   );
-  await jetstream(client.natsConnection).publish(
-    "events.v1.Harness.Rust.Event",
-    JSON.stringify({
-      header: { id: "invalid", time: "2026-05-13T00:00:00.000Z" },
-    }),
-  );
+  const invalidNats = await connect({
+    servers: Deno.env.get("HARNESS_NATS_SERVER")!,
+    authenticator: credsAuthenticator(
+      Deno.readFileSync(Deno.env.get("HARNESS_NATS_CREDS")!),
+    ),
+  });
+  try {
+    await jetstream(invalidNats).publish(
+      "events.v1.Harness.Rust.Event",
+      JSON.stringify({
+        header: { id: "invalid", time: "2026-05-13T00:00:00.000Z" },
+      }),
+    );
+  } finally {
+    await invalidNats.close();
+  }
   const invalid = await nextHarnessMessage(durable.consumer);
   if (typeof decodeHarnessMessage(invalid).message === "string") {
     throw new Error("invalid event unexpectedly decoded as valid payload");
@@ -204,19 +214,8 @@ if (testCase === "durable-resubscribe") {
   }
   await client.connection.close();
 } else if (testCase === "prepared-outbox-inbox") {
-  const bucketSuffix = (Deno.env.get("HARNESS_MESSAGE") ?? "prepared")
-    .replaceAll(/[^A-Za-z0-9_]/g, "_");
-  const serviceNats = await connect({
-    servers: Deno.env.get("HARNESS_NATS_SERVER")!,
-    authenticator: credsAuthenticator(
-      Deno.readFileSync(Deno.env.get("HARNESS_NATS_CREDS")!),
-    ),
-  });
   let processed = 0;
-  const inbox = await NatsKvInboxRepository.open(
-    serviceNats,
-    `trellis_harness_events_inbox_${bucketSuffix}`,
-  );
+  const inbox = new MemoryInboxRepository();
   const received = new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(
       () => reject(new Error("timed out waiting for prepared outbox event")),
@@ -271,10 +270,7 @@ if (testCase === "durable-resubscribe") {
     message: Deno.env.get("HARNESS_MESSAGE")!,
   }).take();
   if (isErr(prepared)) throw prepared.error;
-  const outbox = await NatsKvOutboxRepository.open(
-    serviceNats,
-    `trellis_harness_events_outbox_${bucketSuffix}`,
-  );
+  const outbox = new MemoryOutboxRepository();
   await outbox.enqueue(prepared);
   const dispatched = await dispatchOutbox(outbox, client, { limit: 1 });
   if (dispatched.dispatched !== 1 || dispatched.failed !== 0) {
@@ -284,7 +280,6 @@ if (testCase === "durable-resubscribe") {
   }
 
   await received;
-  await serviceNats.close();
   await client.connection.close();
 } else {
   throw new Error(`unknown HARNESS_EVENT_CASE ${testCase}`);

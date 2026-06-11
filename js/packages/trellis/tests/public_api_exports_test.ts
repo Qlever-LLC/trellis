@@ -31,19 +31,26 @@ import {
   TrellisClient,
   TrellisDevice,
   TrellisError,
-  TypedStore,
   TypedStoreEntry,
 } from "../index.ts";
 import * as trellis from "../index.ts";
 
 // @ts-expect-error Raw transport types must not be root exports.
 import type { NatsConnection } from "../index.ts";
+// @ts-expect-error Raw KV open helpers must not be root exports.
+import type { TypedKV } from "../index.ts";
+// @ts-expect-error Raw object store open helpers must not be root exports.
+import type { TypedStore } from "../index.ts";
+// @ts-expect-error Raw transfer handle constructors must not be root exports.
+import type { createTransferHandle } from "../index.ts";
 // @ts-expect-error Raw runtime state types must not be root exports.
 import type { RuntimeStateStores } from "../index.ts";
 // @ts-expect-error Raw auth internals must not be root exports.
 import type { TrellisAuth } from "../index.ts";
 // @ts-expect-error Raw auth internals must not be root exports.
 import type { TrellisSigner } from "../index.ts";
+// @ts-expect-error Raw runtime class must not be a root export.
+import type { Trellis } from "../index.ts";
 // @ts-expect-error Low-level operation transports must not be root exports.
 import type { OperationTransport } from "../index.ts";
 // @ts-expect-error Service runtime internals must not be root exports.
@@ -78,7 +85,6 @@ Deno.test("root public API includes core runtime, contracts, and result helpers"
   assertEquals(typeof TrellisDevice.connect, "function");
   assertEquals("startActivation" in TrellisDevice, false);
   assertEquals("resumeActivation" in TrellisDevice, false);
-  assertEquals(typeof TypedStore, "function");
   assertEquals(typeof TypedStoreEntry, "function");
   assertEquals(typeof StoreError, "function");
   assertEquals(typeof TransferError, "function");
@@ -166,9 +172,13 @@ Deno.test("root public API stays browser-safe and excludes server runtime export
   assertEquals("TrellisServiceRuntime" in trellis, false);
   assert(!("TrellisServer" in trellis));
   assertEquals("NatsConnection" in trellis, false);
+  assertEquals("TypedKV" in trellis, false);
+  assertEquals("TypedStore" in trellis, false);
+  assertEquals("createTransferHandle" in trellis, false);
   assertEquals("RuntimeStateStores" in trellis, false);
   assertEquals("TrellisAuth" in trellis, false);
   assertEquals("TrellisSigner" in trellis, false);
+  assertEquals("Trellis" in trellis, false);
   assertEquals("OperationTransport" in trellis, false);
   assertEquals("observeNatsTrellisConnection" in trellis, false);
   assertEquals("observeTrellisConnection" in trellis, false);

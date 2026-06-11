@@ -139,7 +139,6 @@ export type TrellisDeviceConnection<
   readonly stream: string;
   readonly api: TApi;
   readonly connection: TrellisConnection;
-  readonly natsConnection: NatsConnection;
   readonly health: ServiceHealth;
 };
 
@@ -716,6 +715,9 @@ async function fetchDeviceBootstrap(args: {
   });
 }
 
+/**
+ * @internal Exported for focused tests and platform-specific wrappers.
+ */
 export async function startDeviceActivationWithDeps<
   TContract extends DeviceContract<TrellisAPI, {
     state?: Readonly<Record<string, unknown>>;
@@ -757,6 +759,9 @@ export async function startDeviceActivationWithDeps<
   });
 }
 
+/**
+ * @internal Exported for focused tests and platform-specific wrappers.
+ */
 export async function resumeDeviceActivationWithDeps<
   TLocalState extends TrellisDeviceLocalActivationState,
   TContract extends DeviceContract<TrellisAPI, {
@@ -782,6 +787,10 @@ export async function resumeDeviceActivationWithDeps<
   });
 }
 
+/**
+ * @internal Exported for focused tests; applications should use
+ * `TrellisDevice.connect`.
+ */
 export async function connectDeviceWithDeps<
   TContract extends DeviceContract<TrellisAPI, {
     state?: Readonly<Record<string, unknown>>;
@@ -964,7 +973,6 @@ export async function connectDeviceWithDeps<
     stream: trellis.stream,
     api: trellis.api,
     connection: trellis.connection,
-    natsConnection: trellis.natsConnection,
     health,
   };
 }

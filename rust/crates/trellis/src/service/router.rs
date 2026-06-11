@@ -9,10 +9,11 @@ use std::pin::Pin;
 
 use serde_json::Value;
 
+use super::request_loop::{HandlerResponse, ResponseStream};
 use super::{
-    control_subject, AcceptedOperation, FeedDescriptor, HandlerResponse, HandlerResult,
-    OperationControlRequest, OperationDescriptor, OperationProvider, OperationSignalAccepted,
-    OperationSnapshot, OperationSnapshotFrame, ResponseStream, RpcDescriptor, ServerError,
+    control_subject, AcceptedOperation, FeedDescriptor, HandlerResult, OperationControlRequest,
+    OperationDescriptor, OperationProvider, OperationSignalAccepted, OperationSnapshot,
+    OperationSnapshotFrame, RpcDescriptor, ServerError,
 };
 
 /// Request metadata forwarded to mounted RPC handlers.
