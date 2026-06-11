@@ -163,6 +163,28 @@ function invalidCredentialsResponse(c: {
   return c.json({ error: "invalid_credentials" }, 403);
 }
 
+function stringProperty(value: unknown, key: string): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const property = Reflect.get(value, key);
+  return typeof property === "string" && property.length > 0
+    ? property
+    : undefined;
+}
+
+function oauthAuthorizationErrorMessage(error: unknown): string | null {
+  if (stringProperty(error, "code") !== "OAUTH_AUTHORIZATION_RESPONSE_ERROR") {
+    return null;
+  }
+
+  const description = stringProperty(error, "error_description");
+  const providerError = stringProperty(error, "error");
+  return description
+    ? `Identity provider rejected sign-in: ${description}`
+    : providerError
+    ? `Identity provider rejected sign-in: ${providerError}`
+    : "Identity provider rejected sign-in.";
+}
+
 /** Registers browser login and OAuth callback HTTP endpoints. */
 export function registerBrowserAuthRoutes(
   app: Hono,
@@ -564,12 +586,30 @@ export function registerBrowserAuthRoutes(
       secure: shouldUseSecureOauthCookie(config, { logger }),
     });
 
-    const { accessToken } = await context.oauthCodeResponse(
+    const tokens = await context.oauthCodeResponse(
       provider,
       url,
       state,
       oauthEntry.value.codeVerifier,
-    );
+    ).catch((error) => {
+      const message = oauthAuthorizationErrorMessage(error);
+      if (!message) throw error;
+      logger.warn(
+        { error, provider: providerId },
+        "OAuth provider rejected authorization response",
+      );
+      if (oauthEntry.value.kind === "browser_login") {
+        return c.redirect(
+          buildRedirectLocation(oauthEntry.value.redirectTo, {
+            authError: message,
+          }),
+        );
+      }
+      throw new HTTPException(400, { message });
+    });
+    if (tokens instanceof Response) return tokens;
+
+    const { accessToken } = tokens;
 
     const user = await provider.getUserInfo(accessToken);
     if (user.provider !== providerId) {

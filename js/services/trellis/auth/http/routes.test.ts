@@ -972,6 +972,62 @@ Deno.test({
 });
 
 Deno.test({
+  name: "auth HTTP OAuth callback redirects provider errors to app",
+  sanitizeResources: false,
+  fn: async () => {
+    const oauthState: OAuthState = {
+      kind: "browser_login",
+      provider: "github",
+      flowId: "flow-oauth",
+      redirectTo: "http://localhost:5173/callback?redirectTo=%2Fprofile",
+      codeVerifier: "verifier-123",
+      sessionKey: "session-local",
+      contract: {},
+      createdAt: new Date("2026-05-09T00:00:00.000Z"),
+    };
+    const error = new Error(
+      "authorization response from the server is an error",
+    );
+    Object.defineProperties(error, {
+      code: { value: "OAUTH_AUTHORIZATION_RESPONSE_ERROR" },
+      error: { value: "invalid_request" },
+      error_description: {
+        value: "parameter organization is not allowed for this client",
+      },
+    });
+    const app = await registerTestRoutes({}, {}, {
+      github: testProvider("github", "GitHub"),
+    }, {
+      oauthCodeResponse: () => Promise.reject(error),
+    }, {
+      oauthStateKV: {
+        get: () =>
+          AsyncResult.ok({
+            value: oauthState,
+            delete: () => AsyncResult.ok(undefined),
+          }),
+      },
+    });
+
+    const response = await app.request(
+      "http://trellis/auth/callback/github?state=state-123&error=invalid_request",
+      { headers: { cookie: "trellis_oauth=state-123" } },
+    );
+
+    assertEquals(response.status, 302);
+    const location = response.headers.get("location") ?? "";
+    assertStringIncludes(
+      location,
+      "http://localhost:5173/callback?redirectTo=%2Fprofile&authError=",
+    );
+    assertEquals(
+      new URL(location).searchParams.get("authError"),
+      "Identity provider rejected sign-in: parameter organization is not allowed for this client",
+    );
+  },
+});
+
+Deno.test({
   name:
     "auth HTTP account-flow OAuth callback links provider to target account",
   sanitizeResources: false,

@@ -97,7 +97,8 @@ Deno.test("auth config loads structured provider map from file", async () => {
             "clientId": "auth0-client",
             "clientSecretFile": "./auth0.secret",
             "displayName": "Company SSO",
-            "scopes": ["openid", "profile", "email",]
+            "scopes": ["openid", "profile", "email",],
+            "organization": "org_krishi"
           },
         },
       },
@@ -152,6 +153,7 @@ Deno.test("auth config loads structured provider map from file", async () => {
         "profile",
         "email",
       ]);
+      assertEquals(cfg.oauth.providers.auth0.organization, "org_krishi");
     },
   );
 });

@@ -70,6 +70,7 @@ function createConfig(): Config {
           clientSecret: "auth0-secret",
           displayName: "Company SSO",
           scopes: ["openid", "deployment", "email"],
+          organization: "org_krishi",
         },
       },
     },
@@ -84,6 +85,7 @@ Deno.test("createProviders builds configured GitHub and OIDC providers", () => {
   assertInstanceOf(providers.auth0, OIDC);
   assertEquals(providers.github.displayName, "GitHub");
   assertEquals(providers.auth0.displayName, "Company SSO");
+  assertEquals(providers.auth0.organization, "org_krishi");
   assertEquals(
     providers.auth0.getRedirectUri(),
     "http://localhost:3000/auth/callback/auth0",

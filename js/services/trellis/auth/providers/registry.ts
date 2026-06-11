@@ -28,6 +28,7 @@ export function createProviders(config: Config): Record<string, Provider> {
           clientSecret: provider.clientSecret,
           redirectBase: config.oauth.redirectBase,
           scopes: provider.scopes,
+          organization: provider.organization,
         }),
       ];
     }),

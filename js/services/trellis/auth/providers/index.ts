@@ -9,6 +9,7 @@ export abstract class Provider {
   abstract scope: string;
   abstract supportsDiscovery: boolean;
   abstract supportsPKCE: boolean;
+  organization?: string;
 
   clientId: string;
   clientSecret: string;

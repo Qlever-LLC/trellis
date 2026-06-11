@@ -49,6 +49,7 @@ export class OIDC extends OIDCProvider {
   override scope: string;
   override supportsDiscovery = true;
   override supportsPKCE = true;
+  override organization?: string;
 
   constructor(opts: {
     name: string;
@@ -58,12 +59,14 @@ export class OIDC extends OIDCProvider {
     clientSecret: string;
     redirectBase: string;
     scopes: string[];
+    organization?: string;
   }) {
     super(opts.clientId, opts.clientSecret, opts.redirectBase);
     this.name = opts.name;
     this.displayName = opts.displayName;
     this.issuer = opts.issuer;
     this.scope = opts.scopes.join(" ");
+    this.organization = opts.organization;
   }
 
   override async getUserInfo(token: string): Promise<OAuth2User> {

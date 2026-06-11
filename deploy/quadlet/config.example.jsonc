@@ -68,6 +68,8 @@
         "issuer": "https://YOUR_TENANT.us.auth0.com/",
         "clientId": "REPLACE_ME",
         "clientSecretFile": "/etc/trellis/secrets/auth0-client-secret",
+        // Optional: fixed Auth0 Organization ID for organization-branded login.
+        // "organization": "org_REPLACE_ME",
         "scopes": ["openid", "profile", "email"]
       }
     }

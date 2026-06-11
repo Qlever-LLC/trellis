@@ -26,6 +26,7 @@ const oidcProviderSchema = z.object({
   clientSecretFile: z.string().optional(),
   displayName: z.string().optional(),
   scopes: z.array(z.string()).default(["openid", "profile", "email"]),
+  organization: z.string().min(1).optional(),
 });
 
 const httpRateLimitSchema = z.object({
@@ -166,6 +167,7 @@ export type OIDCProviderConfig = {
   clientSecret: string;
   displayName: string;
   scopes: string[];
+  organization?: string;
 };
 
 export type AuthProviderConfig = GitHubProviderConfig | OIDCProviderConfig;
@@ -376,6 +378,7 @@ function resolveProviderConfig(
     clientSecret,
     displayName: provider.displayName ?? key,
     scopes: provider.scopes,
+    ...(provider.organization ? { organization: provider.organization } : {}),
   };
 }
 

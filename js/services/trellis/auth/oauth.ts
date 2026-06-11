@@ -60,6 +60,9 @@ export async function OAuth2CodeRequest(
   url.searchParams.set("scope", provider.scope);
   url.searchParams.set("code_challenge", codeChallenge);
   url.searchParams.set("code_challenge_method", codeChallengeMethod);
+  if (provider.organization) {
+    url.searchParams.set("organization", provider.organization);
+  }
 
   return [url.href, { state, codeVerifier }];
 }
