@@ -4,7 +4,7 @@
     TrellisClient,
     type ClientAuthOptions,
     type ConnectedTrellisClient,
-  } from "@qlever-llc/trellis";
+  } from "@qlever-llc/trellis/browser";
   import { onMount } from "svelte";
   import type { TrellisContractLike } from "../context.svelte.ts";
   import { resolveTrellisAppUrl } from "../context.svelte.ts";

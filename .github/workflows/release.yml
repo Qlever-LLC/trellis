@@ -372,7 +372,8 @@ jobs:
           set -euo pipefail
           for pkg in \
             js/packages/result \
-            js/packages/trellis
+            js/packages/trellis \
+            js/packages/trellis-svelte/jsr
           do
             (cd "$pkg" && time deno publish --dry-run --allow-slow-types --allow-dirty)
           done
@@ -386,6 +387,12 @@ jobs:
             js/packages/trellis/npm
             js/packages/trellis-svelte/npm
             dist/npm
+
+      - name: Upload trellis-svelte JSR package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trellis-svelte-jsr-package
+          path: js/packages/trellis-svelte/jsr
 
   build-cli:
     name: Build ${{ matrix.target }} CLI
@@ -954,6 +961,12 @@ jobs:
           name: prepared-release
           path: .
 
+      - name: Download trellis-svelte JSR package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: trellis-svelte-jsr-package
+          path: js/packages/trellis-svelte/jsr
+
       - name: Set up Deno
         uses: denoland/setup-deno@v2
         with:
@@ -1026,6 +1039,7 @@ jobs:
 
           publish_or_skip js/packages/result
           publish_or_skip js/packages/trellis
+          publish_or_skip js/packages/trellis-svelte/jsr
 
           echo "Published ${#published[@]} JSR package(s)"
           for item in "${published[@]}"; do

@@ -28,6 +28,8 @@ export type RuntimeTransport = {
 
 type NativeGlobalThis = typeof globalThis & {
   Deno?: { version?: { deno?: string } };
+  document?: unknown;
+  window?: unknown;
 };
 
 export function selectRuntimeTransportServers(
@@ -53,7 +55,10 @@ export function selectRuntimeTransportServers(
 }
 
 function isBrowserRuntime(): boolean {
-  return typeof window !== "undefined" && typeof document !== "undefined";
+  const load = new Function("return globalThis") as () => NativeGlobalThis;
+  const browserGlobal = load();
+  return typeof browserGlobal.window !== "undefined" &&
+    typeof browserGlobal.document !== "undefined";
 }
 
 function isDenoRuntime(): boolean {

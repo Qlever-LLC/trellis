@@ -281,9 +281,16 @@ type ClientBootstrapAttemptResponse =
   | ClientBootstrapResponse
   | ClientBootstrapIatOutOfRange;
 type ClockOffsetState = { serverClockOffsetMs: number };
+type BrowserGlobalThis = typeof globalThis & {
+  document?: unknown;
+  window?: unknown;
+};
 
 function isBrowserRuntime(): boolean {
-  return typeof window !== "undefined" && typeof document !== "undefined";
+  const load = new Function("return globalThis") as () => BrowserGlobalThis;
+  const browserGlobal = load();
+  return typeof browserGlobal.window !== "undefined" &&
+    typeof browserGlobal.document !== "undefined";
 }
 
 const defaultDeps: ClientConnectDeps = {

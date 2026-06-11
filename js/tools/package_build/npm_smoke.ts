@@ -15,6 +15,7 @@ const runtimeImports = [
   "@qlever-llc/result",
   "@qlever-llc/trellis",
   "@qlever-llc/trellis/auth",
+  "@qlever-llc/trellis/browser",
   "@qlever-llc/trellis/contracts",
   "@qlever-llc/trellis/errors",
   "@qlever-llc/trellis/generate",

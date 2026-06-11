@@ -10,6 +10,10 @@ const dntShimDenoRuntimeDetectionPattern = /"Deno" in dntShim\.dntGlobalThis/;
 const generatedSdkRootRelativeImportPattern =
   /\.\.\/\.\.\/\.\.\/(?:contract|contracts|index)\.js/;
 const generatedSdkCoreAliasImportPattern = /\.\.\/core\/mod\.js/;
+const forbiddenBrowserArtifactPattern =
+  /_dnt\.shims|@deno\/shim-deno|node:(?:fs|os|module)/;
+const moduleSpecifierPattern =
+  /(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)|require\(\s*["']([^"']+)["']\s*\)/g;
 
 async function* walkFiles(dir: string): AsyncGenerator<string> {
   for await (const entry of Deno.readDir(dir)) {
@@ -20,6 +24,30 @@ async function* walkFiles(dir: string): AsyncGenerator<string> {
       yield path;
     }
   }
+}
+
+async function collectRelativeJavaScriptGraph(
+  entrypoint: URL,
+): Promise<Map<string, string>> {
+  const pending = [entrypoint];
+  const visited = new Map<string, string>();
+
+  while (pending.length) {
+    const fileUrl = pending.pop();
+    if (!fileUrl || visited.has(fileUrl.href)) continue;
+
+    const source = await Deno.readTextFile(fileUrl);
+    visited.set(fileUrl.href, source);
+
+    for (const match of source.matchAll(moduleSpecifierPattern)) {
+      const specifier = match[1] ?? match[2] ?? match[3];
+      if (!specifier || !specifier.startsWith(".")) continue;
+      if (!specifier.endsWith(".js")) continue;
+      pending.push(new URL(specifier, fileUrl));
+    }
+  }
+
+  return visited;
 }
 
 Deno.test("trellis npm artifact only depends on allowed published Trellis packages", async () => {
@@ -180,6 +208,25 @@ Deno.test("trellis npm SDK exports resolve through public wrapper modules", asyn
   await assertNotExists(
     new URL("../npm/script/sdk/_generated", import.meta.url),
   );
+});
+
+Deno.test("trellis npm browser graph excludes DNT and Node shims", async () => {
+  const browserEntrypoint = new URL("../npm/esm/browser.js", import.meta.url);
+  try {
+    await Deno.stat(browserEntrypoint);
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) return;
+    throw error;
+  }
+
+  const graph = await collectRelativeJavaScriptGraph(browserEntrypoint);
+  for (const [fileHref, source] of graph) {
+    assertEquals(
+      forbiddenBrowserArtifactPattern.test(source),
+      false,
+      fileHref,
+    );
+  }
 });
 
 Deno.test("trellis npm runtime transport falls back to npm native transport in Deno", async () => {

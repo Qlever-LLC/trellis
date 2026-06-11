@@ -17,6 +17,8 @@ const sdkExportDirs: Record<string, string> = {
   jobs: "jobs",
   state: "state",
 };
+const moduleSpecifierPattern =
+  /(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)|require\(\s*["']([^"']+)["']\s*\)/g;
 
 function rewriteCjsPath(path: string): string {
   return path;
@@ -93,11 +95,50 @@ async function urlExists(url: URL): Promise<boolean> {
 async function removeFileDntPolyfills(fileUrl: URL) {
   const original = await Deno.readTextFile(fileUrl);
   const updated = original
-    .replace(/^import ["']\.\.\/_dnt\.polyfills\.js["'];\r?\n/gm, "")
-    .replace(/^require\(["']\.\.\/_dnt\.polyfills\.js["']\);\r?\n/gm, "");
+    .replace(/^import ["'](?:\.\/|\.\.\/)_dnt\.polyfills\.js["'];\r?\n/gm, "")
+    .replace(
+      /^require\(["'](?:\.\/|\.\.\/)_dnt\.polyfills\.js["']\);\r?\n/gm,
+      "",
+    );
 
   if (updated !== original) {
     await Deno.writeTextFile(fileUrl, updated);
+  }
+}
+
+async function collectRelativeJavaScriptGraph(
+  entrypoint: URL,
+): Promise<URL[]> {
+  const pending = [entrypoint];
+  const visited = new Map<string, URL>();
+
+  while (pending.length) {
+    const fileUrl = pending.pop();
+    if (!fileUrl || visited.has(fileUrl.href)) continue;
+
+    const source = await Deno.readTextFile(fileUrl);
+    visited.set(fileUrl.href, fileUrl);
+
+    for (const match of source.matchAll(moduleSpecifierPattern)) {
+      const specifier = match[1] ?? match[2] ?? match[3];
+      if (!specifier?.startsWith(".")) continue;
+      if (!specifier.endsWith(".js")) continue;
+      pending.push(new URL(specifier, fileUrl));
+    }
+  }
+
+  return [...visited.values()];
+}
+
+async function removeBrowserGraphDntPolyfills() {
+  for (const format of ["esm", "script"]) {
+    const entrypoint = new URL(
+      `../npm/${format}/browser.js`,
+      import.meta.url,
+    );
+    for (const fileUrl of await collectRelativeJavaScriptGraph(entrypoint)) {
+      await removeFileDntPolyfills(fileUrl);
+    }
   }
 }
 
@@ -715,6 +756,7 @@ await addGeneratedSdkTypeImports();
 await rewriteCanonicalGeneratedSdkSelfImports();
 await removeSdkWrapperPolyfills();
 await rewriteSdkWrapperTargets();
+await removeBrowserGraphDntPolyfills();
 await stageNodeGenerateBin();
 await normalizePackageJsonExports();
 await Deno.remove(generatedSdkBuildUrl, { recursive: true });

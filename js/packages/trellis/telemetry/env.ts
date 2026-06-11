@@ -8,19 +8,22 @@ type ProcessLike = {
   env?: Record<string, string | undefined>;
 };
 
+type EnvironmentGlobalThis = typeof globalThis & {
+  Deno?: DenoLike;
+  process?: ProcessLike;
+};
+
 // Shared telemetry code needs environment access without assuming Deno or Node.
 export function getEnv(key: string): string | undefined {
-  const deno = globalThis as typeof globalThis & { Deno?: DenoLike };
-  if (deno.Deno?.env?.get) {
+  const load = new Function("return globalThis") as () => EnvironmentGlobalThis;
+  const environmentGlobal = load();
+  if (environmentGlobal.Deno?.env?.get) {
     try {
-      return deno.Deno.env.get(key);
+      return environmentGlobal.Deno.env.get(key);
     } catch {
       return undefined;
     }
   }
 
-  const processGlobal = globalThis as typeof globalThis & {
-    process?: ProcessLike;
-  };
-  return processGlobal.process?.env?.[key];
+  return environmentGlobal.process?.env?.[key];
 }

@@ -92,6 +92,25 @@ Deno.test("release workflows use generated package-manager targets", async () =>
   assertStringIncludes(releaseWorkflow, "publish_or_skip js/packages/trellis");
   assertStringIncludes(
     releaseWorkflow,
+    "publish_or_skip js/packages/trellis-svelte/jsr",
+  );
+  assertStringIncludes(
+    releaseWorkflow,
+    `js/packages/trellis-svelte/jsr
+          do
+            (cd "$pkg" && time deno publish --dry-run --allow-slow-types --allow-dirty)`,
+  );
+  assertStringIncludes(releaseWorkflow, "trellis-svelte-jsr-package");
+  assertStringIncludes(
+    releaseWorkflow,
+    "Upload trellis-svelte JSR package artifact",
+  );
+  assertStringIncludes(
+    releaseWorkflow,
+    "Download trellis-svelte JSR package artifact",
+  );
+  assertStringIncludes(
+    releaseWorkflow,
     "deno publish --dry-run --allow-slow-types --allow-dirty",
   );
   assertStringIncludes(
