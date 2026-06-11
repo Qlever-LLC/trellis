@@ -8,6 +8,46 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.14] - 2026-06-11
+
+### Added
+
+- Added grouped event consumer declarations so service contracts can declare
+  dependency event subscriptions by use alias with `uses` and consume their own
+  events with `self`, with manifest validation, resource planning, contract
+  proposal analysis, design docs, and service-author AI guidance updated for the
+  grouped form.
+- Added package artifact smoke coverage for the Trellis browser graph and the
+  `@qlever-llc/trellis-svelte` package output, including declaration files,
+  public export declarations, and JSR publish targets.
+
+### Changed
+
+- Changed the Trellis browser package entrypoint to export an explicit
+  browser-safe public surface instead of re-exporting the full root package.
+- Hid raw runtime transport handles from public TypeScript and Rust service,
+  client, device, jobs, event, transfer, and package declaration surfaces,
+  keeping low-level NATS access behind internal APIs and using curated
+  connection/status APIs for public consumers.
+- Changed release publishing to dry-run and publish the prepared
+  `@qlever-llc/trellis-svelte` JSR package artifact alongside the existing
+  staged JSR packages.
+- Updated the release guide to preserve release marker branches after
+  publication.
+
+### Fixed
+
+- Fixed browser npm artifacts so the browser graph excludes DNT polyfills and
+  Node-only shims, including environment detection paths that need to remain
+  safe in bundled browser builds.
+- Fixed `@qlever-llc/trellis-svelte` package builds to emit declaration files,
+  compiled JavaScript component output for JSR, self-type directives, rewritten
+  Svelte component imports, and the runtime dependency metadata needed by
+  consumers.
+- Ignored generated package declaration outputs from local Trellis package
+  builds so release and package smoke checks do not leave untracked `.d.ts`
+  files behind.
+
 ## [0.10.13] - 2026-06-10
 
 ### Added
@@ -912,7 +952,10 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.11...HEAD
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.14...HEAD
+[0.10.14]: https://github.com/Qlever-LLC/trellis/compare/v0.10.13...v0.10.14
+[0.10.13]: https://github.com/Qlever-LLC/trellis/compare/v0.10.12...v0.10.13
+[0.10.12]: https://github.com/Qlever-LLC/trellis/compare/v0.10.11...v0.10.12
 [0.10.11]: https://github.com/Qlever-LLC/trellis/compare/v0.10.10...v0.10.11
 [0.10.10]: https://github.com/Qlever-LLC/trellis/compare/v0.10.9...v0.10.10
 [0.10.9]: https://github.com/Qlever-LLC/trellis/compare/v0.10.8...v0.10.9
