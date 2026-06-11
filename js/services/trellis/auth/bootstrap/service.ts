@@ -796,7 +796,25 @@ async function acceptedServiceOfferRecord(input: {
     contractId: input.contract.id,
     contractDigest: input.digest,
   });
+  const lineageKey = serviceOfferLineageKey(
+    input.deploymentId,
+    input.contract.id,
+  );
   const existing = await input.storage.get(offerId);
+  const latestAccepted = await input.storage.latestAcceptedByLineage(
+    lineageKey,
+  );
+  if (
+    latestAccepted && latestAccepted.offerId !== offerId &&
+    latestAccepted.staleAt === null
+  ) {
+    await input.storage.put({
+      ...latestAccepted,
+      liveness: "disconnected",
+      lastRefreshedAt: input.now,
+      staleAt: input.now,
+    });
+  }
   return {
     offerId,
     deploymentKind: "service",
@@ -804,7 +822,7 @@ async function acceptedServiceOfferRecord(input: {
     instanceId: input.instanceId,
     contractId: input.contract.id,
     contractDigest: input.digest,
-    lineageKey: serviceOfferLineageKey(input.deploymentId, input.contract.id),
+    lineageKey,
     status: "accepted",
     liveness: "healthy",
     firstOfferedAt: existing?.firstOfferedAt ?? input.now,
@@ -1452,6 +1470,11 @@ export function createServiceBootstrapHandler(deps: ServiceBootstrapDeps) {
         202,
       );
     }
+
+    await deps.capabilityDefinitionStorage?.replaceForDeployment(
+      service.deploymentId,
+      capabilityDefinitions,
+    );
 
     const resourceBindings = resourceBindingsForResponse(
       requestedResourceBindings(

@@ -23,6 +23,11 @@ import { listPage } from "../../storage/list_query.ts";
 import type { AuthLogger, AuthRuntimeDeps } from "../runtime_deps.ts";
 
 type SessionRpcLogger = Pick<AuthLogger, "trace" | "warn">;
+const SERVICE_CAPABILITY = "service";
+
+function serviceCapabilities(capabilities: string[] | undefined): string[] {
+  return [...new Set([SERVICE_CAPABILITY, ...(capabilities ?? [])])];
+}
 
 type AuthenticatedUser = {
   userId: string;
@@ -547,7 +552,7 @@ async function loadAuthenticatedService(args: {
     id: args.session.id,
     name: args.session.name,
     active: true,
-    capabilities: service.capabilities ?? [],
+    capabilities: serviceCapabilities(service.capabilities),
   };
 }
 

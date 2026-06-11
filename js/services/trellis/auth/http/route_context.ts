@@ -751,6 +751,14 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
       });
     }
 
+    const federatedProviders = federatedProvidersForPortal(selectedPortal);
+    const directProvider = args.provider ??
+      (!config.oauth.alwaysShowProviderChooser &&
+          !config.auth.localIdentity.enabled &&
+          federatedProviders.length === 1
+        ? federatedProviders[0]?.id
+        : undefined);
+
     const flowId = ulid();
     await saveBrowserFlow({
       flowId,
@@ -765,9 +773,11 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
       expiresAt: new Date(Date.now() + config.ttlMs.oauth),
     });
 
-    if (args.provider) {
+    if (directProvider) {
       const providerUrl = new URL(args.authUrl);
-      providerUrl.pathname = `/auth/login/${encodeURIComponent(args.provider)}`;
+      providerUrl.pathname = `/auth/login/${
+        encodeURIComponent(directProvider)
+      }`;
       providerUrl.search = "";
       providerUrl.searchParams.set("flowId", flowId);
       return {

@@ -363,6 +363,10 @@ export function registerBrowserAuthRoutes(
   });
 
   app.post("/auth/login/local", async (c) => {
+    if (!config.auth.localIdentity.enabled) {
+      return c.json({ error: "local_identity_disabled" }, 403);
+    }
+
     const bodyResult = await AsyncResult.try(() => c.req.json());
     if (bodyResult.isErr()) {
       return c.json({ error: "Invalid JSON body" }, 400);

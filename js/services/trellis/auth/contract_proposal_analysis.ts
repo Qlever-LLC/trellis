@@ -756,6 +756,31 @@ function fallbackCapabilityDescription(key: string): string {
   return `Requires ${key}.`;
 }
 
+function ownedCapabilityKeys(contract: TrellisContractV1): string[] {
+  const keys: string[] = Object.keys(contract.capabilities ?? {});
+
+  for (const method of Object.values(contract.rpc ?? {})) {
+    keys.push(...(method.capabilities?.call ?? []));
+  }
+  for (const operation of Object.values(contract.operations ?? {})) {
+    keys.push(...(operation.capabilities?.call ?? []));
+    keys.push(...(operation.capabilities?.observe ?? []));
+    keys.push(...(operation.capabilities?.control ?? []));
+    for (const capabilities of operationControlCapabilityRules(operation)) {
+      keys.push(...capabilities);
+    }
+  }
+  for (const event of Object.values(contract.events ?? {})) {
+    keys.push(...(event.capabilities?.publish ?? []));
+    keys.push(...(event.capabilities?.subscribe ?? []));
+  }
+  for (const feed of Object.values(contract.feeds ?? {})) {
+    keys.push(...(feed.capabilities?.subscribe ?? []));
+  }
+
+  return sortUniqueStrings(keys);
+}
+
 function capabilityDefinitionsForContract(input: {
   deploymentId: string;
   contract: TrellisContractV1;
@@ -785,6 +810,25 @@ function capabilityDefinitionsForContract(input: {
       contractDisplayName: input.contract.displayName,
       direction: input.direction,
     };
+  });
+}
+
+/**
+ * Derives capability definitions created by a deployment's owned contract
+ * surfaces, using metadata from the contract's optional top-level capability
+ * catalog when present.
+ */
+export function deriveOwnedCapabilityDefinitions(input: {
+  deploymentId: string;
+  contract: TrellisContractV1;
+  digest: string;
+}): DeploymentAuthorityCapabilityDefinition[] {
+  return capabilityDefinitionsForContract({
+    deploymentId: input.deploymentId,
+    contract: input.contract,
+    digest: input.digest,
+    direction: "creates",
+    capabilities: ownedCapabilityKeys(input.contract),
   });
 }
 
@@ -947,6 +991,7 @@ export async function analyzeContractProposal(
         contract: validated.contract,
         digest: validated.digest,
         direction: "creates",
+        capabilities: ownedCapabilityKeys(validated.contract),
       }),
       ...capabilityDefinitionsForContract({
         deploymentId: validated.contract.id,

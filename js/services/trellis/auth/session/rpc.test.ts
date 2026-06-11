@@ -1105,7 +1105,7 @@ Deno.test("Auth.Requests.Validate rejects replayed request ids", async () => {
         deploymentId: "worker.default",
         instanceKey: auth.sessionKey,
         disabled: false,
-        capabilities: ["service", "worker.run"],
+        capabilities: ["worker.run"],
       }),
     loadServiceDeployment: () =>
       Promise.resolve({ deploymentId: "worker.default", disabled: false }),

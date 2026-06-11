@@ -16,6 +16,7 @@ import {
 import type {
   AuthorityNeedSet,
   DeploymentAuthority,
+  DeploymentAuthorityCapabilityDefinition,
   DeploymentAuthorityGrantOverride,
   DeploymentAuthorityMaterialization,
   DeploymentAuthorityPlan,
@@ -86,6 +87,13 @@ type DeploymentAuthorityGrantOverrideStorage = {
   replaceForDeployment(
     deploymentId: string,
     records: DeploymentAuthorityGrantOverride[],
+  ): Promise<void>;
+};
+
+type DeploymentAuthorityCapabilityDefinitionStorage = {
+  replaceForDeployment(
+    deploymentId: string,
+    definitions: DeploymentAuthorityCapabilityDefinition[],
   ): Promise<void>;
 };
 
@@ -429,6 +437,50 @@ function desiredStateForAcceptedPlan(
   };
 }
 
+function authorityCapabilityDefinitions(
+  plan: DeploymentAuthorityPlan,
+): DeploymentAuthorityCapabilityDefinition[] {
+  const summary = plan.proposal.summary;
+  if (!isRecord(summary)) return [];
+  const definitions = summary.authorityCapabilityDefinitions;
+  if (!Array.isArray(definitions)) return [];
+  return definitions.flatMap((definition) =>
+    isAuthorityCapabilityDefinition(definition) ? [definition] : []
+  );
+}
+
+function isAuthorityCapabilityDefinition(
+  value: unknown,
+): value is DeploymentAuthorityCapabilityDefinition {
+  if (!isRecord(value)) return false;
+  if (typeof value.deploymentId !== "string") return false;
+  if (typeof value.key !== "string") return false;
+  if (typeof value.displayName !== "string") return false;
+  if (typeof value.description !== "string") return false;
+  if (
+    value.consequence !== undefined && typeof value.consequence !== "string"
+  ) {
+    return false;
+  }
+  if (value.source !== "contract" && value.source !== "platform") return false;
+  if (value.contractId !== undefined && typeof value.contractId !== "string") {
+    return false;
+  }
+  if (
+    value.contractDigest !== undefined &&
+    typeof value.contractDigest !== "string"
+  ) {
+    return false;
+  }
+  if (
+    value.contractDisplayName !== undefined &&
+    typeof value.contractDisplayName !== "string"
+  ) {
+    return false;
+  }
+  return value.direction === "creates" || value.direction === "given";
+}
+
 function validatePendingPlan(
   plan: DeploymentAuthorityPlan | undefined,
   classification?: DeploymentAuthorityPlan["classification"],
@@ -593,6 +645,7 @@ export function createAuthDeploymentAuthorityAcceptUpdateHandler(deps: {
     "get" | "put" | "acceptAuthorityPlan"
   >;
   deploymentAuthorityPlanStorage: DeploymentAuthorityPlanStorage;
+  capabilityDefinitionStorage?: DeploymentAuthorityCapabilityDefinitionStorage;
   authorityReconciler: AuthorityReconciler;
   logger: AcceptLogger;
 }) {
@@ -606,6 +659,7 @@ export function createAuthDeploymentAuthorityAcceptMigrationHandler(deps: {
     "get" | "put" | "acceptAuthorityPlan"
   >;
   deploymentAuthorityPlanStorage: DeploymentAuthorityPlanStorage;
+  capabilityDefinitionStorage?: DeploymentAuthorityCapabilityDefinitionStorage;
   authorityReconciler: AuthorityReconciler;
   logger: AcceptLogger;
 }) {
@@ -619,6 +673,8 @@ function createAcceptDeploymentAuthorityPlanHandler(
       "get" | "put" | "acceptAuthorityPlan"
     >;
     deploymentAuthorityPlanStorage: DeploymentAuthorityPlanStorage;
+    capabilityDefinitionStorage?:
+      DeploymentAuthorityCapabilityDefinitionStorage;
     authorityReconciler: AuthorityReconciler;
     logger: AcceptLogger;
   },
@@ -744,6 +800,10 @@ function createAcceptDeploymentAuthorityPlanHandler(
         await deps.deploymentAuthorityStorage.put(updatedAuthority);
         await deps.deploymentAuthorityPlanStorage.put(acceptedPlan);
       }
+      await deps.capabilityDefinitionStorage?.replaceForDeployment(
+        updatedAuthority.deploymentId,
+        authorityCapabilityDefinitions(plan),
+      );
       try {
         await deps.authorityReconciler.reconcileDeployment(
           updatedAuthority.deploymentId,

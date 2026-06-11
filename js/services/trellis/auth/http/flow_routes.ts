@@ -70,14 +70,14 @@ function buildAppMeta(args: {
 }
 
 function buildProvidersList(
+  localIdentityEnabled: boolean,
   federatedProviders: ReturnType<
     AuthHttpRouteContext["federatedProvidersForPortal"]
   >,
 ) {
-  return [
-    localLoginProvider,
-    ...federatedProviders,
-  ];
+  return localIdentityEnabled
+    ? [localLoginProvider, ...federatedProviders]
+    : federatedProviders;
 }
 
 /** Registers browser auth flow state, approval, and bind endpoints. */
@@ -100,7 +100,10 @@ export function registerFlowRoutes(
     const federatedProviders = context.federatedProvidersForPortal(
       selectedPortal,
     );
-    const providersList = buildProvidersList(federatedProviders);
+    const providersList = buildProvidersList(
+      config.auth.localIdentity.enabled,
+      federatedProviders,
+    );
     context.requireSelectedPortalOrigin(
       selectedPortal,
       c.req.header("origin"),
@@ -182,6 +185,7 @@ export function registerFlowRoutes(
     const resolution = await context.requireApprovalResolution(pending);
     const registration = context.registrationAvailability(selectedPortal);
     const providersList = buildProvidersList(
+      config.auth.localIdentity.enabled,
       registration.federatedIdentity.providers,
     );
     const contract = flow.contract ?? {};

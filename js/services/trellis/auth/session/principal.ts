@@ -3,6 +3,12 @@ import type { UserProjectionEntry } from "../schemas.ts";
 import type { CapabilityGroupLoader } from "../capability_groups.ts";
 import { resolveCapabilities } from "../capability_groups.ts";
 
+const SERVICE_CAPABILITY = "service";
+
+function serviceCapabilities(capabilities: string[] | undefined): string[] {
+  return [...new Set([SERVICE_CAPABILITY, ...(capabilities ?? [])])];
+}
+
 export type SessionPrincipal = {
   active: boolean;
   capabilities: string[];
@@ -119,7 +125,7 @@ export async function resolveSessionPrincipal(
       ok: true,
       value: {
         active: true,
-        capabilities: service.capabilities ?? [],
+        capabilities: serviceCapabilities(service.capabilities),
         email: session.email,
         name: session.name,
         serviceState: service,

@@ -75,6 +75,8 @@ type DeviceActivationRecord = StaticDecode<typeof DeviceActivationRecordSchema>;
 type DeviceDeployment = StaticDecode<typeof DeviceDeploymentSchema>;
 type DeviceInstance = StaticDecode<typeof DeviceSchema>;
 type ParsedNatsAuthToken = StaticDecode<typeof NatsAuthTokenV1Schema>;
+const SERVICE_CAPABILITY = "service";
+const AUTH_REQUESTS_VALIDATE_SUBJECT = "rpc.v1.Auth.Requests.Validate";
 type CalloutContractDeps = Pick<
   ContractsModule,
   | "getActiveEntries"
@@ -353,7 +355,7 @@ function serviceCapabilitiesForPermissions(
 ): string[] {
   return [
     ...new Set([
-      "service",
+      SERVICE_CAPABILITY,
       ...(authorityNeeds?.capabilities ?? []),
     ]),
   ].sort((left, right) => left.localeCompare(right));
@@ -408,11 +410,17 @@ function serviceOperationStorePublishSubjects(
   sessionKey: string,
   capabilities: string[],
 ): string[] {
-  if (!capabilities.includes("service")) return [];
+  if (!capabilities.includes(SERVICE_CAPABILITY)) return [];
   return getKvPermissionGrants(
     `trellis_operations_${sessionKey.slice(0, 16)}`,
     { allowCreate: true },
   ).publish;
+}
+
+function servicePlatformPublishSubjects(capabilities: string[]): string[] {
+  return capabilities.includes(SERVICE_CAPABILITY)
+    ? [AUTH_REQUESTS_VALIDATE_SUBJECT]
+    : [];
 }
 
 type DeviceRuntimeGrantDeps = {
@@ -1555,9 +1563,9 @@ export function startAuthCallout(
     const effectiveCapabilities = isService
       ? serviceMaterializedAuthority
         ? materializedCapabilitiesForPermissions(serviceMaterializedAuthority, [
-          "service",
+          SERVICE_CAPABILITY,
         ])
-        : ["service"]
+        : [SERVICE_CAPABILITY]
       : principal.value.capabilities;
 
     const inboxPrefix = `_INBOX.${sessionKey.slice(0, 16)}`;
@@ -1591,6 +1599,9 @@ export function startAuthCallout(
             sessionKey,
             effectiveCapabilities,
           )
+          : []),
+        ...(isService
+          ? servicePlatformPublishSubjects(effectiveCapabilities)
           : []),
         ...resourcePermissions.publish,
       ],
@@ -1856,6 +1867,7 @@ export const __testing__ = {
   processDisconnectMessage,
   materializedCapabilitiesForPermissions,
   materializedNatsSubjectsForPermissions,
+  servicePlatformPublishSubjects,
   serviceOperationStorePublishSubjects,
   resolveDeviceRuntimeGrant,
   refreshServiceSessionFromInstance,

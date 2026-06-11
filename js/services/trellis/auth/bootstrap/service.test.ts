@@ -10,6 +10,7 @@ import { computeAuthorityNeedsDelta } from "../authority_needs_decision.ts";
 import type {
   AuthorityNeedSet,
   DeploymentAuthority,
+  DeploymentAuthorityCapabilityDefinition,
   DeploymentAuthorityMaterialization,
   DeploymentAuthorityPlan,
   DeploymentResourceBinding,
@@ -159,7 +160,12 @@ function expandedContract(): TrellisContractV1 {
 function compatibleMetadataContract(): TrellisContractV1 {
   return {
     ...baseContract(),
-    description: "Example service contract with updated metadata",
+    capabilities: {
+      "svc.call": {
+        displayName: "Call example service",
+        description: "Call service RPCs.",
+      },
+    },
   };
 }
 
@@ -463,6 +469,10 @@ async function createApp(args: {
     delta: AuthorityNeedSet;
     resourceBindings: DeploymentResourceBinding[];
   }> = [];
+  const capabilityDefinitions: Array<{
+    deploymentId: string;
+    definitions: DeploymentAuthorityCapabilityDefinition[];
+  }> = [];
 
   const app = new Hono();
   app.post(
@@ -551,6 +561,11 @@ async function createApp(args: {
           ),
       },
       materializedAuthorityStorage: { get: async () => materializedAuthority },
+      capabilityDefinitionStorage: {
+        replaceForDeployment: async (deploymentId, definitions) => {
+          capabilityDefinitions.push({ deploymentId, definitions });
+        },
+      },
       implementationOfferStorage: {
         get: async (offerId) =>
           offers.find((offer) => offer.offerId === offerId),
@@ -638,6 +653,7 @@ async function createApp(args: {
     expansionRequests,
     storedContracts,
     putExpansions,
+    capabilityDefinitions,
     bootstrap,
   };
 }
@@ -665,6 +681,20 @@ Deno.test("POST /bootstrap/service accepts first start when contract fits author
   assertEquals(setup.storedContracts, [{
     digest: setup.contract.digest,
     contractId: setup.contract.contract.id,
+  }]);
+  assertEquals(setup.capabilityDefinitions, [{
+    deploymentId: "deployment_1",
+    definitions: [{
+      deploymentId: "deployment_1",
+      key: "svc.call",
+      displayName: "Call service",
+      description: "Call service RPCs.",
+      source: "contract",
+      contractId: "svc.example@v1",
+      contractDigest: setup.contract.digest,
+      contractDisplayName: "Example Service",
+      direction: "creates",
+    }],
   }]);
 });
 
@@ -937,6 +967,11 @@ Deno.test("POST /bootstrap/service accepts compatible same-contract digest repla
   assertEquals(body.status, "ready");
   assertEquals(body.connectInfo.contractDigest, replacement.digest);
   assertEquals(setup.offers.at(-1)?.contractDigest, replacement.digest);
+  const staleOffer = setup.offers.find((offer) =>
+    offer.contractDigest === current.digest
+  );
+  assertEquals(staleOffer?.staleAt, TEST_NOW);
+  assertEquals(staleOffer?.liveness, "disconnected");
 });
 
 Deno.test("POST /bootstrap/service accepts older digest when it remains effective", async () => {

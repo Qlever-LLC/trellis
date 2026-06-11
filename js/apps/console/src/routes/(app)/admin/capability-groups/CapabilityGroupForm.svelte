@@ -9,20 +9,21 @@
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
   import ChoiceRow from "$lib/components/ChoiceRow.svelte";
+  import DataTable from "$lib/components/DataTable.svelte";
   import LoadingState from "$lib/components/LoadingState.svelte";
   import Notice from "$lib/components/Notice.svelte";
   import Panel from "$lib/components/Panel.svelte";
   import SelectionGroup from "$lib/components/SelectionGroup.svelte";
-  import SelectionSectionHeader from "$lib/components/SelectionSectionHeader.svelte";
   import { errorMessage, formatDate } from "$lib/format";
   import { getTrellis } from "$lib/trellis";
 
   type CapabilityView = AuthCapabilitiesListOutput["entries"][number];
   type CapabilityGroupView = AuthCapabilityGroupsListOutput["entries"][number];
-  type CapabilitySection = {
+  type CapabilityDeploymentSection = {
     key: string;
     title: string;
     subtitle: string | null;
+    deploymentId: string | null;
     capabilities: CapabilityView[];
   };
 
@@ -31,6 +32,7 @@
   const trellis = getTrellis();
 
   let loading = $state(true);
+  let capabilitiesLoading = $state(false);
   let saving = $state(false);
   let error = $state<string | null>(null);
   let saved = $state<string | null>(null);
@@ -52,18 +54,19 @@
   const catalogedSelectedCapabilities = $derived(selectedCapabilities.filter((key) => catalogedCapabilityKeys.has(key)));
   const totalCapabilityAssignments = $derived(catalogedSelectedCapabilities.length);
   const sortedGroups = $derived(groups.slice().sort(compareGroups));
-  const capabilitySections = $derived.by(() => {
-    const sections: CapabilitySection[] = [];
+  const capabilityDeploymentSections = $derived.by(() => {
+    const sections: CapabilityDeploymentSection[] = [];
     for (const capability of capabilities) {
-      const key = capabilitySectionKey(capability);
+      const key = capabilityDeploymentSectionKey(capability);
       const existing = sections.find((section) => section.key === key);
       if (existing) {
         existing.capabilities.push(capability);
       } else {
         sections.push({
           key,
-          title: capabilitySectionTitle(capability),
-          subtitle: capabilitySectionSubtitle(capability),
+          title: capabilityDeploymentSectionTitle(capability),
+          subtitle: capabilityDeploymentSectionSubtitle(capability),
+          deploymentId: capability.deploymentId ?? null,
           capabilities: [capability],
         });
       }
@@ -72,7 +75,8 @@
     return sections
       .map((section) => ({
         ...section,
-        capabilities: section.capabilities.slice().sort((left, right) =>
+        capabilities: uniqueCapabilitiesByKey(section.capabilities).sort((left, right) =>
+          (left.contractDisplayName ?? left.contractId ?? "").localeCompare(right.contractDisplayName ?? right.contractId ?? "") ||
           localCapabilityKey(left.key).localeCompare(localCapabilityKey(right.key))
         ),
       }))
@@ -92,23 +96,57 @@
     return key.includes("::") ? key.split("::").slice(1).join("::") : key;
   }
 
-  function capabilitySectionKey(capability: CapabilityView): string {
+  function capabilityDeploymentSectionKey(capability: CapabilityView): string {
     if (capability.source === "platform") return "platform";
-    return capability.contractId ?? capability.contractDisplayName ?? "contract";
+    return capability.deploymentId ?? capability.contractId ?? capability.contractDisplayName ?? "contract";
   }
 
-  function capabilitySectionTitle(capability: CapabilityView): string {
+  function capabilityDeploymentSectionTitle(capability: CapabilityView): string {
     if (capability.source === "platform") return "Platform";
+    return capability.deploymentId ?? "Unassigned deployment";
+  }
+
+  function capabilityDeploymentSectionSubtitle(capability: CapabilityView): string | null {
+    if (capability.source === "platform") return null;
+    return capability.contractDisplayName ?? capability.contractId ?? null;
+  }
+
+  function capabilityContractLabel(capability: CapabilityView): string {
     return capability.contractDisplayName ?? capability.contractId ?? "Contract";
   }
 
-  function capabilitySectionSubtitle(capability: CapabilityView): string | null {
-    if (capability.source === "platform") return null;
-    return capability.contractId ?? null;
+  function capabilityDirectionLabel(capability: CapabilityView): string {
+    return capability.direction === "given" ? "Given" : "Creates";
+  }
+
+  function capabilityRowKey(capability: CapabilityView): string {
+    return [
+      capability.deploymentId ?? "platform",
+      capability.key,
+      capability.direction ?? "",
+      capability.contractId ?? "",
+      capability.contractDigest ?? "",
+    ].join("\u001f");
+  }
+
+  function uniqueCapabilitiesByKey(items: CapabilityView[]): CapabilityView[] {
+    return [...new Map(items.map((capability) => [capability.key, capability])).values()];
   }
 
   function uniqueSorted(values: string[]): string[] {
     return Array.from(new Set(values)).sort((left, right) => left.localeCompare(right));
+  }
+
+  function withLoadTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(`${label} did not respond.`)), 10_000);
+      }),
+    ]).finally(() => {
+      if (timeout !== undefined) clearTimeout(timeout);
+    });
   }
 
   function applyGroup(group: CapabilityGroupView) {
@@ -125,36 +163,53 @@
     error = null;
     saved = null;
     try {
-      const [groupsResponse, capabilitiesResponse] = await Promise.all([
+      const groupsResponse = await withLoadTimeout(
         trellis.request("Auth.CapabilityGroups.List", { limit: 500, offset: 0 }).take(),
-        trellis.request("Auth.Capabilities.List", { limit: 500, offset: 0 }).take(),
-      ]);
+        "Capability groups",
+      );
       if (isErr(groupsResponse)) {
         error = errorMessage(groupsResponse);
         return;
       }
-      if (isErr(capabilitiesResponse)) {
-        error = errorMessage(capabilitiesResponse);
-        return;
-      }
       groups = groupsResponse.entries ?? [];
-      capabilities = (capabilitiesResponse.entries ?? []).slice().sort((left, right) => left.key.localeCompare(right.key));
 
-      if (!editingExisting) return;
-      if (!targetGroupKey) {
-        error = "Group key is required.";
-        return;
+      if (editingExisting) {
+        if (!targetGroupKey) {
+          error = "Group key is required.";
+          return;
+        }
+        const group = groups.find((item) => item.groupKey === targetGroupKey);
+        if (!group) {
+          error = `Capability group ${targetGroupKey} was not found.`;
+          return;
+        }
+        applyGroup(group);
       }
-      const group = groups.find((item) => item.groupKey === targetGroupKey);
-      if (!group) {
-        error = `Capability group ${targetGroupKey} was not found.`;
-        return;
-      }
-      applyGroup(group);
     } catch (e) {
       error = errorMessage(e);
     } finally {
       loading = false;
+    }
+
+    void loadCapabilities();
+  }
+
+  async function loadCapabilities() {
+    capabilitiesLoading = true;
+    try {
+      const capabilitiesResponse = await withLoadTimeout(
+        trellis.request("Auth.Capabilities.List", { limit: 500, offset: 0 }).take(),
+        "Capabilities",
+      );
+      if (isErr(capabilitiesResponse)) {
+        error = errorMessage(capabilitiesResponse);
+        return;
+      }
+      capabilities = (capabilitiesResponse.entries ?? []).slice().sort((left, right) => left.key.localeCompare(right.key));
+    } catch (e) {
+      error = errorMessage(e);
+    } finally {
+      capabilitiesLoading = false;
     }
   }
 
@@ -246,27 +301,64 @@
 
       <Panel title="Capabilities" eyebrow="Assignments">
         {#snippet actions()}
-          <span class="trellis-metadata text-[0.65rem]">{totalCapabilityAssignments} total</span>
+          {#if capabilitiesLoading}
+            <span class="loading loading-spinner loading-xs text-base-content/45"></span>
+          {:else}
+            <span class="trellis-metadata text-[0.65rem]">{totalCapabilityAssignments} total</span>
+          {/if}
         {/snippet}
 
-        <SelectionGroup title="Capabilities" count={totalCapabilityAssignments} bodyClass="max-h-72 overflow-y-auto rounded border border-base-300 bg-base-100/40">
-          {#each capabilitySections as section (section.key)}
-            <SelectionSectionHeader title={section.title} subtitle={section.subtitle ?? undefined} count={section.capabilities.length} />
-            {#each section.capabilities as capability (capability.key)}
-              <ChoiceRow>
-                {#snippet input()}
-                  <input class="checkbox checkbox-sm mt-0.5" type="checkbox" bind:group={selectedCapabilities} value={capability.key} disabled={!editable} />
-                {/snippet}
-                <span class="min-w-0">
-                  <span class="block truncate font-medium" title={capability.description}>{capability.description}</span>
-                  <span class="trellis-identifier mt-0.5 block break-all text-base-content/50">{localCapabilityKey(capability.key)}</span>
-                </span>
-              </ChoiceRow>
-            {/each}
+        <div class="max-h-[28rem] overflow-y-auto rounded border border-base-300 bg-base-100/40">
+          {#each capabilityDeploymentSections as section (section.key)}
+            <section class="border-b border-base-300 last:border-b-0">
+              <div class="flex items-center justify-between gap-3 bg-base-200/60 px-3 py-2">
+                <div class="min-w-0">
+                  <h3 class="truncate text-xs font-semibold uppercase tracking-wide text-base-content/70" title={section.title}>{section.title}</h3>
+                  {#if section.subtitle}
+                    <p class="trellis-identifier mt-0.5 truncate text-[0.65rem] text-base-content/50" title={section.subtitle}>{section.subtitle}</p>
+                  {/if}
+                </div>
+                <span class="badge badge-ghost badge-sm shrink-0">{section.capabilities.length}</span>
+              </div>
+
+              <DataTable class="capability-selection-table bg-base-100/20" tableClass="text-xs" fixed overflow="none">
+                <thead>
+                  <tr>
+                    <th class="w-10">Use</th>
+                    <th>Capability</th>
+                    <th class="hidden w-[28%] lg:table-cell">Contract</th>
+                    <th class="w-20">Type</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each section.capabilities as capability (capabilityRowKey(capability))}
+                    <tr>
+                      <td class="align-top">
+                        <input class="checkbox checkbox-sm" type="checkbox" bind:group={selectedCapabilities} value={capability.key} disabled={!editable} aria-label={`Select ${capability.displayName}`} />
+                      </td>
+                      <td class="max-w-0 align-top">
+                        <div class="truncate font-medium text-base-content" title={capability.displayName}>{capability.displayName}</div>
+                        <div class="trellis-identifier mt-0.5 truncate text-base-content/50" title={capability.key}>{localCapabilityKey(capability.key)}</div>
+                        <div class="mt-1 truncate text-base-content/55" title={capability.description}>{capability.description}</div>
+                      </td>
+                      <td class="hidden max-w-0 align-top lg:table-cell">
+                        <div class="truncate text-base-content/70" title={capabilityContractLabel(capability)}>{capabilityContractLabel(capability)}</div>
+                        {#if capability.contractId}
+                          <div class="trellis-identifier mt-0.5 truncate text-base-content/45" title={capability.contractId}>{capability.contractId}</div>
+                        {/if}
+                      </td>
+                      <td class="align-top">
+                        <span class="badge badge-outline badge-xs">{capability.source === "platform" ? "Platform" : capabilityDirectionLabel(capability)}</span>
+                      </td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </DataTable>
+            </section>
           {:else}
-            <div class="px-2 py-3 trellis-metadata text-xs">No capabilities returned.</div>
+            <div class="px-3 py-4 trellis-metadata text-xs">No capabilities returned.</div>
           {/each}
-        </SelectionGroup>
+        </div>
       </Panel>
 
       <Panel title="Included groups" eyebrow="Nested membership">

@@ -489,6 +489,31 @@ function localLoginRequest(password: string): RequestInit {
   };
 }
 
+async function signedAuthStartRequest(provider?: string) {
+  const auth = await createAuth({
+    sessionKeySeed: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  });
+  const contract = {
+    format: "trellis.contract.v1",
+    id: "client.example@v1",
+    displayName: "Example Client",
+    description: "Example browser client",
+    kind: "app",
+  };
+  const request = {
+    redirectTo: "http://localhost:5173/app",
+    sessionKey: auth.sessionKey,
+    sig: "",
+    contract,
+    ...(provider ? { provider } : {}),
+  };
+  const digest = await sha256(
+    utf8(`oauth-init:${buildAuthStartSignaturePayload(request)}`),
+  );
+  request.sig = base64urlEncode(await auth.sign(digest));
+  return request;
+}
+
 Deno.test({
   name: "auth HTTP routes register current auth request endpoint",
   sanitizeResources: false,
@@ -1291,6 +1316,134 @@ Deno.test({
     assertEquals((await response.json()).providers, [
       { id: "local", displayName: "Username and password" },
     ]);
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP flow state omits local login when local identity is disabled",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({ authToken: undefined }, {}, {
+      auth0: testProvider("auth0", "Qlever, LLC"),
+    }, {
+      config: {
+        ...config,
+        auth: {
+          localIdentity: {
+            ...config.auth.localIdentity,
+            enabled: false,
+          },
+        },
+      },
+    });
+
+    const response = await app.request("http://trellis/auth/flow/missing");
+
+    assertEquals(response.status, 200);
+    assertEquals((await response.json()).providers, [
+      { id: "auth0", displayName: "Qlever, LLC" },
+    ]);
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP local login rejects requests when local identity is disabled",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({}, {}, {}, {
+      config: {
+        ...config,
+        auth: {
+          localIdentity: {
+            ...config.auth.localIdentity,
+            enabled: false,
+          },
+        },
+      },
+    });
+
+    const response = await app.request(
+      "http://trellis/auth/login/local",
+      localLoginRequest("secret-pass"),
+    );
+
+    assertEquals(response.status, 403);
+    assertEquals(await response.json(), { error: "local_identity_disabled" });
+  },
+});
+
+Deno.test({
+  name: "auth HTTP start redirects directly to the only federated provider",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({}, {}, {
+      auth0: testProvider("auth0", "Qlever, LLC"),
+    }, {
+      config: {
+        ...config,
+        auth: {
+          localIdentity: {
+            ...config.auth.localIdentity,
+            enabled: false,
+          },
+        },
+      },
+    });
+    const request = await signedAuthStartRequest();
+
+    const response = await app.request("http://trellis/auth/requests", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(request),
+    });
+
+    assertEquals(response.status, 200);
+    const body = await response.json();
+    assertEquals(body.status, "flow_started");
+    assertStringIncludes(body.loginUrl, "http://trellis/auth/login/auth0");
+    assertStringIncludes(body.loginUrl, "flowId=");
+  },
+});
+
+Deno.test({
+  name: "auth HTTP start keeps chooser when configured to always show it",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({}, {}, {
+      auth0: testProvider("auth0", "Qlever, LLC"),
+    }, {
+      config: {
+        ...config,
+        auth: {
+          localIdentity: {
+            ...config.auth.localIdentity,
+            enabled: false,
+          },
+        },
+        oauth: {
+          ...config.oauth,
+          alwaysShowProviderChooser: true,
+        },
+      },
+    });
+    const request = await signedAuthStartRequest();
+
+    const response = await app.request("http://trellis/auth/requests", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(request),
+    });
+
+    assertEquals(response.status, 200);
+    const body = await response.json();
+    assertEquals(body.status, "flow_started");
+    assertStringIncludes(
+      body.loginUrl,
+      "http://localhost:3000/_trellis/portal/users/login",
+    );
+    assertStringIncludes(body.loginUrl, "flowId=");
   },
 });
 

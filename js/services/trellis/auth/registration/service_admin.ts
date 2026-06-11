@@ -372,6 +372,7 @@ export async function registerServiceAdminRpcs(deps: {
     createAuthDeploymentAuthorityAcceptUpdateHandler({
       deploymentAuthorityStorage: deps.deploymentAuthorityStorage,
       deploymentAuthorityPlanStorage: deps.deploymentAuthorityPlanStorage,
+      capabilityDefinitionStorage: deps.capabilityDefinitionStorage,
       authorityReconciler: deps.authorityReconciler,
       logger: deps.logger,
     }),
@@ -380,6 +381,7 @@ export async function registerServiceAdminRpcs(deps: {
     createAuthDeploymentAuthorityAcceptMigrationHandler({
       deploymentAuthorityStorage: deps.deploymentAuthorityStorage,
       deploymentAuthorityPlanStorage: deps.deploymentAuthorityPlanStorage,
+      capabilityDefinitionStorage: deps.capabilityDefinitionStorage,
       authorityReconciler: deps.authorityReconciler,
       logger: deps.logger,
     }),

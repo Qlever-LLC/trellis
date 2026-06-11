@@ -54,6 +54,7 @@ import { classifyDeploymentAuthorityPlan } from "../deployment_authority_plan.ts
 import type {
   AuthorityNeedSet,
   DeploymentAuthority,
+  DeploymentAuthorityCapabilityDefinition,
   DeploymentAuthorityPlan,
   DeploymentAuthorityUpdate,
 } from "../schemas.ts";
@@ -310,6 +311,21 @@ class InMemoryDeploymentAuthorityPlanStorage {
 
   getValue(planId: string): DeploymentAuthorityPlan | undefined {
     return this.#plans.get(planId);
+  }
+}
+
+class InMemoryCapabilityDefinitionStorage {
+  writes: Array<{
+    deploymentId: string;
+    definitions: DeploymentAuthorityCapabilityDefinition[];
+  }> = [];
+
+  async replaceForDeployment(
+    deploymentId: string,
+    definitions: DeploymentAuthorityCapabilityDefinition[],
+  ): Promise<void> {
+    await Promise.resolve();
+    this.writes.push({ deploymentId, definitions });
   }
 }
 
@@ -576,6 +592,17 @@ Deno.test("Auth.DeploymentAuthority.Plans.Get validates missing plan", async () 
 });
 
 Deno.test("Auth.DeploymentAuthority.AcceptUpdate accepts pending plan without materializing", async () => {
+  const capabilityDefinition: DeploymentAuthorityCapabilityDefinition = {
+    deploymentId: "svc-a",
+    key: "svc.use",
+    displayName: "Use service",
+    description: "Use service capabilities.",
+    source: "contract",
+    contractId: "svc.contract@v1",
+    contractDigest: "sha256-a",
+    contractDisplayName: "Service Contract",
+    direction: "creates",
+  };
   const authorities = new InMemoryDeploymentAuthorityStorage(
     deploymentAuthority({
       desiredState: {
@@ -591,14 +618,28 @@ Deno.test("Auth.DeploymentAuthority.AcceptUpdate accepts pending plan without ma
     }),
   );
   const plans = new InMemoryDeploymentAuthorityPlanStorage([
-    deploymentAuthorityPlan(),
+    deploymentAuthorityPlan({
+      proposal: {
+        deploymentId: "svc-a",
+        contractId: "svc.contract@v1",
+        contractDigest: "sha256-a",
+        requestedNeeds: [],
+        providedSurfaces: [],
+        summary: {
+          desiredVersion: "v1",
+          authorityCapabilityDefinitions: [capabilityDefinition],
+        },
+      },
+    }),
   ]);
+  const capabilityDefinitions = new InMemoryCapabilityDefinitionStorage();
   const reconciliations: Array<
     { deploymentId: string; desiredVersion?: string }
   > = [];
   const handler = createAuthDeploymentAuthorityAcceptUpdateHandler({
     deploymentAuthorityStorage: authorities,
     deploymentAuthorityPlanStorage: plans,
+    capabilityDefinitionStorage: capabilityDefinitions,
     authorityReconciler: {
       reconcileDeployment: async (deploymentId, opts) => {
         reconciliations.push({
@@ -645,6 +686,10 @@ Deno.test("Auth.DeploymentAuthority.AcceptUpdate accepts pending plan without ma
   assertEquals(reconciliations, [{
     deploymentId: "svc-a",
     desiredVersion: value.authority.version,
+  }]);
+  assertEquals(capabilityDefinitions.writes, [{
+    deploymentId: "svc-a",
+    definitions: [capabilityDefinition],
   }]);
 });
 
@@ -921,6 +966,17 @@ Deno.test("Auth.DeploymentAuthority.AcceptUpdate rejects migration plans", async
 });
 
 Deno.test("Auth.DeploymentAuthority.AcceptMigration stores acknowledgement as decision reason", async () => {
+  const capabilityDefinition: DeploymentAuthorityCapabilityDefinition = {
+    deploymentId: "svc-a",
+    key: "svc.migrate",
+    displayName: "Migrate service",
+    description: "Use migrated service capabilities.",
+    source: "contract",
+    contractId: "svc.contract@v1",
+    contractDigest: "sha256-a",
+    contractDisplayName: "Service Contract",
+    direction: "creates",
+  };
   const authorities = new InMemoryDeploymentAuthorityStorage(
     deploymentAuthority({
       desiredState: {
@@ -939,10 +995,23 @@ Deno.test("Auth.DeploymentAuthority.AcceptMigration stores acknowledgement as de
     ...deploymentAuthorityPlan(),
     classification: "migration",
     acknowledgementRequired: true,
+    proposal: {
+      deploymentId: "svc-a",
+      contractId: "svc.contract@v1",
+      contractDigest: "sha256-a",
+      requestedNeeds: [],
+      providedSurfaces: [],
+      summary: {
+        desiredVersion: "v1",
+        authorityCapabilityDefinitions: [capabilityDefinition],
+      },
+    },
   }]);
+  const capabilityDefinitions = new InMemoryCapabilityDefinitionStorage();
   const handler = createAuthDeploymentAuthorityAcceptMigrationHandler({
     deploymentAuthorityStorage: authorities,
     deploymentAuthorityPlanStorage: plans,
+    capabilityDefinitionStorage: capabilityDefinitions,
     authorityReconciler: {
       reconcileDeployment: async (deploymentId, opts) => ({
         authority: authorities.getValue() ?? deploymentAuthority(),
@@ -974,6 +1043,10 @@ Deno.test("Auth.DeploymentAuthority.AcceptMigration stores acknowledgement as de
   assert(!result.isErr());
   assertEquals(plans.getValue("plan-a")?.state, "accepted");
   assertEquals(plans.getValue("plan-a")?.decisionReason, "I understand.");
+  assertEquals(capabilityDefinitions.writes, [{
+    deploymentId: "svc-a",
+    definitions: [capabilityDefinition],
+  }]);
 });
 
 Deno.test("Auth.DeploymentAuthority.AcceptMigration replaces desired state from proposal", async () => {

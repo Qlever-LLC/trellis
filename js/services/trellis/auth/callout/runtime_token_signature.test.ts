@@ -849,6 +849,14 @@ Deno.test("service runtime permissions use materialized nats grants instead of b
 
   assertEquals(capabilities, ["service", "worker.run"]);
   assertEquals(
+    __testing__.servicePlatformPublishSubjects(capabilities),
+    ["rpc.v1.Auth.Requests.Validate"],
+  );
+  assertEquals(
+    __testing__.servicePlatformPublishSubjects(["worker.run"]),
+    [],
+  );
+  assertEquals(
     __testing__.materializedNatsSubjectsForPermissions({
       materializedAuthority,
       direction: "subscribe",

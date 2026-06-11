@@ -771,4 +771,116 @@ Deno.test("analyzeContractProposal derives contributed surfaces", async () => {
     },
   ]);
   assertEquals(analysis.contributedAvailability.capabilities, []);
+  assertEquals(
+    analysis.capabilityDefinitions.map((definition) => ({
+      key: definition.key,
+      displayName: definition.displayName,
+      description: definition.description,
+      direction: definition.direction,
+    })),
+    [
+      {
+        key: "event:publish",
+        displayName: "Publish event",
+        description: "Publish events.",
+        direction: "creates",
+      },
+      {
+        key: "event:subscribe",
+        displayName: "Subscribe event",
+        description: "Subscribe to events.",
+        direction: "creates",
+      },
+      {
+        key: "feed:subscribe",
+        displayName: "Subscribe feed",
+        description: "Subscribe to feeds.",
+        direction: "creates",
+      },
+      {
+        key: "operation:call",
+        displayName: "Call operation",
+        description: "Start operations.",
+        direction: "creates",
+      },
+      {
+        key: "operation:cancel",
+        displayName: "Cancel operation",
+        description: "Cancel operations.",
+        direction: "creates",
+      },
+      {
+        key: "operation:observe",
+        displayName: "Observe operation",
+        description: "Observe operations.",
+        direction: "creates",
+      },
+      {
+        key: "rpc:call",
+        displayName: "Call RPC",
+        description: "Call RPC methods.",
+        direction: "creates",
+      },
+    ],
+  );
+});
+
+Deno.test("analyzeContractProposal creates fallback definitions for owned surface capabilities", async () => {
+  const analysis = await analyzeContractProposal(createTestContracts(), {
+    ...dependencyContract(),
+    capabilities: {},
+  });
+
+  assertEquals(
+    analysis.capabilityDefinitions.map((definition) => ({
+      key: definition.key,
+      displayName: definition.displayName,
+      description: definition.description,
+      direction: definition.direction,
+    })),
+    [
+      {
+        key: "event:publish",
+        displayName: "event:publish",
+        description: "Requires event:publish.",
+        direction: "creates",
+      },
+      {
+        key: "event:subscribe",
+        displayName: "event:subscribe",
+        description: "Requires event:subscribe.",
+        direction: "creates",
+      },
+      {
+        key: "feed:subscribe",
+        displayName: "feed:subscribe",
+        description: "Requires feed:subscribe.",
+        direction: "creates",
+      },
+      {
+        key: "operation:call",
+        displayName: "operation:call",
+        description: "Requires operation:call.",
+        direction: "creates",
+      },
+      {
+        key: "operation:cancel",
+        displayName: "operation:cancel",
+        description: "Requires operation:cancel.",
+        direction: "creates",
+      },
+      {
+        key: "operation:observe",
+        displayName: "operation:observe",
+        description: "Requires operation:observe.",
+        direction: "creates",
+      },
+      {
+        key: "rpc:call",
+        displayName: "rpc:call",
+        description: "Requires rpc:call.",
+        direction: "creates",
+      },
+    ],
+  );
 });
