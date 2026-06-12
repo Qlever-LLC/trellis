@@ -39,7 +39,7 @@ const declarationSourceFiles = sourceFiles.filter((sourceFile) =>
 const denoConfig = JSON.parse(await Deno.readTextFile("./deno.json"));
 const name = denoConfig.name as string;
 const version = resolvePackageBuildVersion(denoConfig.version as string);
-const jsrTrellisDependencyVersion = previousPublishedPatchVersion(version);
+const jsrTrellisDependencyVersion = jsrRuntimeDependencyFloorVersion(version);
 const dependencies = resolveInternalNpmDependenciesForBuild(
   {
     "@nats-io/nats-core": "^3.3.1",
@@ -51,14 +51,16 @@ const dependencies = resolveInternalNpmDependenciesForBuild(
   version,
 );
 
-function previousPublishedPatchVersion(version: string): string {
+function jsrRuntimeDependencyFloorVersion(version: string): string {
   const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
   if (!match) return version;
   const [, major, minor, patch] = match;
   const patchNumber = Number(patch);
-  if (patchNumber === 0) return version;
-  return `${major}.${minor}.${patchNumber - 1}`;
+  if (patchNumber <= 1) return version;
+  // Use a caret range low enough to tolerate one skipped runtime JSR patch.
+  return `${major}.${minor}.${patchNumber - 2}`;
 }
+
 const peerDependencies = resolveInternalNpmDependenciesForBuild(
   {
     svelte: "^5.0.0",

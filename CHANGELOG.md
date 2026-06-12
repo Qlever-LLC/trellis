@@ -21,6 +21,8 @@ and this project adheres to
 
 - Fixed release JSR publish availability checks to probe exact immutable version
   metadata instead of the lagging package index used by `deno info`.
+- Fixed the trellis-svelte JSR dry-run artifact to use a compatible published
+  Trellis runtime range instead of assuming the previous patch exists on JSR.
 
 ## [0.10.14] - 2026-06-11
 
