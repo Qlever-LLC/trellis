@@ -63,7 +63,7 @@ miette = { version = "7.6.0", features = ["fancy"] }
 owo-colors = "4.3.0"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
-time = { version = "0.3.47", features = ["formatting"] }
+time = { version = "=0.3.46", features = ["formatting"] }
 self_update = { version = "0.44.0", default-features = false, features = ["archive-tar", "archive-zip", "compression-flate2", "compression-zip-deflate", "rustls", "ureq"] }
 trellis-sdk-auth = { path = "../generated/packages/cargo/auth", version = "0.10.16" }
 trellis-sdk-core = { path = "../generated/packages/cargo/trellis-core", version = "0.10.16" }

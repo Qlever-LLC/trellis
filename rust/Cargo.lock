@@ -516,9 +516,9 @@ dependencies = [
 
 [[package]]
 name = "cookie_store"
-version = "0.22.1"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15b2c103cf610ec6cae3da84a766285b42fd16aad564758459e6ecf128c75206"
+checksum = "3fc4bff745c9b4c7fb1e97b25d13153da2bc7796260141df62378998d070207f"
 dependencies = [
  "cookie",
  "document-features",
@@ -3334,9 +3334,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.47"
+version = "0.3.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "743bd48c283afc0388f9b8827b976905fb217ad9e647fae3a379a9283c4def2c"
+checksum = "9da98b7d9b7dad93488a84b8248efc35352b0b2657397d4167e7ad67e5d535e5"
 dependencies = [
  "deranged",
  "itoa",
@@ -3355,9 +3355,9 @@ checksum = "7694e1cfe791f8d31026952abf09c69ca6f6fa4e1a1229e18988f06a04a12dca"
 
 [[package]]
 name = "time-macros"
-version = "0.2.27"
+version = "0.2.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e70e4c5a0e0a8a4823ad65dfe1a6930e4f4d756dcd9dd7939022b5e8c501215"
+checksum = "78cc610bac2dcee56805c99642447d4c5dbde4d01f752ffea0199aee1f601dc4"
 dependencies = [
  "num-conv",
  "time-core",
@@ -3643,14 +3643,14 @@ dependencies = [
 
 [[package]]
 name = "trellis-auth"
-version = "0.10.14"
+version = "0.10.16"
 dependencies = [
  "trellis-rs",
 ]
 
 [[package]]
 name = "trellis-auth-adapters"
-version = "0.10.14"
+version = "0.10.16"
 dependencies = [
  "bytes",
  "futures-util",
@@ -3661,7 +3661,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-cli"
-version = "0.10.14"
+version = "0.10.16"
 dependencies = [
  "async-nats",
  "base64",
@@ -3695,7 +3695,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-client"
-version = "0.10.14"
+version = "0.10.16"
 dependencies = [
  "futures-util",
  "serde",
@@ -3706,7 +3706,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-codegen-rust"
-version = "0.10.14"
+version = "0.10.16"
 dependencies = [
  "prettyplease",
  "serde",
@@ -3719,7 +3719,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-codegen-ts"
-version = "0.10.14"
+version = "0.10.16"
 dependencies = [
  "oxc_allocator",
  "oxc_parser",
@@ -3731,7 +3731,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-contracts"
-version = "0.10.14"
+version = "0.10.16"
 dependencies = [
  "base64",
  "jsonschema",
@@ -3743,7 +3743,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-core-bootstrap"
-version = "0.10.14"
+version = "0.10.16"
 dependencies = [
  "futures-util",
  "serde_json",
@@ -3753,7 +3753,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-generate-runner"
-version = "0.10.14"
+version = "0.10.16"
 dependencies = [
  "self_update",
  "sha2 0.11.0",
@@ -3761,7 +3761,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-integration-harness"
-version = "0.10.14"
+version = "0.10.16"
 dependencies = [
  "async-nats",
  "bytes",
@@ -3784,7 +3784,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-jobs"
-version = "0.10.14"
+version = "0.10.16"
 dependencies = [
  "futures-util",
  "serde_json",
@@ -3794,7 +3794,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-local-bootstrap"
-version = "0.10.14"
+version = "0.10.16"
 dependencies = [
  "base64",
  "rand 0.10.1",
@@ -3806,7 +3806,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-rs"
-version = "0.10.14"
+version = "0.10.16"
 dependencies = [
  "async-nats",
  "base64",
@@ -3834,7 +3834,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-service"
-version = "0.10.14"
+version = "0.10.16"
 dependencies = [
  "async-nats",
  "bytes",
@@ -3848,7 +3848,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-service-jobs"
-version = "0.10.14"
+version = "0.10.16"
 dependencies = [
  "async-nats",
  "futures-util",
@@ -3864,7 +3864,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-service-runtime"
-version = "0.10.14"
+version = "0.10.16"
 dependencies = [
  "trellis-rs",
 ]

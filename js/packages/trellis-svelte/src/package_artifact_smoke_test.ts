@@ -18,6 +18,7 @@ type JsrDenoJson = {
   exports: {
     ".": string;
   };
+  imports: Record<string, string>;
 };
 
 async function exists(url: URL): Promise<boolean> {
@@ -76,6 +77,14 @@ Deno.test("trellis-svelte JSR artifact exports compiled JavaScript with self typ
 
   const denoJson = await readJson<JsrDenoJson>(denoJsonUrl);
   assertEquals(denoJson.exports["."], "./dist/index.js");
+  assertStringIncludes(
+    denoJson.imports["@qlever-llc/trellis/browser"],
+    "/browser",
+  );
+  assertStringIncludes(
+    denoJson.imports["@qlever-llc/trellis/contracts"],
+    "/contracts",
+  );
 
   const indexSource = await Deno.readTextFile(
     new URL("../jsr/dist/index.js", import.meta.url),

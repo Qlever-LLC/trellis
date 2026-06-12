@@ -17,6 +17,9 @@ and this project adheres to
   from browser-reachable runtime detection, transport loading, and telemetry
   helpers, keeping browser clients on the websocket transport path without
   requiring `unsafe-eval`.
+- Fixed Rust generated SDK compile checks against current registry resolution by
+  pinning the `time` dependency below the patch that conflicts with the
+  `async-nats` JetStream error type blanket implementation.
 
 ## [0.10.15] - 2026-06-11
 
