@@ -55,15 +55,14 @@ export function selectRuntimeTransportServers(
 }
 
 function isBrowserRuntime(): boolean {
-  const load = new Function("return globalThis") as () => NativeGlobalThis;
-  const browserGlobal = load();
+  const browserGlobal = globalThis as NativeGlobalThis;
   return typeof browserGlobal.window !== "undefined" &&
     typeof browserGlobal.document !== "undefined";
 }
 
 function isDenoRuntime(): boolean {
-  const load = new Function("return globalThis") as () => NativeGlobalThis;
-  return typeof load().Deno?.version?.deno === "string";
+  const nativeGlobal = globalThis as NativeGlobalThis;
+  return typeof nativeGlobal.Deno?.version?.deno === "string";
 }
 
 function usesWebSocketTransport(servers: string | string[]): boolean {
@@ -74,10 +73,7 @@ function usesWebSocketTransport(servers: string | string[]): boolean {
 }
 
 function runtimeImport<TModule>(specifier: string): Promise<TModule> {
-  const load = new Function("specifier", "return import(specifier);") as (
-    specifier: string,
-  ) => Promise<TModule>;
-  return load(specifier);
+  return import(specifier) as Promise<TModule>;
 }
 
 function denoTransportSpecifier(): string {

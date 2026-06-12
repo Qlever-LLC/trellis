@@ -35,10 +35,7 @@ type MetricsRuntimeModules = {
 };
 
 function runtimeImport<TModule>(specifier: string): Promise<TModule> {
-  const load = new Function("specifier", "return import(specifier);") as (
-    specifier: string,
-  ) => Promise<TModule>;
-  return load(specifier);
+  return import(specifier) as Promise<TModule>;
 }
 
 async function loadTracingRuntime(): Promise<TracingRuntimeModules> {

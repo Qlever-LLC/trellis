@@ -13,7 +13,7 @@ const generatedSdkCoreAliasImportPattern = /\.\.\/core\/mod\.js/;
 const rawTransportDeclarationPattern =
   /NatsConnection|natsConnection|nc: NatsConnection|createConnectedService|connectTrellisServiceWithRuntimeDeps|connectDeviceWithDeps/;
 const forbiddenBrowserArtifactPattern =
-  /_dnt\.shims|@deno\/shim-deno|node:(?:fs|os|module)/;
+  /_dnt\.shims|@deno\/shim-deno|node:(?:fs|os|module)|\bnew\s+Function\b|\beval\s*\(/;
 const moduleSpecifierPattern =
   /(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)|require\(\s*["']([^"']+)["']\s*\)/g;
 

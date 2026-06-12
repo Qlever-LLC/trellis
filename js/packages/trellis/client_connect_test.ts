@@ -191,6 +191,97 @@ function createControllableNatsConnection(authErrorReason?: string): {
   };
 }
 
+Deno.test("connectClientWithDeps cleans browser callback URLs without CSP-unsafe evaluation", async () => {
+  const mutableGlobal = globalThis as typeof globalThis & {
+    window?: { history: { replaceState: typeof history.replaceState } };
+    document?: unknown;
+  };
+  const hadWindow = "window" in mutableGlobal;
+  const hadDocument = "document" in mutableGlobal;
+  const originalWindow = mutableGlobal.window;
+  const originalDocument = mutableGlobal.document;
+  const originalFunction = globalThis.Function;
+  let replacedUrl = "";
+
+  try {
+    Object.defineProperty(globalThis, "Function", {
+      configurable: true,
+      writable: true,
+      value: () => {
+        throw new EvalError("unsafe-eval blocked by test CSP");
+      },
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      writable: true,
+      value: {
+        history: {
+          replaceState: (
+            _state: unknown,
+            _title: string,
+            url?: string | URL,
+          ) => {
+            replacedUrl = String(url ?? "");
+          },
+        },
+      },
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      writable: true,
+      value: {},
+    });
+
+    const handle = await createBrowserHandle();
+    const error = await assertRejects(
+      () =>
+        connectClientWithDeps({
+          trellisUrl: "https://trellis.example",
+          contract: testContract,
+          auth: {
+            handle,
+            currentUrl: new URL(
+              "https://app.example/callback?flowId=flow-a&authError=denied#done",
+            ),
+          },
+        }, {
+          loadTransport: () => {
+            throw new Error("transport should not load for auth errors");
+          },
+          now: () => 1_700_000_000_000,
+        }),
+      TransportError,
+    );
+
+    assertEquals(error.code, "trellis.auth.denied");
+    assertEquals(replacedUrl, "/callback#done");
+  } finally {
+    Object.defineProperty(globalThis, "Function", {
+      configurable: true,
+      writable: true,
+      value: originalFunction,
+    });
+    if (hadWindow) {
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        writable: true,
+        value: originalWindow,
+      });
+    } else {
+      Reflect.deleteProperty(globalThis, "window");
+    }
+    if (hadDocument) {
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        writable: true,
+        value: originalDocument,
+      });
+    } else {
+      Reflect.deleteProperty(globalThis, "document");
+    }
+  }
+});
+
 Deno.test("connectClientWithDeps uses reconnect-safe iat auth payloads for runtime connect", async () => {
   const originalFetch = globalThis.fetch;
   let connectInboxPrefix = "";

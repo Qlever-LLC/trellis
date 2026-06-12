@@ -65,7 +65,14 @@
           ? error.message
           : String(error);
 
-    console.error("Error:", error);
+    console.error("TrellisProvider failed to connect", {
+      message,
+      code: serialized?.code,
+      hint: serialized?.hint,
+      causeMessage,
+      context: serialized?.context,
+      error,
+    });
   }
 
   onMount(() => {

@@ -25,6 +25,23 @@ import {
 } from "./browser.ts";
 import * as browser from "./browser.ts";
 
+const browserCspUnsafeSourcePattern = /\bnew\s+Function\b|\beval\s*\(/;
+
+async function assertSourceFileCspSafe(path: string): Promise<void> {
+  const source = await Deno.readTextFile(new URL(path, import.meta.url));
+  assertEquals(browserCspUnsafeSourcePattern.test(source), false, path);
+}
+
+Deno.test("browser source avoids CSP-unsafe evaluation", async () => {
+  await Promise.all([
+    assertSourceFileCspSafe("./browser.ts"),
+    assertSourceFileCspSafe("./client_connect.ts"),
+    assertSourceFileCspSafe("./runtime_transport.ts"),
+    assertSourceFileCspSafe("./telemetry/env.ts"),
+    assertSourceFileCspSafe("./telemetry/runtime.ts"),
+  ]);
+});
+
 Deno.test("browser exports exclude raw runtime constructors", () => {
   assertEquals("Trellis" in browser, false);
   assertEquals("TypedKV" in browser, false);

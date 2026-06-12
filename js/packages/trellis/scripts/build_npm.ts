@@ -95,6 +95,11 @@ async function urlExists(url: URL): Promise<boolean> {
 async function removeFileDntPolyfills(fileUrl: URL) {
   const original = await Deno.readTextFile(fileUrl);
   const updated = original
+    .replaceAll("dntShim.dntGlobalThis", "globalThis")
+    .replace(
+      /^import \* as dntShim from ["'](?:\.\/|\.\.\/)_dnt\.shims\.js["'];\r?\n/gm,
+      "",
+    )
     .replace(/^import ["'](?:\.\/|\.\.\/)_dnt\.polyfills\.js["'];\r?\n/gm, "")
     .replace(
       /^require\(["'](?:\.\/|\.\.\/)_dnt\.polyfills\.js["']\);\r?\n/gm,

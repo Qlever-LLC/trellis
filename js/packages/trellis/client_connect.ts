@@ -2,6 +2,7 @@ import {
   type Authenticator,
   jwtAuthenticator,
   type NatsConnection,
+  wsconnect,
 } from "@nats-io/nats-core";
 import {
   CONTRACT_STATE_METADATA,
@@ -38,9 +39,7 @@ import type { ClientOpts } from "./client.ts";
 import type { TrellisAPI, TrellisContractV1 } from "./contracts.ts";
 import {
   DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS,
-  loadDefaultRuntimeTransport,
   type RuntimeTransport,
-  selectRuntimeTransportServers,
 } from "./runtime_transport.ts";
 import {
   type ConnectedTrellisClient,
@@ -219,6 +218,7 @@ const ClientTransportsSchema = Type.Object({
   native: Type.Optional(ClientTransportEndpointsSchema),
   websocket: Type.Optional(ClientTransportEndpointsSchema),
 });
+type RuntimeTransports = StaticDecode<typeof ClientTransportsSchema>;
 
 type ClientConnectDeps = {
   loadTransport(): Promise<RuntimeTransport>;
@@ -287,14 +287,42 @@ type BrowserGlobalThis = typeof globalThis & {
 };
 
 function isBrowserRuntime(): boolean {
-  const load = new Function("return globalThis") as () => BrowserGlobalThis;
-  const browserGlobal = load();
+  const browserGlobal = globalThis as BrowserGlobalThis;
   return typeof browserGlobal.window !== "undefined" &&
     typeof browserGlobal.document !== "undefined";
 }
 
+function selectClientRuntimeTransportServers(
+  transports: RuntimeTransports,
+): string[] {
+  if (isBrowserRuntime()) {
+    if (transports.websocket?.natsServers?.length) {
+      return transports.websocket.natsServers;
+    }
+    if (transports.native?.natsServers?.length) {
+      return transports.native.natsServers;
+    }
+  } else {
+    if (transports.native?.natsServers?.length) {
+      return transports.native.natsServers;
+    }
+    if (transports.websocket?.natsServers?.length) {
+      return transports.websocket.natsServers;
+    }
+  }
+
+  throw new Error("No supported NATS transport endpoints available");
+}
+
 const defaultDeps: ClientConnectDeps = {
-  loadTransport: loadDefaultRuntimeTransport,
+  loadTransport: async () => {
+    if (isBrowserRuntime()) {
+      return { connect: wsconnect };
+    }
+
+    const mod = await import("./runtime_transport.ts");
+    return await mod.loadDefaultRuntimeTransport();
+  },
   now: () => Date.now(),
   setInterval: (handler, ms) => globalThis.setInterval(handler, ms),
   clearInterval: (id) => globalThis.clearInterval(id),
@@ -1161,7 +1189,9 @@ export async function connectClientWithDeps<
   let nc: NatsConnection;
   try {
     nc = await transport.connect({
-      servers: selectRuntimeTransportServers(bootstrap.connectInfo.transports),
+      servers: selectClientRuntimeTransportServers(
+        bootstrap.connectInfo.transports,
+      ),
       maxReconnectAttempts: DEFAULT_RUNTIME_MAX_RECONNECT_ATTEMPTS,
       inboxPrefix: bootstrap.connectInfo.transport.inboxPrefix,
       authenticator: runtimeAuth.authenticators,

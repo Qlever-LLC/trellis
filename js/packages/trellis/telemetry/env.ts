@@ -15,8 +15,7 @@ type EnvironmentGlobalThis = typeof globalThis & {
 
 // Shared telemetry code needs environment access without assuming Deno or Node.
 export function getEnv(key: string): string | undefined {
-  const load = new Function("return globalThis") as () => EnvironmentGlobalThis;
-  const environmentGlobal = load();
+  const environmentGlobal = globalThis as EnvironmentGlobalThis;
   if (environmentGlobal.Deno?.env?.get) {
     try {
       return environmentGlobal.Deno.env.get(key);
