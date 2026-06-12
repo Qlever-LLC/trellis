@@ -8,6 +8,16 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.16] - 2026-06-12
+
+### Fixed
+
+- Fixed Trellis browser client and Svelte provider startup under strict Content
+  Security Policy by removing `new Function` and eval-like dynamic import probes
+  from browser-reachable runtime detection, transport loading, and telemetry
+  helpers, keeping browser clients on the websocket transport path without
+  requiring `unsafe-eval`.
+
 ## [0.10.15] - 2026-06-11
 
 ### Changed

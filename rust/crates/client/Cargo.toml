@@ -8,7 +8,7 @@ description = "Client transport and session primitives for Trellis services."
 publish = false
 
 [dependencies]
-trellis-rs = { path = "../trellis", version = "0.10.15" }
+trellis-rs = { path = "../trellis", version = "0.10.16" }
 
 [dev-dependencies]
 futures-util.workspace = true

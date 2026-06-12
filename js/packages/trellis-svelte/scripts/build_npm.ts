@@ -43,8 +43,8 @@ const jsrTrellisDependencyVersion = jsrRuntimeDependencyFloorVersion(version);
 const dependencies = resolveInternalNpmDependenciesForBuild(
   {
     "@nats-io/nats-core": "^3.3.1",
-    "@qlever-llc/result": "^0.10.15",
-    "@qlever-llc/trellis": "^0.10.15",
+    "@qlever-llc/result": "^0.10.16",
+    "@qlever-llc/trellis": "^0.10.16",
     typebox: "^1.0.15",
     ulid: "^3.0.2",
   },
