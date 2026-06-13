@@ -383,6 +383,13 @@ fn prepare_release(repo_root: &Path, release: &ReleaseVersion) -> Result<Vec<Pat
                 &release.base_version,
                 &path,
             )?
+        } else if is_release_js_internal_npm_version_file(repo_root, &path) {
+            rewrite_js_internal_npm_dependency_versions(
+                &original,
+                &release.base_version,
+                &release.version,
+                &path,
+            )?
         } else {
             original.clone()
         };
@@ -635,7 +642,8 @@ fn json_like_string_property(trimmed: &str) -> Option<(String, String)> {
 
 fn npm_dependency_spec_version(spec: &str) -> Option<String> {
     let version = spec.strip_prefix(['^', '~']).unwrap_or(spec);
-    is_stable_semver(version).then(|| version.to_string())
+    version_base(version).ok()?;
+    Some(version.to_string())
 }
 
 fn replace_npm_dependency_spec_version(spec: &str, version: &str) -> String {
@@ -1489,11 +1497,11 @@ impl VersionEntry {
 mod tests {
     use super::{
         collect_versions, command_text, extract_changelog_section, parse_release_command,
-        pretag_dispatch_command, pretag_list_command, pretag_watch_command,
+        prepare_release, pretag_dispatch_command, pretag_list_command, pretag_watch_command,
         rewrite_cargo_manifest_versions, rewrite_cargo_manifest_versions_for_release,
         rewrite_js_internal_npm_dependency_versions, rewrite_json_manifest_version,
         rewrite_json_manifest_version_for_release, verify_command_specs, version_base,
-        ReleaseCommand,
+        ReleaseCommand, ReleaseVersion,
     };
     use std::fs;
 
@@ -1828,12 +1836,40 @@ mod tests {
     }
 
     #[test]
+    fn prepare_release_updates_internal_npm_dependency_versions() {
+        let root = temp_repo_root();
+        let script = root.join("js/packages/trellis/scripts/build_npm.ts");
+        fs::create_dir_all(script.parent().expect("script parent")).expect("mkdir script parent");
+        fs::write(
+            &script,
+            "const dependencies = {\n  \"@qlever-llc/result\": \"^0.8.2\",\n};\n",
+        )
+        .expect("write script");
+
+        prepare_release(
+            &root,
+            &ReleaseVersion {
+                version: "0.8.2-rc.1".to_string(),
+                base_version: "0.8.2".to_string(),
+            },
+        )
+        .expect("prepare release");
+
+        let updated = fs::read_to_string(&script).expect("read updated script");
+        assert_eq!(
+            updated,
+            "const dependencies = {\n  \"@qlever-llc/result\": \"^0.8.2-rc.1\",\n};\n"
+        );
+        fs::remove_dir_all(root).expect("remove temp repo");
+    }
+
+    #[test]
     fn rewrite_js_internal_npm_dependency_versions_allows_already_bumped_target_version() {
-        let original = "const dependencies = {\n  \"@qlever-llc/result\": \"^0.9.0\",\n  \"@qlever-llc/trellis\": \"~0.9.0\",\n};\n";
+        let original = "const dependencies = {\n  \"@qlever-llc/result\": \"^0.9.0-rc.1\",\n  \"@qlever-llc/trellis\": \"~0.9.0-rc.1\",\n};\n";
         let updated = rewrite_js_internal_npm_dependency_versions(
             original,
             "0.8.2",
-            "0.9.0",
+            "0.9.0-rc.1",
             std::path::Path::new("build_npm.ts"),
         )
         .expect("rewrite js internal npm dependencies");
