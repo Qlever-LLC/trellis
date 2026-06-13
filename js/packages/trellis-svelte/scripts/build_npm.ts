@@ -52,7 +52,7 @@ const dependencies = resolveInternalNpmDependenciesForBuild(
 );
 
 function jsrRuntimeDependencyFloorVersion(version: string): string {
-  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version);
   if (!match) return version;
   const [, major, minor, patch] = match;
   const patchNumber = Number(patch);
