@@ -10,6 +10,10 @@ import { ulid } from "ulid";
 
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import {
+  mergeAuthorityNeeds,
+  normalizeAuthorityNeeds,
+} from "../authority_needs.ts";
+import {
   AuthorityReconciliationError,
   type AuthorityReconciliationResult,
 } from "../reconciliation/authority_reconciler.ts";
@@ -202,7 +206,9 @@ function isAuthorityNeedSet(value: unknown): value is AuthorityNeedSet {
     value.surfaces.every(isAuthorityNeedSetSurface) &&
     Array.isArray(value.capabilities) &&
     value.capabilities.every((capability) =>
-      typeof capability === "string" && capability.length > 0
+      isRecord(capability) && typeof capability.capability === "string" &&
+      capability.capability.length > 0 &&
+      typeof capability.required === "boolean"
     ) &&
     Array.isArray(value.resources) &&
     value.resources.every(isAuthorityNeedSetResource);
@@ -226,22 +232,11 @@ function resourceKey(resource: { kind: string; alias: string }): string {
   return `${resource.kind}:${resource.alias}`;
 }
 
-function needKey(need: DeploymentAuthority["desiredState"]["needs"][number]) {
-  if (need.kind === "contract") return `contract:${need.contractId}`;
-  if (need.kind === "capability") return `capability:${need.capability}`;
-  if (need.kind === "surface") return `surface:${surfaceKey(need.surface)}`;
-  return `resource:${resourceKey(need.resource)}`;
-}
-
 function mergeDesiredChange(
   authority: DeploymentAuthority,
   desiredChange: AuthorityNeedSet,
   providedSurfaces: DeploymentAuthorityPlan["proposal"]["providedSurfaces"],
 ): DeploymentAuthority["desiredState"] {
-  const needs = new Map<
-    string,
-    DeploymentAuthority["desiredState"]["needs"][number]
-  >();
   const resources = new Map<
     string,
     DeploymentAuthority["desiredState"]["resources"][number]
@@ -251,9 +246,6 @@ function mergeDesiredChange(
     DeploymentAuthority["desiredState"]["surfaces"][number]
   >();
 
-  for (const need of authority.desiredState.needs) {
-    needs.set(needKey(need), need);
-  }
   for (const resource of authority.desiredState.resources) {
     resources.set(resourceKey(resource), resource);
   }
@@ -264,14 +256,6 @@ function mergeDesiredChange(
     surfaces.set(surfaceKey(surface), surface);
   }
 
-  for (const contract of desiredChange.contracts) {
-    const need = {
-      kind: "contract" as const,
-      contractId: contract.contractId,
-      required: contract.required,
-    };
-    needs.set(needKey(need), need);
-  }
   for (const surface of desiredChange.surfaces) {
     const desiredSurface = {
       contractId: surface.contractId,
@@ -279,21 +263,7 @@ function mergeDesiredChange(
       name: surface.name,
       ...(surface.action === undefined ? {} : { action: surface.action }),
     };
-    const need = {
-      kind: "surface" as const,
-      surface: desiredSurface,
-      required: surface.required,
-    };
-    needs.set(needKey(need), need);
     surfaces.set(surfaceKey(desiredSurface), desiredSurface);
-  }
-  for (const capability of desiredChange.capabilities) {
-    const need = {
-      kind: "capability" as const,
-      capability,
-      required: true,
-    };
-    needs.set(needKey(need), need);
   }
   for (const resource of desiredChange.resources) {
     const desiredResource = {
@@ -304,21 +274,15 @@ function mergeDesiredChange(
         ? {}
         : { definition: resource.definition }),
     };
-    const need = {
-      kind: "resource" as const,
-      resource: desiredResource,
-      required: resource.required,
-    };
-    needs.set(needKey(need), need);
     resources.set(resourceKey(desiredResource), desiredResource);
   }
 
   return {
-    needs: [...needs.values()],
+    needs: mergeAuthorityNeeds(authority.desiredState.needs, desiredChange),
     capabilities: [
       ...new Set([
         ...authority.desiredState.capabilities,
-        ...desiredChange.capabilities,
+        ...desiredChange.capabilities.map((need) => need.capability),
       ]),
     ],
     resources: [...resources.values()],
@@ -339,20 +303,18 @@ function desiredStateFromProposal(
     DeploymentAuthority["desiredState"]["surfaces"][number]
   >();
 
-  for (const need of proposal.requestedNeeds) {
-    if (need.kind === "capability") {
-      capabilities.add(need.capability);
-    }
-    if (need.kind === "resource") {
-      resources.set(resourceKey(need.resource), need.resource);
-    }
+  for (const need of proposal.requestedNeeds.capabilities) {
+    capabilities.add(need.capability);
+  }
+  for (const resource of proposal.requestedNeeds.resources) {
+    resources.set(resourceKey(resource), resource);
   }
   for (const surface of proposal.providedSurfaces) {
     surfaces.set(surfaceKey(surface), surface);
   }
 
   return {
-    needs: [...proposal.requestedNeeds],
+    needs: normalizeAuthorityNeeds(proposal.requestedNeeds),
     capabilities: [...capabilities].sort(),
     resources: [...resources.values()].sort((left, right) =>
       resourceKey(left).localeCompare(resourceKey(right))
@@ -373,22 +335,19 @@ function proposalScopedReplacementAllowed(
   plan: DeploymentAuthorityPlan,
 ): boolean {
   const allowedContractIds = new Set<string>([plan.proposal.contractId]);
-  for (const need of plan.proposal.requestedNeeds) {
-    if (need.kind === "contract") allowedContractIds.add(need.contractId);
-    if (need.kind === "surface") {
-      allowedContractIds.add(need.surface.contractId);
-    }
+  for (const need of plan.proposal.requestedNeeds.contracts) {
+    allowedContractIds.add(need.contractId);
+  }
+  for (const need of plan.proposal.requestedNeeds.surfaces) {
+    allowedContractIds.add(need.contractId);
   }
   for (const surface of plan.proposal.providedSurfaces) {
     allowedContractIds.add(surface.contractId);
   }
 
   const currentContractIds = [
-    ...authority.desiredState.needs.flatMap((need) => {
-      if (need.kind === "contract") return [need.contractId];
-      if (need.kind === "surface") return [need.surface.contractId];
-      return [];
-    }),
+    ...authority.desiredState.needs.contracts.map((need) => need.contractId),
+    ...authority.desiredState.needs.surfaces.map((need) => need.contractId),
     ...authority.desiredState.surfaces.map((surface) => surface.contractId),
   ];
   return currentContractIds.length > 0 &&

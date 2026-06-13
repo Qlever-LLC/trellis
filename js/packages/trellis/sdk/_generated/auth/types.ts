@@ -4,7 +4,7 @@ import type { API } from "./api.ts";
 
 export const CONTRACT_ID = "trellis.auth@v1" as const;
 export const CONTRACT_DIGEST =
-  "XdqgSxkrIhWOu1ODbOk6-QHLTlI52ZP-6qhYJpIdCMc" as const;
+  "U-Y6P1smzJB4MeG6NdhDuZ0CTT2BWOud9iL1zIQktMM" as const;
 
 export type AuthCapabilitiesListInput = { limit: number; offset?: number };
 export type AuthCapabilitiesListOutput = {
@@ -186,32 +186,27 @@ export type AuthDeploymentAuthorityAcceptMigrationOutput = {
     deploymentId: string;
     desiredState: {
       capabilities: Array<string>;
-      needs: Array<
-        (
-          | { contractId: string; kind: "contract"; required: boolean }
-          | {
-            kind: "surface";
+      needs: {
+        capabilities: Array<{ capability: string; required: boolean }>;
+        contracts: Array<{ contractId: string; required: boolean }>;
+        resources: Array<
+          {
+            alias: string;
+            definition?: {};
+            kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
             required: boolean;
-            surface: {
-              action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
-              contractId: string;
-              kind: "rpc" | "operation" | "event" | "feed";
-              name: string;
-            };
           }
-          | { capability: string; kind: "capability"; required: boolean }
-          | {
-            kind: "resource";
+        >;
+        surfaces: Array<
+          {
+            action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
+            contractId: string;
+            kind: "rpc" | "operation" | "event" | "feed";
+            name: string;
             required: boolean;
-            resource: {
-              alias: string;
-              definition?: {};
-              kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
-              required: boolean;
-            };
           }
-        )
-      >;
+        >;
+      };
       resources: Array<
         {
           alias: string;
@@ -246,32 +241,27 @@ export type AuthDeploymentAuthorityAcceptUpdateOutput = {
     deploymentId: string;
     desiredState: {
       capabilities: Array<string>;
-      needs: Array<
-        (
-          | { contractId: string; kind: "contract"; required: boolean }
-          | {
-            kind: "surface";
+      needs: {
+        capabilities: Array<{ capability: string; required: boolean }>;
+        contracts: Array<{ contractId: string; required: boolean }>;
+        resources: Array<
+          {
+            alias: string;
+            definition?: {};
+            kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
             required: boolean;
-            surface: {
-              action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
-              contractId: string;
-              kind: "rpc" | "operation" | "event" | "feed";
-              name: string;
-            };
           }
-          | { capability: string; kind: "capability"; required: boolean }
-          | {
-            kind: "resource";
+        >;
+        surfaces: Array<
+          {
+            action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
+            contractId: string;
+            kind: "rpc" | "operation" | "event" | "feed";
+            name: string;
             required: boolean;
-            resource: {
-              alias: string;
-              definition?: {};
-              kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
-              required: boolean;
-            };
           }
-        )
-      >;
+        >;
+      };
       resources: Array<
         {
           alias: string;
@@ -303,32 +293,27 @@ export type AuthDeploymentAuthorityGetOutput = {
     deploymentId: string;
     desiredState: {
       capabilities: Array<string>;
-      needs: Array<
-        (
-          | { contractId: string; kind: "contract"; required: boolean }
-          | {
-            kind: "surface";
+      needs: {
+        capabilities: Array<{ capability: string; required: boolean }>;
+        contracts: Array<{ contractId: string; required: boolean }>;
+        resources: Array<
+          {
+            alias: string;
+            definition?: {};
+            kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
             required: boolean;
-            surface: {
-              action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
-              contractId: string;
-              kind: "rpc" | "operation" | "event" | "feed";
-              name: string;
-            };
           }
-          | { capability: string; kind: "capability"; required: boolean }
-          | {
-            kind: "resource";
+        >;
+        surfaces: Array<
+          {
+            action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
+            contractId: string;
+            kind: "rpc" | "operation" | "event" | "feed";
+            name: string;
             required: boolean;
-            resource: {
-              alias: string;
-              definition?: {};
-              kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
-              required: boolean;
-            };
           }
-        )
-      >;
+        >;
+      };
       resources: Array<
         {
           alias: string;
@@ -394,32 +379,36 @@ export type AuthDeploymentAuthorityGetOutput = {
     deploymentId: string;
     desiredVersion: string;
     error?: string;
-    grants: Array<
-      ({ capability: string; kind: "capability" } | {
-        action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
-        contractId: string;
-        kind: "surface";
-        name: string;
-        surfaceKind: "rpc" | "operation" | "event" | "feed";
-      } | {
-        direction: "publish" | "subscribe";
-        grantSource:
-          | "owned-surface"
-          | "used-surface"
-          | "resource-binding"
-          | "platform-service"
-          | "transfer";
-        kind: "nats";
-        requiredCapabilities: Array<string>;
-        subject: string;
-        surface?: {
+    grants: {
+      capabilities: Array<{ capability: string }>;
+      nats: Array<
+        {
+          direction: "publish" | "subscribe";
+          grantSource:
+            | "owned-surface"
+            | "used-surface"
+            | "resource-binding"
+            | "platform-service"
+            | "transfer";
+          requiredCapabilities: Array<string>;
+          subject: string;
+          surface?: {
+            action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
+            contractId: string;
+            kind: "rpc" | "operation" | "event" | "feed";
+            name: string;
+          };
+        }
+      >;
+      surfaces: Array<
+        {
           action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
           contractId: string;
-          kind: "rpc" | "operation" | "event" | "feed";
           name: string;
-        };
-      })
-    >;
+          surfaceKind: "rpc" | "operation" | "event" | "feed";
+        }
+      >;
+    };
     reconciledAt: string | null;
     resourceBindings: Array<
       {
@@ -675,37 +664,27 @@ export type AuthDeploymentAuthorityListOutput = {
       deploymentId: string;
       desiredState: {
         capabilities: Array<string>;
-        needs: Array<
-          (
-            | { contractId: string; kind: "contract"; required: boolean }
-            | {
-              kind: "surface";
+        needs: {
+          capabilities: Array<{ capability: string; required: boolean }>;
+          contracts: Array<{ contractId: string; required: boolean }>;
+          resources: Array<
+            {
+              alias: string;
+              definition?: {};
+              kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
               required: boolean;
-              surface: {
-                action?:
-                  | "call"
-                  | "publish"
-                  | "subscribe"
-                  | "observe"
-                  | "cancel";
-                contractId: string;
-                kind: "rpc" | "operation" | "event" | "feed";
-                name: string;
-              };
             }
-            | { capability: string; kind: "capability"; required: boolean }
-            | {
-              kind: "resource";
+          >;
+          surfaces: Array<
+            {
+              action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
+              contractId: string;
+              kind: "rpc" | "operation" | "event" | "feed";
+              name: string;
               required: boolean;
-              resource: {
-                alias: string;
-                definition?: {};
-                kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
-                required: boolean;
-              };
             }
-          )
-        >;
+          >;
+        };
         resources: Array<
           {
             alias: string;
@@ -765,32 +744,27 @@ export type AuthDeploymentAuthorityPlanOutput = {
           name: string;
         }
       >;
-      requestedNeeds: Array<
-        (
-          | { contractId: string; kind: "contract"; required: boolean }
-          | {
-            kind: "surface";
+      requestedNeeds: {
+        capabilities: Array<{ capability: string; required: boolean }>;
+        contracts: Array<{ contractId: string; required: boolean }>;
+        resources: Array<
+          {
+            alias: string;
+            definition?: {};
+            kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
             required: boolean;
-            surface: {
-              action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
-              contractId: string;
-              kind: "rpc" | "operation" | "event" | "feed";
-              name: string;
-            };
           }
-          | { capability: string; kind: "capability"; required: boolean }
-          | {
-            kind: "resource";
+        >;
+        surfaces: Array<
+          {
+            action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
+            contractId: string;
+            kind: "rpc" | "operation" | "event" | "feed";
+            name: string;
             required: boolean;
-            resource: {
-              alias: string;
-              definition?: {};
-              kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
-              required: boolean;
-            };
           }
-        )
-      >;
+        >;
+      };
       summary?: {};
     };
     state?: "pending" | "accepted" | "rejected" | "expired";
@@ -821,32 +795,27 @@ export type AuthDeploymentAuthorityPlanOutput = {
           name: string;
         }
       >;
-      requestedNeeds: Array<
-        (
-          | { contractId: string; kind: "contract"; required: boolean }
-          | {
-            kind: "surface";
+      requestedNeeds: {
+        capabilities: Array<{ capability: string; required: boolean }>;
+        contracts: Array<{ contractId: string; required: boolean }>;
+        resources: Array<
+          {
+            alias: string;
+            definition?: {};
+            kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
             required: boolean;
-            surface: {
-              action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
-              contractId: string;
-              kind: "rpc" | "operation" | "event" | "feed";
-              name: string;
-            };
           }
-          | { capability: string; kind: "capability"; required: boolean }
-          | {
-            kind: "resource";
+        >;
+        surfaces: Array<
+          {
+            action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
+            contractId: string;
+            kind: "rpc" | "operation" | "event" | "feed";
+            name: string;
             required: boolean;
-            resource: {
-              alias: string;
-              definition?: {};
-              kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
-              required: boolean;
-            };
           }
-        )
-      >;
+        >;
+      };
       summary?: {};
     };
     state?: "pending" | "accepted" | "rejected" | "expired";
@@ -881,32 +850,27 @@ export type AuthDeploymentAuthorityPlansGetOutput = {
           name: string;
         }
       >;
-      requestedNeeds: Array<
-        (
-          | { contractId: string; kind: "contract"; required: boolean }
-          | {
-            kind: "surface";
+      requestedNeeds: {
+        capabilities: Array<{ capability: string; required: boolean }>;
+        contracts: Array<{ contractId: string; required: boolean }>;
+        resources: Array<
+          {
+            alias: string;
+            definition?: {};
+            kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
             required: boolean;
-            surface: {
-              action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
-              contractId: string;
-              kind: "rpc" | "operation" | "event" | "feed";
-              name: string;
-            };
           }
-          | { capability: string; kind: "capability"; required: boolean }
-          | {
-            kind: "resource";
+        >;
+        surfaces: Array<
+          {
+            action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
+            contractId: string;
+            kind: "rpc" | "operation" | "event" | "feed";
+            name: string;
             required: boolean;
-            resource: {
-              alias: string;
-              definition?: {};
-              kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
-              required: boolean;
-            };
           }
-        )
-      >;
+        >;
+      };
       summary?: {};
     };
     state?: "pending" | "accepted" | "rejected" | "expired";
@@ -937,32 +901,27 @@ export type AuthDeploymentAuthorityPlansGetOutput = {
           name: string;
         }
       >;
-      requestedNeeds: Array<
-        (
-          | { contractId: string; kind: "contract"; required: boolean }
-          | {
-            kind: "surface";
+      requestedNeeds: {
+        capabilities: Array<{ capability: string; required: boolean }>;
+        contracts: Array<{ contractId: string; required: boolean }>;
+        resources: Array<
+          {
+            alias: string;
+            definition?: {};
+            kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
             required: boolean;
-            surface: {
-              action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
-              contractId: string;
-              kind: "rpc" | "operation" | "event" | "feed";
-              name: string;
-            };
           }
-          | { capability: string; kind: "capability"; required: boolean }
-          | {
-            kind: "resource";
+        >;
+        surfaces: Array<
+          {
+            action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
+            contractId: string;
+            kind: "rpc" | "operation" | "event" | "feed";
+            name: string;
             required: boolean;
-            resource: {
-              alias: string;
-              definition?: {};
-              kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
-              required: boolean;
-            };
           }
-        )
-      >;
+        >;
+      };
       summary?: {};
     };
     state?: "pending" | "accepted" | "rejected" | "expired";
@@ -1006,37 +965,27 @@ export type AuthDeploymentAuthorityPlansListOutput = {
             name: string;
           }
         >;
-        requestedNeeds: Array<
-          (
-            | { contractId: string; kind: "contract"; required: boolean }
-            | {
-              kind: "surface";
+        requestedNeeds: {
+          capabilities: Array<{ capability: string; required: boolean }>;
+          contracts: Array<{ contractId: string; required: boolean }>;
+          resources: Array<
+            {
+              alias: string;
+              definition?: {};
+              kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
               required: boolean;
-              surface: {
-                action?:
-                  | "call"
-                  | "publish"
-                  | "subscribe"
-                  | "observe"
-                  | "cancel";
-                contractId: string;
-                kind: "rpc" | "operation" | "event" | "feed";
-                name: string;
-              };
             }
-            | { capability: string; kind: "capability"; required: boolean }
-            | {
-              kind: "resource";
+          >;
+          surfaces: Array<
+            {
+              action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
+              contractId: string;
+              kind: "rpc" | "operation" | "event" | "feed";
+              name: string;
               required: boolean;
-              resource: {
-                alias: string;
-                definition?: {};
-                kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
-                required: boolean;
-              };
             }
-          )
-        >;
+          >;
+        };
         summary?: {};
       };
       state?: "pending" | "accepted" | "rejected" | "expired";
@@ -1067,37 +1016,27 @@ export type AuthDeploymentAuthorityPlansListOutput = {
             name: string;
           }
         >;
-        requestedNeeds: Array<
-          (
-            | { contractId: string; kind: "contract"; required: boolean }
-            | {
-              kind: "surface";
+        requestedNeeds: {
+          capabilities: Array<{ capability: string; required: boolean }>;
+          contracts: Array<{ contractId: string; required: boolean }>;
+          resources: Array<
+            {
+              alias: string;
+              definition?: {};
+              kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
               required: boolean;
-              surface: {
-                action?:
-                  | "call"
-                  | "publish"
-                  | "subscribe"
-                  | "observe"
-                  | "cancel";
-                contractId: string;
-                kind: "rpc" | "operation" | "event" | "feed";
-                name: string;
-              };
             }
-            | { capability: string; kind: "capability"; required: boolean }
-            | {
-              kind: "resource";
+          >;
+          surfaces: Array<
+            {
+              action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
+              contractId: string;
+              kind: "rpc" | "operation" | "event" | "feed";
+              name: string;
               required: boolean;
-              resource: {
-                alias: string;
-                definition?: {};
-                kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
-                required: boolean;
-              };
             }
-          )
-        >;
+          >;
+        };
         summary?: {};
       };
       state?: "pending" | "accepted" | "rejected" | "expired";
@@ -1119,32 +1058,27 @@ export type AuthDeploymentAuthorityReconcileOutput = {
     deploymentId: string;
     desiredState: {
       capabilities: Array<string>;
-      needs: Array<
-        (
-          | { contractId: string; kind: "contract"; required: boolean }
-          | {
-            kind: "surface";
+      needs: {
+        capabilities: Array<{ capability: string; required: boolean }>;
+        contracts: Array<{ contractId: string; required: boolean }>;
+        resources: Array<
+          {
+            alias: string;
+            definition?: {};
+            kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
             required: boolean;
-            surface: {
-              action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
-              contractId: string;
-              kind: "rpc" | "operation" | "event" | "feed";
-              name: string;
-            };
           }
-          | { capability: string; kind: "capability"; required: boolean }
-          | {
-            kind: "resource";
+        >;
+        surfaces: Array<
+          {
+            action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
+            contractId: string;
+            kind: "rpc" | "operation" | "event" | "feed";
+            name: string;
             required: boolean;
-            resource: {
-              alias: string;
-              definition?: {};
-              kind: "kv" | "store" | "jobs" | "event-consumer" | "transfer";
-              required: boolean;
-            };
           }
-        )
-      >;
+        >;
+      };
       resources: Array<
         {
           alias: string;
@@ -1171,32 +1105,36 @@ export type AuthDeploymentAuthorityReconcileOutput = {
     deploymentId: string;
     desiredVersion: string;
     error?: string;
-    grants: Array<
-      ({ capability: string; kind: "capability" } | {
-        action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
-        contractId: string;
-        kind: "surface";
-        name: string;
-        surfaceKind: "rpc" | "operation" | "event" | "feed";
-      } | {
-        direction: "publish" | "subscribe";
-        grantSource:
-          | "owned-surface"
-          | "used-surface"
-          | "resource-binding"
-          | "platform-service"
-          | "transfer";
-        kind: "nats";
-        requiredCapabilities: Array<string>;
-        subject: string;
-        surface?: {
+    grants: {
+      capabilities: Array<{ capability: string }>;
+      nats: Array<
+        {
+          direction: "publish" | "subscribe";
+          grantSource:
+            | "owned-surface"
+            | "used-surface"
+            | "resource-binding"
+            | "platform-service"
+            | "transfer";
+          requiredCapabilities: Array<string>;
+          subject: string;
+          surface?: {
+            action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
+            contractId: string;
+            kind: "rpc" | "operation" | "event" | "feed";
+            name: string;
+          };
+        }
+      >;
+      surfaces: Array<
+        {
           action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
           contractId: string;
-          kind: "rpc" | "operation" | "event" | "feed";
           name: string;
-        };
-      })
-    >;
+          surfaceKind: "rpc" | "operation" | "event" | "feed";
+        }
+      >;
+    };
     reconciledAt: string | null;
     resourceBindings: Array<
       {

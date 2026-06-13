@@ -26,6 +26,10 @@ import {
 import type { ContractsModule } from "../../catalog/runtime.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
 import type { AuthRuntimeDeps } from "../runtime_deps.ts";
+import {
+  emptyAuthorityNeeds,
+  normalizeAuthorityNeeds,
+} from "../authority_needs.ts";
 import { computeAuthorityNeedsDelta } from "../authority_needs_decision.ts";
 import { resolveUserReconnectSession } from "./user_reconnect.ts";
 import {
@@ -356,7 +360,7 @@ function serviceCapabilitiesForPermissions(
   return [
     ...new Set([
       SERVICE_CAPABILITY,
-      ...(authorityNeeds?.capabilities ?? []),
+      ...(authorityNeeds?.capabilities.map((need) => need.capability) ?? []),
     ]),
   ].sort((left, right) => left.localeCompare(right));
 }
@@ -371,8 +375,8 @@ function materializedCapabilitiesForPermissions(
 ): string[] {
   return uniqueSorted([
     ...baseCapabilities,
-    ...materializedAuthority.grants.flatMap((grant) =>
-      grant.kind === "capability" ? [grant.capability] : []
+    ...materializedAuthority.grants.capabilities.map((grant) =>
+      grant.capability
     ),
   ]);
 }
@@ -384,26 +388,28 @@ function materializedNatsSubjectsForPermissions(args: {
   serviceSessionPrefix?: string;
 }): string[] {
   const capabilities = new Set(args.capabilities);
-  return uniqueSorted(args.materializedAuthority.grants.flatMap((grant) => {
-    if (grant.kind !== "nats" || grant.direction !== args.direction) return [];
-    if (
-      !grant.requiredCapabilities.every((capability) =>
-        capabilities.has(capability)
-      )
-    ) {
-      return [];
-    }
-    if (
-      grant.grantSource === "transfer" &&
-      args.serviceSessionPrefix !== undefined
-    ) {
-      return [grant.subject.replace(
-        TRANSFER_SERVICE_SESSION_PREFIX_PLACEHOLDER,
-        args.serviceSessionPrefix,
-      )];
-    }
-    return [grant.subject];
-  }));
+  return uniqueSorted(
+    args.materializedAuthority.grants.nats.flatMap((grant) => {
+      if (grant.direction !== args.direction) return [];
+      if (
+        !grant.requiredCapabilities.every((capability) =>
+          capabilities.has(capability)
+        )
+      ) {
+        return [];
+      }
+      if (
+        grant.grantSource === "transfer" &&
+        args.serviceSessionPrefix !== undefined
+      ) {
+        return [grant.subject.replace(
+          TRANSFER_SERVICE_SESSION_PREFIX_PLACEHOLDER,
+          args.serviceSessionPrefix,
+        )];
+      }
+      return [grant.subject];
+    }),
+  );
 }
 
 function serviceOperationStorePublishSubjects(
@@ -433,13 +439,6 @@ type DeviceRuntimeGrantDeps = {
   materializedAuthorityStorage: MaterializedResourceBindingStorage;
 };
 
-const EMPTY_AUTHORITY_NEEDS: AuthorityNeedSet = {
-  contracts: [],
-  surfaces: [],
-  capabilities: [],
-  resources: [],
-};
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -455,53 +454,70 @@ function isAuthorityNeedSetSurface(
     typeof value.required === "boolean";
 }
 
+function isAuthorityNeedSetCapability(value: unknown): boolean {
+  return isRecord(value) && typeof value.capability === "string" &&
+    value.capability.length > 0 && typeof value.required === "boolean";
+}
+
 function coerceAuthorityNeedSet(value: unknown): AuthorityNeedSet {
-  if (!isRecord(value)) return EMPTY_AUTHORITY_NEEDS;
+  if (!isRecord(value)) return emptyAuthorityNeeds();
   const { contracts, surfaces, capabilities, resources } = value;
   if (
     !Array.isArray(contracts) || !Array.isArray(surfaces) ||
     !Array.isArray(capabilities) || !Array.isArray(resources)
   ) {
-    return EMPTY_AUTHORITY_NEEDS;
+    return emptyAuthorityNeeds();
   }
   if (
     !contracts.every((contract) =>
       isRecord(contract) && typeof contract.contractId === "string" &&
       typeof contract.required === "boolean"
     ) || !surfaces.every(isAuthorityNeedSetSurface) ||
-    !capabilities.every((capability) => typeof capability === "string") ||
+    !capabilities.every(isAuthorityNeedSetCapability) ||
     !resources.every((resource) =>
       isRecord(resource) && typeof resource.kind === "string" &&
       typeof resource.alias === "string" &&
       typeof resource.required === "boolean"
     )
   ) {
-    return EMPTY_AUTHORITY_NEEDS;
+    return emptyAuthorityNeeds();
   }
-  return { contracts, surfaces, capabilities, resources };
+  return normalizeAuthorityNeeds({
+    contracts,
+    surfaces,
+    capabilities,
+    resources,
+  });
 }
 
 function authorityNeedSetFromDesiredState(
   authority: DeploymentAuthority,
 ): AuthorityNeedSet {
-  return {
-    contracts: authority.desiredState.needs.flatMap((need) =>
-      need.kind === "contract"
-        ? [{ contractId: need.contractId, required: need.required }]
-        : []
-    ),
-    surfaces: authority.desiredState.needs.flatMap((need) =>
-      need.kind === "surface"
-        ? [{ ...need.surface, required: need.required }]
-        : []
-    ),
-    capabilities: authority.desiredState.capabilities,
-    resources: authority.desiredState.resources,
-  };
+  return normalizeAuthorityNeeds({
+    contracts: authority.desiredState.needs.contracts,
+    surfaces: [
+      ...authority.desiredState.needs.surfaces,
+      ...authority.desiredState.surfaces.map((surface) => ({
+        ...surface,
+        required: true,
+      })),
+    ],
+    capabilities: [
+      ...authority.desiredState.needs.capabilities,
+      ...authority.desiredState.capabilities.map((capability) => ({
+        capability,
+        required: true,
+      })),
+    ],
+    resources: [
+      ...authority.desiredState.needs.resources,
+      ...authority.desiredState.resources,
+    ],
+  });
 }
 
 function mergeAuthorityNeedSets(...sets: AuthorityNeedSet[]): AuthorityNeedSet {
-  return computeAuthorityNeedsDelta(EMPTY_AUTHORITY_NEEDS, {
+  return computeAuthorityNeedsDelta(emptyAuthorityNeeds(), {
     contracts: sets.flatMap((set) => set.contracts),
     surfaces: sets.flatMap((set) => set.surfaces),
     capabilities: sets.flatMap((set) => set.capabilities),

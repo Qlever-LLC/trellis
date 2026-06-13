@@ -12,9 +12,13 @@ import type {
   DeploymentAuthorityResource,
   DeploymentAuthoritySurface,
   DeploymentResourceBinding,
-  MaterializedAuthorityGrant,
+  MaterializedAuthorityGrants,
   MaterializedAuthorityNatsGrant,
 } from "../schemas.ts";
+
+function emptyMaterializedAuthorityGrants(): MaterializedAuthorityGrants {
+  return { capabilities: [], surfaces: [], nats: [] };
+}
 
 type DeploymentAuthorityStorage = {
   get(deploymentId: string): Promise<DeploymentAuthority | undefined>;
@@ -117,10 +121,8 @@ function desiredResources(
   for (const resource of authority.desiredState.resources) {
     resources.set(resourceKey(resource), resource);
   }
-  for (const need of authority.desiredState.needs) {
-    if (need.kind === "resource") {
-      resources.set(resourceKey(need.resource), need.resource);
-    }
+  for (const resource of authority.desiredState.needs.resources) {
+    resources.set(resourceKey(resource), resource);
   }
   return [...resources.values()].sort((left, right) =>
     resourceKey(left).localeCompare(resourceKey(right))
@@ -130,34 +132,32 @@ function desiredResources(
 function materializedGrants(
   authority: DeploymentAuthority,
   natsGrants: MaterializedAuthorityNatsGrant[] = [],
-): MaterializedAuthorityGrant[] {
+): MaterializedAuthorityGrants {
   const capabilities = new Set(authority.desiredState.capabilities);
   const surfaces = new Map<string, DeploymentAuthoritySurface>();
   for (const surface of authority.desiredState.surfaces) {
     surfaces.set(surfaceKey(surface), surface);
   }
-  for (const need of authority.desiredState.needs) {
-    if (need.kind === "capability") capabilities.add(need.capability);
-    if (need.kind === "surface") {
-      surfaces.set(surfaceKey(need.surface), need.surface);
-    }
+  for (const need of authority.desiredState.needs.capabilities) {
+    capabilities.add(need.capability);
   }
-  return [
-    ...[...capabilities].sort().map((capability) => ({
-      kind: "capability" as const,
+  for (const surface of authority.desiredState.needs.surfaces) {
+    surfaces.set(surfaceKey(surface), surface);
+  }
+  return {
+    capabilities: [...capabilities].sort().map((capability) => ({
       capability,
     })),
-    ...[...surfaces.values()].sort((left, right) =>
+    surfaces: [...surfaces.values()].sort((left, right) =>
       surfaceKey(left).localeCompare(surfaceKey(right))
     ).map((surface) => ({
-      kind: "surface" as const,
       contractId: surface.contractId,
       surfaceKind: surface.kind,
       name: surface.name,
       ...(surface.action === undefined ? {} : { action: surface.action }),
     })),
-    ...natsGrants,
-  ];
+    nats: natsGrants,
+  };
 }
 
 function eventId(deploymentId: string, state: string, at: string): string {
@@ -338,7 +338,7 @@ export function createAuthorityReconciler(deps: {
         desiredVersion: authority.version,
         status: "failed",
         resourceBindings: existingBindings,
-        grants: [],
+        grants: emptyMaterializedAuthorityGrants(),
         reconciledAt: null,
         error: message,
       };

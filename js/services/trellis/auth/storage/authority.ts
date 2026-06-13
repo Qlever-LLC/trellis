@@ -52,6 +52,10 @@ import {
   ImplementationOfferSchema,
 } from "../schemas.ts";
 import {
+  emptyAuthorityNeeds,
+  normalizeAuthorityNeeds,
+} from "../authority_needs.ts";
+import {
   type BoundedListQuery,
   boundedListQuery,
   type ListPage,
@@ -93,7 +97,12 @@ type CapabilityDefinitionInsert =
   typeof deploymentAuthorityCapabilityDefinitions.$inferInsert;
 
 function emptyDesiredState(): DeploymentAuthority["desiredState"] {
-  return { needs: [], capabilities: [], resources: [], surfaces: [] };
+  return {
+    needs: emptyAuthorityNeeds(),
+    capabilities: [],
+    resources: [],
+    surfaces: [],
+  };
 }
 
 function decodeAuthority(
@@ -393,28 +402,21 @@ async function replaceAuthorityDesiredStateRows(
   await target.delete(deploymentAuthorityCapabilities).where(
     eq(deploymentAuthorityCapabilities.deploymentId, decoded.deploymentId),
   );
-  const contracts = decoded.desiredState.needs.flatMap((need) =>
-    need.kind === "contract"
-      ? [{
-        deploymentId: decoded.deploymentId,
-        contractId: need.contractId,
-        required: need.required,
-      }]
-      : []
-  );
-  const needSurfaces = decoded.desiredState.needs.flatMap((need) =>
-    need.kind === "surface"
-      ? [{
-        deploymentId: decoded.deploymentId,
-        contractId: need.surface.contractId,
-        surfaceKind: need.surface.kind,
-        surfaceName: need.surface.name,
-        action: need.surface.action ?? "",
-        required: need.required,
-        source: "need" as const,
-      }]
-      : []
-  );
+  const needs = normalizeAuthorityNeeds(decoded.desiredState.needs);
+  const contracts = needs.contracts.map((need) => ({
+    deploymentId: decoded.deploymentId,
+    contractId: need.contractId,
+    required: need.required,
+  }));
+  const needSurfaces = needs.surfaces.map((need) => ({
+    deploymentId: decoded.deploymentId,
+    contractId: need.contractId,
+    surfaceKind: need.kind,
+    surfaceName: need.name,
+    action: need.action ?? "",
+    required: need.required,
+    source: "need" as const,
+  }));
   const surfaces = decoded.desiredState.surfaces.map((surface) => ({
     deploymentId: decoded.deploymentId,
     contractId: surface.contractId,
@@ -424,19 +426,15 @@ async function replaceAuthorityDesiredStateRows(
     required: true,
     source: "surface" as const,
   }));
-  const needResources = decoded.desiredState.needs.flatMap((need) =>
-    need.kind === "resource"
-      ? [{
-        deploymentId: decoded.deploymentId,
-        resourceKind: need.resource.kind,
-        resourceAlias: need.resource.alias,
-        required: need.required,
-        definitionJson: need.resource.definition === undefined
-          ? null
-          : JSON.stringify(need.resource.definition),
-      }]
-      : []
-  );
+  const needResources = needs.resources.map((need) => ({
+    deploymentId: decoded.deploymentId,
+    resourceKind: need.kind,
+    resourceAlias: need.alias,
+    required: need.required,
+    definitionJson: need.definition === undefined
+      ? null
+      : JSON.stringify(need.definition),
+  }));
   const resources = decoded.desiredState.resources.map((resource) => ({
     deploymentId: decoded.deploymentId,
     resourceKind: resource.kind,
@@ -447,10 +445,18 @@ async function replaceAuthorityDesiredStateRows(
       : JSON.stringify(resource.definition),
   }));
   const capabilities = [
-    ...decoded.desiredState.capabilities,
-    ...decoded.desiredState.needs.flatMap((need) =>
-      need.kind === "capability" ? [need.capability] : []
-    ),
+    ...[...new Set(decoded.desiredState.capabilities)].map((capability) => ({
+      deploymentId: decoded.deploymentId,
+      capability,
+      required: true,
+      source: "capability" as const,
+    })),
+    ...needs.capabilities.map((need) => ({
+      deploymentId: decoded.deploymentId,
+      capability: need.capability,
+      required: need.required,
+      source: "need" as const,
+    })),
   ];
   if (contracts.length > 0) {
     await target.insert(deploymentAuthorityContracts).values(contracts)
@@ -469,12 +475,8 @@ async function replaceAuthorityDesiredStateRows(
     ]).onConflictDoNothing();
   }
   if (capabilities.length > 0) {
-    await target.insert(deploymentAuthorityCapabilities).values(
-      [...new Set(capabilities)].map((capability) => ({
-        deploymentId: decoded.deploymentId,
-        capability,
-      })),
-    );
+    await target.insert(deploymentAuthorityCapabilities).values(capabilities)
+      .onConflictDoNothing();
   }
 }
 
@@ -699,11 +701,11 @@ export class SqlDeploymentAuthorityRepository {
       ).orderBy(
         deploymentAuthorityCapabilities.deploymentId,
         deploymentAuthorityCapabilities.capability,
+        deploymentAuthorityCapabilities.source,
       ),
     ]);
     for (const row of contracts) {
-      states.get(row.deploymentId)?.needs.push({
-        kind: "contract",
+      states.get(row.deploymentId)?.needs.contracts.push({
         contractId: row.contractId,
         required: row.required,
       });
@@ -718,9 +720,8 @@ export class SqlDeploymentAuthorityRepository {
       if (row.source === "surface") {
         states.get(row.deploymentId)?.surfaces.push(surface);
       } else {
-        states.get(row.deploymentId)?.needs.push({
-          kind: "surface",
-          surface,
+        states.get(row.deploymentId)?.needs.surfaces.push({
+          ...surface,
           required: row.required,
         });
       }
@@ -738,19 +739,20 @@ export class SqlDeploymentAuthorityRepository {
         }),
       });
       states.get(row.deploymentId)?.resources.push(resource);
-      states.get(row.deploymentId)?.needs.push({
-        kind: "resource",
-        resource,
-        required: row.required,
-      });
+      states.get(row.deploymentId)?.needs.resources.push(resource);
     }
     for (const row of capabilities) {
-      states.get(row.deploymentId)?.capabilities.push(row.capability);
-      states.get(row.deploymentId)?.needs.push({
-        kind: "capability",
-        capability: row.capability,
-        required: true,
-      });
+      if (row.source === "capability") {
+        states.get(row.deploymentId)?.capabilities.push(row.capability);
+      } else {
+        states.get(row.deploymentId)?.needs.capabilities.push({
+          capability: row.capability,
+          required: row.required,
+        });
+      }
+    }
+    for (const state of states.values()) {
+      state.needs = normalizeAuthorityNeeds(state.needs);
     }
     return states;
   }

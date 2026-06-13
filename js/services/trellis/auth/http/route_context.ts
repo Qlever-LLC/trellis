@@ -300,12 +300,15 @@ function deploymentAuthorityIncludesContract(
   authority: DeploymentAuthority,
   contractId: string,
 ): boolean {
-  return authority.desiredState.needs.some((need) =>
-    (need.kind === "contract" && need.contractId === contractId) ||
-    (need.kind === "surface" && need.surface.contractId === contractId)
-  ) || authority.desiredState.surfaces.some((surface) =>
-    surface.contractId === contractId
-  );
+  return authority.desiredState.needs.contracts.some((need) =>
+    need.contractId === contractId
+  ) ||
+    authority.desiredState.needs.surfaces.some((need) =>
+      need.contractId === contractId
+    ) ||
+    authority.desiredState.surfaces.some((surface) =>
+      surface.contractId === contractId
+    );
 }
 
 function requireUserParticipantKind(value: unknown): "app" | "agent" {

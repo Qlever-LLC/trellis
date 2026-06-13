@@ -95,27 +95,29 @@ const deploymentAuthorityResource = {
   required: true,
   definition: { history: 1, ttlMs: 60_000 },
 };
-const deploymentAuthorityNeeds = [
-  {
-    kind: "contract" as const,
+const deploymentAuthorityNeeds = {
+  contracts: [{
     contractId: "trellis.graph@v1",
     required: true,
-  },
-  {
-    kind: "surface" as const,
-    surface: deploymentAuthoritySurface,
+  }],
+  surfaces: [{
+    ...deploymentAuthoritySurface,
     required: true,
-  },
-  {
-    kind: "capability" as const,
+  }],
+  capabilities: [{
     capability: "graph.query",
     required: true,
-  },
-  {
-    kind: "resource" as const,
-    resource: deploymentAuthorityResource,
+  }],
+  resources: [{
+    ...deploymentAuthorityResource,
     required: false,
-  },
+  }],
+};
+const legacyFlatDeploymentAuthorityNeeds = [
+  { kind: "contract", contractId: "trellis.graph@v1", required: true },
+  { kind: "surface", surface: deploymentAuthoritySurface, required: true },
+  { kind: "capability", capability: "graph.query", required: true },
+  { kind: "resource", resource: deploymentAuthorityResource, required: false },
 ];
 const deploymentAuthority = {
   deploymentId: "graph.default",
@@ -172,7 +174,11 @@ const deploymentAuthorityMaterialization = {
   desiredVersion: deploymentAuthority.version,
   status: "current" as const,
   resourceBindings: [deploymentResourceBinding],
-  grants: [{ kind: "capability" as const, capability: "graph.query" }],
+  grants: {
+    capabilities: [{ capability: "graph.query" }],
+    surfaces: [],
+    nats: [],
+  },
   reconciledAt: now,
 };
 const deploymentAuthorityReconciliation = {
@@ -526,9 +532,14 @@ Deno.test("deployment authority model schemas validate current authority protoco
     AuthProtocol.DeploymentAuthorityResourceSchema,
     deploymentAuthorityResource,
   ));
-  for (const need of deploymentAuthorityNeeds) {
-    assert(Value.Check(AuthProtocol.DeploymentAuthorityNeedSchema, need));
-  }
+  assert(Value.Check(
+    AuthProtocol.DeploymentAuthorityNeedsSchema,
+    deploymentAuthorityNeeds,
+  ));
+  assertFalse(Value.Check(
+    AuthProtocol.DeploymentAuthorityNeedsSchema,
+    legacyFlatDeploymentAuthorityNeeds,
+  ));
   assert(
     Value.Check(AuthProtocol.DeploymentAuthoritySchema, deploymentAuthority),
   );

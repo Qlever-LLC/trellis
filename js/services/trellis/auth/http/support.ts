@@ -280,7 +280,10 @@ function mergeAuthorityNeedSets(
   const contracts = new Map<string, AuthorityNeedSet["contracts"][number]>();
   const surfaces = new Map<string, AuthorityNeedSetSurface>();
   const resources = new Map<string, AuthorityNeedSetResource>();
-  const capabilities = new Set<string>();
+  const capabilities = new Map<
+    string,
+    AuthorityNeedSet["capabilities"][number]
+  >();
 
   for (const needSet of needs) {
     for (const contract of needSet.contracts) {
@@ -312,7 +315,11 @@ function mergeAuthorityNeedSets(
       });
     }
     for (const capability of needSet.capabilities) {
-      capabilities.add(capability);
+      const existing = capabilities.get(capability.capability);
+      capabilities.set(capability.capability, {
+        ...capability,
+        required: (existing?.required ?? false) || capability.required,
+      });
     }
   }
 
@@ -326,7 +333,9 @@ function mergeAuthorityNeedSets(
       left.name.localeCompare(right.name) ||
       (left.action ?? "").localeCompare(right.action ?? "")
     ),
-    capabilities: [...capabilities].sort(),
+    capabilities: [...capabilities.values()].sort((left, right) =>
+      left.capability.localeCompare(right.capability)
+    ),
     resources: [...resources.values()].sort((left, right) =>
       left.kind.localeCompare(right.kind) ||
       left.alias.localeCompare(right.alias)
@@ -384,7 +393,7 @@ async function matchingGrantOverrideCapabilities(args: {
     args.identity,
     args.capabilityGroupStorage,
   ))
-    .capabilities;
+    .capabilities.map((need) => need.capability);
 }
 
 function escapeHtml(value: string): string {
@@ -421,24 +430,10 @@ function authorityNeedSetFromDesiredState(
 ): AuthorityNeedSet {
   return mergeAuthorityNeedSets([
     {
-      contracts: authority.desiredState.needs.flatMap((need) =>
-        need.kind === "contract"
-          ? [{ contractId: need.contractId, required: need.required }]
-          : []
-      ),
-      surfaces: authority.desiredState.needs.flatMap((need) =>
-        need.kind === "surface"
-          ? [{ ...need.surface, required: need.required }]
-          : []
-      ),
-      capabilities: authority.desiredState.needs.flatMap((need) =>
-        need.kind === "capability" ? [need.capability] : []
-      ),
-      resources: authority.desiredState.needs.flatMap((need) =>
-        need.kind === "resource"
-          ? [{ ...need.resource, required: need.required }]
-          : []
-      ),
+      contracts: authority.desiredState.needs.contracts,
+      surfaces: authority.desiredState.needs.surfaces,
+      capabilities: authority.desiredState.needs.capabilities,
+      resources: authority.desiredState.needs.resources,
     },
     {
       contracts: [],
@@ -446,7 +441,10 @@ function authorityNeedSetFromDesiredState(
         ...surface,
         required: true,
       })),
-      capabilities: authority.desiredState.capabilities,
+      capabilities: authority.desiredState.capabilities.map((capability) => ({
+        capability,
+        required: true,
+      })),
       resources: authority.desiredState.resources,
     },
   ]);

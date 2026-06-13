@@ -4,6 +4,10 @@ import { assertEquals, assertRejects } from "@std/assert";
 import { createTestContracts } from "../catalog/test_contracts.ts";
 import { analyzeContractProposal } from "./contract_proposal_analysis.ts";
 
+function capabilityNeeds(capabilities: string[], required: boolean) {
+  return capabilities.map((capability) => ({ capability, required }));
+}
+
 const schemas = {
   Empty: { type: "object" },
 };
@@ -175,15 +179,18 @@ Deno.test("analyzeContractProposal derives required uses", async () => {
       required: true,
     },
   ]);
-  assertEquals(analysis.required.capabilities, [
-    "event:publish",
-    "event:subscribe",
-    "feed:subscribe",
-    "operation:call",
-    "operation:cancel",
-    "operation:observe",
-    "rpc:call",
-  ]);
+  assertEquals(
+    analysis.required.capabilities,
+    capabilityNeeds([
+      "event:publish",
+      "event:subscribe",
+      "feed:subscribe",
+      "operation:call",
+      "operation:cancel",
+      "operation:observe",
+      "rpc:call",
+    ], true),
+  );
   assertEquals(analysis.required.resources, [
     {
       kind: "transfer",
@@ -268,7 +275,10 @@ Deno.test("analyzeContractProposal derives optional uses and skips missing optio
       required: false,
     },
   ]);
-  assertEquals(analysis.optional.capabilities, ["event:subscribe", "rpc:call"]);
+  assertEquals(
+    analysis.optional.capabilities,
+    capabilityNeeds(["event:subscribe", "rpc:call"], false),
+  );
 });
 
 Deno.test("analyzeContractProposal rejects missing required uses", async () => {
@@ -363,7 +373,10 @@ Deno.test("analyzeContractProposal knownOrPending prefers active dependency entr
       required: true,
     },
   ]);
-  assertEquals(analysis.required.capabilities, ["rpc:call"]);
+  assertEquals(
+    analysis.required.capabilities,
+    capabilityNeeds(["rpc:call"], true),
+  );
 });
 
 Deno.test("analyzeContractProposal derives resources and jobs", async () => {
@@ -655,11 +668,14 @@ Deno.test("analyzeContractProposal includes operation control and open cancel ne
       required: true,
     },
   ]);
-  assertEquals(analysis.required.capabilities, [
-    "operation:call",
-    "operation:control",
-    "operation:observe",
-  ]);
+  assertEquals(
+    analysis.required.capabilities,
+    capabilityNeeds([
+      "operation:call",
+      "operation:control",
+      "operation:observe",
+    ], true),
+  );
 });
 
 Deno.test("analyzeContractProposal derives transfer resource requirements", async () => {

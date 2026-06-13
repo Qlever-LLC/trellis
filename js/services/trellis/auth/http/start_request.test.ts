@@ -8,6 +8,14 @@ import {
 import type { ApprovalResolution } from "./support.ts";
 import type { AuthorityNeedSet } from "../schemas.ts";
 
+type AuthorityNeedSetOverride = Partial<
+  Omit<AuthorityNeedSet, "capabilities"> & {
+    capabilities: Array<
+      string | AuthorityNeedSet["capabilities"][number]
+    >;
+  }
+>;
+
 const EMPTY_AUTHORITY_NEEDS: AuthorityNeedSet = {
   contracts: [],
   surfaces: [],
@@ -15,8 +23,11 @@ const EMPTY_AUTHORITY_NEEDS: AuthorityNeedSet = {
   resources: [],
 };
 
-function boundary(overrides: Partial<AuthorityNeedSet>): AuthorityNeedSet {
-  return { ...EMPTY_AUTHORITY_NEEDS, ...overrides };
+function boundary(overrides: AuthorityNeedSetOverride): AuthorityNeedSet {
+  const capabilities = (overrides.capabilities ?? []).map((capability) =>
+    typeof capability === "string" ? { capability, required: true } : capability
+  );
+  return { ...EMPTY_AUTHORITY_NEEDS, ...overrides, capabilities };
 }
 
 function resolutionFixture(): ApprovalResolution {

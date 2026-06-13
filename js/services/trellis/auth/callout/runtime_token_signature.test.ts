@@ -211,19 +211,10 @@ const FITTING_SERVICE_AUTHORITY: DeploymentAuthority = {
   updatedAt: "2026-01-01T00:00:00.000Z",
   version: "2026-01-01T00:00:00.000Z",
   desiredState: {
-    needs: [
-      ...FITTING_SERVICE_NEEDS.contracts.map((need) => ({
-        kind: "contract" as const,
-        contractId: need.contractId,
-        required: need.required,
-      })),
-      ...FITTING_SERVICE_NEEDS.surfaces.map(({ required, ...surface }) => ({
-        kind: "surface" as const,
-        surface,
-        required,
-      })),
-    ],
-    capabilities: FITTING_SERVICE_NEEDS.capabilities,
+    needs: FITTING_SERVICE_NEEDS,
+    capabilities: FITTING_SERVICE_NEEDS.capabilities.map((need) =>
+      need.capability
+    ),
     resources: FITTING_SERVICE_NEEDS.resources,
     surfaces: FITTING_SERVICE_NEEDS.surfaces.map((
       { required: _required, ...surface },
@@ -239,13 +230,16 @@ function materializedServiceAuthority(
     desiredVersion: FITTING_SERVICE_AUTHORITY.version,
     status: "current",
     resourceBindings: [],
-    grants: [{ kind: "capability", capability: "worker.run" }, {
-      kind: "nats",
-      direction: "subscribe",
-      subject: "rpc.v1.Worker.Run",
-      requiredCapabilities: ["worker.run"],
-      grantSource: "owned-surface",
-    }],
+    grants: {
+      capabilities: [{ capability: "worker.run" }],
+      surfaces: [],
+      nats: [{
+        direction: "subscribe",
+        subject: "rpc.v1.Worker.Run",
+        requiredCapabilities: ["worker.run"],
+        grantSource: "owned-surface",
+      }],
+    },
     reconciledAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
   };
@@ -257,19 +251,8 @@ function serviceAuthorityWithNeeds(
   return {
     ...FITTING_SERVICE_AUTHORITY,
     desiredState: {
-      needs: [
-        ...needs.contracts.map((need) => ({
-          kind: "contract" as const,
-          contractId: need.contractId,
-          required: need.required,
-        })),
-        ...needs.surfaces.map(({ required, ...surface }) => ({
-          kind: "surface" as const,
-          surface,
-          required,
-        })),
-      ],
-      capabilities: needs.capabilities,
+      needs,
+      capabilities: needs.capabilities.map((need) => need.capability),
       resources: needs.resources,
       surfaces: needs.surfaces.map(({ required: _required, ...surface }) =>
         surface
@@ -613,7 +596,7 @@ Deno.test("auth callout accepts service reconnect when known dependency metadata
           required: true,
         },
       ],
-      capabilities: ["dependency.read"],
+      capabilities: [{ capability: "dependency.read", required: true }],
       resources: [],
     }),
   });
@@ -667,7 +650,10 @@ Deno.test("auth callout accepts service reconnect when multiple known dependenci
           required: true,
         },
       ],
-      capabilities: ["dependency.read", "second-dependency.read"],
+      capabilities: [
+        { capability: "dependency.read", required: true },
+        { capability: "second-dependency.read", required: true },
+      ],
       resources: [],
     }),
   });
@@ -711,7 +697,7 @@ Deno.test("auth callout ignores stale incompatible dependency manifests when act
           required: true,
         },
       ],
-      capabilities: ["dependency.read"],
+      capabilities: [{ capability: "dependency.read", required: true }],
       resources: [],
     }),
   });
@@ -724,7 +710,7 @@ Deno.test("callout permission helpers use authority capabilities and deployment 
     __testing__.serviceCapabilitiesForPermissions({
       contracts: [],
       surfaces: [],
-      capabilities: ["dependency.events"],
+      capabilities: [{ capability: "dependency.events", required: true }],
       resources: [],
     }),
     ["dependency.events", "service"],
@@ -834,13 +820,16 @@ Deno.test("auth callout rejects service reconnect when deployment authority or c
 
 Deno.test("service runtime permissions use materialized nats grants instead of broad contract-derived subjects", () => {
   const materializedAuthority = materializedServiceAuthority({
-    grants: [{ kind: "capability", capability: "worker.run" }, {
-      kind: "nats",
-      direction: "subscribe",
-      subject: "rpc.v1.Worker.Run",
-      requiredCapabilities: ["worker.run"],
-      grantSource: "owned-surface",
-    }],
+    grants: {
+      capabilities: [{ capability: "worker.run" }],
+      surfaces: [],
+      nats: [{
+        direction: "subscribe",
+        subject: "rpc.v1.Worker.Run",
+        requiredCapabilities: ["worker.run"],
+        grantSource: "owned-surface",
+      }],
+    },
   });
   const capabilities = __testing__.materializedCapabilitiesForPermissions(
     materializedAuthority,
@@ -867,13 +856,16 @@ Deno.test("service runtime permissions use materialized nats grants instead of b
   assertEquals(
     __testing__.materializedNatsSubjectsForPermissions({
       materializedAuthority: materializedServiceAuthority({
-        grants: [{
-          kind: "nats",
-          direction: "subscribe",
-          subject: "transfer.v1.upload.{serviceSessionPrefix}.*",
-          requiredCapabilities: [],
-          grantSource: "transfer",
-        }],
+        grants: {
+          capabilities: [],
+          surfaces: [],
+          nats: [{
+            direction: "subscribe",
+            subject: "transfer.v1.upload.{serviceSessionPrefix}.*",
+            requiredCapabilities: [],
+            grantSource: "transfer",
+          }],
+        },
       }),
       direction: "subscribe",
       capabilities,

@@ -10,6 +10,7 @@ import {
   DeploymentAuthorityCapabilityDefinitionSchema,
   DeploymentAuthorityGrantOverrideSchema,
   DeploymentAuthorityMaterializationSchema,
+  DeploymentAuthorityNeedsSchema,
   DeploymentAuthoritySchema,
   DeploymentPortalRouteSchema,
   DeploymentResourceBindingSchema,
@@ -20,6 +21,7 @@ import {
   IdentityGrantRecordSchema,
   ImplementationOfferSchema,
   LocalCredentialSchema,
+  MaterializedAuthorityGrantsSchema,
   OAuthStateSchema,
   PendingAuthSchema,
   SessionKeySchema,
@@ -284,35 +286,38 @@ Deno.test("deployment authority storage schemas validate modeled rows", () => {
       action: "call",
       required: true,
     }],
-    capabilities: ["graph.query"],
+    capabilities: [{ capability: "graph.query", required: true }],
     resources: [{ kind: "kv", alias: "cache", required: false }],
   };
+  const legacyFlatNeeds = [
+    { kind: "contract", contractId: "svc.graph@v1", required: true },
+    {
+      kind: "surface",
+      surface: {
+        contractId: "svc.graph@v1",
+        kind: "rpc",
+        name: "Graph.Query",
+        action: "call",
+      },
+      required: true,
+    },
+    { kind: "capability", capability: "graph.query", required: true },
+    {
+      kind: "resource",
+      resource: { kind: "kv", alias: "cache", required: false },
+      required: false,
+    },
+  ];
 
+  assert(Value.Check(DeploymentAuthorityNeedsSchema, authorityNeeds));
+  assertFalse(Value.Check(DeploymentAuthorityNeedsSchema, legacyFlatNeeds));
   assert(Value.Check(DeploymentAuthoritySchema, {
     deploymentId: "svc.graph.default",
     kind: "service",
     disabled: false,
     desiredState: {
-      needs: [
-        { kind: "contract", contractId: "svc.graph@v1", required: true },
-        {
-          kind: "surface",
-          surface: {
-            contractId: "svc.graph@v1",
-            kind: "rpc",
-            name: "Graph.Query",
-            action: "call",
-          },
-          required: true,
-        },
-        { kind: "capability", capability: "graph.query", required: true },
-        {
-          kind: "resource",
-          resource: { kind: "kv", alias: "cache", required: false },
-          required: false,
-        },
-      ],
-      capabilities: authorityNeeds.capabilities,
+      needs: authorityNeeds,
+      capabilities: authorityNeeds.capabilities.map((need) => need.capability),
       resources: authorityNeeds.resources,
       surfaces: authorityNeeds.surfaces.map((
         { required: _required, ...surface },
@@ -341,13 +346,10 @@ Deno.test("deployment authority storage schemas validate modeled rows", () => {
     source: "contract",
     direction: "sideways",
   }));
-  assert(Value.Check(DeploymentAuthorityMaterializationSchema, {
-    deploymentId: "svc.graph.default",
-    desiredVersion: "v1",
-    status: "current",
-    resourceBindings: [],
-    grants: [{
-      kind: "nats",
+  const materializedGrants = {
+    capabilities: [{ capability: "graph.query" }],
+    surfaces: [],
+    nats: [{
       direction: "subscribe",
       subject: "rpc.v1.Graph.Query",
       surface: {
@@ -359,6 +361,29 @@ Deno.test("deployment authority storage schemas validate modeled rows", () => {
       requiredCapabilities: [],
       grantSource: "owned-surface",
     }],
+  };
+  const legacyFlatGrants = [{
+    kind: "nats",
+    direction: "subscribe",
+    subject: "rpc.v1.Graph.Query",
+    surface: {
+      contractId: "svc.graph@v1",
+      kind: "rpc",
+      name: "Graph.Query",
+      action: "call",
+    },
+    requiredCapabilities: [],
+    grantSource: "owned-surface",
+  }];
+
+  assert(Value.Check(MaterializedAuthorityGrantsSchema, materializedGrants));
+  assertFalse(Value.Check(MaterializedAuthorityGrantsSchema, legacyFlatGrants));
+  assert(Value.Check(DeploymentAuthorityMaterializationSchema, {
+    deploymentId: "svc.graph.default",
+    desiredVersion: "v1",
+    status: "current",
+    resourceBindings: [],
+    grants: materializedGrants,
     reconciledAt: "2026-05-07T00:00:03.000Z",
   }));
   assertFalse(Value.Check(DeploymentAuthorityMaterializationSchema, {
@@ -366,7 +391,7 @@ Deno.test("deployment authority storage schemas validate modeled rows", () => {
     desiredVersion: "v1",
     status: "current",
     resourceBindings: [],
-    grants: [{ subject: "rpc.v1.Graph.Query" }],
+    grants: legacyFlatGrants,
     reconciledAt: "2026-05-07T00:00:03.000Z",
   }));
   assert(Value.Check(DeploymentPortalRouteSchema, {

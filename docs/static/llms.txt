@@ -1,6 +1,6 @@
 # Trellis AI guide
 
-Last verified against Trellis v0.10.13 (2026-06-10).
+Last verified against Trellis main (2026-06-13).
 
 Canonical full guide:
 https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt
@@ -14,6 +14,12 @@ commands.
 
 - Trellis runtime authority comes from deployment authority and identity
   authority.
+- Deployment authority proposal/desired `needs` are grouped by `contracts`,
+  `surfaces`, `capabilities`, and `resources`. Materialized authority is a
+  projection; runtime `grants` are grouped by `capabilities`, `surfaces`, and
+  `nats`, and permissions require current materialization for the accepted
+  desired authority version. Stale or obsolete persisted projections are repaired
+  by Trellis storage upgrade and reconciliation.
 - The runtime `contracts` store is a manifest cache keyed by digest, not durable
   authority. If Trellis asks for a missing manifest or prunes an invalid cached
   manifest, present the full contract manifest again instead of editing runtime

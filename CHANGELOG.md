@@ -8,6 +8,21 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- Changed the public deployment authority protocol so proposal and desired-state
+  `needs` are grouped by `contracts`, `surfaces`, `capabilities`, and
+  `resources`, and materialized authority `grants` are grouped by
+  `capabilities`, `surfaces`, and `nats`. The TypeScript
+  `DeploymentAuthorityNeed` union was replaced by `DeploymentAuthorityNeeds` and
+  family-specific need types.
+
+### Fixed
+
+- Repaired stale or obsolete persisted materialized-authority projections
+  through storage upgrade and reconciliation while preserving the rule that
+  runtime permissions require current materialization.
+
 ## [0.10.17] - 2026-06-12
 
 ### Fixed

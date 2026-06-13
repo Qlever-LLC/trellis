@@ -77,24 +77,18 @@ function authority(
     createdAt: "2026-05-07T00:00:00.000Z",
     updatedAt: "2026-05-07T00:00:01.000Z",
     desiredState: {
-      needs: [
-        { kind: "capability", capability: "auth.session", required: true },
-        {
-          kind: "surface",
-          surface: {
-            contractId: "svc@v1",
-            kind: "rpc",
-            name: "Svc.Call",
-            action: "call",
-          },
+      needs: {
+        contracts: [],
+        capabilities: [{ capability: "auth.session", required: true }],
+        surfaces: [{
+          contractId: "svc@v1",
+          kind: "rpc",
+          name: "Svc.Call",
+          action: "call",
           required: true,
-        },
-        {
-          kind: "resource",
-          resource: { kind: "kv", alias: "cache", required: true },
-          required: true,
-        },
-      ],
+        }],
+        resources: [{ kind: "kv", alias: "cache", required: true }],
+      },
       capabilities: ["auth.admin"],
       resources: [{ kind: "kv", alias: "cache", required: true }],
       surfaces: [],
@@ -181,17 +175,19 @@ Deno.test("authority reconciler materializes desired authority", async () => {
   assertEquals(result.materializedAuthority.status, "current");
   assertEquals(result.materializedAuthority.desiredVersion, "v1");
   assertEquals(result.materializedAuthority.resourceBindings, [binding()]);
-  assertEquals(result.materializedAuthority.grants, [
-    { kind: "capability", capability: "auth.admin" },
-    { kind: "capability", capability: "auth.session" },
-    {
-      kind: "surface",
+  assertEquals(result.materializedAuthority.grants, {
+    capabilities: [
+      { capability: "auth.admin" },
+      { capability: "auth.session" },
+    ],
+    surfaces: [{
       contractId: "svc@v1",
       surfaceKind: "rpc",
       name: "Svc.Call",
       action: "call",
-    },
-  ]);
+    }],
+    nats: [],
+  });
   assertEquals(materialized.get("svc-a"), result.materializedAuthority);
   assertEquals(statuses.map((status) => status.state), [
     "running",
@@ -221,7 +217,6 @@ Deno.test("authority reconciler appends materialized nats grants", async () => {
     resourceMaterializer: { materialize: async () => [binding()] },
     natsGrantMaterializer: {
       materialize: async () => [{
-        kind: "nats",
         direction: "subscribe",
         subject: "rpc.v1.Svc.Call",
         surface: {
@@ -239,8 +234,7 @@ Deno.test("authority reconciler appends materialized nats grants", async () => {
   await reconciler.reconcileDeployment("svc-a");
   const result = await withNats.reconcileDeployment("svc-a");
 
-  assertEquals(result.materializedAuthority.grants.at(-1), {
-    kind: "nats",
+  assertEquals(result.materializedAuthority.grants.nats, [{
     direction: "subscribe",
     subject: "rpc.v1.Svc.Call",
     surface: {
@@ -251,7 +245,7 @@ Deno.test("authority reconciler appends materialized nats grants", async () => {
     },
     requiredCapabilities: [],
     grantSource: "owned-surface",
-  });
+  }]);
 });
 
 Deno.test("authority reconciler reconciles all enabled authorities", async () => {
@@ -295,7 +289,7 @@ Deno.test("authority reconciler records failed materialization", async () => {
       desiredVersion: "old",
       status: "current",
       resourceBindings: [existing],
-      grants: [],
+      grants: { capabilities: [], surfaces: [], nats: [] },
       reconciledAt: "2026-05-07T00:00:01.000Z",
     }],
     materializer: {
@@ -321,7 +315,7 @@ Deno.test("authority reconciler records failed materialization", async () => {
 Deno.test("default authority materializer only accepts explicit bindings", async () => {
   const explicit = authority({
     desiredState: {
-      needs: [],
+      needs: { contracts: [], surfaces: [], capabilities: [], resources: [] },
       capabilities: [],
       resources: [{
         kind: "kv",
@@ -355,7 +349,7 @@ Deno.test("physical authority materializer creates desired resource bindings", a
   });
   const desired = authority({
     desiredState: {
-      needs: [],
+      needs: { contracts: [], surfaces: [], capabilities: [], resources: [] },
       capabilities: [],
       resources: [
         {
@@ -425,7 +419,7 @@ Deno.test("authority reconciler uses configured physical resource manager", asyn
   const calls: PhysicalCall[] = [];
   const desired = authority({
     desiredState: {
-      needs: [],
+      needs: { contracts: [], surfaces: [], capabilities: [], resources: [] },
       capabilities: [],
       resources: [{
         kind: "kv",
@@ -468,7 +462,7 @@ Deno.test("physical authority materializer reuses existing names and deletes rem
   });
   const desired = authority({
     desiredState: {
-      needs: [],
+      needs: { contracts: [], surfaces: [], capabilities: [], resources: [] },
       capabilities: [],
       resources: [{
         kind: "kv",
@@ -525,7 +519,7 @@ Deno.test("physical authority materializer rolls back newly created resources on
   });
   const desired = authority({
     desiredState: {
-      needs: [],
+      needs: { contracts: [], surfaces: [], capabilities: [], resources: [] },
       capabilities: [],
       resources: [
         {

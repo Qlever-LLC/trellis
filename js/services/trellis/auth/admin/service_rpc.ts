@@ -200,7 +200,12 @@ function emptyDeploymentAuthority(args: {
     deploymentId: args.deploymentId,
     kind: args.kind,
     disabled: args.disabled ?? false,
-    desiredState: { needs: [], capabilities: [], resources: [], surfaces: [] },
+    desiredState: {
+      needs: { contracts: [], surfaces: [], capabilities: [], resources: [] },
+      capabilities: [],
+      resources: [],
+      surfaces: [],
+    },
     version: ulid(),
     createdAt: now,
     updatedAt: now,

@@ -6,17 +6,14 @@ import type {
   CapabilityGroup,
   DeploymentAuthorityGrantOverride,
 } from "./schemas.ts";
+import {
+  emptyAuthorityNeeds,
+  normalizeAuthorityNeeds,
+} from "./authority_needs.ts";
 import { resolveCapabilities } from "./capability_groups.ts";
 
 export type GrantOverrideCapabilityGroupLoader = {
   get(groupKey: string): Promise<CapabilityGroup | undefined>;
-};
-
-const EMPTY_AUTHORITY_NEEDS: AuthorityNeedSet = {
-  contracts: [],
-  surfaces: [],
-  capabilities: [],
-  resources: [],
 };
 
 export type AuthorityNeedsFitEvaluation = {
@@ -101,58 +98,6 @@ function coversRequired(existingRequired: boolean, requestedRequired: boolean) {
   return existingRequired || !requestedRequired;
 }
 
-function normalizeAuthorityNeeds(needs: AuthorityNeedSet): AuthorityNeedSet {
-  const contracts = new Map<string, AuthorityNeedSetContract>();
-  for (const contract of needs.contracts) {
-    const key = contractKey(contract);
-    const existing = contracts.get(key);
-    contracts.set(key, {
-      ...contract,
-      required: (existing?.required ?? false) || contract.required,
-    });
-  }
-
-  const surfaces = new Map<string, AuthorityNeedSetSurface>();
-  for (const surface of needs.surfaces) {
-    const key = surfaceKey(surface);
-    const existing = surfaces.get(key);
-    surfaces.set(key, {
-      ...surface,
-      required: (existing?.required ?? false) || surface.required,
-    });
-  }
-
-  const resources = new Map<string, AuthorityNeedSetResource>();
-  for (const resource of needs.resources) {
-    const key = resourceKey(resource);
-    const existing = resources.get(key);
-    resources.set(key, {
-      ...resource,
-      required: (existing?.required ?? false) || resource.required,
-    });
-  }
-
-  return {
-    contracts: [...contracts.values()].sort((left, right) =>
-      left.contractId.localeCompare(right.contractId) ||
-      String(left.required).localeCompare(String(right.required))
-    ),
-    surfaces: [...surfaces.values()].sort((left, right) =>
-      left.contractId.localeCompare(right.contractId) ||
-      left.kind.localeCompare(right.kind) ||
-      left.name.localeCompare(right.name) ||
-      (left.action ?? "").localeCompare(right.action ?? "") ||
-      String(left.required).localeCompare(String(right.required))
-    ),
-    capabilities: [...new Set(needs.capabilities)].sort(),
-    resources: [...resources.values()].sort((left, right) =>
-      left.kind.localeCompare(right.kind) ||
-      left.alias.localeCompare(right.alias) ||
-      String(left.required).localeCompare(String(right.required))
-    ),
-  };
-}
-
 function hasContract(
   desired: AuthorityNeedSet,
   requested: AuthorityNeedSetContract,
@@ -160,6 +105,16 @@ function hasContract(
   return desired.contracts.some((contract) =>
     contract.contractId === requested.contractId &&
     coversRequired(contract.required, requested.required)
+  );
+}
+
+function hasCapability(
+  desired: AuthorityNeedSet,
+  requested: { capability: string; required: boolean },
+): boolean {
+  return desired.capabilities.some((capability) =>
+    capability.capability === requested.capability &&
+    coversRequired(capability.required, requested.required)
   );
 }
 
@@ -199,7 +154,6 @@ export function computeAuthorityNeedsDelta(
 ): AuthorityNeedSet {
   const normalizedDesired = normalizeAuthorityNeeds(desired);
   const normalizedRequested = normalizeAuthorityNeeds(requested);
-  const capabilities = new Set(normalizedDesired.capabilities);
 
   return normalizeAuthorityNeeds({
     contracts: normalizedRequested.contracts.filter((contract) =>
@@ -209,7 +163,7 @@ export function computeAuthorityNeedsDelta(
       !hasSurface(normalizedDesired, surface)
     ),
     capabilities: normalizedRequested.capabilities.filter((capability) =>
-      !capabilities.has(capability)
+      !hasCapability(normalizedDesired, capability)
     ),
     resources: normalizedRequested.resources.filter((resource) =>
       !hasResource(normalizedDesired, resource)
@@ -224,7 +178,7 @@ export function evaluateProposalNeedsFit(
 ): AuthorityNeedsFitEvaluation {
   const delta = computeAuthorityNeedsDelta(desired, requested);
   const missingAvailability = normalizeAuthorityNeeds({
-    ...EMPTY_AUTHORITY_NEEDS,
+    ...emptyAuthorityNeeds(),
     contracts: delta.contracts,
     surfaces: delta.surfaces,
     resources: delta.resources,
@@ -233,7 +187,9 @@ export function evaluateProposalNeedsFit(
   return {
     fits: isEmptyAuthorityNeeds(delta),
     missingAvailability,
-    missingCapabilities: delta.capabilities,
+    missingCapabilities: delta.capabilities.map((capability) =>
+      capability.capability
+    ),
   };
 }
 
@@ -260,7 +216,9 @@ export async function applyGrantOverrideAuthorityCapabilities(
     overrideMatchesIdentity(override, identity)
   );
   const concreteCapabilities = matchingOverrides.flatMap((override) =>
-    override.grantKind === "capability" ? [override.capability] : []
+    override.grantKind === "capability"
+      ? [{ capability: override.capability, required: true }]
+      : []
   );
   const capabilityGroups = matchingOverrides.flatMap((override) =>
     override.grantKind === "capability-group"
@@ -274,7 +232,7 @@ export async function applyGrantOverrideAuthorityCapabilities(
   const capabilities = [
     ...desired.capabilities,
     ...concreteCapabilities,
-    ...groupCapabilities,
+    ...groupCapabilities.map((capability) => ({ capability, required: true })),
   ];
   return normalizeAuthorityNeeds({ ...desired, capabilities });
 }
@@ -295,9 +253,9 @@ export function authorityNeedsToDeploymentAuthorityRows(
       ...surface,
       action: surface.action,
     })),
-    capabilities: normalized.capabilities.map((capability) => ({
+    capabilities: normalized.capabilities.map((need) => ({
       deploymentId,
-      capability,
+      capability: need.capability,
     })),
     resources: normalized.resources.map((resource) => ({
       deploymentId,

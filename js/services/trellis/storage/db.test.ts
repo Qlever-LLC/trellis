@@ -311,20 +311,24 @@ Deno.test("authority surfaces and pending plans persist observe/subscribe action
         ],
       }),
       materializationPreviewJson: JSON.stringify({
-        grants: [
-          {
-            contractId: "billing@v1",
-            kind: "operation",
-            name: "Billing.Start",
-            action: "observe",
-          },
-          {
-            contractId: "billing@v1",
-            kind: "feed",
-            name: "Billing.Stream",
-            action: "subscribe",
-          },
-        ],
+        grants: {
+          capabilities: [],
+          surfaces: [
+            {
+              contractId: "billing@v1",
+              surfaceKind: "operation",
+              name: "Billing.Start",
+              action: "observe",
+            },
+            {
+              contractId: "billing@v1",
+              surfaceKind: "feed",
+              name: "Billing.Stream",
+              action: "subscribe",
+            },
+          ],
+          nats: [],
+        },
       }),
       warningsJson: JSON.stringify([]),
       acknowledgementRequired: null,

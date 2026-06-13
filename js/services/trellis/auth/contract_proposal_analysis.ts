@@ -26,20 +26,16 @@ import {
 import { operationControlCapabilityRules } from "../catalog/permissions.ts";
 import type {
   AuthorityNeedSet,
-  AuthorityNeedSetContract,
   AuthorityNeedSetResource,
   AuthorityNeedSetSurface,
   AuthoritySurfaceAction,
   AuthoritySurfaceKind,
   DeploymentAuthorityCapabilityDefinition,
 } from "./schemas.ts";
-
-const EMPTY_AUTHORITY_NEEDS: AuthorityNeedSet = {
-  contracts: [],
-  surfaces: [],
-  capabilities: [],
-  resources: [],
-};
+import {
+  emptyAuthorityNeeds,
+  normalizeAuthorityNeeds,
+} from "./authority_needs.ts";
 
 type ContractUseRef = {
   contract: string;
@@ -92,15 +88,6 @@ type ContractProposalAnalysisOptions = {
     | "knownOrPending";
 };
 
-function emptyAuthorityNeeds(): AuthorityNeedSet {
-  return {
-    contracts: [],
-    surfaces: [],
-    capabilities: [],
-    resources: [],
-  };
-}
-
 function getGroupedUses(contract: TrellisContractV1): ContractUsesGrouped {
   const uses = (contract as ContractWithUses).uses;
   return uses ?? {};
@@ -128,6 +115,16 @@ function pushSurface(
   },
 ): void {
   surfaces.push(options);
+}
+
+function pushCapabilities(
+  needs: AuthorityNeedSet,
+  capabilities: string[],
+  required: boolean,
+): void {
+  for (const capability of capabilities) {
+    needs.capabilities.push({ capability, required });
+  }
 }
 
 function addTransferResource(
@@ -172,7 +169,7 @@ function addRpc(
     required,
   });
   if (options.includeCapabilities ?? true) {
-    needs.capabilities.push(...(method.capabilities?.call ?? []));
+    pushCapabilities(needs, method.capabilities?.call ?? [], required);
   }
   if (method.transfer?.direction === "receive") {
     addTransferResource(
@@ -204,7 +201,7 @@ function addOperation(
     required,
   });
   if (includeCapabilities) {
-    needs.capabilities.push(...(operation.capabilities?.call ?? []));
+    pushCapabilities(needs, operation.capabilities?.call ?? [], required);
   }
 
   pushSurface(needs.surfaces, {
@@ -215,11 +212,12 @@ function addOperation(
     required,
   });
   if (includeCapabilities) {
-    needs.capabilities.push(
-      ...(operation.capabilities?.observe ?? operation.capabilities?.call ??
-        []),
+    pushCapabilities(
+      needs,
+      operation.capabilities?.observe ?? operation.capabilities?.call ?? [],
+      required,
     );
-    needs.capabilities.push(...(operation.capabilities?.control ?? []));
+    pushCapabilities(needs, operation.capabilities?.control ?? [], required);
   }
 
   if (operation.cancel) {
@@ -231,7 +229,7 @@ function addOperation(
       required,
     });
     for (const capabilities of operationControlCapabilityRules(operation)) {
-      if (includeCapabilities) needs.capabilities.push(...capabilities);
+      if (includeCapabilities) pushCapabilities(needs, capabilities, required);
     }
   }
 
@@ -265,7 +263,7 @@ function addEvent(
     required,
   });
   if (options.includeCapabilities ?? true) {
-    needs.capabilities.push(...(event.capabilities?.[action] ?? []));
+    pushCapabilities(needs, event.capabilities?.[action] ?? [], required);
   }
 }
 
@@ -285,65 +283,8 @@ function addFeed(
     required,
   });
   if (options.includeCapabilities ?? true) {
-    needs.capabilities.push(...(feed.capabilities?.subscribe ?? []));
+    pushCapabilities(needs, feed.capabilities?.subscribe ?? [], required);
   }
-}
-
-function surfaceKey(surface: AuthorityNeedSetSurface): string {
-  return [
-    surface.contractId,
-    surface.kind,
-    surface.name,
-    surface.action,
-    String(surface.required),
-  ].join("\u001f");
-}
-
-function resourceKey(resource: AuthorityNeedSetResource): string {
-  return [resource.kind, resource.alias, String(resource.required)].join(
-    "\u001f",
-  );
-}
-
-function contractKey(contract: AuthorityNeedSetContract): string {
-  return [contract.contractId, String(contract.required)].join("\u001f");
-}
-
-function normalizeAuthorityNeeds(needs: AuthorityNeedSet): AuthorityNeedSet {
-  const contracts = new Map<string, AuthorityNeedSetContract>();
-  for (const contract of needs.contracts) {
-    contracts.set(contractKey(contract), contract);
-  }
-
-  const surfaces = new Map<string, AuthorityNeedSetSurface>();
-  for (const surface of needs.surfaces) {
-    surfaces.set(surfaceKey(surface), surface);
-  }
-
-  const resources = new Map<string, AuthorityNeedSetResource>();
-  for (const resource of needs.resources) {
-    resources.set(resourceKey(resource), resource);
-  }
-
-  return {
-    contracts: [...contracts.values()].sort((left, right) =>
-      left.contractId.localeCompare(right.contractId) ||
-      String(left.required).localeCompare(String(right.required))
-    ),
-    surfaces: [...surfaces.values()].sort((left, right) =>
-      left.contractId.localeCompare(right.contractId) ||
-      left.kind.localeCompare(right.kind) ||
-      left.name.localeCompare(right.name) ||
-      (left.action ?? "").localeCompare(right.action ?? "") ||
-      String(left.required).localeCompare(String(right.required))
-    ),
-    capabilities: sortUniqueStrings(needs.capabilities),
-    resources: [...resources.values()].sort((left, right) =>
-      left.kind.localeCompare(right.kind) ||
-      left.alias.localeCompare(right.alias) ||
-      String(left.required).localeCompare(String(right.required))
-    ),
-  };
 }
 
 function groupEntriesByContractId(
@@ -901,7 +842,7 @@ function deriveOwnTransferResources(
       );
     }
   }
-  return normalizeAuthorityNeeds({ ...EMPTY_AUTHORITY_NEEDS, resources })
+  return normalizeAuthorityNeeds({ ...emptyAuthorityNeeds(), resources })
     .resources;
 }
 
@@ -974,7 +915,7 @@ export async function analyzeContractProposal(
   const ownTransferResources = deriveOwnTransferResources(validated.contract);
 
   required.resources = normalizeAuthorityNeeds({
-    ...EMPTY_AUTHORITY_NEEDS,
+    ...emptyAuthorityNeeds(),
     resources: [
       ...required.resources,
       ...resources.filter((resource) => resource.required),
@@ -982,7 +923,7 @@ export async function analyzeContractProposal(
     ],
   }).resources;
   optional.resources = normalizeAuthorityNeeds({
-    ...EMPTY_AUTHORITY_NEEDS,
+    ...emptyAuthorityNeeds(),
     resources: [
       ...optional.resources,
       ...resources.filter((resource) => !resource.required),
@@ -1012,7 +953,9 @@ export async function analyzeContractProposal(
         contract: validated.contract,
         digest: validated.digest,
         direction: "given",
-        capabilities: [...required.capabilities, ...optional.capabilities],
+        capabilities: [...required.capabilities, ...optional.capabilities].map(
+          (need) => need.capability,
+        ),
       }),
     ]),
   };

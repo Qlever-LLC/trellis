@@ -2,9 +2,13 @@ import type { AuthCapabilitiesListOutput } from "@qlever-llc/trellis/sdk/auth";
 import type {
   AuthDeploymentAuthorityGetResponse,
   DeploymentAuthority,
-  DeploymentAuthorityNeed,
+  DeploymentAuthorityCapabilityNeed,
+  DeploymentAuthorityContractNeed,
+  DeploymentAuthorityNeeds,
   DeploymentAuthorityPlan,
+  DeploymentAuthorityResourceNeed,
   DeploymentAuthoritySurface,
+  DeploymentAuthoritySurfaceNeed,
 } from "@qlever-llc/trellis/auth";
 
 type ImplementationOffer = {
@@ -22,36 +26,22 @@ type AuthorityPlanState = "pending" | "accepted" | "rejected" | "expired";
 type AuthorityNeedSet = {
   contracts: Array<{ contractId: string; required: boolean }>;
   surfaces: Array<DeploymentAuthoritySurface & { required: boolean }>;
-  capabilities: string[];
-  resources: Array<AuthorityNeedResource["resource"] & { required: boolean }>;
+  capabilities: Array<{ capability: string; required: boolean }>;
+  resources: Array<DeploymentAuthorityResourceNeed>;
 };
-type AuthorityNeedSurface = Extract<
-  DeploymentAuthorityNeed,
-  { kind: "surface" }
->;
-type AuthorityNeedResource = Extract<
-  DeploymentAuthorityNeed,
-  { kind: "resource" }
->;
-type AuthorityNeedContract = Extract<
-  DeploymentAuthorityNeed,
-  { kind: "contract" }
->;
-type AuthorityNeedCapability = Extract<
-  DeploymentAuthorityNeed,
-  { kind: "capability" }
->;
+type AuthorityNeedSurface = DeploymentAuthoritySurfaceNeed;
+type AuthorityNeedResource = DeploymentAuthorityResourceNeed;
+type AuthorityNeedContract = DeploymentAuthorityContractNeed;
+type AuthorityNeedCapability = DeploymentAuthorityCapabilityNeed;
 type AuthorityDetailBinding = NonNullable<
   AuthDeploymentAuthorityGetResponse["materializedAuthority"]
 >["resourceBindings"][number];
 type AuthorityMaterialization = NonNullable<
   AuthDeploymentAuthorityGetResponse["materializedAuthority"]
 >;
-type MaterializedAuthorityGrant = AuthorityMaterialization["grants"][number];
-type MaterializedCapabilityGrant = Extract<
-  MaterializedAuthorityGrant,
-  { kind: "capability" }
->;
+type MaterializedCapabilityGrant = AuthorityMaterialization["grants"][
+  "capabilities"
+][number];
 export type AuthorityCapabilityDefinition =
   AuthCapabilitiesListOutput["entries"][number];
 
@@ -72,7 +62,7 @@ export type DeltaSurfaceRow = {
 
 export type DeltaResourceRow = {
   id: string;
-  kind: AuthorityNeedResource["resource"]["kind"];
+  kind: AuthorityNeedResource["kind"];
   alias: string;
   availability: "required" | "optional";
 };
@@ -251,7 +241,7 @@ export function authorityPlanRows(
         plan.classification,
         plan.proposal.contractId,
         plan.proposal.contractDigest,
-        ...changeState.needs.map(needSearchText),
+        ...needSearchTexts(changeState.needs),
       ].join(" ").toLowerCase(),
     };
   });
@@ -262,7 +252,7 @@ export function authorityPlanChangeState(
 ): AuthorityState {
   return isAuthorityNeedSet(plan.desiredChange)
     ? stateFromAuthorityNeedSet(plan.desiredChange)
-    : stateFromNeeds([]);
+    : stateFromNeeds(emptyAuthorityNeeds());
 }
 
 export function authorityPlanRequestedState(
@@ -281,20 +271,20 @@ export function deltaContractRows(state: AuthorityState): DeltaContractRow[] {
 
 export function deltaSurfaceRows(state: AuthorityState): DeltaSurfaceRow[] {
   return surfaceNeeds(state).map((need) => ({
-    id: surfaceId(need.surface),
-    contractId: need.surface.contractId,
-    kind: need.surface.kind,
-    name: need.surface.name,
-    action: need.surface.action ?? "—",
+    id: surfaceId(need),
+    contractId: need.contractId,
+    kind: need.kind,
+    name: need.name,
+    action: need.action ?? "—",
     availability: need.required ? "required" : "optional",
   }));
 }
 
 export function deltaResourceRows(state: AuthorityState): DeltaResourceRow[] {
   return resourceNeeds(state).map((need) => ({
-    id: `${need.resource.kind}:${need.resource.alias}`,
-    kind: need.resource.kind,
-    alias: need.resource.alias,
+    id: `${need.kind}:${need.alias}`,
+    kind: need.kind,
+    alias: need.alias,
     availability: need.required ? "required" : "optional",
   }));
 }
@@ -339,10 +329,7 @@ export function givenCapabilityRows(
     definitions,
     authority.deploymentId,
   );
-  const grants = materializedAuthority?.grants.filter(
-    (grant): grant is MaterializedCapabilityGrant =>
-      grant.kind === "capability",
-  ) ?? [];
+  const grants = materializedAuthority?.grants.capabilities ?? [];
   const grantCounts = new Map<string, number>();
   for (const grant of grants) {
     grantCounts.set(
@@ -403,7 +390,7 @@ export function livenessRows(
 ): LivenessRow[] {
   return surfaceNeeds(state).map((need) => {
     const relevantRuntimeDeployments = runtimeDeployments.filter((runtime) =>
-      runtimeDeploymentMatchesSurface(runtime, need.surface, deploymentId)
+      runtimeDeploymentMatchesSurface(runtime, need, deploymentId)
     );
     const hasLiveRuntime = relevantRuntimeDeployments.some((runtime) =>
       !runtime.disabled
@@ -418,11 +405,11 @@ export function livenessRows(
       : "no_live_implementer";
 
     return {
-      id: surfaceId(need.surface),
-      contractId: need.surface.contractId,
-      surface: need.surface.name,
-      kind: need.surface.kind,
-      action: need.surface.action ?? "—",
+      id: surfaceId(need),
+      contractId: need.contractId,
+      surface: need.name,
+      kind: need.kind,
+      action: need.action ?? "—",
       availability: need.required ? "required" : "optional",
       runtime,
     };
@@ -537,27 +524,19 @@ export function formatBindingTarget(binding: AuthorityDetailBinding): string {
 }
 
 function contractNeeds(state: AuthorityState): AuthorityNeedContract[] {
-  return state.needs.filter((need): need is AuthorityNeedContract =>
-    need.kind === "contract"
-  );
+  return state.needs.contracts;
 }
 
 function surfaceNeeds(state: AuthorityState): AuthorityNeedSurface[] {
-  return state.needs.filter((need): need is AuthorityNeedSurface =>
-    need.kind === "surface"
-  );
+  return state.needs.surfaces;
 }
 
 function resourceNeeds(state: AuthorityState): AuthorityNeedResource[] {
-  return state.needs.filter((need): need is AuthorityNeedResource =>
-    need.kind === "resource"
-  );
+  return state.needs.resources;
 }
 
 function capabilityNeeds(state: AuthorityState): AuthorityNeedCapability[] {
-  return state.needs.filter((need): need is AuthorityNeedCapability =>
-    need.kind === "capability"
-  );
+  return state.needs.capabilities;
 }
 
 function capabilityDefinitionsForDeployment(
@@ -649,53 +628,24 @@ function givenCapabilityRowFromParts(args: {
   };
 }
 
-function stateFromNeeds(needs: DeploymentAuthorityNeed[]): AuthorityState {
+function emptyAuthorityNeeds(): DeploymentAuthorityNeeds {
+  return { contracts: [], surfaces: [], capabilities: [], resources: [] };
+}
+
+function stateFromNeeds(needs: DeploymentAuthorityNeeds): AuthorityState {
   return {
     needs,
-    capabilities: capabilityNeeds({
-      needs,
-      capabilities: [],
-      resources: [],
-      surfaces: [],
-    }).map((need) => need.capability),
-    resources: resourceNeeds({
-      needs,
-      capabilities: [],
-      resources: [],
-      surfaces: [],
-    }).map((need) => need.resource),
-    surfaces: surfaceNeeds({
-      needs,
-      capabilities: [],
-      resources: [],
-      surfaces: [],
-    }).map((need) => need.surface),
+    capabilities: needs.capabilities.map((need) => need.capability),
+    resources: needs.resources,
+    surfaces: needs.surfaces.map((need) => {
+      const { required: _required, ...surface } = need;
+      return surface;
+    }),
   };
 }
 
 function stateFromAuthorityNeedSet(needs: AuthorityNeedSet): AuthorityState {
-  return stateFromNeeds([
-    ...needs.contracts.map((contract) => ({
-      kind: "contract" as const,
-      contractId: contract.contractId,
-      required: contract.required,
-    })),
-    ...needs.surfaces.map(({ required, ...surface }) => ({
-      kind: "surface" as const,
-      surface,
-      required,
-    })),
-    ...needs.resources.map((resource) => ({
-      kind: "resource" as const,
-      resource,
-      required: resource.required,
-    })),
-    ...needs.capabilities.map((capability) => ({
-      kind: "capability" as const,
-      capability,
-      required: true,
-    })),
-  ]);
+  return stateFromNeeds(needs);
 }
 
 function planState(plan: DeploymentAuthorityPlan): AuthorityPlanState {
@@ -723,7 +673,9 @@ function isAuthorityNeedSet(value: unknown): value is AuthorityNeedSet {
     Array.isArray(surfaces) && surfaces.every(isAuthorityNeedSetSurface) &&
     Array.isArray(capabilities) &&
     capabilities.every((capability) =>
-      typeof capability === "string" && capability.length > 0
+      isRecord(capability) && typeof capability.capability === "string" &&
+      capability.capability.length > 0 &&
+      typeof capability.required === "boolean"
     ) &&
     Array.isArray(resources) && resources.every(isAuthorityNeedSetResource);
 }
@@ -754,17 +706,15 @@ function surfaceId(surface: DeploymentAuthoritySurface): string {
   }`;
 }
 
-function needSearchText(need: DeploymentAuthorityNeed): string {
-  switch (need.kind) {
-    case "contract":
-      return `${need.contractId} ${need.required ? "required" : "optional"}`;
-    case "surface":
-      return `${need.surface.contractId} ${need.surface.kind} ${need.surface.name} ${
-        need.surface.action ?? ""
-      }`;
-    case "resource":
-      return `${need.resource.kind} ${need.resource.alias}`;
-    case "capability":
-      return need.capability;
-  }
+function needSearchTexts(needs: DeploymentAuthorityNeeds): string[] {
+  return [
+    ...needs.contracts.map((need) =>
+      `${need.contractId} ${need.required ? "required" : "optional"}`
+    ),
+    ...needs.surfaces.map((need) =>
+      `${need.contractId} ${need.kind} ${need.name} ${need.action ?? ""}`
+    ),
+    ...needs.resources.map((need) => `${need.kind} ${need.alias}`),
+    ...needs.capabilities.map((need) => need.capability),
+  ];
 }

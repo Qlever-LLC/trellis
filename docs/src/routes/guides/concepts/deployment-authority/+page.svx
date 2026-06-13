@@ -49,11 +49,18 @@ deployment authority during NATS auth. If a service binary presents stale or
 unavailable evidence, Trellis rejects the connection rather than issuing a
 partially scoped runtime credential.
 
+Contract proposals and desired deployment authority group requested `needs` by
+family: `contracts`, `surfaces`, `capabilities`, and `resources`. This keeps each
+family explicit in the public protocol and lets Trellis evolve one family without
+making unrelated accepted authority unreadable.
+
 The materialized authority is the runtime-ready view that Trellis derives from
 accepted contract boundaries, dependency closure, reconciled resource bindings,
 grant overrides, current grants, and presented runtime proofs. It is the view
 used to mint scoped runtime credentials. Runtime access uses only materialized
 authority whose status is current for the deployment authority version.
+Materialized runtime `grants` are grouped by `capabilities`, `surfaces`, and
+`nats`.
 
 ## Identity authority
 
@@ -103,6 +110,11 @@ runtimes can use. It does not accept new authority; acceptance mutates desired
 state and schedules reconciliation, and reconciliation materializes that state.
 Manual reconciliation is for repair, retry, or manual convergence rather than the
 normal follow-up after every accepted plan.
+
+Materialized authority is a projection. If an old persisted projection is stale
+or uses an obsolete shape, Trellis repairs it through storage upgrade and
+reconciliation. Services and devices still receive permissions only after the
+materialized authority is current for the accepted desired authority version.
 
 Implementation offers are still required because they model accepted runtime
 availability, freshness, and dependency evidence. They are not materialized

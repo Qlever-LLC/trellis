@@ -5,6 +5,15 @@ import {
   openTrellisStorageDb,
 } from "../storage/db.ts";
 import type { TrellisStorage } from "../storage/db.ts";
+import {
+  deploymentAuthorities,
+  deploymentAuthorityCapabilities,
+  deploymentAuthorityContracts,
+  deploymentAuthorityPlans,
+  deploymentAuthorityResources,
+  deploymentAuthoritySurfaces,
+  materializedAuthority,
+} from "../storage/schema.ts";
 import type {
   DeploymentAuthority,
   DeploymentAuthorityCapabilityDefinition,
@@ -74,10 +83,12 @@ function makeAuthority(
     createdAt: "2026-05-07T00:00:00.000Z",
     updatedAt: "2026-05-07T00:00:01.000Z",
     desiredState: {
-      needs: [
-        { kind: "contract", contractId: "a.contract@v1", required: true },
-        { kind: "capability", capability: "a.use", required: true },
-      ],
+      needs: {
+        contracts: [{ contractId: "a.contract@v1", required: true }],
+        surfaces: [],
+        capabilities: [{ capability: "a.use", required: false }],
+        resources: [],
+      },
       capabilities: ["z.use"],
       resources: [
         { kind: "kv", alias: "cache", required: true, definition: { ttl: 60 } },
@@ -104,11 +115,12 @@ function makePlan(
       deploymentId: "svc-a",
       contractId: "a.contract@v1",
       contractDigest: "sha256-a",
-      requestedNeeds: [{
-        kind: "capability",
-        capability: "a.use",
-        required: true,
-      }],
+      requestedNeeds: {
+        contracts: [],
+        surfaces: [],
+        capabilities: [{ capability: "a.use", required: true }],
+        resources: [],
+      },
       providedSurfaces: [],
     },
     desiredChange: { add: ["a.use"] },
@@ -136,7 +148,11 @@ function makeMaterialized(
       createdAt: "2026-05-07T00:00:03.000Z",
       updatedAt: "2026-05-07T00:00:03.000Z",
     }],
-    grants: [{ kind: "capability", capability: "a.use" }],
+    grants: {
+      capabilities: [{ capability: "a.use" }],
+      surfaces: [],
+      nats: [],
+    },
     reconciledAt: "2026-05-07T00:00:03.000Z",
     ...overrides,
   };
@@ -150,22 +166,23 @@ Deno.test("deployment authority storage round-trips desired state", async () => 
       await authorities.get("svc-a"),
       makeAuthority({
         desiredState: {
-          needs: [
-            { kind: "contract", contractId: "a.contract@v1", required: true },
-            {
-              kind: "resource",
-              resource: {
-                kind: "kv",
-                alias: "cache",
-                required: true,
-                definition: { ttl: 60 },
-              },
+          needs: {
+            contracts: [{
+              contractId: "a.contract@v1",
               required: true,
-            },
-            { kind: "capability", capability: "a.use", required: true },
-            { kind: "capability", capability: "z.use", required: true },
-          ],
-          capabilities: ["a.use", "z.use"],
+            }],
+            surfaces: [],
+            capabilities: [
+              { capability: "a.use", required: false },
+            ],
+            resources: [{
+              kind: "kv",
+              alias: "cache",
+              required: true,
+              definition: { ttl: 60 },
+            }],
+          },
+          capabilities: ["z.use"],
           resources: [
             {
               kind: "kv",
@@ -186,8 +203,99 @@ Deno.test("deployment authority storage round-trips desired state", async () => 
   });
 });
 
+Deno.test("deployment authority storage decodes relational rows into grouped needs", async () => {
+  await withAuthorityRepositories(async ({ authorities }, storage) => {
+    await storage.db.insert(deploymentAuthorities).values({
+      deploymentId: "svc-a",
+      kind: "service",
+      disabled: false,
+      version: "v1",
+      createdAt: "2026-05-07T00:00:00.000Z",
+      updatedAt: "2026-05-07T00:00:01.000Z",
+    });
+    await storage.db.insert(deploymentAuthorityContracts).values({
+      deploymentId: "svc-a",
+      contractId: "a.contract@v1",
+      required: true,
+    });
+    await storage.db.insert(deploymentAuthoritySurfaces).values([{
+      deploymentId: "svc-a",
+      contractId: "a.contract@v1",
+      surfaceKind: "rpc",
+      surfaceName: "Rpc.Call",
+      action: "call",
+      required: true,
+      source: "need",
+    }, {
+      deploymentId: "svc-a",
+      contractId: "a.contract@v1",
+      surfaceKind: "event",
+      surfaceName: "Event.Emitted",
+      action: "subscribe",
+      required: true,
+      source: "surface",
+    }]);
+    await storage.db.insert(deploymentAuthorityResources).values({
+      deploymentId: "svc-a",
+      resourceKind: "kv",
+      resourceAlias: "cache",
+      required: false,
+      definitionJson: JSON.stringify({ ttl: 60 }),
+    });
+    await storage.db.insert(deploymentAuthorityCapabilities).values([{
+      deploymentId: "svc-a",
+      capability: "a.use",
+      required: false,
+      source: "need",
+    }, {
+      deploymentId: "svc-a",
+      capability: "a.use",
+      required: true,
+      source: "capability",
+    }]);
+
+    assertEquals(
+      await authorities.get("svc-a"),
+      makeAuthority({
+        desiredState: {
+          needs: {
+            contracts: [{ contractId: "a.contract@v1", required: true }],
+            surfaces: [{
+              contractId: "a.contract@v1",
+              kind: "rpc",
+              name: "Rpc.Call",
+              action: "call",
+              required: true,
+            }],
+            capabilities: [{ capability: "a.use", required: false }],
+            resources: [{
+              kind: "kv",
+              alias: "cache",
+              required: false,
+              definition: { ttl: 60 },
+            }],
+          },
+          capabilities: ["a.use"],
+          resources: [{
+            kind: "kv",
+            alias: "cache",
+            required: false,
+            definition: { ttl: 60 },
+          }],
+          surfaces: [{
+            contractId: "a.contract@v1",
+            kind: "event",
+            name: "Event.Emitted",
+            action: "subscribe",
+          }],
+        },
+      }),
+    );
+  });
+});
+
 Deno.test("deployment authority plans round-trip state and decision metadata", async () => {
-  await withAuthorityRepositories(async ({ plans }) => {
+  await withAuthorityRepositories(async ({ plans }, storage) => {
     await plans.put(makePlan());
     await plans.put(makePlan({
       state: "accepted",
@@ -205,6 +313,17 @@ Deno.test("deployment authority plans round-trip state and decision metadata", a
         decisionReason: "accepted",
       }),
     );
+
+    const rows = await storage.db.select().from(deploymentAuthorityPlans);
+    assertEquals(
+      JSON.parse(rows[0]?.proposalJson ?? "{}"),
+      makePlan({
+        state: "accepted",
+        decisionAt: "2026-05-07T00:00:04.000Z",
+        decisionBy: { userId: "admin" },
+        decisionReason: "accepted",
+      }).proposal,
+    );
   });
 });
 
@@ -218,11 +337,12 @@ Deno.test("deployment authority plan accept is atomic on pending plan and author
         version: "v2",
         updatedAt: "2026-05-07T00:00:05.000Z",
         desiredState: {
-          needs: [{
-            kind: "capability",
-            capability: "new.use",
-            required: true,
-          }],
+          needs: {
+            contracts: [],
+            surfaces: [],
+            capabilities: [{ capability: "new.use", required: true }],
+            resources: [],
+          },
           capabilities: ["new.use"],
           resources: [],
           surfaces: [],
@@ -254,7 +374,7 @@ Deno.test("deployment authority plan accept is atomic on pending plan and author
 });
 
 Deno.test("materialized authority stores resource bindings", async () => {
-  await withAuthorityRepositories(async ({ materialized }) => {
+  await withAuthorityRepositories(async ({ materialized }, storage) => {
     await materialized.put(makeMaterialized());
 
     assertEquals(await materialized.get("svc-a"), makeMaterialized());
@@ -262,25 +382,34 @@ Deno.test("materialized authority stores resource bindings", async () => {
       await materialized.listBindingsByDeployment("svc-a"),
       makeMaterialized().resourceBindings,
     );
+    const rows = await storage.db.select().from(materializedAuthority);
+    assertEquals(JSON.parse(rows[0]?.grantsJson ?? "{}"), {
+      capabilities: [{ capability: "a.use" }],
+      surfaces: [],
+      nats: [],
+    });
   });
 });
 
 Deno.test("materialized authority round-trips typed nats grants", async () => {
   await withAuthorityRepositories(async ({ materialized }) => {
     const record = makeMaterialized({
-      grants: [{
-        kind: "nats",
-        direction: "publish",
-        subject: "rpc.v1.Example.Ping",
-        surface: {
-          contractId: "example@v1",
-          kind: "rpc",
-          name: "Example.Ping",
-          action: "call",
-        },
-        requiredCapabilities: ["example.ping"],
-        grantSource: "used-surface",
-      }],
+      grants: {
+        capabilities: [],
+        surfaces: [],
+        nats: [{
+          direction: "publish",
+          subject: "rpc.v1.Example.Ping",
+          surface: {
+            contractId: "example@v1",
+            kind: "rpc",
+            name: "Example.Ping",
+            action: "call",
+          },
+          requiredCapabilities: ["example.ping"],
+          grantSource: "used-surface",
+        }],
+      },
     });
 
     await materialized.put(record);

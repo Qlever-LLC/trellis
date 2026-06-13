@@ -21,6 +21,16 @@ import {
 } from "./store.ts";
 import { connectionKey } from "../auth/session/connections.ts";
 
+function emptyAuthorityNeeds(): DeploymentAuthority["desiredState"]["needs"] {
+  return { contracts: [], surfaces: [], capabilities: [], resources: [] };
+}
+
+function emptyMaterializedGrants(): DeploymentAuthorityMaterialization[
+  "grants"
+] {
+  return { capabilities: [], surfaces: [], nats: [] };
+}
+
 const exportedSchemaContract: TrellisContractV1 = {
   format: "trellis.contract.v1",
   id: "exports@v1",
@@ -292,9 +302,10 @@ class InMemoryDeploymentAuthorityStorage {
   ): Promise<DeploymentAuthority[]> {
     return [...this.#authorities.values()].filter((authority) =>
       !authority.disabled &&
-      (authority.desiredState.needs.some((need) =>
-        (need.kind === "contract" && need.contractId === contractId) ||
-        (need.kind === "surface" && need.surface.contractId === contractId)
+      (authority.desiredState.needs.contracts.some((need) =>
+        need.contractId === contractId
+      ) || authority.desiredState.needs.surfaces.some((need) =>
+        need.contractId === contractId
       ) ||
         authority.desiredState.surfaces.some((surface) =>
           surface.contractId === contractId
@@ -494,7 +505,10 @@ function seedSurfaceAuthority(
     kind,
     disabled,
     desiredState: {
-      needs: [{ kind: "contract", contractId: "surface@v1", required: true }],
+      needs: {
+        ...emptyAuthorityNeeds(),
+        contracts: [{ contractId: "surface@v1", required: true }],
+      },
       capabilities: [],
       resources: [],
       surfaces: [{
@@ -664,7 +678,7 @@ Deno.test("Trellis.Bindings.Get returns materialized authority bindings", async 
     kind: "service",
     disabled: false,
     desiredState: {
-      needs: [],
+      needs: emptyAuthorityNeeds(),
       capabilities: [],
       resources: [{ kind: "kv", alias: "cache", required: true }],
       surfaces: [],
@@ -695,7 +709,7 @@ Deno.test("Trellis.Bindings.Get returns materialized authority bindings", async 
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     }],
-    grants: [],
+    grants: emptyMaterializedGrants(),
     reconciledAt: "2026-01-01T00:00:00.000Z",
   });
 
@@ -753,7 +767,12 @@ Deno.test("Trellis.Bindings.Get hides bindings while authority is stale", async 
     deploymentId: "deployment-1",
     kind: "service",
     disabled: false,
-    desiredState: { needs: [], capabilities: [], resources: [], surfaces: [] },
+    desiredState: {
+      needs: emptyAuthorityNeeds(),
+      capabilities: [],
+      resources: [],
+      surfaces: [],
+    },
     version: "v2",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -772,7 +791,7 @@ Deno.test("Trellis.Bindings.Get hides bindings while authority is stale", async 
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     }],
-    grants: [],
+    grants: emptyMaterializedGrants(),
     reconciledAt: "2026-01-01T00:00:00.000Z",
   });
 
@@ -934,7 +953,10 @@ Deno.test("Trellis.Surface.Status reports optional missing surface as authority 
     kind: "service",
     disabled: false,
     desiredState: {
-      needs: [{ kind: "contract", contractId: "surface@v1", required: true }],
+      needs: {
+        ...emptyAuthorityNeeds(),
+        contracts: [{ contractId: "surface@v1", required: true }],
+      },
       capabilities: [],
       resources: [],
       surfaces: [],

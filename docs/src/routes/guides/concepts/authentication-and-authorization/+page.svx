@@ -79,12 +79,36 @@ Contract-authored capability names are projected to canonical global keys using 
 They are similar to OAuth scopes, but they are intentionally different:
 
 - OAuth scopes belong to the external provider login flow.
-- Trellis capabilities belong to Trellis and gate RPCs, operations, events, and other runtime permissions derived from contracts.
+- Trellis capabilities belong to Trellis and gate RPCs, operations, events, and
+  other runtime permissions derived from contracts.
 
-Trellis keeps its own capabilities because the same authorization model has to work across browser apps, CLIs, backend services, activated devices, and NATS subject permissions. That is broader than a normal OAuth client-to-API scope check.
+Trellis keeps its own capabilities because the same authorization model has to
+work across browser apps, CLIs, backend services, activated devices, and NATS
+subject permissions. That is broader than a normal OAuth client-to-API scope
+check.
 
-Capabilities are assigned to users and devices at the deployment level. Trellis derives NATS permissions from known contract manifests, identity authority, deployment authority, deployment grant overrides, current grants, and current materialized resource bindings. Service and device runtimes must also present contract evidence that fits their enabled deployment authority; Trellis rejects evidence outside that authority during NATS auth, and service resource permissions are granted only after reconciliation materializes the matching desired authority version. For durable service event consumers, the resource binding narrows the token to the exact provisioned JetStream consumer subjects.
+Capabilities are assigned to users and devices at the deployment level. Trellis
+derives NATS permissions from known contract manifests, identity authority,
+deployment authority, deployment grant overrides, current grants, and current
+materialized resource bindings. Deployment authority proposals and desired state
+group requested needs by `contracts`, `surfaces`, `capabilities`, and
+`resources`; materialized authority groups runtime grants by `capabilities`,
+`surfaces`, and `nats`. Service and device runtimes must also present contract
+evidence that fits their enabled deployment authority; Trellis rejects evidence
+outside that authority during NATS auth, and service resource permissions are
+granted only after reconciliation materializes the matching desired authority
+version. Stale or obsolete persisted materialized-authority projections are
+repaired through Trellis storage upgrade and reconciliation, but they do not grant
+runtime permissions until current. For durable service event consumers, the
+resource binding narrows the token to the exact provisioned JetStream consumer
+subjects.
 
-Admin UIs discover assignable Trellis capabilities through `Auth.Capabilities.List`, which merges platform capability metadata with known contract capability metadata. The list is a catalog for assignment UX; actual authority still comes from user grants, device grants, identity authority, deployment authority, grant overrides, and runtime contract proofs.
+Admin UIs discover assignable Trellis capabilities through
+`Auth.Capabilities.List`, which merges platform capability metadata with known
+contract capability metadata. The list is a catalog for assignment UX; actual
+authority still comes from user grants, device grants, identity authority,
+deployment authority, grant overrides, and runtime contract proofs.
 
-For browser-app and session-keyed sessions, Trellis may also apply deployment-owned capability overlays from a matching authority grant override. Those capabilities are session-time policy, not user-owned grants.
+For browser-app and session-keyed sessions, Trellis may also apply
+deployment-owned capability overlays from a matching authority grant override.
+Those capabilities are session-time policy, not user-owned grants.

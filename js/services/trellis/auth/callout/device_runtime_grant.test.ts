@@ -41,7 +41,7 @@ const FITTING_NEEDS: AuthorityNeedSet = {
     action: "call",
     required: true,
   }],
-  capabilities: ["example.read"],
+  capabilities: [{ capability: "example.read", required: true }],
   resources: [],
 };
 
@@ -53,19 +53,8 @@ const FITTING_AUTHORITY: DeploymentAuthority = {
   updatedAt: TEST_NOW,
   version: TEST_NOW,
   desiredState: {
-    needs: [
-      ...FITTING_NEEDS.contracts.map((need) => ({
-        kind: "contract" as const,
-        contractId: need.contractId,
-        required: need.required,
-      })),
-      ...FITTING_NEEDS.surfaces.map(({ required, ...surface }) => ({
-        kind: "surface" as const,
-        surface,
-        required,
-      })),
-    ],
-    capabilities: FITTING_NEEDS.capabilities,
+    needs: FITTING_NEEDS,
+    capabilities: FITTING_NEEDS.capabilities.map((need) => need.capability),
     resources: FITTING_NEEDS.resources,
     surfaces: FITTING_NEEDS.surfaces.map((
       { required: _required, ...surface },
@@ -81,13 +70,16 @@ function materializedDeviceAuthority(
     desiredVersion: FITTING_AUTHORITY.version,
     status: "current",
     resourceBindings: [],
-    grants: [{ kind: "capability", capability: "example.read" }, {
-      kind: "nats",
-      direction: "publish",
-      subject: "rpc.v1.Example.Narrow",
-      requiredCapabilities: ["example.read"],
-      grantSource: "used-surface",
-    }],
+    grants: {
+      capabilities: [{ capability: "example.read" }],
+      surfaces: [],
+      nats: [{
+        direction: "publish",
+        subject: "rpc.v1.Example.Narrow",
+        requiredCapabilities: ["example.read"],
+        grantSource: "used-surface",
+      }],
+    },
     reconciledAt: TEST_NOW,
     ...overrides,
   };

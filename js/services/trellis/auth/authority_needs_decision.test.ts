@@ -7,6 +7,7 @@ import {
   evaluateProposalNeedsFit,
   previewAuthorityReductionImpact,
 } from "./authority_needs_decision.ts";
+import { emptyAuthorityNeeds, mergeAuthorityNeeds } from "./authority_needs.ts";
 import type {
   AuthorityNeedSet,
   DeploymentAuthorityGrantOverride,
@@ -29,6 +30,10 @@ function needs(overrides: Partial<AuthorityNeedSet>): AuthorityNeedSet {
   };
 }
 
+function cap(capability: string, required = true) {
+  return { capability, required };
+}
+
 const fullAuthority = needs({
   contracts: [{ contractId: "core@v1", required: true }],
   surfaces: [{
@@ -38,8 +43,25 @@ const fullAuthority = needs({
     action: "call",
     required: true,
   }],
-  capabilities: ["users.read"],
+  capabilities: [cap("users.read")],
   resources: [{ kind: "kv", alias: "sessions", required: true }],
+});
+
+Deno.test("mergeAuthorityNeeds normalizes grouped capability needs", () => {
+  assertEquals(
+    mergeAuthorityNeeds(
+      needs({
+        capabilities: [cap("z.read", false), cap("a.read")],
+      }),
+      needs({
+        capabilities: [cap("z.read")],
+      }),
+      emptyAuthorityNeeds(),
+    ),
+    needs({
+      capabilities: [cap("a.read"), cap("z.read")],
+    }),
+  );
 });
 
 Deno.test("evaluateProposalNeedsFit separates missing availability from missing capabilities", () => {
@@ -61,7 +83,7 @@ Deno.test("evaluateProposalNeedsFit separates missing availability from missing 
         required: true,
       },
     ],
-    capabilities: ["billing.export", "users.read"],
+    capabilities: [cap("billing.export"), cap("users.read")],
     resources: [{ kind: "kv", alias: "sessions", required: true }],
   });
 
@@ -93,7 +115,7 @@ Deno.test("computeAuthorityNeedsDelta returns only unavailable rows and missing 
       action: "subscribe",
       required: false,
     }],
-    capabilities: ["events.read", "users.read"],
+    capabilities: [cap("events.read"), cap("users.read")],
     resources: [
       { kind: "kv", alias: "sessions", required: true },
       { kind: "store", alias: "exports", required: false },
@@ -111,7 +133,7 @@ Deno.test("computeAuthorityNeedsDelta returns only unavailable rows and missing 
         action: "subscribe",
         required: false,
       }],
-      capabilities: ["events.read"],
+      capabilities: [cap("events.read")],
       resources: [{ kind: "store", alias: "exports", required: false }],
     }),
   );
@@ -151,7 +173,7 @@ Deno.test("grant overrides add capabilities only for matching identities", async
         origin: "https://app.example",
       },
     ),
-    needs({ capabilities: ["users.write"] }),
+    needs({ capabilities: [cap("users.write")] }),
   );
 
   assertEquals(
@@ -164,7 +186,7 @@ Deno.test("grant overrides add capabilities only for matching identities", async
         sessionPublicKey: "session-a",
       },
     ),
-    needs({ capabilities: ["users.read"] }),
+    needs({ capabilities: [cap("users.read")] }),
   );
 
   assertEquals(
@@ -183,7 +205,7 @@ Deno.test("grant overrides add capabilities only for matching identities", async
 
 Deno.test("grant overrides do not invent authority availability", async () => {
   const effective = await applyGrantOverrideAuthorityCapabilities(
-    needs({ capabilities: ["users.read"] }),
+    needs({ capabilities: [cap("users.read")] }),
     [{
       deploymentId: "app-a",
       identityKind: "session",
@@ -208,7 +230,7 @@ Deno.test("grant overrides do not invent authority availability", async () => {
           action: "call",
           required: true,
         }],
-        capabilities: ["billing.export"],
+        capabilities: [cap("billing.export")],
       }),
     ),
     {
@@ -283,7 +305,7 @@ Deno.test("capability-group grant overrides resolve current group capabilities",
 
   assertEquals(
     effective,
-    needs({ capabilities: ["users.read", "users.write"] }),
+    needs({ capabilities: [cap("users.read"), cap("users.write")] }),
   );
 });
 
@@ -344,7 +366,7 @@ Deno.test("previewAuthorityReductionImpact reports needs and resources no longer
           action: "call",
           required: true,
         }],
-        capabilities: ["users.read"],
+        capabilities: [cap("users.read")],
         resources: [{ kind: "kv", alias: "sessions", required: true }],
       }),
       impactedDependents: [{
@@ -358,7 +380,7 @@ Deno.test("previewAuthorityReductionImpact reports needs and resources no longer
             action: "call",
             required: true,
           }],
-          capabilities: ["users.read"],
+          capabilities: [cap("users.read")],
           resources: [{ kind: "kv", alias: "sessions", required: true }],
         }),
       }],
@@ -373,7 +395,7 @@ Deno.test("previewAuthorityReductionImpact reports needs and resources no longer
             action: "call",
             required: true,
           }],
-          capabilities: ["users.read"],
+          capabilities: [cap("users.read")],
           resources: [{ kind: "kv", alias: "sessions", required: true }],
         }),
       }],

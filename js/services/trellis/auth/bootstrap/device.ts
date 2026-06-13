@@ -12,6 +12,7 @@ import {
   computeAuthorityNeedsDelta,
   evaluateProposalNeedsFit,
 } from "../authority_needs_decision.ts";
+import { normalizeAuthorityNeeds } from "../authority_needs.ts";
 import { SignatureSchema } from "../schemas.ts";
 import type {
   AuthorityNeedSet,
@@ -199,31 +200,20 @@ function desiredStateAuthorityNeeds(
   authority: DeploymentAuthority,
 ): AuthorityNeedSet {
   return mergeAuthorityNeeds({
-    contracts: authority.desiredState.needs.flatMap((need) =>
-      need.kind === "contract"
-        ? [{ contractId: need.contractId, required: need.required }]
-        : []
-    ),
-    surfaces: authority.desiredState.needs.flatMap((need) =>
-      need.kind === "surface"
-        ? [{ ...need.surface, required: need.required }]
-        : []
-    ),
-    capabilities: authority.desiredState.needs.flatMap((need) =>
-      need.kind === "capability" ? [need.capability] : []
-    ),
-    resources: authority.desiredState.needs.flatMap((need) =>
-      need.kind === "resource"
-        ? [{ ...need.resource, required: need.required }]
-        : []
-    ),
+    contracts: authority.desiredState.needs.contracts,
+    surfaces: authority.desiredState.needs.surfaces,
+    capabilities: authority.desiredState.needs.capabilities,
+    resources: authority.desiredState.needs.resources,
   }, {
     contracts: [],
     surfaces: authority.desiredState.surfaces.map((surface) => ({
       ...surface,
       required: true,
     })),
-    capabilities: authority.desiredState.capabilities,
+    capabilities: authority.desiredState.capabilities.map((capability) => ({
+      capability,
+      required: true,
+    })),
     resources: authority.desiredState.resources,
   });
 }
@@ -275,10 +265,9 @@ function authorityResourceKind(
 function materializedAuthorityNeeds(
   materialized: DeploymentAuthorityMaterialization,
 ): AuthorityNeedSet {
-  return mergeAuthorityNeeds({
+  return normalizeAuthorityNeeds({
     contracts: [],
-    surfaces: materialized.grants.flatMap((grant) => {
-      if (grant.kind !== "surface") return [];
+    surfaces: materialized.grants.surfaces.flatMap((grant) => {
       const kind = authoritySurfaceKind(grant.surfaceKind);
       const action = authoritySurfaceAction(grant.action);
       return kind !== undefined &&
@@ -292,11 +281,10 @@ function materializedAuthorityNeeds(
         }]
         : [];
     }),
-    capabilities: materialized.grants.flatMap((grant) =>
-      grant.kind === "capability" && typeof grant.capability === "string"
-        ? [grant.capability]
-        : []
-    ),
+    capabilities: materialized.grants.capabilities.map((grant) => ({
+      capability: grant.capability,
+      required: true,
+    })),
     resources: materialized.resourceBindings.flatMap((binding) => {
       const kind = authorityResourceKind(binding.kind);
       return kind === undefined

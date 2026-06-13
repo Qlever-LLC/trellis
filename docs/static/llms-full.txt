@@ -1,6 +1,6 @@
 # Trellis AI guidance for services and browser apps
 
-Last verified against Trellis v0.10.13 (2026-06-10).
+Last verified against Trellis main (2026-06-13).
 
 This file is for AI coding agents working in a service or browser app repository
 that consumes Trellis. The canonical URL is:
@@ -22,11 +22,20 @@ https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt
   top-level `uses`; runtime listeners consume only reconciled Trellis bindings,
   and runtime durable consumers are Trellis-provisioned only.
 - Runtime authority comes from deployment authority and identity authority.
+- Deployment authority proposal/desired `needs` are grouped by `contracts`,
+  `surfaces`, `capabilities`, and `resources`. Materialized authority is a
+  runtime projection with `grants` grouped by `capabilities`, `surfaces`, and
+  `nats`; service and device permissions require current materialization for the
+  accepted desired authority version.
 - The runtime `contracts` store is a digest-keyed manifest cache, not durable
   authority. Invalid cached manifests may be pruned without changing
   implementation offers, sessions, identity grants, deployment authority,
   materialized authority, or resource bindings. If Trellis reports a missing
   manifest for a digest, present the full manifest again.
+- Stale or obsolete persisted materialized-authority projections are repaired by
+  Trellis storage upgrade and reconciliation. Service repositories should update
+  contracts through the normal generation and authority-review flow, not patch
+  Trellis authority tables or projection records by hand.
 - NATS is the transport boundary. Application code should use generated Trellis
   APIs rather than hand-built subjects or raw NATS connection handles.
 - The runtime owns authentication, authorization, authority validation,

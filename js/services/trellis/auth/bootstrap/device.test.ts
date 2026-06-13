@@ -32,6 +32,12 @@ const EMPTY_BOUNDARY: AuthorityNeedSet = {
   resources: [],
 };
 
+function emptyMaterializedGrants(): DeploymentAuthorityMaterialization[
+  "grants"
+] {
+  return { capabilities: [], surfaces: [], nats: [] };
+}
+
 function mergeBoundaries(...boundaries: AuthorityNeedSet[]): AuthorityNeedSet {
   return computeAuthorityNeedsDelta(EMPTY_BOUNDARY, {
     contracts: boundaries.flatMap((boundary) => boundary.contracts),
@@ -182,19 +188,18 @@ function materializedAuthorityFor(
     desiredVersion: options?.desiredVersion ?? authority.version,
     status: options?.status ?? "current",
     resourceBindings: [],
-    grants: options?.grants ?? [
-      ...needs.capabilities.map((capability) => ({
-        kind: "capability" as const,
+    grants: options?.grants ?? {
+      capabilities: needs.capabilities.map(({ capability }) => ({
         capability,
       })),
-      ...needs.surfaces.map((surface) => ({
-        kind: "surface" as const,
+      surfaces: needs.surfaces.map((surface) => ({
         contractId: surface.contractId,
         surfaceKind: surface.kind,
         name: surface.name,
         ...(surface.action === undefined ? {} : { action: surface.action }),
       })),
-    ],
+      nats: [],
+    },
     reconciledAt: options?.status === "pending" ? null : TEST_NOW,
     ...(options?.status === "failed" ? { error: "reconciliation failed" } : {}),
   };
@@ -204,35 +209,24 @@ function desiredAuthorityNeeds(
   authority: DeploymentAuthority,
 ): AuthorityNeedSet {
   return mergeBoundaries({
-    contracts: authority.desiredState.needs.flatMap((need) =>
-      need.kind === "contract"
-        ? [{ contractId: need.contractId, required: need.required }]
-        : []
-    ),
+    contracts: authority.desiredState.needs.contracts,
     surfaces: [
-      ...authority.desiredState.needs.flatMap((need) =>
-        need.kind === "surface"
-          ? [{ ...need.surface, required: need.required }]
-          : []
-      ),
+      ...authority.desiredState.needs.surfaces,
       ...authority.desiredState.surfaces.map((surface) => ({
         ...surface,
         required: true,
       })),
     ],
     capabilities: [
-      ...authority.desiredState.capabilities,
-      ...authority.desiredState.needs.flatMap((need) =>
-        need.kind === "capability" ? [need.capability] : []
-      ),
+      ...authority.desiredState.capabilities.map((capability) => ({
+        capability,
+        required: true,
+      })),
+      ...authority.desiredState.needs.capabilities,
     ],
     resources: [
       ...authority.desiredState.resources,
-      ...authority.desiredState.needs.flatMap((need) =>
-        need.kind === "resource"
-          ? [{ ...need.resource, required: need.required }]
-          : []
-      ),
+      ...authority.desiredState.needs.resources,
     ],
   });
 }
@@ -241,29 +235,8 @@ function authorityDesiredState(
   needs: AuthorityNeedSet,
 ): DeploymentAuthority["desiredState"] {
   return {
-    needs: [
-      ...needs.contracts.map((contract) => ({
-        kind: "contract" as const,
-        contractId: contract.contractId,
-        required: contract.required,
-      })),
-      ...needs.surfaces.map(({ required, ...surface }) => ({
-        kind: "surface" as const,
-        surface,
-        required,
-      })),
-      ...needs.capabilities.map((capability) => ({
-        kind: "capability" as const,
-        capability,
-        required: true,
-      })),
-      ...needs.resources.map((resource) => ({
-        kind: "resource" as const,
-        resource,
-        required: resource.required,
-      })),
-    ],
-    capabilities: needs.capabilities,
+    needs,
+    capabilities: needs.capabilities.map((need) => need.capability),
     resources: needs.resources,
     surfaces: needs.surfaces.map(({ required: _required, ...surface }) =>
       surface
@@ -374,7 +347,7 @@ Deno.test("POST /auth/devices/connect-info resolves accepted proposal contract",
         contractId: validated.contract.id,
         contractDigest: validated.digest,
         contract: validated.contract,
-        requestedNeeds: [],
+        requestedNeeds: EMPTY_BOUNDARY,
         providedSurfaces: [],
         summary: { desiredVersion: TEST_NOW },
       },
@@ -650,7 +623,7 @@ Deno.test("POST /auth/devices/connect-info waits when authority materialization 
         desiredVersion: "old-version",
         status: "current" as const,
         resourceBindings: [],
-        grants: [],
+        grants: emptyMaterializedGrants(),
         reconciledAt: TEST_NOW,
       },
       {
@@ -658,7 +631,7 @@ Deno.test("POST /auth/devices/connect-info waits when authority materialization 
         desiredVersion: TEST_NOW,
         status: "pending" as const,
         resourceBindings: [],
-        grants: [],
+        grants: emptyMaterializedGrants(),
         reconciledAt: null,
       },
     ]
@@ -733,7 +706,7 @@ Deno.test("POST /auth/devices/connect-info reports failed authority reconciliati
       desiredVersion: TEST_NOW,
       status: "failed",
       resourceBindings: [],
-      grants: [],
+      grants: emptyMaterializedGrants(),
       reconciledAt: TEST_NOW,
       error: "provisioning failed",
     },
@@ -783,7 +756,7 @@ Deno.test("POST /auth/devices/connect-info rejects needs missing from current ma
       desiredVersion: TEST_NOW,
       status: "current",
       resourceBindings: [],
-      grants: [],
+      grants: emptyMaterializedGrants(),
       reconciledAt: TEST_NOW,
     },
   });

@@ -534,83 +534,87 @@ export const AuthDeploymentAuthorityAcceptResponseSchema = {
               "type": "array",
             },
             "needs": {
-              "items": {
-                "anyOf": [{
-                  "properties": {
-                    "contractId": { "minLength": 1, "type": "string" },
-                    "kind": { "const": "contract", "type": "string" },
-                    "required": { "type": "boolean" },
-                  },
-                  "required": ["kind", "contractId", "required"],
-                  "type": "object",
-                }, {
-                  "properties": {
-                    "kind": { "const": "surface", "type": "string" },
-                    "required": { "type": "boolean" },
-                    "surface": {
-                      "properties": {
-                        "action": {
-                          "anyOf": [
-                            { "const": "call", "type": "string" },
-                            { "const": "publish", "type": "string" },
-                            { "const": "subscribe", "type": "string" },
-                            { "const": "observe", "type": "string" },
-                            { "const": "cancel", "type": "string" },
-                          ],
-                        },
-                        "contractId": { "minLength": 1, "type": "string" },
-                        "kind": {
-                          "anyOf": [
-                            { "const": "rpc", "type": "string" },
-                            { "const": "operation", "type": "string" },
-                            { "const": "event", "type": "string" },
-                            { "const": "feed", "type": "string" },
-                          ],
-                        },
-                        "name": { "minLength": 1, "type": "string" },
-                      },
-                      "required": ["contractId", "kind", "name"],
-                      "type": "object",
+              "properties": {
+                "capabilities": {
+                  "items": {
+                    "properties": {
+                      "capability": { "minLength": 1, "type": "string" },
+                      "required": { "type": "boolean" },
                     },
+                    "required": ["capability", "required"],
+                    "type": "object",
                   },
-                  "required": ["kind", "surface", "required"],
-                  "type": "object",
-                }, {
-                  "properties": {
-                    "capability": { "minLength": 1, "type": "string" },
-                    "kind": { "const": "capability", "type": "string" },
-                    "required": { "type": "boolean" },
-                  },
-                  "required": ["kind", "capability", "required"],
-                  "type": "object",
-                }, {
-                  "properties": {
-                    "kind": { "const": "resource", "type": "string" },
-                    "required": { "type": "boolean" },
-                    "resource": {
-                      "properties": {
-                        "alias": { "minLength": 1, "type": "string" },
-                        "definition": { "type": "object" },
-                        "kind": {
-                          "anyOf": [
-                            { "const": "kv", "type": "string" },
-                            { "const": "store", "type": "string" },
-                            { "const": "jobs", "type": "string" },
-                            { "const": "event-consumer", "type": "string" },
-                            { "const": "transfer", "type": "string" },
-                          ],
-                        },
-                        "required": { "type": "boolean" },
-                      },
-                      "required": ["kind", "alias", "required"],
-                      "type": "object",
+                  "type": "array",
+                },
+                "contracts": {
+                  "items": {
+                    "properties": {
+                      "contractId": { "minLength": 1, "type": "string" },
+                      "required": { "type": "boolean" },
                     },
+                    "required": ["contractId", "required"],
+                    "type": "object",
                   },
-                  "required": ["kind", "resource", "required"],
-                  "type": "object",
-                }],
+                  "type": "array",
+                },
+                "resources": {
+                  "items": {
+                    "properties": {
+                      "alias": { "minLength": 1, "type": "string" },
+                      "definition": { "type": "object" },
+                      "kind": {
+                        "anyOf": [
+                          { "const": "kv", "type": "string" },
+                          { "const": "store", "type": "string" },
+                          { "const": "jobs", "type": "string" },
+                          { "const": "event-consumer", "type": "string" },
+                          { "const": "transfer", "type": "string" },
+                        ],
+                      },
+                      "required": { "type": "boolean" },
+                    },
+                    "required": ["kind", "alias", "required"],
+                    "type": "object",
+                  },
+                  "type": "array",
+                },
+                "surfaces": {
+                  "items": {
+                    "properties": {
+                      "action": {
+                        "anyOf": [
+                          { "const": "call", "type": "string" },
+                          { "const": "publish", "type": "string" },
+                          { "const": "subscribe", "type": "string" },
+                          { "const": "observe", "type": "string" },
+                          { "const": "cancel", "type": "string" },
+                        ],
+                      },
+                      "contractId": { "minLength": 1, "type": "string" },
+                      "kind": {
+                        "anyOf": [
+                          { "const": "rpc", "type": "string" },
+                          { "const": "operation", "type": "string" },
+                          { "const": "event", "type": "string" },
+                          { "const": "feed", "type": "string" },
+                        ],
+                      },
+                      "name": { "minLength": 1, "type": "string" },
+                      "required": { "type": "boolean" },
+                    },
+                    "required": ["contractId", "kind", "name", "required"],
+                    "type": "object",
+                  },
+                  "type": "array",
+                },
               },
-              "type": "array",
+              "required": [
+                "contracts",
+                "surfaces",
+                "capabilities",
+                "resources",
+              ],
+              "type": "object",
             },
             "resources": {
               "items": {
@@ -723,83 +727,87 @@ export const AuthDeploymentAuthorityGetResponseSchema = {
               "type": "array",
             },
             "needs": {
-              "items": {
-                "anyOf": [{
-                  "properties": {
-                    "contractId": { "minLength": 1, "type": "string" },
-                    "kind": { "const": "contract", "type": "string" },
-                    "required": { "type": "boolean" },
-                  },
-                  "required": ["kind", "contractId", "required"],
-                  "type": "object",
-                }, {
-                  "properties": {
-                    "kind": { "const": "surface", "type": "string" },
-                    "required": { "type": "boolean" },
-                    "surface": {
-                      "properties": {
-                        "action": {
-                          "anyOf": [
-                            { "const": "call", "type": "string" },
-                            { "const": "publish", "type": "string" },
-                            { "const": "subscribe", "type": "string" },
-                            { "const": "observe", "type": "string" },
-                            { "const": "cancel", "type": "string" },
-                          ],
-                        },
-                        "contractId": { "minLength": 1, "type": "string" },
-                        "kind": {
-                          "anyOf": [
-                            { "const": "rpc", "type": "string" },
-                            { "const": "operation", "type": "string" },
-                            { "const": "event", "type": "string" },
-                            { "const": "feed", "type": "string" },
-                          ],
-                        },
-                        "name": { "minLength": 1, "type": "string" },
-                      },
-                      "required": ["contractId", "kind", "name"],
-                      "type": "object",
+              "properties": {
+                "capabilities": {
+                  "items": {
+                    "properties": {
+                      "capability": { "minLength": 1, "type": "string" },
+                      "required": { "type": "boolean" },
                     },
+                    "required": ["capability", "required"],
+                    "type": "object",
                   },
-                  "required": ["kind", "surface", "required"],
-                  "type": "object",
-                }, {
-                  "properties": {
-                    "capability": { "minLength": 1, "type": "string" },
-                    "kind": { "const": "capability", "type": "string" },
-                    "required": { "type": "boolean" },
-                  },
-                  "required": ["kind", "capability", "required"],
-                  "type": "object",
-                }, {
-                  "properties": {
-                    "kind": { "const": "resource", "type": "string" },
-                    "required": { "type": "boolean" },
-                    "resource": {
-                      "properties": {
-                        "alias": { "minLength": 1, "type": "string" },
-                        "definition": { "type": "object" },
-                        "kind": {
-                          "anyOf": [
-                            { "const": "kv", "type": "string" },
-                            { "const": "store", "type": "string" },
-                            { "const": "jobs", "type": "string" },
-                            { "const": "event-consumer", "type": "string" },
-                            { "const": "transfer", "type": "string" },
-                          ],
-                        },
-                        "required": { "type": "boolean" },
-                      },
-                      "required": ["kind", "alias", "required"],
-                      "type": "object",
+                  "type": "array",
+                },
+                "contracts": {
+                  "items": {
+                    "properties": {
+                      "contractId": { "minLength": 1, "type": "string" },
+                      "required": { "type": "boolean" },
                     },
+                    "required": ["contractId", "required"],
+                    "type": "object",
                   },
-                  "required": ["kind", "resource", "required"],
-                  "type": "object",
-                }],
+                  "type": "array",
+                },
+                "resources": {
+                  "items": {
+                    "properties": {
+                      "alias": { "minLength": 1, "type": "string" },
+                      "definition": { "type": "object" },
+                      "kind": {
+                        "anyOf": [
+                          { "const": "kv", "type": "string" },
+                          { "const": "store", "type": "string" },
+                          { "const": "jobs", "type": "string" },
+                          { "const": "event-consumer", "type": "string" },
+                          { "const": "transfer", "type": "string" },
+                        ],
+                      },
+                      "required": { "type": "boolean" },
+                    },
+                    "required": ["kind", "alias", "required"],
+                    "type": "object",
+                  },
+                  "type": "array",
+                },
+                "surfaces": {
+                  "items": {
+                    "properties": {
+                      "action": {
+                        "anyOf": [
+                          { "const": "call", "type": "string" },
+                          { "const": "publish", "type": "string" },
+                          { "const": "subscribe", "type": "string" },
+                          { "const": "observe", "type": "string" },
+                          { "const": "cancel", "type": "string" },
+                        ],
+                      },
+                      "contractId": { "minLength": 1, "type": "string" },
+                      "kind": {
+                        "anyOf": [
+                          { "const": "rpc", "type": "string" },
+                          { "const": "operation", "type": "string" },
+                          { "const": "event", "type": "string" },
+                          { "const": "feed", "type": "string" },
+                        ],
+                      },
+                      "name": { "minLength": 1, "type": "string" },
+                      "required": { "type": "boolean" },
+                    },
+                    "required": ["contractId", "kind", "name", "required"],
+                    "type": "object",
+                  },
+                  "type": "array",
+                },
               },
-              "type": "array",
+              "required": [
+                "contracts",
+                "surfaces",
+                "capabilities",
+                "resources",
+              ],
+              "type": "object",
             },
             "resources": {
               "items": {
@@ -980,99 +988,107 @@ export const AuthDeploymentAuthorityGetResponseSchema = {
           "desiredVersion": { "minLength": 1, "type": "string" },
           "error": { "minLength": 1, "type": "string" },
           "grants": {
-            "items": {
-              "anyOf": [{
-                "properties": {
-                  "capability": { "minLength": 1, "type": "string" },
-                  "kind": { "const": "capability", "type": "string" },
+            "properties": {
+              "capabilities": {
+                "items": {
+                  "properties": {
+                    "capability": { "minLength": 1, "type": "string" },
+                  },
+                  "required": ["capability"],
+                  "type": "object",
                 },
-                "required": ["kind", "capability"],
-                "type": "object",
-              }, {
-                "properties": {
-                  "action": {
-                    "anyOf": [
-                      { "const": "call", "type": "string" },
-                      { "const": "publish", "type": "string" },
-                      { "const": "subscribe", "type": "string" },
-                      { "const": "observe", "type": "string" },
-                      { "const": "cancel", "type": "string" },
-                    ],
-                  },
-                  "contractId": { "minLength": 1, "type": "string" },
-                  "kind": { "const": "surface", "type": "string" },
-                  "name": { "minLength": 1, "type": "string" },
-                  "surfaceKind": {
-                    "anyOf": [
-                      { "const": "rpc", "type": "string" },
-                      { "const": "operation", "type": "string" },
-                      { "const": "event", "type": "string" },
-                      { "const": "feed", "type": "string" },
-                    ],
-                  },
-                },
-                "required": ["kind", "contractId", "surfaceKind", "name"],
-                "type": "object",
-              }, {
-                "properties": {
-                  "direction": {
-                    "anyOf": [{ "const": "publish", "type": "string" }, {
-                      "const": "subscribe",
-                      "type": "string",
-                    }],
-                  },
-                  "grantSource": {
-                    "anyOf": [
-                      { "const": "owned-surface", "type": "string" },
-                      { "const": "used-surface", "type": "string" },
-                      { "const": "resource-binding", "type": "string" },
-                      { "const": "platform-service", "type": "string" },
-                      { "const": "transfer", "type": "string" },
-                    ],
-                  },
-                  "kind": { "const": "nats", "type": "string" },
-                  "requiredCapabilities": {
-                    "items": { "minLength": 1, "type": "string" },
-                    "type": "array",
-                  },
-                  "subject": { "minLength": 1, "type": "string" },
-                  "surface": {
-                    "properties": {
-                      "action": {
-                        "anyOf": [
-                          { "const": "call", "type": "string" },
-                          { "const": "publish", "type": "string" },
-                          { "const": "subscribe", "type": "string" },
-                          { "const": "observe", "type": "string" },
-                          { "const": "cancel", "type": "string" },
-                        ],
-                      },
-                      "contractId": { "minLength": 1, "type": "string" },
-                      "kind": {
-                        "anyOf": [
-                          { "const": "rpc", "type": "string" },
-                          { "const": "operation", "type": "string" },
-                          { "const": "event", "type": "string" },
-                          { "const": "feed", "type": "string" },
-                        ],
-                      },
-                      "name": { "minLength": 1, "type": "string" },
+                "type": "array",
+              },
+              "nats": {
+                "items": {
+                  "properties": {
+                    "direction": {
+                      "anyOf": [{ "const": "publish", "type": "string" }, {
+                        "const": "subscribe",
+                        "type": "string",
+                      }],
                     },
-                    "required": ["contractId", "kind", "name"],
-                    "type": "object",
+                    "grantSource": {
+                      "anyOf": [
+                        { "const": "owned-surface", "type": "string" },
+                        { "const": "used-surface", "type": "string" },
+                        { "const": "resource-binding", "type": "string" },
+                        { "const": "platform-service", "type": "string" },
+                        { "const": "transfer", "type": "string" },
+                      ],
+                    },
+                    "requiredCapabilities": {
+                      "items": { "minLength": 1, "type": "string" },
+                      "type": "array",
+                    },
+                    "subject": { "minLength": 1, "type": "string" },
+                    "surface": {
+                      "properties": {
+                        "action": {
+                          "anyOf": [
+                            { "const": "call", "type": "string" },
+                            { "const": "publish", "type": "string" },
+                            { "const": "subscribe", "type": "string" },
+                            { "const": "observe", "type": "string" },
+                            { "const": "cancel", "type": "string" },
+                          ],
+                        },
+                        "contractId": { "minLength": 1, "type": "string" },
+                        "kind": {
+                          "anyOf": [
+                            { "const": "rpc", "type": "string" },
+                            { "const": "operation", "type": "string" },
+                            { "const": "event", "type": "string" },
+                            { "const": "feed", "type": "string" },
+                          ],
+                        },
+                        "name": { "minLength": 1, "type": "string" },
+                      },
+                      "required": ["contractId", "kind", "name"],
+                      "type": "object",
+                    },
                   },
+                  "required": [
+                    "direction",
+                    "subject",
+                    "requiredCapabilities",
+                    "grantSource",
+                  ],
+                  "type": "object",
                 },
-                "required": [
-                  "kind",
-                  "direction",
-                  "subject",
-                  "requiredCapabilities",
-                  "grantSource",
-                ],
-                "type": "object",
-              }],
+                "type": "array",
+              },
+              "surfaces": {
+                "items": {
+                  "properties": {
+                    "action": {
+                      "anyOf": [
+                        { "const": "call", "type": "string" },
+                        { "const": "publish", "type": "string" },
+                        { "const": "subscribe", "type": "string" },
+                        { "const": "observe", "type": "string" },
+                        { "const": "cancel", "type": "string" },
+                      ],
+                    },
+                    "contractId": { "minLength": 1, "type": "string" },
+                    "name": { "minLength": 1, "type": "string" },
+                    "surfaceKind": {
+                      "anyOf": [
+                        { "const": "rpc", "type": "string" },
+                        { "const": "operation", "type": "string" },
+                        { "const": "event", "type": "string" },
+                        { "const": "feed", "type": "string" },
+                      ],
+                    },
+                  },
+                  "required": ["contractId", "surfaceKind", "name"],
+                  "type": "object",
+                },
+                "type": "array",
+              },
             },
-            "type": "array",
+            "required": ["capabilities", "surfaces", "nats"],
+            "type": "object",
           },
           "reconciledAt": {
             "anyOf": [{ "format": "date-time", "type": "string" }, {
@@ -1626,83 +1642,87 @@ export const AuthDeploymentAuthorityListResponseSchema = {
                 "type": "array",
               },
               "needs": {
-                "items": {
-                  "anyOf": [{
-                    "properties": {
-                      "contractId": { "minLength": 1, "type": "string" },
-                      "kind": { "const": "contract", "type": "string" },
-                      "required": { "type": "boolean" },
-                    },
-                    "required": ["kind", "contractId", "required"],
-                    "type": "object",
-                  }, {
-                    "properties": {
-                      "kind": { "const": "surface", "type": "string" },
-                      "required": { "type": "boolean" },
-                      "surface": {
-                        "properties": {
-                          "action": {
-                            "anyOf": [
-                              { "const": "call", "type": "string" },
-                              { "const": "publish", "type": "string" },
-                              { "const": "subscribe", "type": "string" },
-                              { "const": "observe", "type": "string" },
-                              { "const": "cancel", "type": "string" },
-                            ],
-                          },
-                          "contractId": { "minLength": 1, "type": "string" },
-                          "kind": {
-                            "anyOf": [
-                              { "const": "rpc", "type": "string" },
-                              { "const": "operation", "type": "string" },
-                              { "const": "event", "type": "string" },
-                              { "const": "feed", "type": "string" },
-                            ],
-                          },
-                          "name": { "minLength": 1, "type": "string" },
-                        },
-                        "required": ["contractId", "kind", "name"],
-                        "type": "object",
+                "properties": {
+                  "capabilities": {
+                    "items": {
+                      "properties": {
+                        "capability": { "minLength": 1, "type": "string" },
+                        "required": { "type": "boolean" },
                       },
+                      "required": ["capability", "required"],
+                      "type": "object",
                     },
-                    "required": ["kind", "surface", "required"],
-                    "type": "object",
-                  }, {
-                    "properties": {
-                      "capability": { "minLength": 1, "type": "string" },
-                      "kind": { "const": "capability", "type": "string" },
-                      "required": { "type": "boolean" },
-                    },
-                    "required": ["kind", "capability", "required"],
-                    "type": "object",
-                  }, {
-                    "properties": {
-                      "kind": { "const": "resource", "type": "string" },
-                      "required": { "type": "boolean" },
-                      "resource": {
-                        "properties": {
-                          "alias": { "minLength": 1, "type": "string" },
-                          "definition": { "type": "object" },
-                          "kind": {
-                            "anyOf": [
-                              { "const": "kv", "type": "string" },
-                              { "const": "store", "type": "string" },
-                              { "const": "jobs", "type": "string" },
-                              { "const": "event-consumer", "type": "string" },
-                              { "const": "transfer", "type": "string" },
-                            ],
-                          },
-                          "required": { "type": "boolean" },
-                        },
-                        "required": ["kind", "alias", "required"],
-                        "type": "object",
+                    "type": "array",
+                  },
+                  "contracts": {
+                    "items": {
+                      "properties": {
+                        "contractId": { "minLength": 1, "type": "string" },
+                        "required": { "type": "boolean" },
                       },
+                      "required": ["contractId", "required"],
+                      "type": "object",
                     },
-                    "required": ["kind", "resource", "required"],
-                    "type": "object",
-                  }],
+                    "type": "array",
+                  },
+                  "resources": {
+                    "items": {
+                      "properties": {
+                        "alias": { "minLength": 1, "type": "string" },
+                        "definition": { "type": "object" },
+                        "kind": {
+                          "anyOf": [
+                            { "const": "kv", "type": "string" },
+                            { "const": "store", "type": "string" },
+                            { "const": "jobs", "type": "string" },
+                            { "const": "event-consumer", "type": "string" },
+                            { "const": "transfer", "type": "string" },
+                          ],
+                        },
+                        "required": { "type": "boolean" },
+                      },
+                      "required": ["kind", "alias", "required"],
+                      "type": "object",
+                    },
+                    "type": "array",
+                  },
+                  "surfaces": {
+                    "items": {
+                      "properties": {
+                        "action": {
+                          "anyOf": [
+                            { "const": "call", "type": "string" },
+                            { "const": "publish", "type": "string" },
+                            { "const": "subscribe", "type": "string" },
+                            { "const": "observe", "type": "string" },
+                            { "const": "cancel", "type": "string" },
+                          ],
+                        },
+                        "contractId": { "minLength": 1, "type": "string" },
+                        "kind": {
+                          "anyOf": [
+                            { "const": "rpc", "type": "string" },
+                            { "const": "operation", "type": "string" },
+                            { "const": "event", "type": "string" },
+                            { "const": "feed", "type": "string" },
+                          ],
+                        },
+                        "name": { "minLength": 1, "type": "string" },
+                        "required": { "type": "boolean" },
+                      },
+                      "required": ["contractId", "kind", "name", "required"],
+                      "type": "object",
+                    },
+                    "type": "array",
+                  },
                 },
-                "type": "array",
+                "required": [
+                  "contracts",
+                  "surfaces",
+                  "capabilities",
+                  "resources",
+                ],
+                "type": "object",
               },
               "resources": {
                 "items": {
@@ -1867,83 +1887,87 @@ export const AuthDeploymentAuthorityPlanResponseSchema = {
                 "type": "array",
               },
               "requestedNeeds": {
-                "items": {
-                  "anyOf": [{
-                    "properties": {
-                      "contractId": { "minLength": 1, "type": "string" },
-                      "kind": { "const": "contract", "type": "string" },
-                      "required": { "type": "boolean" },
-                    },
-                    "required": ["kind", "contractId", "required"],
-                    "type": "object",
-                  }, {
-                    "properties": {
-                      "kind": { "const": "surface", "type": "string" },
-                      "required": { "type": "boolean" },
-                      "surface": {
-                        "properties": {
-                          "action": {
-                            "anyOf": [
-                              { "const": "call", "type": "string" },
-                              { "const": "publish", "type": "string" },
-                              { "const": "subscribe", "type": "string" },
-                              { "const": "observe", "type": "string" },
-                              { "const": "cancel", "type": "string" },
-                            ],
-                          },
-                          "contractId": { "minLength": 1, "type": "string" },
-                          "kind": {
-                            "anyOf": [
-                              { "const": "rpc", "type": "string" },
-                              { "const": "operation", "type": "string" },
-                              { "const": "event", "type": "string" },
-                              { "const": "feed", "type": "string" },
-                            ],
-                          },
-                          "name": { "minLength": 1, "type": "string" },
-                        },
-                        "required": ["contractId", "kind", "name"],
-                        "type": "object",
+                "properties": {
+                  "capabilities": {
+                    "items": {
+                      "properties": {
+                        "capability": { "minLength": 1, "type": "string" },
+                        "required": { "type": "boolean" },
                       },
+                      "required": ["capability", "required"],
+                      "type": "object",
                     },
-                    "required": ["kind", "surface", "required"],
-                    "type": "object",
-                  }, {
-                    "properties": {
-                      "capability": { "minLength": 1, "type": "string" },
-                      "kind": { "const": "capability", "type": "string" },
-                      "required": { "type": "boolean" },
-                    },
-                    "required": ["kind", "capability", "required"],
-                    "type": "object",
-                  }, {
-                    "properties": {
-                      "kind": { "const": "resource", "type": "string" },
-                      "required": { "type": "boolean" },
-                      "resource": {
-                        "properties": {
-                          "alias": { "minLength": 1, "type": "string" },
-                          "definition": { "type": "object" },
-                          "kind": {
-                            "anyOf": [
-                              { "const": "kv", "type": "string" },
-                              { "const": "store", "type": "string" },
-                              { "const": "jobs", "type": "string" },
-                              { "const": "event-consumer", "type": "string" },
-                              { "const": "transfer", "type": "string" },
-                            ],
-                          },
-                          "required": { "type": "boolean" },
-                        },
-                        "required": ["kind", "alias", "required"],
-                        "type": "object",
+                    "type": "array",
+                  },
+                  "contracts": {
+                    "items": {
+                      "properties": {
+                        "contractId": { "minLength": 1, "type": "string" },
+                        "required": { "type": "boolean" },
                       },
+                      "required": ["contractId", "required"],
+                      "type": "object",
                     },
-                    "required": ["kind", "resource", "required"],
-                    "type": "object",
-                  }],
+                    "type": "array",
+                  },
+                  "resources": {
+                    "items": {
+                      "properties": {
+                        "alias": { "minLength": 1, "type": "string" },
+                        "definition": { "type": "object" },
+                        "kind": {
+                          "anyOf": [
+                            { "const": "kv", "type": "string" },
+                            { "const": "store", "type": "string" },
+                            { "const": "jobs", "type": "string" },
+                            { "const": "event-consumer", "type": "string" },
+                            { "const": "transfer", "type": "string" },
+                          ],
+                        },
+                        "required": { "type": "boolean" },
+                      },
+                      "required": ["kind", "alias", "required"],
+                      "type": "object",
+                    },
+                    "type": "array",
+                  },
+                  "surfaces": {
+                    "items": {
+                      "properties": {
+                        "action": {
+                          "anyOf": [
+                            { "const": "call", "type": "string" },
+                            { "const": "publish", "type": "string" },
+                            { "const": "subscribe", "type": "string" },
+                            { "const": "observe", "type": "string" },
+                            { "const": "cancel", "type": "string" },
+                          ],
+                        },
+                        "contractId": { "minLength": 1, "type": "string" },
+                        "kind": {
+                          "anyOf": [
+                            { "const": "rpc", "type": "string" },
+                            { "const": "operation", "type": "string" },
+                            { "const": "event", "type": "string" },
+                            { "const": "feed", "type": "string" },
+                          ],
+                        },
+                        "name": { "minLength": 1, "type": "string" },
+                        "required": { "type": "boolean" },
+                      },
+                      "required": ["contractId", "kind", "name", "required"],
+                      "type": "object",
+                    },
+                    "type": "array",
+                  },
                 },
-                "type": "array",
+                "required": [
+                  "contracts",
+                  "surfaces",
+                  "capabilities",
+                  "resources",
+                ],
+                "type": "object",
               },
               "summary": { "type": "object" },
             },
@@ -2043,83 +2067,87 @@ export const AuthDeploymentAuthorityPlanResponseSchema = {
                 "type": "array",
               },
               "requestedNeeds": {
-                "items": {
-                  "anyOf": [{
-                    "properties": {
-                      "contractId": { "minLength": 1, "type": "string" },
-                      "kind": { "const": "contract", "type": "string" },
-                      "required": { "type": "boolean" },
-                    },
-                    "required": ["kind", "contractId", "required"],
-                    "type": "object",
-                  }, {
-                    "properties": {
-                      "kind": { "const": "surface", "type": "string" },
-                      "required": { "type": "boolean" },
-                      "surface": {
-                        "properties": {
-                          "action": {
-                            "anyOf": [
-                              { "const": "call", "type": "string" },
-                              { "const": "publish", "type": "string" },
-                              { "const": "subscribe", "type": "string" },
-                              { "const": "observe", "type": "string" },
-                              { "const": "cancel", "type": "string" },
-                            ],
-                          },
-                          "contractId": { "minLength": 1, "type": "string" },
-                          "kind": {
-                            "anyOf": [
-                              { "const": "rpc", "type": "string" },
-                              { "const": "operation", "type": "string" },
-                              { "const": "event", "type": "string" },
-                              { "const": "feed", "type": "string" },
-                            ],
-                          },
-                          "name": { "minLength": 1, "type": "string" },
-                        },
-                        "required": ["contractId", "kind", "name"],
-                        "type": "object",
+                "properties": {
+                  "capabilities": {
+                    "items": {
+                      "properties": {
+                        "capability": { "minLength": 1, "type": "string" },
+                        "required": { "type": "boolean" },
                       },
+                      "required": ["capability", "required"],
+                      "type": "object",
                     },
-                    "required": ["kind", "surface", "required"],
-                    "type": "object",
-                  }, {
-                    "properties": {
-                      "capability": { "minLength": 1, "type": "string" },
-                      "kind": { "const": "capability", "type": "string" },
-                      "required": { "type": "boolean" },
-                    },
-                    "required": ["kind", "capability", "required"],
-                    "type": "object",
-                  }, {
-                    "properties": {
-                      "kind": { "const": "resource", "type": "string" },
-                      "required": { "type": "boolean" },
-                      "resource": {
-                        "properties": {
-                          "alias": { "minLength": 1, "type": "string" },
-                          "definition": { "type": "object" },
-                          "kind": {
-                            "anyOf": [
-                              { "const": "kv", "type": "string" },
-                              { "const": "store", "type": "string" },
-                              { "const": "jobs", "type": "string" },
-                              { "const": "event-consumer", "type": "string" },
-                              { "const": "transfer", "type": "string" },
-                            ],
-                          },
-                          "required": { "type": "boolean" },
-                        },
-                        "required": ["kind", "alias", "required"],
-                        "type": "object",
+                    "type": "array",
+                  },
+                  "contracts": {
+                    "items": {
+                      "properties": {
+                        "contractId": { "minLength": 1, "type": "string" },
+                        "required": { "type": "boolean" },
                       },
+                      "required": ["contractId", "required"],
+                      "type": "object",
                     },
-                    "required": ["kind", "resource", "required"],
-                    "type": "object",
-                  }],
+                    "type": "array",
+                  },
+                  "resources": {
+                    "items": {
+                      "properties": {
+                        "alias": { "minLength": 1, "type": "string" },
+                        "definition": { "type": "object" },
+                        "kind": {
+                          "anyOf": [
+                            { "const": "kv", "type": "string" },
+                            { "const": "store", "type": "string" },
+                            { "const": "jobs", "type": "string" },
+                            { "const": "event-consumer", "type": "string" },
+                            { "const": "transfer", "type": "string" },
+                          ],
+                        },
+                        "required": { "type": "boolean" },
+                      },
+                      "required": ["kind", "alias", "required"],
+                      "type": "object",
+                    },
+                    "type": "array",
+                  },
+                  "surfaces": {
+                    "items": {
+                      "properties": {
+                        "action": {
+                          "anyOf": [
+                            { "const": "call", "type": "string" },
+                            { "const": "publish", "type": "string" },
+                            { "const": "subscribe", "type": "string" },
+                            { "const": "observe", "type": "string" },
+                            { "const": "cancel", "type": "string" },
+                          ],
+                        },
+                        "contractId": { "minLength": 1, "type": "string" },
+                        "kind": {
+                          "anyOf": [
+                            { "const": "rpc", "type": "string" },
+                            { "const": "operation", "type": "string" },
+                            { "const": "event", "type": "string" },
+                            { "const": "feed", "type": "string" },
+                          ],
+                        },
+                        "name": { "minLength": 1, "type": "string" },
+                        "required": { "type": "boolean" },
+                      },
+                      "required": ["contractId", "kind", "name", "required"],
+                      "type": "object",
+                    },
+                    "type": "array",
+                  },
                 },
-                "type": "array",
+                "required": [
+                  "contracts",
+                  "surfaces",
+                  "capabilities",
+                  "resources",
+                ],
+                "type": "object",
               },
               "summary": { "type": "object" },
             },
@@ -2235,83 +2263,87 @@ export const AuthDeploymentAuthorityPlansGetResponseSchema = {
                 "type": "array",
               },
               "requestedNeeds": {
-                "items": {
-                  "anyOf": [{
-                    "properties": {
-                      "contractId": { "minLength": 1, "type": "string" },
-                      "kind": { "const": "contract", "type": "string" },
-                      "required": { "type": "boolean" },
-                    },
-                    "required": ["kind", "contractId", "required"],
-                    "type": "object",
-                  }, {
-                    "properties": {
-                      "kind": { "const": "surface", "type": "string" },
-                      "required": { "type": "boolean" },
-                      "surface": {
-                        "properties": {
-                          "action": {
-                            "anyOf": [
-                              { "const": "call", "type": "string" },
-                              { "const": "publish", "type": "string" },
-                              { "const": "subscribe", "type": "string" },
-                              { "const": "observe", "type": "string" },
-                              { "const": "cancel", "type": "string" },
-                            ],
-                          },
-                          "contractId": { "minLength": 1, "type": "string" },
-                          "kind": {
-                            "anyOf": [
-                              { "const": "rpc", "type": "string" },
-                              { "const": "operation", "type": "string" },
-                              { "const": "event", "type": "string" },
-                              { "const": "feed", "type": "string" },
-                            ],
-                          },
-                          "name": { "minLength": 1, "type": "string" },
-                        },
-                        "required": ["contractId", "kind", "name"],
-                        "type": "object",
+                "properties": {
+                  "capabilities": {
+                    "items": {
+                      "properties": {
+                        "capability": { "minLength": 1, "type": "string" },
+                        "required": { "type": "boolean" },
                       },
+                      "required": ["capability", "required"],
+                      "type": "object",
                     },
-                    "required": ["kind", "surface", "required"],
-                    "type": "object",
-                  }, {
-                    "properties": {
-                      "capability": { "minLength": 1, "type": "string" },
-                      "kind": { "const": "capability", "type": "string" },
-                      "required": { "type": "boolean" },
-                    },
-                    "required": ["kind", "capability", "required"],
-                    "type": "object",
-                  }, {
-                    "properties": {
-                      "kind": { "const": "resource", "type": "string" },
-                      "required": { "type": "boolean" },
-                      "resource": {
-                        "properties": {
-                          "alias": { "minLength": 1, "type": "string" },
-                          "definition": { "type": "object" },
-                          "kind": {
-                            "anyOf": [
-                              { "const": "kv", "type": "string" },
-                              { "const": "store", "type": "string" },
-                              { "const": "jobs", "type": "string" },
-                              { "const": "event-consumer", "type": "string" },
-                              { "const": "transfer", "type": "string" },
-                            ],
-                          },
-                          "required": { "type": "boolean" },
-                        },
-                        "required": ["kind", "alias", "required"],
-                        "type": "object",
+                    "type": "array",
+                  },
+                  "contracts": {
+                    "items": {
+                      "properties": {
+                        "contractId": { "minLength": 1, "type": "string" },
+                        "required": { "type": "boolean" },
                       },
+                      "required": ["contractId", "required"],
+                      "type": "object",
                     },
-                    "required": ["kind", "resource", "required"],
-                    "type": "object",
-                  }],
+                    "type": "array",
+                  },
+                  "resources": {
+                    "items": {
+                      "properties": {
+                        "alias": { "minLength": 1, "type": "string" },
+                        "definition": { "type": "object" },
+                        "kind": {
+                          "anyOf": [
+                            { "const": "kv", "type": "string" },
+                            { "const": "store", "type": "string" },
+                            { "const": "jobs", "type": "string" },
+                            { "const": "event-consumer", "type": "string" },
+                            { "const": "transfer", "type": "string" },
+                          ],
+                        },
+                        "required": { "type": "boolean" },
+                      },
+                      "required": ["kind", "alias", "required"],
+                      "type": "object",
+                    },
+                    "type": "array",
+                  },
+                  "surfaces": {
+                    "items": {
+                      "properties": {
+                        "action": {
+                          "anyOf": [
+                            { "const": "call", "type": "string" },
+                            { "const": "publish", "type": "string" },
+                            { "const": "subscribe", "type": "string" },
+                            { "const": "observe", "type": "string" },
+                            { "const": "cancel", "type": "string" },
+                          ],
+                        },
+                        "contractId": { "minLength": 1, "type": "string" },
+                        "kind": {
+                          "anyOf": [
+                            { "const": "rpc", "type": "string" },
+                            { "const": "operation", "type": "string" },
+                            { "const": "event", "type": "string" },
+                            { "const": "feed", "type": "string" },
+                          ],
+                        },
+                        "name": { "minLength": 1, "type": "string" },
+                        "required": { "type": "boolean" },
+                      },
+                      "required": ["contractId", "kind", "name", "required"],
+                      "type": "object",
+                    },
+                    "type": "array",
+                  },
                 },
-                "type": "array",
+                "required": [
+                  "contracts",
+                  "surfaces",
+                  "capabilities",
+                  "resources",
+                ],
+                "type": "object",
               },
               "summary": { "type": "object" },
             },
@@ -2411,83 +2443,87 @@ export const AuthDeploymentAuthorityPlansGetResponseSchema = {
                 "type": "array",
               },
               "requestedNeeds": {
-                "items": {
-                  "anyOf": [{
-                    "properties": {
-                      "contractId": { "minLength": 1, "type": "string" },
-                      "kind": { "const": "contract", "type": "string" },
-                      "required": { "type": "boolean" },
-                    },
-                    "required": ["kind", "contractId", "required"],
-                    "type": "object",
-                  }, {
-                    "properties": {
-                      "kind": { "const": "surface", "type": "string" },
-                      "required": { "type": "boolean" },
-                      "surface": {
-                        "properties": {
-                          "action": {
-                            "anyOf": [
-                              { "const": "call", "type": "string" },
-                              { "const": "publish", "type": "string" },
-                              { "const": "subscribe", "type": "string" },
-                              { "const": "observe", "type": "string" },
-                              { "const": "cancel", "type": "string" },
-                            ],
-                          },
-                          "contractId": { "minLength": 1, "type": "string" },
-                          "kind": {
-                            "anyOf": [
-                              { "const": "rpc", "type": "string" },
-                              { "const": "operation", "type": "string" },
-                              { "const": "event", "type": "string" },
-                              { "const": "feed", "type": "string" },
-                            ],
-                          },
-                          "name": { "minLength": 1, "type": "string" },
-                        },
-                        "required": ["contractId", "kind", "name"],
-                        "type": "object",
+                "properties": {
+                  "capabilities": {
+                    "items": {
+                      "properties": {
+                        "capability": { "minLength": 1, "type": "string" },
+                        "required": { "type": "boolean" },
                       },
+                      "required": ["capability", "required"],
+                      "type": "object",
                     },
-                    "required": ["kind", "surface", "required"],
-                    "type": "object",
-                  }, {
-                    "properties": {
-                      "capability": { "minLength": 1, "type": "string" },
-                      "kind": { "const": "capability", "type": "string" },
-                      "required": { "type": "boolean" },
-                    },
-                    "required": ["kind", "capability", "required"],
-                    "type": "object",
-                  }, {
-                    "properties": {
-                      "kind": { "const": "resource", "type": "string" },
-                      "required": { "type": "boolean" },
-                      "resource": {
-                        "properties": {
-                          "alias": { "minLength": 1, "type": "string" },
-                          "definition": { "type": "object" },
-                          "kind": {
-                            "anyOf": [
-                              { "const": "kv", "type": "string" },
-                              { "const": "store", "type": "string" },
-                              { "const": "jobs", "type": "string" },
-                              { "const": "event-consumer", "type": "string" },
-                              { "const": "transfer", "type": "string" },
-                            ],
-                          },
-                          "required": { "type": "boolean" },
-                        },
-                        "required": ["kind", "alias", "required"],
-                        "type": "object",
+                    "type": "array",
+                  },
+                  "contracts": {
+                    "items": {
+                      "properties": {
+                        "contractId": { "minLength": 1, "type": "string" },
+                        "required": { "type": "boolean" },
                       },
+                      "required": ["contractId", "required"],
+                      "type": "object",
                     },
-                    "required": ["kind", "resource", "required"],
-                    "type": "object",
-                  }],
+                    "type": "array",
+                  },
+                  "resources": {
+                    "items": {
+                      "properties": {
+                        "alias": { "minLength": 1, "type": "string" },
+                        "definition": { "type": "object" },
+                        "kind": {
+                          "anyOf": [
+                            { "const": "kv", "type": "string" },
+                            { "const": "store", "type": "string" },
+                            { "const": "jobs", "type": "string" },
+                            { "const": "event-consumer", "type": "string" },
+                            { "const": "transfer", "type": "string" },
+                          ],
+                        },
+                        "required": { "type": "boolean" },
+                      },
+                      "required": ["kind", "alias", "required"],
+                      "type": "object",
+                    },
+                    "type": "array",
+                  },
+                  "surfaces": {
+                    "items": {
+                      "properties": {
+                        "action": {
+                          "anyOf": [
+                            { "const": "call", "type": "string" },
+                            { "const": "publish", "type": "string" },
+                            { "const": "subscribe", "type": "string" },
+                            { "const": "observe", "type": "string" },
+                            { "const": "cancel", "type": "string" },
+                          ],
+                        },
+                        "contractId": { "minLength": 1, "type": "string" },
+                        "kind": {
+                          "anyOf": [
+                            { "const": "rpc", "type": "string" },
+                            { "const": "operation", "type": "string" },
+                            { "const": "event", "type": "string" },
+                            { "const": "feed", "type": "string" },
+                          ],
+                        },
+                        "name": { "minLength": 1, "type": "string" },
+                        "required": { "type": "boolean" },
+                      },
+                      "required": ["contractId", "kind", "name", "required"],
+                      "type": "object",
+                    },
+                    "type": "array",
+                  },
                 },
-                "type": "array",
+                "required": [
+                  "contracts",
+                  "surfaces",
+                  "capabilities",
+                  "resources",
+                ],
+                "type": "object",
               },
               "summary": { "type": "object" },
             },
@@ -2636,83 +2672,87 @@ export const AuthDeploymentAuthorityPlansListResponseSchema = {
                   "type": "array",
                 },
                 "requestedNeeds": {
-                  "items": {
-                    "anyOf": [{
-                      "properties": {
-                        "contractId": { "minLength": 1, "type": "string" },
-                        "kind": { "const": "contract", "type": "string" },
-                        "required": { "type": "boolean" },
-                      },
-                      "required": ["kind", "contractId", "required"],
-                      "type": "object",
-                    }, {
-                      "properties": {
-                        "kind": { "const": "surface", "type": "string" },
-                        "required": { "type": "boolean" },
-                        "surface": {
-                          "properties": {
-                            "action": {
-                              "anyOf": [
-                                { "const": "call", "type": "string" },
-                                { "const": "publish", "type": "string" },
-                                { "const": "subscribe", "type": "string" },
-                                { "const": "observe", "type": "string" },
-                                { "const": "cancel", "type": "string" },
-                              ],
-                            },
-                            "contractId": { "minLength": 1, "type": "string" },
-                            "kind": {
-                              "anyOf": [
-                                { "const": "rpc", "type": "string" },
-                                { "const": "operation", "type": "string" },
-                                { "const": "event", "type": "string" },
-                                { "const": "feed", "type": "string" },
-                              ],
-                            },
-                            "name": { "minLength": 1, "type": "string" },
-                          },
-                          "required": ["contractId", "kind", "name"],
-                          "type": "object",
+                  "properties": {
+                    "capabilities": {
+                      "items": {
+                        "properties": {
+                          "capability": { "minLength": 1, "type": "string" },
+                          "required": { "type": "boolean" },
                         },
+                        "required": ["capability", "required"],
+                        "type": "object",
                       },
-                      "required": ["kind", "surface", "required"],
-                      "type": "object",
-                    }, {
-                      "properties": {
-                        "capability": { "minLength": 1, "type": "string" },
-                        "kind": { "const": "capability", "type": "string" },
-                        "required": { "type": "boolean" },
-                      },
-                      "required": ["kind", "capability", "required"],
-                      "type": "object",
-                    }, {
-                      "properties": {
-                        "kind": { "const": "resource", "type": "string" },
-                        "required": { "type": "boolean" },
-                        "resource": {
-                          "properties": {
-                            "alias": { "minLength": 1, "type": "string" },
-                            "definition": { "type": "object" },
-                            "kind": {
-                              "anyOf": [
-                                { "const": "kv", "type": "string" },
-                                { "const": "store", "type": "string" },
-                                { "const": "jobs", "type": "string" },
-                                { "const": "event-consumer", "type": "string" },
-                                { "const": "transfer", "type": "string" },
-                              ],
-                            },
-                            "required": { "type": "boolean" },
-                          },
-                          "required": ["kind", "alias", "required"],
-                          "type": "object",
+                      "type": "array",
+                    },
+                    "contracts": {
+                      "items": {
+                        "properties": {
+                          "contractId": { "minLength": 1, "type": "string" },
+                          "required": { "type": "boolean" },
                         },
+                        "required": ["contractId", "required"],
+                        "type": "object",
                       },
-                      "required": ["kind", "resource", "required"],
-                      "type": "object",
-                    }],
+                      "type": "array",
+                    },
+                    "resources": {
+                      "items": {
+                        "properties": {
+                          "alias": { "minLength": 1, "type": "string" },
+                          "definition": { "type": "object" },
+                          "kind": {
+                            "anyOf": [
+                              { "const": "kv", "type": "string" },
+                              { "const": "store", "type": "string" },
+                              { "const": "jobs", "type": "string" },
+                              { "const": "event-consumer", "type": "string" },
+                              { "const": "transfer", "type": "string" },
+                            ],
+                          },
+                          "required": { "type": "boolean" },
+                        },
+                        "required": ["kind", "alias", "required"],
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                    "surfaces": {
+                      "items": {
+                        "properties": {
+                          "action": {
+                            "anyOf": [
+                              { "const": "call", "type": "string" },
+                              { "const": "publish", "type": "string" },
+                              { "const": "subscribe", "type": "string" },
+                              { "const": "observe", "type": "string" },
+                              { "const": "cancel", "type": "string" },
+                            ],
+                          },
+                          "contractId": { "minLength": 1, "type": "string" },
+                          "kind": {
+                            "anyOf": [
+                              { "const": "rpc", "type": "string" },
+                              { "const": "operation", "type": "string" },
+                              { "const": "event", "type": "string" },
+                              { "const": "feed", "type": "string" },
+                            ],
+                          },
+                          "name": { "minLength": 1, "type": "string" },
+                          "required": { "type": "boolean" },
+                        },
+                        "required": ["contractId", "kind", "name", "required"],
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
                   },
-                  "type": "array",
+                  "required": [
+                    "contracts",
+                    "surfaces",
+                    "capabilities",
+                    "resources",
+                  ],
+                  "type": "object",
                 },
                 "summary": { "type": "object" },
               },
@@ -2814,83 +2854,87 @@ export const AuthDeploymentAuthorityPlansListResponseSchema = {
                   "type": "array",
                 },
                 "requestedNeeds": {
-                  "items": {
-                    "anyOf": [{
-                      "properties": {
-                        "contractId": { "minLength": 1, "type": "string" },
-                        "kind": { "const": "contract", "type": "string" },
-                        "required": { "type": "boolean" },
-                      },
-                      "required": ["kind", "contractId", "required"],
-                      "type": "object",
-                    }, {
-                      "properties": {
-                        "kind": { "const": "surface", "type": "string" },
-                        "required": { "type": "boolean" },
-                        "surface": {
-                          "properties": {
-                            "action": {
-                              "anyOf": [
-                                { "const": "call", "type": "string" },
-                                { "const": "publish", "type": "string" },
-                                { "const": "subscribe", "type": "string" },
-                                { "const": "observe", "type": "string" },
-                                { "const": "cancel", "type": "string" },
-                              ],
-                            },
-                            "contractId": { "minLength": 1, "type": "string" },
-                            "kind": {
-                              "anyOf": [
-                                { "const": "rpc", "type": "string" },
-                                { "const": "operation", "type": "string" },
-                                { "const": "event", "type": "string" },
-                                { "const": "feed", "type": "string" },
-                              ],
-                            },
-                            "name": { "minLength": 1, "type": "string" },
-                          },
-                          "required": ["contractId", "kind", "name"],
-                          "type": "object",
+                  "properties": {
+                    "capabilities": {
+                      "items": {
+                        "properties": {
+                          "capability": { "minLength": 1, "type": "string" },
+                          "required": { "type": "boolean" },
                         },
+                        "required": ["capability", "required"],
+                        "type": "object",
                       },
-                      "required": ["kind", "surface", "required"],
-                      "type": "object",
-                    }, {
-                      "properties": {
-                        "capability": { "minLength": 1, "type": "string" },
-                        "kind": { "const": "capability", "type": "string" },
-                        "required": { "type": "boolean" },
-                      },
-                      "required": ["kind", "capability", "required"],
-                      "type": "object",
-                    }, {
-                      "properties": {
-                        "kind": { "const": "resource", "type": "string" },
-                        "required": { "type": "boolean" },
-                        "resource": {
-                          "properties": {
-                            "alias": { "minLength": 1, "type": "string" },
-                            "definition": { "type": "object" },
-                            "kind": {
-                              "anyOf": [
-                                { "const": "kv", "type": "string" },
-                                { "const": "store", "type": "string" },
-                                { "const": "jobs", "type": "string" },
-                                { "const": "event-consumer", "type": "string" },
-                                { "const": "transfer", "type": "string" },
-                              ],
-                            },
-                            "required": { "type": "boolean" },
-                          },
-                          "required": ["kind", "alias", "required"],
-                          "type": "object",
+                      "type": "array",
+                    },
+                    "contracts": {
+                      "items": {
+                        "properties": {
+                          "contractId": { "minLength": 1, "type": "string" },
+                          "required": { "type": "boolean" },
                         },
+                        "required": ["contractId", "required"],
+                        "type": "object",
                       },
-                      "required": ["kind", "resource", "required"],
-                      "type": "object",
-                    }],
+                      "type": "array",
+                    },
+                    "resources": {
+                      "items": {
+                        "properties": {
+                          "alias": { "minLength": 1, "type": "string" },
+                          "definition": { "type": "object" },
+                          "kind": {
+                            "anyOf": [
+                              { "const": "kv", "type": "string" },
+                              { "const": "store", "type": "string" },
+                              { "const": "jobs", "type": "string" },
+                              { "const": "event-consumer", "type": "string" },
+                              { "const": "transfer", "type": "string" },
+                            ],
+                          },
+                          "required": { "type": "boolean" },
+                        },
+                        "required": ["kind", "alias", "required"],
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                    "surfaces": {
+                      "items": {
+                        "properties": {
+                          "action": {
+                            "anyOf": [
+                              { "const": "call", "type": "string" },
+                              { "const": "publish", "type": "string" },
+                              { "const": "subscribe", "type": "string" },
+                              { "const": "observe", "type": "string" },
+                              { "const": "cancel", "type": "string" },
+                            ],
+                          },
+                          "contractId": { "minLength": 1, "type": "string" },
+                          "kind": {
+                            "anyOf": [
+                              { "const": "rpc", "type": "string" },
+                              { "const": "operation", "type": "string" },
+                              { "const": "event", "type": "string" },
+                              { "const": "feed", "type": "string" },
+                            ],
+                          },
+                          "name": { "minLength": 1, "type": "string" },
+                          "required": { "type": "boolean" },
+                        },
+                        "required": ["contractId", "kind", "name", "required"],
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
                   },
-                  "type": "array",
+                  "required": [
+                    "contracts",
+                    "surfaces",
+                    "capabilities",
+                    "resources",
+                  ],
+                  "type": "object",
                 },
                 "summary": { "type": "object" },
               },
@@ -2962,83 +3006,87 @@ export const AuthDeploymentAuthorityReconcileResponseSchema = {
               "type": "array",
             },
             "needs": {
-              "items": {
-                "anyOf": [{
-                  "properties": {
-                    "contractId": { "minLength": 1, "type": "string" },
-                    "kind": { "const": "contract", "type": "string" },
-                    "required": { "type": "boolean" },
-                  },
-                  "required": ["kind", "contractId", "required"],
-                  "type": "object",
-                }, {
-                  "properties": {
-                    "kind": { "const": "surface", "type": "string" },
-                    "required": { "type": "boolean" },
-                    "surface": {
-                      "properties": {
-                        "action": {
-                          "anyOf": [
-                            { "const": "call", "type": "string" },
-                            { "const": "publish", "type": "string" },
-                            { "const": "subscribe", "type": "string" },
-                            { "const": "observe", "type": "string" },
-                            { "const": "cancel", "type": "string" },
-                          ],
-                        },
-                        "contractId": { "minLength": 1, "type": "string" },
-                        "kind": {
-                          "anyOf": [
-                            { "const": "rpc", "type": "string" },
-                            { "const": "operation", "type": "string" },
-                            { "const": "event", "type": "string" },
-                            { "const": "feed", "type": "string" },
-                          ],
-                        },
-                        "name": { "minLength": 1, "type": "string" },
-                      },
-                      "required": ["contractId", "kind", "name"],
-                      "type": "object",
+              "properties": {
+                "capabilities": {
+                  "items": {
+                    "properties": {
+                      "capability": { "minLength": 1, "type": "string" },
+                      "required": { "type": "boolean" },
                     },
+                    "required": ["capability", "required"],
+                    "type": "object",
                   },
-                  "required": ["kind", "surface", "required"],
-                  "type": "object",
-                }, {
-                  "properties": {
-                    "capability": { "minLength": 1, "type": "string" },
-                    "kind": { "const": "capability", "type": "string" },
-                    "required": { "type": "boolean" },
-                  },
-                  "required": ["kind", "capability", "required"],
-                  "type": "object",
-                }, {
-                  "properties": {
-                    "kind": { "const": "resource", "type": "string" },
-                    "required": { "type": "boolean" },
-                    "resource": {
-                      "properties": {
-                        "alias": { "minLength": 1, "type": "string" },
-                        "definition": { "type": "object" },
-                        "kind": {
-                          "anyOf": [
-                            { "const": "kv", "type": "string" },
-                            { "const": "store", "type": "string" },
-                            { "const": "jobs", "type": "string" },
-                            { "const": "event-consumer", "type": "string" },
-                            { "const": "transfer", "type": "string" },
-                          ],
-                        },
-                        "required": { "type": "boolean" },
-                      },
-                      "required": ["kind", "alias", "required"],
-                      "type": "object",
+                  "type": "array",
+                },
+                "contracts": {
+                  "items": {
+                    "properties": {
+                      "contractId": { "minLength": 1, "type": "string" },
+                      "required": { "type": "boolean" },
                     },
+                    "required": ["contractId", "required"],
+                    "type": "object",
                   },
-                  "required": ["kind", "resource", "required"],
-                  "type": "object",
-                }],
+                  "type": "array",
+                },
+                "resources": {
+                  "items": {
+                    "properties": {
+                      "alias": { "minLength": 1, "type": "string" },
+                      "definition": { "type": "object" },
+                      "kind": {
+                        "anyOf": [
+                          { "const": "kv", "type": "string" },
+                          { "const": "store", "type": "string" },
+                          { "const": "jobs", "type": "string" },
+                          { "const": "event-consumer", "type": "string" },
+                          { "const": "transfer", "type": "string" },
+                        ],
+                      },
+                      "required": { "type": "boolean" },
+                    },
+                    "required": ["kind", "alias", "required"],
+                    "type": "object",
+                  },
+                  "type": "array",
+                },
+                "surfaces": {
+                  "items": {
+                    "properties": {
+                      "action": {
+                        "anyOf": [
+                          { "const": "call", "type": "string" },
+                          { "const": "publish", "type": "string" },
+                          { "const": "subscribe", "type": "string" },
+                          { "const": "observe", "type": "string" },
+                          { "const": "cancel", "type": "string" },
+                        ],
+                      },
+                      "contractId": { "minLength": 1, "type": "string" },
+                      "kind": {
+                        "anyOf": [
+                          { "const": "rpc", "type": "string" },
+                          { "const": "operation", "type": "string" },
+                          { "const": "event", "type": "string" },
+                          { "const": "feed", "type": "string" },
+                        ],
+                      },
+                      "name": { "minLength": 1, "type": "string" },
+                      "required": { "type": "boolean" },
+                    },
+                    "required": ["contractId", "kind", "name", "required"],
+                    "type": "object",
+                  },
+                  "type": "array",
+                },
               },
-              "type": "array",
+              "required": [
+                "contracts",
+                "surfaces",
+                "capabilities",
+                "resources",
+              ],
+              "type": "object",
             },
             "resources": {
               "items": {
@@ -3124,99 +3172,107 @@ export const AuthDeploymentAuthorityReconcileResponseSchema = {
         "desiredVersion": { "minLength": 1, "type": "string" },
         "error": { "minLength": 1, "type": "string" },
         "grants": {
-          "items": {
-            "anyOf": [{
-              "properties": {
-                "capability": { "minLength": 1, "type": "string" },
-                "kind": { "const": "capability", "type": "string" },
+          "properties": {
+            "capabilities": {
+              "items": {
+                "properties": {
+                  "capability": { "minLength": 1, "type": "string" },
+                },
+                "required": ["capability"],
+                "type": "object",
               },
-              "required": ["kind", "capability"],
-              "type": "object",
-            }, {
-              "properties": {
-                "action": {
-                  "anyOf": [
-                    { "const": "call", "type": "string" },
-                    { "const": "publish", "type": "string" },
-                    { "const": "subscribe", "type": "string" },
-                    { "const": "observe", "type": "string" },
-                    { "const": "cancel", "type": "string" },
-                  ],
-                },
-                "contractId": { "minLength": 1, "type": "string" },
-                "kind": { "const": "surface", "type": "string" },
-                "name": { "minLength": 1, "type": "string" },
-                "surfaceKind": {
-                  "anyOf": [
-                    { "const": "rpc", "type": "string" },
-                    { "const": "operation", "type": "string" },
-                    { "const": "event", "type": "string" },
-                    { "const": "feed", "type": "string" },
-                  ],
-                },
-              },
-              "required": ["kind", "contractId", "surfaceKind", "name"],
-              "type": "object",
-            }, {
-              "properties": {
-                "direction": {
-                  "anyOf": [{ "const": "publish", "type": "string" }, {
-                    "const": "subscribe",
-                    "type": "string",
-                  }],
-                },
-                "grantSource": {
-                  "anyOf": [
-                    { "const": "owned-surface", "type": "string" },
-                    { "const": "used-surface", "type": "string" },
-                    { "const": "resource-binding", "type": "string" },
-                    { "const": "platform-service", "type": "string" },
-                    { "const": "transfer", "type": "string" },
-                  ],
-                },
-                "kind": { "const": "nats", "type": "string" },
-                "requiredCapabilities": {
-                  "items": { "minLength": 1, "type": "string" },
-                  "type": "array",
-                },
-                "subject": { "minLength": 1, "type": "string" },
-                "surface": {
-                  "properties": {
-                    "action": {
-                      "anyOf": [
-                        { "const": "call", "type": "string" },
-                        { "const": "publish", "type": "string" },
-                        { "const": "subscribe", "type": "string" },
-                        { "const": "observe", "type": "string" },
-                        { "const": "cancel", "type": "string" },
-                      ],
-                    },
-                    "contractId": { "minLength": 1, "type": "string" },
-                    "kind": {
-                      "anyOf": [
-                        { "const": "rpc", "type": "string" },
-                        { "const": "operation", "type": "string" },
-                        { "const": "event", "type": "string" },
-                        { "const": "feed", "type": "string" },
-                      ],
-                    },
-                    "name": { "minLength": 1, "type": "string" },
+              "type": "array",
+            },
+            "nats": {
+              "items": {
+                "properties": {
+                  "direction": {
+                    "anyOf": [{ "const": "publish", "type": "string" }, {
+                      "const": "subscribe",
+                      "type": "string",
+                    }],
                   },
-                  "required": ["contractId", "kind", "name"],
-                  "type": "object",
+                  "grantSource": {
+                    "anyOf": [
+                      { "const": "owned-surface", "type": "string" },
+                      { "const": "used-surface", "type": "string" },
+                      { "const": "resource-binding", "type": "string" },
+                      { "const": "platform-service", "type": "string" },
+                      { "const": "transfer", "type": "string" },
+                    ],
+                  },
+                  "requiredCapabilities": {
+                    "items": { "minLength": 1, "type": "string" },
+                    "type": "array",
+                  },
+                  "subject": { "minLength": 1, "type": "string" },
+                  "surface": {
+                    "properties": {
+                      "action": {
+                        "anyOf": [
+                          { "const": "call", "type": "string" },
+                          { "const": "publish", "type": "string" },
+                          { "const": "subscribe", "type": "string" },
+                          { "const": "observe", "type": "string" },
+                          { "const": "cancel", "type": "string" },
+                        ],
+                      },
+                      "contractId": { "minLength": 1, "type": "string" },
+                      "kind": {
+                        "anyOf": [
+                          { "const": "rpc", "type": "string" },
+                          { "const": "operation", "type": "string" },
+                          { "const": "event", "type": "string" },
+                          { "const": "feed", "type": "string" },
+                        ],
+                      },
+                      "name": { "minLength": 1, "type": "string" },
+                    },
+                    "required": ["contractId", "kind", "name"],
+                    "type": "object",
+                  },
                 },
+                "required": [
+                  "direction",
+                  "subject",
+                  "requiredCapabilities",
+                  "grantSource",
+                ],
+                "type": "object",
               },
-              "required": [
-                "kind",
-                "direction",
-                "subject",
-                "requiredCapabilities",
-                "grantSource",
-              ],
-              "type": "object",
-            }],
+              "type": "array",
+            },
+            "surfaces": {
+              "items": {
+                "properties": {
+                  "action": {
+                    "anyOf": [
+                      { "const": "call", "type": "string" },
+                      { "const": "publish", "type": "string" },
+                      { "const": "subscribe", "type": "string" },
+                      { "const": "observe", "type": "string" },
+                      { "const": "cancel", "type": "string" },
+                    ],
+                  },
+                  "contractId": { "minLength": 1, "type": "string" },
+                  "name": { "minLength": 1, "type": "string" },
+                  "surfaceKind": {
+                    "anyOf": [
+                      { "const": "rpc", "type": "string" },
+                      { "const": "operation", "type": "string" },
+                      { "const": "event", "type": "string" },
+                      { "const": "feed", "type": "string" },
+                    ],
+                  },
+                },
+                "required": ["contractId", "surfaceKind", "name"],
+                "type": "object",
+              },
+              "type": "array",
+            },
           },
-          "type": "array",
+          "required": ["capabilities", "surfaces", "nats"],
+          "type": "object",
         },
         "reconciledAt": {
           "anyOf": [{ "format": "date-time", "type": "string" }, {

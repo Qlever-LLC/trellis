@@ -769,32 +769,72 @@ Shared request and response types:
 ```ts
 type ActivationDecisionReason = string; // deployment-defined machine-readable code
 
-type AuthorityNeed = {
+type DeploymentAuthoritySurfaceKind = "rpc" | "operation" | "event" | "feed";
+type DeploymentAuthoritySurfaceAction =
+  | "call"
+  | "publish"
+  | "subscribe"
+  | "observe"
+  | "cancel";
+type DeploymentAuthorityResourceKind =
+  | "kv"
+  | "store"
+  | "jobs"
+  | "event-consumer"
+  | "transfer";
+
+type DeploymentAuthorityContractNeed = {
   contractId: string;
-  kind:
-    | "rpc"
-    | "operation"
-    | "event"
-    | "feed"
-    | "kv"
-    | "store"
-    | "jobs"
-    | "transfer";
-  name: string;
-  action?: "call" | "publish" | "subscribe" | "observe" | "cancel";
   required: boolean;
+};
+
+type DeploymentAuthoritySurfaceNeed = {
+  contractId: string;
+  kind: DeploymentAuthoritySurfaceKind;
+  name: string;
+  action?: DeploymentAuthoritySurfaceAction;
+  required: boolean;
+};
+
+type DeploymentAuthorityCapabilityNeed = {
+  capability: string;
+  required: boolean;
+};
+
+type DeploymentAuthorityResourceNeed = {
+  kind: DeploymentAuthorityResourceKind;
+  alias: string;
+  required: boolean;
+  definition?: Record<string, unknown>;
+};
+
+type DeploymentAuthorityNeeds = {
+  contracts: DeploymentAuthorityContractNeed[];
+  surfaces: DeploymentAuthoritySurfaceNeed[];
+  capabilities: DeploymentAuthorityCapabilityNeed[];
+  resources: DeploymentAuthorityResourceNeed[];
+};
+
+type DeploymentAuthoritySurface = {
+  contractId: string;
+  kind: DeploymentAuthoritySurfaceKind;
+  name: string;
+  action?: DeploymentAuthoritySurfaceAction;
+};
+
+type DeploymentAuthorityResource = {
+  kind: DeploymentAuthorityResourceKind;
+  alias: string;
+  required: boolean;
+  definition?: Record<string, unknown>;
 };
 
 type ContractProposal = {
   deploymentId: string;
   contractId: string;
   contractDigest: string;
-  requestedNeeds: AuthorityNeed[];
-  providedSurfaces: Array<{
-    contractId: string;
-    kind: "rpc" | "operation" | "event" | "feed";
-    name: string;
-  }>;
+  requestedNeeds: DeploymentAuthorityNeeds;
+  providedSurfaces: DeploymentAuthoritySurface[];
   summary?: Record<string, unknown>;
 };
 
@@ -803,13 +843,49 @@ type DeploymentAuthority = {
   kind: "service" | "device" | "app" | "cli" | "native" | "device-user";
   disabled: boolean;
   desiredState: {
-    needs: AuthorityNeed[];
+    needs: DeploymentAuthorityNeeds;
     capabilities: string[];
-    resources: Array<Record<string, unknown>>;
+    resources: DeploymentAuthorityResource[];
+    surfaces: DeploymentAuthoritySurface[];
   };
   version: string;
   createdAt: string;
   updatedAt: string;
+};
+
+type MaterializedAuthorityCapabilityGrant = {
+  capability: string;
+};
+
+type MaterializedAuthoritySurfaceGrant = {
+  contractId: string;
+  surfaceKind: DeploymentAuthoritySurfaceKind;
+  name: string;
+  action?: DeploymentAuthoritySurfaceAction;
+};
+
+type MaterializedAuthorityNatsGrant = {
+  direction: "publish" | "subscribe";
+  subject: string;
+  surface?: {
+    contractId: string;
+    kind: DeploymentAuthoritySurfaceKind;
+    name: string;
+    action?: DeploymentAuthoritySurfaceAction;
+  };
+  requiredCapabilities: string[];
+  grantSource:
+    | "owned-surface"
+    | "used-surface"
+    | "resource-binding"
+    | "platform-service"
+    | "transfer";
+};
+
+type MaterializedAuthorityGrants = {
+  capabilities: MaterializedAuthorityCapabilityGrant[];
+  surfaces: MaterializedAuthoritySurfaceGrant[];
+  nats: MaterializedAuthorityNatsGrant[];
 };
 
 type MaterializedAuthority = {
@@ -817,7 +893,7 @@ type MaterializedAuthority = {
   desiredVersion: string;
   status: "current" | "pending" | "failed";
   resourceBindings: Array<Record<string, unknown>>;
-  grants: Array<Record<string, unknown>>;
+  grants: MaterializedAuthorityGrants;
   reconciledAt: string | null;
   error?: string;
 };
@@ -1014,6 +1090,10 @@ Deployment authority RPCs:
 
 Rules:
 
+- `ContractProposal.requestedNeeds` and `DeploymentAuthority.desiredState.needs`
+  are grouped by `contracts`, `surfaces`, `capabilities`, and `resources`
+- `MaterializedAuthority.grants` is grouped by `capabilities`, `surfaces`, and
+  `nats`; it is a reconciled projection, not desired authority
 - accepting an authority update or authority migration approves desired
   authority changes, including resulting resource definition changes, and
   schedules reconciliation after the desired-state commit
@@ -1026,6 +1106,9 @@ Rules:
   `materializedAuthority.status === "current"` and
   `materializedAuthority.desiredVersion === authority.version`; if desired
   authority is accepted but not yet materialized, bootstrap waits or retries
+- stale or obsolete persisted materialized-authority projections are repaired by
+  Trellis storage upgrade and reconciliation; repaired rows are not runtime
+  permissions until they are current for the deployment authority version
 - service and device deployment enable/disable mutations validate against staged
   deployment authority because enabled desired state determines what can later
   be materialized

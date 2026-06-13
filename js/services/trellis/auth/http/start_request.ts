@@ -127,7 +127,9 @@ function boundaryFromApprovalPlan(
   return {
     contracts: [],
     surfaces: [],
-    capabilities: approvalCapabilityKeys(resolution.plan.approval),
+    capabilities: approvalCapabilityKeys(resolution.plan.approval).map(
+      (capability) => ({ capability, required: true }),
+    ),
     resources: [],
   };
 }

@@ -92,7 +92,7 @@ function createMaterializedResourceBindingAdapter(
         desiredVersion: current?.desiredVersion ?? record.updatedAt,
         status: current?.status ?? "pending",
         resourceBindings,
-        grants: current?.grants ?? [],
+        grants: current?.grants ?? { capabilities: [], surfaces: [], nats: [] },
         reconciledAt: current?.reconciledAt ?? null,
       });
     },
@@ -121,7 +121,6 @@ function surfaceGrant(input: {
     const method: ContractRpcMethod | undefined = contract.rpc?.[surface.name];
     if (!method) return undefined;
     return {
-      kind: "nats",
       direction: owned ? "subscribe" : "publish",
       subject: templateToWildcard(method.subject),
       surface: { ...surface, kind: "rpc" },
@@ -143,7 +142,6 @@ function surfaceGrant(input: {
       ? operationCancelCapabilities(operation) ?? []
       : operation.capabilities?.call ?? [];
     return {
-      kind: "nats",
       direction: owned ? "subscribe" : "publish",
       subject: templateToWildcard(
         control ? `${operation.subject}.control` : operation.subject,
@@ -158,7 +156,6 @@ function surfaceGrant(input: {
     if (!event) return undefined;
     const action = surface.action === "subscribe" ? "subscribe" : "publish";
     return {
-      kind: "nats",
       direction: action,
       subject: templateToWildcard(event.subject),
       surface: { ...surface, kind: "event", action },
@@ -169,7 +166,6 @@ function surfaceGrant(input: {
   const feed: ContractFeed | undefined = contract.feeds?.[surface.name];
   if (!feed) return undefined;
   return {
-    kind: "nats",
     direction: owned ? "subscribe" : "publish",
     subject: templateToWildcard(feed.subject),
     surface: { ...surface, kind: "feed", action: "subscribe" },
@@ -189,7 +185,6 @@ function transferGrantsForOwnedSurface(input: {
     ];
     if (operation?.transfer?.direction !== "send") return [];
     return [{
-      kind: "nats",
       direction: "subscribe",
       subject:
         `${TRANSFER_UPLOAD_SUBJECT_PREFIX}.${TRANSFER_SERVICE_SESSION_PREFIX_PLACEHOLDER}.*`,
@@ -202,7 +197,6 @@ function transferGrantsForOwnedSurface(input: {
     const method: ContractRpcMethod | undefined = contract.rpc?.[surface.name];
     if (method?.transfer?.direction !== "receive") return [];
     return [{
-      kind: "nats",
       direction: "subscribe",
       subject:
         `${TRANSFER_DOWNLOAD_SUBJECT_PREFIX}.${TRANSFER_SERVICE_SESSION_PREFIX_PLACEHOLDER}.*`,
@@ -219,7 +213,6 @@ function jobsAdminRuntimeGrants(
 ): MaterializedAuthorityNatsGrant[] {
   if (contract.id !== TRELLIS_JOBS_CONTRACT_ID) return [];
   return jobsAdminRuntimePublishSubjects().map((subject) => ({
-    kind: "nats" as const,
     direction: "publish" as const,
     subject,
     requiredCapabilities: ["service"],
@@ -253,7 +246,7 @@ function latestAcceptedOffersByLineage(
   );
 }
 
-async function materializeAcceptedOfferNatsGrants(input: {
+export async function materializeAcceptedOfferNatsGrants(input: {
   authority: DeploymentAuthority;
   contracts: Pick<
     AuthContractsRuntime,
@@ -296,16 +289,15 @@ async function materializeAcceptedOfferNatsGrants(input: {
       grantSource: owned ? "owned-surface" : "platform-service",
     });
   }
-  for (const need of input.authority.desiredState.needs) {
-    if (need.kind !== "surface") continue;
-    const key = surfaceKey(need.surface);
-    const owned = ownedContractIds.has(need.surface.contractId);
+  for (const surface of input.authority.desiredState.needs.surfaces) {
+    const key = surfaceKey(surface);
+    const owned = ownedContractIds.has(surface.contractId);
     const grantSource = owned
       ? "owned-surface"
-      : PLATFORM_SERVICE_SURFACE_CONTRACT_IDS.has(need.surface.contractId)
+      : PLATFORM_SERVICE_SURFACE_CONTRACT_IDS.has(surface.contractId)
       ? "platform-service"
       : "used-surface";
-    surfaces.set(key, { surface: need.surface, grantSource });
+    surfaces.set(key, { surface, grantSource });
   }
   if (input.authority.kind === "service") {
     const coreBindingSurface: DeploymentAuthoritySurface = {

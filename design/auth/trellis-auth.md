@@ -122,11 +122,23 @@ The core deployment decision is:
 contractProposal.requestedNeeds <= deploymentAuthority.desiredState;
 ```
 
+Deployment authority proposals and desired state expose `needs` as grouped
+families: `contracts`, `surfaces`, `capabilities`, and `resources`. The family
+key is part of the wire shape; child records do not carry a generic need-family
+discriminator solely to recover that grouping.
+
 The core runtime decision is:
 
 ```ts
 runtimeRequest <= materializedAuthority;
 ```
+
+Materialized authority exposes runtime `grants` as grouped families:
+`capabilities`, `surfaces`, and `nats`. Materialized authority is a projection
+of accepted desired authority and reconciliation output, not the source of
+desired authority. Stale or obsolete persisted projections may be repaired by
+Trellis storage upgrade and reconciliation, but runtime credentials and
+permissions still come only from current materialization.
 
 Contracts are proposals, not ongoing authority. A presented contract can request
 needs and declare provided surfaces. Once an authority update or migration is
@@ -184,6 +196,9 @@ Rules:
 - runtime credentials and service bindings are derived only from materialized
   authority where `status === "current"` and `desiredVersion` matches deployment
   authority `version`
+- stale or obsolete persisted materialized-authority projections are repaired by
+  storage upgrade and reconciliation; callers must still wait for current
+  materialization before treating grants as runtime permissions
 - reconciliation may be triggered by control-plane workers, admin RPC, or other
   Trellis-owned scheduling, but runtime bootstrap does not provision resources
 - manual admin reconciliation is for repair, retry, or manual convergence; it is

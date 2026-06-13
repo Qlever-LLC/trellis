@@ -15,17 +15,18 @@ import {
   analyzeContractProposal,
   type ContractProposalAnalysis,
 } from "../contract_proposal_analysis.ts";
+import { evaluateProposalNeedsFit } from "../authority_needs_decision.ts";
 import {
-  computeAuthorityNeedsDelta,
-  evaluateProposalNeedsFit,
-} from "../authority_needs_decision.ts";
+  emptyAuthorityNeeds,
+  mergeAuthorityNeeds,
+  normalizeAuthorityNeeds,
+} from "../authority_needs.ts";
 import { classifyDeploymentAuthorityPlan } from "../deployment_authority_plan.ts";
 import { SessionKeySchema, SignatureSchema } from "../schemas.ts";
 import type {
   AuthorityNeedSet,
   DeploymentAuthority,
   DeploymentAuthorityMaterialization,
-  DeploymentAuthorityNeed,
   DeploymentAuthorityPlan,
   DeploymentResourceBinding,
   ImplementationOffer,
@@ -266,8 +267,8 @@ function getRequiredServiceCapabilities(
 ): string[] {
   const capabilities = new Set<string>([
     "service",
-    ...analysis.required.capabilities,
-    ...analysis.optional.capabilities,
+    ...analysis.required.capabilities.map((need) => need.capability),
+    ...analysis.optional.capabilities.map((need) => need.capability),
   ]);
   const events = contract.events as
     | Record<string, {
@@ -290,17 +291,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function emptyAuthorityNeeds(): AuthorityNeedSet {
-  return { contracts: [], surfaces: [], capabilities: [], resources: [] };
+function isAuthorityNeedSet(value: unknown): value is AuthorityNeedSet {
+  if (!isRecord(value)) return false;
+  const { contracts, surfaces, capabilities, resources } = value;
+  return Array.isArray(contracts) &&
+    contracts.every((contract) =>
+      isRecord(contract) && typeof contract.contractId === "string" &&
+      typeof contract.required === "boolean"
+    ) && Array.isArray(surfaces) &&
+    surfaces.every((surface) =>
+      isRecord(surface) && typeof surface.contractId === "string" &&
+      typeof surface.kind === "string" && typeof surface.name === "string" &&
+      typeof surface.required === "boolean"
+    ) && Array.isArray(capabilities) &&
+    capabilities.every((capability) =>
+      isRecord(capability) && typeof capability.capability === "string" &&
+      typeof capability.required === "boolean"
+    ) && Array.isArray(resources) &&
+    resources.every((resource) =>
+      isRecord(resource) && typeof resource.kind === "string" &&
+      typeof resource.alias === "string" &&
+      typeof resource.required === "boolean"
+    );
 }
 
 function mergeBoundaries(...boundaries: AuthorityNeedSet[]): AuthorityNeedSet {
-  return computeAuthorityNeedsDelta(emptyAuthorityNeeds(), {
-    contracts: boundaries.flatMap((boundary) => boundary.contracts),
-    surfaces: boundaries.flatMap((boundary) => boundary.surfaces),
-    capabilities: boundaries.flatMap((boundary) => boundary.capabilities),
-    resources: boundaries.flatMap((boundary) => boundary.resources),
-  });
+  return mergeAuthorityNeeds(...boundaries);
 }
 
 function isEmptyBoundary(boundary: AuthorityNeedSet): boolean {
@@ -418,8 +434,8 @@ function authorityProvidesContract(
   contractId: string,
 ): boolean {
   if (authority.disabled) return false;
-  return authority.desiredState.needs.some((need) =>
-    need.kind === "contract" && need.required && need.contractId === contractId
+  return authority.desiredState.needs.contracts.some((need) =>
+    need.required && need.contractId === contractId
   ) || authority.desiredState.surfaces.some((surface) =>
     surface.contractId === contractId
   );
@@ -477,49 +493,29 @@ function desiredStateToAuthorityNeeds(
   desiredState: DeploymentAuthority["desiredState"],
 ): AuthorityNeedSet {
   return mergeBoundaries({
-    contracts: desiredState.needs.flatMap((need) =>
-      need.kind === "contract"
-        ? [{ contractId: need.contractId, required: need.required }]
-        : []
-    ),
-    surfaces: desiredState.needs.flatMap((need) =>
-      need.kind === "surface"
-        ? [{ ...need.surface, required: need.required }]
-        : []
-    ),
-    capabilities: desiredState.capabilities,
-    resources: desiredState.resources,
+    contracts: desiredState.needs.contracts,
+    surfaces: [
+      ...desiredState.needs.surfaces,
+      ...desiredState.surfaces.map((surface) => ({
+        ...surface,
+        required: true,
+      })),
+    ],
+    capabilities: [
+      ...desiredState.needs.capabilities,
+      ...desiredState.capabilities.map((capability) => ({
+        capability,
+        required: true,
+      })),
+    ],
+    resources: [...desiredState.needs.resources, ...desiredState.resources],
   });
 }
 
 function authorityNeedsToProposalNeeds(
   needs: AuthorityNeedSet,
-): DeploymentAuthorityNeed[] {
-  return [
-    ...needs.contracts.map((contract) => ({
-      kind: "contract" as const,
-      contractId: contract.contractId,
-      required: contract.required,
-    })),
-    ...needs.surfaces.map((surface) => {
-      const { required, ...authoritySurface } = surface;
-      return {
-        kind: "surface" as const,
-        surface: authoritySurface,
-        required,
-      };
-    }),
-    ...needs.capabilities.map((capability) => ({
-      kind: "capability" as const,
-      capability,
-      required: true,
-    })),
-    ...needs.resources.map((resource) => ({
-      kind: "resource" as const,
-      resource,
-      required: resource.required,
-    })),
-  ];
+): DeploymentAuthorityPlan["proposal"]["requestedNeeds"] {
+  return normalizeAuthorityNeeds(needs);
 }
 
 function desiredStateFromProposal(
@@ -535,16 +531,11 @@ function desiredStateFromProposal(
     DeploymentAuthority["desiredState"]["surfaces"][number]
   >();
 
-  for (const need of proposal.requestedNeeds) {
-    if (need.kind === "capability") {
-      capabilities.add(need.capability);
-    }
-    if (need.kind === "resource") {
-      resources.set(
-        resourceKey(need.resource.kind, need.resource.alias),
-        need.resource,
-      );
-    }
+  for (const need of proposal.requestedNeeds.capabilities) {
+    capabilities.add(need.capability);
+  }
+  for (const resource of proposal.requestedNeeds.resources) {
+    resources.set(resourceKey(resource.kind, resource.alias), resource);
   }
   for (const surface of proposal.providedSurfaces) {
     surfaces.set(
@@ -556,7 +547,7 @@ function desiredStateFromProposal(
   }
 
   return {
-    needs: [...proposal.requestedNeeds],
+    needs: normalizeAuthorityNeeds(proposal.requestedNeeds),
     capabilities: [...capabilities].sort(),
     resources: [...resources.values()].sort((left, right) =>
       resourceKey(left.kind, left.alias).localeCompare(
@@ -634,7 +625,7 @@ async function pendingAuthorityPlanForContract(input: {
   desiredVersion: string;
   classification: DeploymentAuthorityPlan["classification"];
   desiredChange: AuthorityNeedSet;
-  requestedNeeds: DeploymentAuthorityNeed[];
+  requestedNeeds: AuthorityNeedSet;
 }): Promise<DeploymentAuthorityPlan | undefined> {
   const plans = await input.storage.listFiltered(
     { deploymentId: input.deploymentId, state: "pending" },
@@ -644,8 +635,15 @@ async function pendingAuthorityPlanForContract(input: {
     plan.proposal.contractId === input.contractId &&
     plan.proposal.contractDigest === input.contractDigest &&
     plan.classification === input.classification &&
-    sameJsonRecord(plan.desiredChange, input.desiredChange) &&
-    sameJsonRecord(plan.proposal.requestedNeeds, input.requestedNeeds) &&
+    isAuthorityNeedSet(plan.desiredChange) &&
+    sameJsonRecord(
+      normalizeAuthorityNeeds(plan.desiredChange),
+      normalizeAuthorityNeeds(input.desiredChange),
+    ) &&
+    sameJsonRecord(
+      normalizeAuthorityNeeds(plan.proposal.requestedNeeds),
+      normalizeAuthorityNeeds(input.requestedNeeds),
+    ) &&
     plan.proposal.summary !== undefined &&
     isRecord(plan.proposal.summary) &&
     plan.proposal.summary.desiredVersion === input.desiredVersion
@@ -734,7 +732,7 @@ async function acceptedCompatibilityMigrationExists(input: {
   contractId: string;
   previousContractDigest: string;
   presentedContractDigest: string;
-  requestedNeeds: DeploymentAuthorityNeed[];
+  requestedNeeds: AuthorityNeedSet;
 }): Promise<boolean> {
   const plans = await input.storage.listFiltered(
     { deploymentId: input.deploymentId, state: "accepted" },
@@ -749,7 +747,10 @@ async function acceptedCompatibilityMigrationExists(input: {
         previousContractDigest: input.previousContractDigest,
         presentedContractDigest: input.presentedContractDigest,
         state: "accepted",
-      }) || !sameJsonRecord(plan.proposal.requestedNeeds, input.requestedNeeds)
+      }) || !sameJsonRecord(
+        normalizeAuthorityNeeds(plan.proposal.requestedNeeds),
+        normalizeAuthorityNeeds(input.requestedNeeds),
+      )
     ) {
       continue;
     }

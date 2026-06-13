@@ -214,6 +214,53 @@ pub struct AuthDeploymentAuthorityAcceptMigrationRequest {
 /// Generated schema type `AuthDeploymentAuthorityAcceptMigrationResponse`.
 /// Generated schema type `AuthDeploymentAuthorityAcceptMigrationResponseAuthority`.
 /// Generated schema type `AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredState`.
+/// Generated schema type `AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateNeeds`.
+/// Generated schema type `AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateNeedsCapabilitiesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateNeedsCapabilitiesItem
+{
+    pub capability: String,
+    pub required: bool,
+}
+/// Generated schema type `AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateNeedsContractsItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateNeedsContractsItem {
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    pub required: bool,
+}
+/// Generated schema type `AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateNeedsResourcesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateNeedsResourcesItem {
+    pub alias: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub definition: Option<BTreeMap<String, Value>>,
+    pub kind: String,
+    pub required: bool,
+}
+/// Generated schema type `AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateNeedsSurfacesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateNeedsSurfacesItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    pub kind: String,
+    pub name: String,
+    pub required: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateNeeds {
+    pub capabilities: Vec<
+        AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateNeedsCapabilitiesItem,
+    >,
+    pub contracts:
+        Vec<AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateNeedsContractsItem>,
+    pub resources:
+        Vec<AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateNeedsResourcesItem>,
+    pub surfaces:
+        Vec<AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateNeedsSurfacesItem>,
+}
 /// Generated schema type `AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateResourcesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateResourcesItem {
@@ -236,7 +283,7 @@ pub struct AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateSu
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredState {
     pub capabilities: Vec<String>,
-    pub needs: Vec<Value>,
+    pub needs: AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateNeeds,
     pub resources:
         Vec<AuthDeploymentAuthorityAcceptMigrationResponseAuthorityDesiredStateResourcesItem>,
     pub surfaces:
@@ -272,6 +319,51 @@ pub struct AuthDeploymentAuthorityAcceptUpdateRequest {
 /// Generated schema type `AuthDeploymentAuthorityAcceptUpdateResponse`.
 /// Generated schema type `AuthDeploymentAuthorityAcceptUpdateResponseAuthority`.
 /// Generated schema type `AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredState`.
+/// Generated schema type `AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateNeeds`.
+/// Generated schema type `AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateNeedsCapabilitiesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateNeedsCapabilitiesItem {
+    pub capability: String,
+    pub required: bool,
+}
+/// Generated schema type `AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateNeedsContractsItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateNeedsContractsItem {
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    pub required: bool,
+}
+/// Generated schema type `AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateNeedsResourcesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateNeedsResourcesItem {
+    pub alias: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub definition: Option<BTreeMap<String, Value>>,
+    pub kind: String,
+    pub required: bool,
+}
+/// Generated schema type `AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateNeedsSurfacesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateNeedsSurfacesItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    pub kind: String,
+    pub name: String,
+    pub required: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateNeeds {
+    pub capabilities:
+        Vec<AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateNeedsCapabilitiesItem>,
+    pub contracts:
+        Vec<AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateNeedsContractsItem>,
+    pub resources:
+        Vec<AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateNeedsResourcesItem>,
+    pub surfaces:
+        Vec<AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateNeedsSurfacesItem>,
+}
 /// Generated schema type `AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateResourcesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateResourcesItem {
@@ -294,7 +386,7 @@ pub struct AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateSurfa
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredState {
     pub capabilities: Vec<String>,
-    pub needs: Vec<Value>,
+    pub needs: AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateNeeds,
     pub resources:
         Vec<AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateResourcesItem>,
     pub surfaces: Vec<AuthDeploymentAuthorityAcceptUpdateResponseAuthorityDesiredStateSurfacesItem>,
@@ -326,6 +418,48 @@ pub struct AuthDeploymentAuthorityGetRequest {
 /// Generated schema type `AuthDeploymentAuthorityGetResponse`.
 /// Generated schema type `AuthDeploymentAuthorityGetResponseAuthority`.
 /// Generated schema type `AuthDeploymentAuthorityGetResponseAuthorityDesiredState`.
+/// Generated schema type `AuthDeploymentAuthorityGetResponseAuthorityDesiredStateNeeds`.
+/// Generated schema type `AuthDeploymentAuthorityGetResponseAuthorityDesiredStateNeedsCapabilitiesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityGetResponseAuthorityDesiredStateNeedsCapabilitiesItem {
+    pub capability: String,
+    pub required: bool,
+}
+/// Generated schema type `AuthDeploymentAuthorityGetResponseAuthorityDesiredStateNeedsContractsItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityGetResponseAuthorityDesiredStateNeedsContractsItem {
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    pub required: bool,
+}
+/// Generated schema type `AuthDeploymentAuthorityGetResponseAuthorityDesiredStateNeedsResourcesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityGetResponseAuthorityDesiredStateNeedsResourcesItem {
+    pub alias: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub definition: Option<BTreeMap<String, Value>>,
+    pub kind: String,
+    pub required: bool,
+}
+/// Generated schema type `AuthDeploymentAuthorityGetResponseAuthorityDesiredStateNeedsSurfacesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityGetResponseAuthorityDesiredStateNeedsSurfacesItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    pub kind: String,
+    pub name: String,
+    pub required: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityGetResponseAuthorityDesiredStateNeeds {
+    pub capabilities:
+        Vec<AuthDeploymentAuthorityGetResponseAuthorityDesiredStateNeedsCapabilitiesItem>,
+    pub contracts: Vec<AuthDeploymentAuthorityGetResponseAuthorityDesiredStateNeedsContractsItem>,
+    pub resources: Vec<AuthDeploymentAuthorityGetResponseAuthorityDesiredStateNeedsResourcesItem>,
+    pub surfaces: Vec<AuthDeploymentAuthorityGetResponseAuthorityDesiredStateNeedsSurfacesItem>,
+}
 /// Generated schema type `AuthDeploymentAuthorityGetResponseAuthorityDesiredStateResourcesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDeploymentAuthorityGetResponseAuthorityDesiredStateResourcesItem {
@@ -348,7 +482,7 @@ pub struct AuthDeploymentAuthorityGetResponseAuthorityDesiredStateSurfacesItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDeploymentAuthorityGetResponseAuthorityDesiredState {
     pub capabilities: Vec<String>,
-    pub needs: Vec<Value>,
+    pub needs: AuthDeploymentAuthorityGetResponseAuthorityDesiredStateNeeds,
     pub resources: Vec<AuthDeploymentAuthorityGetResponseAuthorityDesiredStateResourcesItem>,
     pub surfaces: Vec<AuthDeploymentAuthorityGetResponseAuthorityDesiredStateSurfacesItem>,
 }
@@ -434,6 +568,50 @@ pub struct AuthDeploymentAuthorityListRequest {
 /// Generated schema type `AuthDeploymentAuthorityListResponse`.
 /// Generated schema type `AuthDeploymentAuthorityListResponseEntriesItem`.
 /// Generated schema type `AuthDeploymentAuthorityListResponseEntriesItemDesiredState`.
+/// Generated schema type `AuthDeploymentAuthorityListResponseEntriesItemDesiredStateNeeds`.
+/// Generated schema type `AuthDeploymentAuthorityListResponseEntriesItemDesiredStateNeedsCapabilitiesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityListResponseEntriesItemDesiredStateNeedsCapabilitiesItem {
+    pub capability: String,
+    pub required: bool,
+}
+/// Generated schema type `AuthDeploymentAuthorityListResponseEntriesItemDesiredStateNeedsContractsItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityListResponseEntriesItemDesiredStateNeedsContractsItem {
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    pub required: bool,
+}
+/// Generated schema type `AuthDeploymentAuthorityListResponseEntriesItemDesiredStateNeedsResourcesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityListResponseEntriesItemDesiredStateNeedsResourcesItem {
+    pub alias: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub definition: Option<BTreeMap<String, Value>>,
+    pub kind: String,
+    pub required: bool,
+}
+/// Generated schema type `AuthDeploymentAuthorityListResponseEntriesItemDesiredStateNeedsSurfacesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityListResponseEntriesItemDesiredStateNeedsSurfacesItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    pub kind: String,
+    pub name: String,
+    pub required: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityListResponseEntriesItemDesiredStateNeeds {
+    pub capabilities:
+        Vec<AuthDeploymentAuthorityListResponseEntriesItemDesiredStateNeedsCapabilitiesItem>,
+    pub contracts:
+        Vec<AuthDeploymentAuthorityListResponseEntriesItemDesiredStateNeedsContractsItem>,
+    pub resources:
+        Vec<AuthDeploymentAuthorityListResponseEntriesItemDesiredStateNeedsResourcesItem>,
+    pub surfaces: Vec<AuthDeploymentAuthorityListResponseEntriesItemDesiredStateNeedsSurfacesItem>,
+}
 /// Generated schema type `AuthDeploymentAuthorityListResponseEntriesItemDesiredStateResourcesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDeploymentAuthorityListResponseEntriesItemDesiredStateResourcesItem {
@@ -456,7 +634,7 @@ pub struct AuthDeploymentAuthorityListResponseEntriesItemDesiredStateSurfacesIte
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDeploymentAuthorityListResponseEntriesItemDesiredState {
     pub capabilities: Vec<String>,
-    pub needs: Vec<Value>,
+    pub needs: AuthDeploymentAuthorityListResponseEntriesItemDesiredStateNeeds,
     pub resources: Vec<AuthDeploymentAuthorityListResponseEntriesItemDesiredStateResourcesItem>,
     pub surfaces: Vec<AuthDeploymentAuthorityListResponseEntriesItemDesiredStateSurfacesItem>,
 }
@@ -548,6 +726,51 @@ pub struct AuthDeploymentAuthorityReconcileRequest {
 /// Generated schema type `AuthDeploymentAuthorityReconcileResponse`.
 /// Generated schema type `AuthDeploymentAuthorityReconcileResponseAuthority`.
 /// Generated schema type `AuthDeploymentAuthorityReconcileResponseAuthorityDesiredState`.
+/// Generated schema type `AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateNeeds`.
+/// Generated schema type `AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateNeedsCapabilitiesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateNeedsCapabilitiesItem {
+    pub capability: String,
+    pub required: bool,
+}
+/// Generated schema type `AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateNeedsContractsItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateNeedsContractsItem {
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    pub required: bool,
+}
+/// Generated schema type `AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateNeedsResourcesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateNeedsResourcesItem {
+    pub alias: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub definition: Option<BTreeMap<String, Value>>,
+    pub kind: String,
+    pub required: bool,
+}
+/// Generated schema type `AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateNeedsSurfacesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateNeedsSurfacesItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    pub kind: String,
+    pub name: String,
+    pub required: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateNeeds {
+    pub capabilities:
+        Vec<AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateNeedsCapabilitiesItem>,
+    pub contracts:
+        Vec<AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateNeedsContractsItem>,
+    pub resources:
+        Vec<AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateNeedsResourcesItem>,
+    pub surfaces:
+        Vec<AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateNeedsSurfacesItem>,
+}
 /// Generated schema type `AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateResourcesItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateResourcesItem {
@@ -570,7 +793,7 @@ pub struct AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateSurfaces
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDeploymentAuthorityReconcileResponseAuthorityDesiredState {
     pub capabilities: Vec<String>,
-    pub needs: Vec<Value>,
+    pub needs: AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateNeeds,
     pub resources: Vec<AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateResourcesItem>,
     pub surfaces: Vec<AuthDeploymentAuthorityReconcileResponseAuthorityDesiredStateSurfacesItem>,
 }
@@ -589,6 +812,54 @@ pub struct AuthDeploymentAuthorityReconcileResponseAuthority {
     pub version: String,
 }
 /// Generated schema type `AuthDeploymentAuthorityReconcileResponseMaterializedAuthority`.
+/// Generated schema type `AuthDeploymentAuthorityReconcileResponseMaterializedAuthorityGrants`.
+/// Generated schema type `AuthDeploymentAuthorityReconcileResponseMaterializedAuthorityGrantsCapabilitiesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityReconcileResponseMaterializedAuthorityGrantsCapabilitiesItem {
+    pub capability: String,
+}
+/// Generated schema type `AuthDeploymentAuthorityReconcileResponseMaterializedAuthorityGrantsNatsItem`.
+/// Generated schema type `AuthDeploymentAuthorityReconcileResponseMaterializedAuthorityGrantsNatsItemSurface`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityReconcileResponseMaterializedAuthorityGrantsNatsItemSurface {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    pub kind: String,
+    pub name: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityReconcileResponseMaterializedAuthorityGrantsNatsItem {
+    pub direction: String,
+    #[serde(rename = "grantSource")]
+    pub grant_source: String,
+    #[serde(rename = "requiredCapabilities")]
+    pub required_capabilities: Vec<String>,
+    pub subject: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub surface:
+        Option<AuthDeploymentAuthorityReconcileResponseMaterializedAuthorityGrantsNatsItemSurface>,
+}
+/// Generated schema type `AuthDeploymentAuthorityReconcileResponseMaterializedAuthorityGrantsSurfacesItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityReconcileResponseMaterializedAuthorityGrantsSurfacesItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    #[serde(rename = "contractId")]
+    pub contract_id: String,
+    pub name: String,
+    #[serde(rename = "surfaceKind")]
+    pub surface_kind: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDeploymentAuthorityReconcileResponseMaterializedAuthorityGrants {
+    pub capabilities:
+        Vec<AuthDeploymentAuthorityReconcileResponseMaterializedAuthorityGrantsCapabilitiesItem>,
+    pub nats: Vec<AuthDeploymentAuthorityReconcileResponseMaterializedAuthorityGrantsNatsItem>,
+    pub surfaces:
+        Vec<AuthDeploymentAuthorityReconcileResponseMaterializedAuthorityGrantsSurfacesItem>,
+}
 /// Generated schema type `AuthDeploymentAuthorityReconcileResponseMaterializedAuthorityResourceBindingsItem`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthDeploymentAuthorityReconcileResponseMaterializedAuthorityResourceBindingsItem {
@@ -611,7 +882,7 @@ pub struct AuthDeploymentAuthorityReconcileResponseMaterializedAuthority {
     pub desired_version: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    pub grants: Vec<Value>,
+    pub grants: AuthDeploymentAuthorityReconcileResponseMaterializedAuthorityGrants,
     #[serde(rename = "reconciledAt")]
     pub reconciled_at: Value,
     #[serde(rename = "resourceBindings")]

@@ -2,7 +2,6 @@ import { deepEqual, equal } from "node:assert/strict";
 
 import type {
   DeploymentAuthority,
-  DeploymentAuthorityMaterialization,
   DeploymentAuthorityPlan,
 } from "@qlever-llc/trellis/auth";
 import {
@@ -45,38 +44,35 @@ type ImplementationOffer = {
   staleAt: string | null;
   expiresAt: string | null;
 };
+type AuthorityMaterialization = NonNullable<
+  Parameters<typeof givenCapabilityRows>[1]
+>;
 
 const desiredState: DeploymentAuthority["desiredState"] = {
-  needs: [
-    { kind: "contract", contractId: "acme.billing@v1", required: true },
-    {
-      kind: "surface",
-      surface: {
+  needs: {
+    contracts: [{ contractId: "acme.billing@v1", required: true }],
+    surfaces: [
+      {
         contractId: "acme.billing@v1",
         kind: "rpc",
         name: "Invoice.Get",
         action: "call",
+        required: true,
       },
-      required: true,
-    },
-    {
-      kind: "surface",
-      surface: {
+      {
         contractId: "acme.billing@v1",
         kind: "event",
         name: "Invoice.Updated",
         action: "subscribe",
+        required: false,
       },
-      required: false,
-    },
-    {
-      kind: "resource",
-      resource: { kind: "kv", alias: "cache", required: true },
-      required: true,
-    },
-    { kind: "capability", capability: "billing.read", required: true },
-    { kind: "capability", capability: "billing.events", required: false },
-  ],
+    ],
+    resources: [{ kind: "kv", alias: "cache", required: true }],
+    capabilities: [
+      { capability: "billing.read", required: true },
+      { capability: "billing.events", required: false },
+    ],
+  },
   capabilities: ["billing.read", "billing.events"],
   resources: [{ kind: "kv", alias: "cache", required: true }],
   surfaces: [
@@ -96,16 +92,18 @@ const desiredState: DeploymentAuthority["desiredState"] = {
 };
 
 const healthPublishState: DeploymentAuthority["desiredState"] = {
-  needs: [{
-    kind: "surface",
-    surface: {
+  needs: {
+    contracts: [],
+    surfaces: [{
       contractId: "trellis.health@v1",
       kind: "event",
       name: "Health.Heartbeat",
       action: "publish",
-    },
-    required: true,
-  }],
+      required: true,
+    }],
+    resources: [],
+    capabilities: [],
+  },
   capabilities: [],
   resources: [],
   surfaces: [{
@@ -164,7 +162,10 @@ function authorityPlan(
         required: false,
       }],
       resources: [{ kind: "kv", alias: "cache", required: true }],
-      capabilities: ["billing.read", "billing.events"],
+      capabilities: [
+        { capability: "billing.read", required: true },
+        { capability: "billing.events", required: false },
+      ],
     },
     materializationPreview: {},
     warnings: [],
@@ -196,14 +197,18 @@ function implementationOffer(
 }
 
 function materializedAuthority(
-  overrides: Partial<DeploymentAuthorityMaterialization> = {},
-): DeploymentAuthorityMaterialization {
+  overrides: Partial<AuthorityMaterialization> = {},
+): AuthorityMaterialization {
   return {
     deploymentId: "billing.default",
     desiredVersion: "v1",
     status: "current",
     resourceBindings: [],
-    grants: [{ kind: "capability", capability: "billing.read" }],
+    grants: {
+      capabilities: [{ capability: "billing.read" }],
+      surfaces: [],
+      nats: [],
+    },
     reconciledAt: "2026-05-07T00:00:00.000Z",
     ...overrides,
   };
@@ -360,10 +365,14 @@ Deno.test("givenCapabilityRows combines Given needs and materialized grants", ()
     givenCapabilityRows(
       authority(),
       materializedAuthority({
-        grants: [
-          { kind: "capability", capability: "billing.read" },
-          { kind: "capability", capability: "billing.admin" },
-        ],
+        grants: {
+          capabilities: [
+            { capability: "billing.read" },
+            { capability: "billing.admin" },
+          ],
+          surfaces: [],
+          nats: [],
+        },
       }),
       capabilityDefinitions,
     ),

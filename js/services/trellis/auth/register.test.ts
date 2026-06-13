@@ -193,16 +193,18 @@ Deno.test("accepted-offer NATS materializer keeps trellis-prefixed providers own
       desiredState: {
         capabilities: [],
         resources: [],
-        needs: [{
-          kind: "surface",
-          surface: {
+        needs: {
+          contracts: [],
+          surfaces: [{
             contractId: dependencyContract.id,
             kind: "rpc",
             name: "Dependency.Ping",
             action: "call",
-          },
-          required: false,
-        }],
+            required: false,
+          }],
+          capabilities: [],
+          resources: [],
+        },
         surfaces: [
           {
             contractId: providerContract.id,
@@ -282,7 +284,7 @@ Deno.test("accepted-offer NATS materializer uses latest accepted contract digest
       desiredState: {
         capabilities: [],
         resources: [],
-        needs: [],
+        needs: { contracts: [], surfaces: [], capabilities: [], resources: [] },
         surfaces: [
           {
             contractId: requiredDepV2Contract.id,
@@ -356,7 +358,7 @@ Deno.test("accepted-offer NATS materializer adds service transfer endpoint grant
       desiredState: {
         capabilities: [],
         resources: [],
-        needs: [],
+        needs: { contracts: [], surfaces: [], capabilities: [], resources: [] },
         surfaces: [
           {
             contractId: transferContract.id,
@@ -414,7 +416,7 @@ Deno.test("accepted-offer NATS materializer adds Jobs runtime grants", async () 
       desiredState: {
         capabilities: [],
         resources: [],
-        needs: [],
+        needs: { contracts: [], surfaces: [], capabilities: [], resources: [] },
         surfaces: [{
           contractId: jobsContract.id,
           kind: "rpc",
@@ -469,16 +471,18 @@ Deno.test("accepted-offer NATS materializer finds used surfaces in later known d
       desiredState: {
         capabilities: [],
         resources: [],
-        needs: [{
-          kind: "surface",
-          surface: {
+        needs: {
+          contracts: [],
+          surfaces: [{
             contractId: requiredDepV2Contract.id,
             kind: "rpc",
             name: "Required.Dep.Pong",
             action: "call",
-          },
-          required: true,
-        }],
+            required: true,
+          }],
+          capabilities: [],
+          resources: [],
+        },
         surfaces: [],
       },
     },

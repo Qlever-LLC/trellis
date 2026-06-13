@@ -30,6 +30,7 @@ import type {
 } from "../auth/storage.ts";
 import type { AuthRuntimeDeps } from "../auth/runtime_deps.ts";
 import { createServiceLookup } from "../auth/admin/service_lookup.ts";
+import { materializeAcceptedOfferNatsGrants } from "../auth/register.ts";
 import { createAuthorityReconciler } from "../auth/reconciliation/authority_reconciler.ts";
 import type { Config } from "../config.ts";
 
@@ -90,6 +91,7 @@ export function startControlPlaneBackgroundTasks(opts: {
     | "getContract"
     | "getKnownEntriesByContractId"
     | "getKnownContract"
+    | "getKnownContractsById"
     | "validateContract"
   >;
   config: Config;
@@ -99,6 +101,14 @@ export function startControlPlaneBackgroundTasks(opts: {
     deploymentAuthorityStorage: opts.deploymentAuthorityStorage,
     materializedAuthorityStorage: opts.materializedAuthorityStorage,
     authorityReconciliationStorage: opts.authorityReconciliationStorage,
+    natsGrantMaterializer: {
+      materialize: async ({ authority }) =>
+        await materializeAcceptedOfferNatsGrants({
+          authority,
+          contracts: opts.contracts,
+          implementationOfferStorage: opts.implementationOfferStorage,
+        }),
+    },
     physicalResources: {
       manager: createNatsAuthorityPhysicalResourceManager(opts.natsTrellis, {
         jetstreamReplicas: opts.jetstreamReplicas,

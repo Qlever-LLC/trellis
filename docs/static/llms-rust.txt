@@ -1,6 +1,6 @@
 # Trellis AI guidance for Rust services
 
-Last verified against Trellis v0.10.13 (2026-06-10).
+Last verified against Trellis main (2026-06-13).
 
 Use this file for AI coding agents working in a Rust service repository that
 consumes Trellis. The language-neutral guide is:
@@ -19,6 +19,12 @@ Rules:
   missing digest after the cache is pruned, regenerate from source and present the
   full manifest; do not patch deployment authority or implementation offers by
   hand.
+- Deployment authority proposal/desired `needs` are grouped by `contracts`,
+  `surfaces`, `capabilities`, and `resources`. Materialized authority is a
+  projection with runtime `grants` grouped by `capabilities`, `surfaces`, and
+  `nats`; service permissions require current materialization for the accepted
+  desired authority version. Stale or obsolete persisted projections are repaired
+  by Trellis storage upgrade and reconciliation.
 - prefer generated descriptors and generated client/facade methods
 - prefer generated provider facades for service handler registration when they
   are available

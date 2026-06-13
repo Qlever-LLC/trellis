@@ -89,29 +89,8 @@ function deploymentAuthority(args: {
     kind: args.kind ?? "service",
     disabled: args.disabled ?? false,
     desiredState: {
-      needs: [
-        ...args.needs.contracts.map((contract) => ({
-          kind: "contract" as const,
-          contractId: contract.contractId,
-          required: contract.required,
-        })),
-        ...args.needs.surfaces.map(({ required, ...surface }) => ({
-          kind: "surface" as const,
-          surface,
-          required,
-        })),
-        ...args.needs.capabilities.map((capability) => ({
-          kind: "capability" as const,
-          capability,
-          required: true,
-        })),
-        ...args.needs.resources.map((resource) => ({
-          kind: "resource" as const,
-          resource,
-          required: resource.required,
-        })),
-      ],
-      capabilities: args.needs.capabilities,
+      needs: args.needs,
+      capabilities: args.needs.capabilities.map((need) => need.capability),
       resources: args.needs.resources,
       surfaces: args.needs.surfaces.map(({ required: _required, ...surface }) =>
         surface
@@ -1550,7 +1529,7 @@ Deno.test("getApprovalResolution does not treat deployment authority capabilitie
       needs: {
         contracts: [],
         surfaces: [],
-        capabilities: ["audit"],
+        capabilities: [{ capability: "audit", required: true }],
         resources: [],
       },
     })],
@@ -1558,7 +1537,10 @@ Deno.test("getApprovalResolution does not treat deployment authority capabilitie
 
   assertEquals(resolution.effectiveCapabilities, []);
   assertEquals(resolution.missingCapabilities, ["audit"]);
-  assertEquals(resolution.systemAvailabilityAuthority?.capabilities, ["audit"]);
+  assertEquals(resolution.systemAvailabilityAuthority?.capabilities, [{
+    capability: "audit",
+    required: true,
+  }]);
 });
 
 Deno.test("getApprovalResolution loads persisted identity grant approvals", async () => {

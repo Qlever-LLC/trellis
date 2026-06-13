@@ -55,9 +55,55 @@ import type {
   AuthorityNeedSet,
   DeploymentAuthority,
   DeploymentAuthorityCapabilityDefinition,
+  DeploymentAuthorityMaterialization,
   DeploymentAuthorityPlan,
   DeploymentAuthorityUpdate,
 } from "../schemas.ts";
+
+type AuthorityCapabilityNeed = AuthorityNeedSet["capabilities"][number];
+type AuthorityContractNeed = AuthorityNeedSet["contracts"][number];
+type AuthorityResourceNeed = AuthorityNeedSet["resources"][number];
+type AuthoritySurfaceNeed = AuthorityNeedSet["surfaces"][number];
+type MaterializedAuthorityGrants = DeploymentAuthorityMaterialization["grants"];
+type LegacyAuthorityNeed =
+  | ({ kind: "contract" } & AuthorityContractNeed)
+  | { kind: "capability"; capability: string; required: boolean }
+  | { kind: "resource"; resource: AuthorityResourceNeed; required: boolean }
+  | {
+    kind: "surface";
+    surface: Omit<AuthoritySurfaceNeed, "required">;
+    required: boolean;
+  };
+type AuthorityNeedSetOverrides =
+  & Omit<Partial<AuthorityNeedSet>, "capabilities">
+  & {
+    capabilities?: Array<string | AuthorityCapabilityNeed>;
+  };
+type DeploymentAuthorityOverrides =
+  & Omit<Partial<DeploymentAuthority>, "desiredState">
+  & {
+    desiredState?:
+      & Omit<Partial<DeploymentAuthority["desiredState"]>, "needs">
+      & {
+        needs?: AuthorityNeedSet | LegacyAuthorityNeed[];
+      };
+  };
+type DeploymentAuthorityPlanOverrides =
+  & Omit<
+    Partial<DeploymentAuthorityUpdate>,
+    "proposal" | "desiredChange"
+  >
+  & {
+    proposal?:
+      & Omit<Partial<DeploymentAuthorityUpdate["proposal"]>, "requestedNeeds">
+      & {
+        requestedNeeds?: AuthorityNeedSet | LegacyAuthorityNeed[];
+      };
+    desiredChange?:
+      | AuthorityNeedSet
+      | AuthorityNeedSetOverrides
+      | LegacyAuthorityNeed[];
+  };
 
 const page = <T>(entries: T[], limit = 10) => ({
   entries,
@@ -330,23 +376,36 @@ class InMemoryCapabilityDefinitionStorage {
 }
 
 function deploymentAuthority(
-  overrides: Partial<DeploymentAuthority> = {},
+  overrides: DeploymentAuthorityOverrides = {},
 ): DeploymentAuthority {
+  const { desiredState: desiredStateOverride, ...authorityOverrides } =
+    overrides;
+  const desiredState: DeploymentAuthority["desiredState"] = {
+    needs: authorityNeedSet(desiredStateOverride?.needs),
+    capabilities: desiredStateOverride?.capabilities ?? [],
+    resources: desiredStateOverride?.resources ?? [],
+    surfaces: desiredStateOverride?.surfaces ?? [],
+  };
   return {
     deploymentId: "svc-a",
     kind: "service",
     disabled: false,
-    desiredState: { needs: [], capabilities: [], resources: [], surfaces: [] },
+    desiredState,
     version: "v1",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
-    ...overrides,
+    ...authorityOverrides,
   };
 }
 
 function deploymentAuthorityPlan(
-  overrides: Partial<DeploymentAuthorityUpdate> = {},
+  overrides: DeploymentAuthorityPlanOverrides = {},
 ): DeploymentAuthorityPlan {
+  const {
+    desiredChange: desiredChangeOverride,
+    proposal: proposalOverride,
+    ...planOverrides
+  } = overrides;
   return {
     classification: "update",
     planId: "plan-a",
@@ -355,34 +414,77 @@ function deploymentAuthorityPlan(
       deploymentId: "svc-a",
       contractId: "svc.contract@v1",
       contractDigest: "sha256-a",
-      requestedNeeds: [],
       providedSurfaces: [],
       summary: { desiredVersion: "v1" },
+      ...proposalOverride,
+      requestedNeeds: authorityNeedSet(proposalOverride?.requestedNeeds),
     },
-    desiredChange: {
-      contracts: [{ contractId: "svc.contract@v1", required: true }],
-      surfaces: [],
-      capabilities: ["svc.use"],
-      resources: [],
-    },
+    desiredChange: authorityNeedSet(
+      desiredChangeOverride ?? {
+        contracts: [{ contractId: "svc.contract@v1", required: true }],
+        capabilities: [{ capability: "svc.use", required: true }],
+      },
+    ),
     materializationPreview: {},
     warnings: [],
     createdAt: "2026-01-01T00:00:01.000Z",
     state: "pending",
-    ...overrides,
+    ...planOverrides,
   };
 }
 
 function authorityNeedSet(
-  overrides: Partial<AuthorityNeedSet> = {},
+  overrides?:
+    | AuthorityNeedSet
+    | AuthorityNeedSetOverrides
+    | LegacyAuthorityNeed[],
 ): AuthorityNeedSet {
+  if (overrides === undefined) {
+    return { contracts: [], surfaces: [], capabilities: [], resources: [] };
+  }
+  if (Array.isArray(overrides)) return legacyAuthorityNeeds(overrides);
   return {
+    contracts: [],
+    surfaces: [],
+    resources: [],
+    ...overrides,
+    capabilities: (overrides.capabilities ?? []).map((capability) =>
+      typeof capability === "string"
+        ? { capability, required: true }
+        : capability
+    ),
+  };
+}
+
+function legacyAuthorityNeeds(needs: LegacyAuthorityNeed[]): AuthorityNeedSet {
+  const grouped: AuthorityNeedSet = {
     contracts: [],
     surfaces: [],
     capabilities: [],
     resources: [],
-    ...overrides,
   };
+  for (const need of needs) {
+    if (need.kind === "contract") {
+      grouped.contracts.push({
+        contractId: need.contractId,
+        required: need.required,
+      });
+    } else if (need.kind === "capability") {
+      grouped.capabilities.push({
+        capability: need.capability,
+        required: need.required,
+      });
+    } else if (need.kind === "resource") {
+      grouped.resources.push({ ...need.resource, required: need.required });
+    } else {
+      grouped.surfaces.push({ ...need.surface, required: need.required });
+    }
+  }
+  return grouped;
+}
+
+function emptyMaterializedGrants(): MaterializedAuthorityGrants {
+  return { capabilities: [], surfaces: [], nats: [] };
 }
 
 function kickDeps(serviceDeps: ServiceAdminRpcDeps) {
@@ -606,11 +708,9 @@ Deno.test("Auth.DeploymentAuthority.AcceptUpdate accepts pending plan without ma
   const authorities = new InMemoryDeploymentAuthorityStorage(
     deploymentAuthority({
       desiredState: {
-        needs: [{
-          kind: "contract",
-          contractId: "svc.contract@v1",
-          required: true,
-        }],
+        needs: authorityNeedSet({
+          contracts: [{ contractId: "svc.contract@v1", required: true }],
+        }),
         capabilities: [],
         resources: [],
         surfaces: [],
@@ -623,7 +723,7 @@ Deno.test("Auth.DeploymentAuthority.AcceptUpdate accepts pending plan without ma
         deploymentId: "svc-a",
         contractId: "svc.contract@v1",
         contractDigest: "sha256-a",
-        requestedNeeds: [],
+        requestedNeeds: authorityNeedSet(),
         providedSurfaces: [],
         summary: {
           desiredVersion: "v1",
@@ -653,7 +753,7 @@ Deno.test("Auth.DeploymentAuthority.AcceptUpdate accepts pending plan without ma
             desiredVersion: opts?.desiredVersion ?? "v1",
             status: "current",
             resourceBindings: [],
-            grants: [],
+            grants: emptyMaterializedGrants(),
             reconciledAt: "2026-01-01T00:00:02.000Z",
           },
           reconciliation: {
@@ -677,10 +777,13 @@ Deno.test("Auth.DeploymentAuthority.AcceptUpdate accepts pending plan without ma
   assert(!result.isErr());
   const value = result.take();
   if (isErr(value)) throw value.error;
-  assertEquals(value.authority.desiredState.needs, [
-    { kind: "contract", contractId: "svc.contract@v1", required: true },
-    { kind: "capability", capability: "svc.use", required: true },
-  ]);
+  assertEquals(
+    value.authority.desiredState.needs,
+    authorityNeedSet({
+      contracts: [{ contractId: "svc.contract@v1", required: true }],
+      capabilities: [{ capability: "svc.use", required: true }],
+    }),
+  );
   assert(value.authority.version !== "v1");
   assertEquals(plans.getValue("plan-a")?.state, "accepted");
   assertEquals(reconciliations, [{
@@ -709,11 +812,9 @@ Deno.test("Auth.DeploymentAuthority.AcceptUpdate persists normalized resource de
   const authorities = new InMemoryDeploymentAuthorityStorage(
     deploymentAuthority({
       desiredState: {
-        needs: [{
-          kind: "contract",
-          contractId: "svc.contract@v1",
-          required: true,
-        }],
+        needs: authorityNeedSet({
+          contracts: [{ contractId: "svc.contract@v1", required: true }],
+        }),
         capabilities: [],
         resources: [],
         surfaces: [],
@@ -726,7 +827,7 @@ Deno.test("Auth.DeploymentAuthority.AcceptUpdate persists normalized resource de
       deploymentId: "svc-a",
       contractId: "svc.contract@v1",
       contractDigest: "sha256-a",
-      requestedNeeds: [{ kind: "resource", resource, required: true }],
+      requestedNeeds: authorityNeedSet({ resources: [resource] }),
       providedSurfaces: [],
       summary: { desiredVersion: "v1" },
     },
@@ -743,7 +844,7 @@ Deno.test("Auth.DeploymentAuthority.AcceptUpdate persists normalized resource de
           desiredVersion: opts?.desiredVersion ?? "v1",
           status: "current",
           resourceBindings: [],
-          grants: [],
+          grants: emptyMaterializedGrants(),
           reconciledAt: "2026-01-01T00:00:02.000Z",
         },
         reconciliation: {
@@ -767,15 +868,13 @@ Deno.test("Auth.DeploymentAuthority.AcceptUpdate persists normalized resource de
   const value = result.take();
   if (isErr(value)) throw value.error;
   assertEquals(value.authority.desiredState.resources, [resource]);
-  assertEquals(value.authority.desiredState.needs, [{
-    kind: "contract",
-    contractId: "svc.contract@v1",
-    required: true,
-  }, {
-    kind: "resource",
-    resource,
-    required: true,
-  }]);
+  assertEquals(
+    value.authority.desiredState.needs,
+    authorityNeedSet({
+      contracts: [{ contractId: "svc.contract@v1", required: true }],
+      resources: [resource],
+    }),
+  );
 });
 
 Deno.test("Auth.DeploymentAuthority.Plan classifies additive missing needs as update", () => {
@@ -929,11 +1028,9 @@ Deno.test("Auth.DeploymentAuthority.AcceptUpdate rejects migration plans", async
   const authorities = new InMemoryDeploymentAuthorityStorage(
     deploymentAuthority({
       desiredState: {
-        needs: [{
-          kind: "contract",
-          contractId: "svc.contract@v1",
-          required: true,
-        }],
+        needs: authorityNeedSet({
+          contracts: [{ contractId: "svc.contract@v1", required: true }],
+        }),
         capabilities: [],
         resources: [],
         surfaces: [],
@@ -980,11 +1077,9 @@ Deno.test("Auth.DeploymentAuthority.AcceptMigration stores acknowledgement as de
   const authorities = new InMemoryDeploymentAuthorityStorage(
     deploymentAuthority({
       desiredState: {
-        needs: [{
-          kind: "contract",
-          contractId: "svc.contract@v1",
-          required: true,
-        }],
+        needs: authorityNeedSet({
+          contracts: [{ contractId: "svc.contract@v1", required: true }],
+        }),
         capabilities: [],
         resources: [],
         surfaces: [],
@@ -999,7 +1094,7 @@ Deno.test("Auth.DeploymentAuthority.AcceptMigration stores acknowledgement as de
       deploymentId: "svc-a",
       contractId: "svc.contract@v1",
       contractDigest: "sha256-a",
-      requestedNeeds: [],
+      requestedNeeds: authorityNeedSet(),
       providedSurfaces: [],
       summary: {
         desiredVersion: "v1",
@@ -1020,7 +1115,7 @@ Deno.test("Auth.DeploymentAuthority.AcceptMigration stores acknowledgement as de
           desiredVersion: opts?.desiredVersion ?? "v1",
           status: "current",
           resourceBindings: [],
-          grants: [],
+          grants: emptyMaterializedGrants(),
           reconciledAt: "2026-01-01T00:00:02.000Z",
         },
         reconciliation: {
@@ -1053,23 +1148,13 @@ Deno.test("Auth.DeploymentAuthority.AcceptMigration replaces desired state from 
   const authorities = new InMemoryDeploymentAuthorityStorage(
     deploymentAuthority({
       desiredState: {
-        needs: [
-          {
-            kind: "contract",
-            contractId: "svc.contract@v1",
-            required: true,
-          },
-          {
-            kind: "resource",
-            resource: { kind: "kv", alias: "cache", required: true },
-            required: true,
-          },
-          {
-            kind: "resource",
-            resource: { kind: "kv", alias: "secondary", required: true },
-            required: true,
-          },
-        ],
+        needs: authorityNeedSet({
+          contracts: [{ contractId: "svc.contract@v1", required: true }],
+          resources: [
+            { kind: "kv", alias: "cache", required: true },
+            { kind: "kv", alias: "secondary", required: true },
+          ],
+        }),
         capabilities: [],
         resources: [
           { kind: "kv", alias: "cache", required: true },
@@ -1087,20 +1172,23 @@ Deno.test("Auth.DeploymentAuthority.AcceptMigration replaces desired state from 
       deploymentId: "svc-a",
       contractId: "svc.contract@v1",
       contractDigest: "sha256-a",
-      requestedNeeds: [{
-        kind: "contract",
-        contractId: "svc.contract@v1",
-        required: true,
-      }, {
-        kind: "resource",
-        resource: {
-          kind: "kv",
-          alias: "cache",
+      requestedNeeds: authorityNeedSet([
+        {
+          kind: "contract",
+          contractId: "svc.contract@v1",
           required: true,
-          definition: { type: "kv", history: 2, ttlMs: 30000 },
         },
-        required: true,
-      }],
+        {
+          kind: "resource",
+          resource: {
+            kind: "kv",
+            alias: "cache",
+            required: true,
+            definition: { type: "kv", history: 2, ttlMs: 30000 },
+          },
+          required: true,
+        },
+      ]),
       providedSurfaces: [],
       summary: { desiredVersion: "v1" },
     },
@@ -1117,7 +1205,7 @@ Deno.test("Auth.DeploymentAuthority.AcceptMigration replaces desired state from 
           desiredVersion: opts?.desiredVersion ?? "v1",
           status: "current",
           resourceBindings: [],
-          grants: [],
+          grants: emptyMaterializedGrants(),
           reconciledAt: "2026-01-01T00:00:02.000Z",
         },
         reconciliation: {
@@ -1152,23 +1240,13 @@ Deno.test("Auth.DeploymentAuthority.AcceptMigration rejects out-of-scope replace
   const authorities = new InMemoryDeploymentAuthorityStorage(
     deploymentAuthority({
       desiredState: {
-        needs: [
-          {
-            kind: "contract",
-            contractId: "svc.contract@v1",
-            required: true,
-          },
-          {
-            kind: "contract",
-            contractId: "other.contract@v1",
-            required: true,
-          },
-          {
-            kind: "resource",
-            resource: { kind: "kv", alias: "cache", required: true },
-            required: true,
-          },
-        ],
+        needs: authorityNeedSet({
+          contracts: [
+            { contractId: "svc.contract@v1", required: true },
+            { contractId: "other.contract@v1", required: true },
+          ],
+          resources: [{ kind: "kv", alias: "cache", required: true }],
+        }),
         capabilities: [],
         resources: [{ kind: "kv", alias: "cache", required: true }],
         surfaces: [],
@@ -1184,11 +1262,9 @@ Deno.test("Auth.DeploymentAuthority.AcceptMigration rejects out-of-scope replace
       deploymentId: "svc-a",
       contractId: "svc.contract@v1",
       contractDigest: "sha256-a",
-      requestedNeeds: [{
-        kind: "contract",
-        contractId: "svc.contract@v1",
-        required: true,
-      }],
+      requestedNeeds: authorityNeedSet({
+        contracts: [{ contractId: "svc.contract@v1", required: true }],
+      }),
       providedSurfaces: [],
       summary: { desiredVersion: "v1" },
     },
@@ -1219,16 +1295,15 @@ Deno.test("Auth.DeploymentAuthority.AcceptMigration rejects replacement with out
   const authorities = new InMemoryDeploymentAuthorityStorage(
     deploymentAuthority({
       desiredState: {
-        needs: [{
-          kind: "surface",
-          surface: {
+        needs: authorityNeedSet({
+          surfaces: [{
             contractId: "other.contract@v1",
             kind: "rpc",
             name: "Other.Read",
             action: "call",
-          },
-          required: true,
-        }],
+            required: true,
+          }],
+        }),
         capabilities: [],
         resources: [],
         surfaces: [{
@@ -1249,11 +1324,9 @@ Deno.test("Auth.DeploymentAuthority.AcceptMigration rejects replacement with out
       deploymentId: "svc-a",
       contractId: "svc.contract@v1",
       contractDigest: "sha256-a",
-      requestedNeeds: [{
-        kind: "contract",
-        contractId: "svc.contract@v1",
-        required: true,
-      }],
+      requestedNeeds: authorityNeedSet({
+        contracts: [{ contractId: "svc.contract@v1", required: true }],
+      }),
       providedSurfaces: [],
       summary: { desiredVersion: "v1" },
     },
@@ -1284,11 +1357,9 @@ Deno.test("Auth.DeploymentAuthority.AcceptMigration rejects missing acknowledgem
   const authorities = new InMemoryDeploymentAuthorityStorage(
     deploymentAuthority({
       desiredState: {
-        needs: [{
-          kind: "contract",
-          contractId: "svc.contract@v1",
-          required: true,
-        }],
+        needs: authorityNeedSet({
+          contracts: [{ contractId: "svc.contract@v1", required: true }],
+        }),
         capabilities: [],
         resources: [],
         surfaces: [],
@@ -1324,11 +1395,9 @@ Deno.test("Auth.DeploymentAuthority.AcceptMigration warns when reconciliation tr
   const authorities = new InMemoryDeploymentAuthorityStorage(
     deploymentAuthority({
       desiredState: {
-        needs: [{
-          kind: "contract",
-          contractId: "svc.contract@v1",
-          required: true,
-        }],
+        needs: authorityNeedSet({
+          contracts: [{ contractId: "svc.contract@v1", required: true }],
+        }),
         capabilities: [],
         resources: [],
         surfaces: [],
@@ -1631,7 +1700,7 @@ Deno.test("Auth.Deployments.Create service initializes an empty service authorit
   assertEquals(authorities[0]?.kind, "service");
   assertEquals(authorities[0]?.disabled, false);
   assertEquals(authorities[0]?.desiredState, {
-    needs: [],
+    needs: authorityNeedSet(),
     capabilities: [],
     resources: [],
     surfaces: [],
@@ -1651,7 +1720,9 @@ Deno.test("Auth.Deployments.Create service resets an existing disabled authority
     kind: "service",
     disabled: true,
     desiredState: {
-      needs: [{ kind: "contract", contractId: "old@v1", required: true }],
+      needs: authorityNeedSet({
+        contracts: [{ contractId: "old@v1", required: true }],
+      }),
       capabilities: ["old.use"],
       resources: [],
       surfaces: [],
@@ -1678,7 +1749,7 @@ Deno.test("Auth.Deployments.Create service resets an existing disabled authority
   assertEquals(authority.kind, "service");
   assertEquals(authority.disabled, false);
   assertEquals(authority.desiredState, {
-    needs: [],
+    needs: authorityNeedSet(),
     capabilities: [],
     resources: [],
     surfaces: [],
@@ -3566,7 +3637,7 @@ Deno.test("Auth.Deployments.Create device initializes an empty device authority"
   assertEquals(authorityPuts[0]?.kind, "device");
   assertEquals(authorityPuts[0]?.disabled, false);
   assertEquals(authorityPuts[0]?.desiredState, {
-    needs: [],
+    needs: authorityNeedSet(),
     capabilities: [],
     resources: [],
     surfaces: [],
@@ -3581,7 +3652,9 @@ Deno.test("Auth.Deployments.Create device resets an existing disabled authority"
       kind: "device",
       disabled: true,
       desiredState: {
-        needs: [{ kind: "contract", contractId: "old@v1", required: true }],
+        needs: authorityNeedSet({
+          contracts: [{ contractId: "old@v1", required: true }],
+        }),
         capabilities: ["old.use"],
         resources: [],
         surfaces: [],
@@ -3602,7 +3675,7 @@ Deno.test("Auth.Deployments.Create device resets an existing disabled authority"
   assertEquals(authorityPuts[0]?.kind, "device");
   assertEquals(authorityPuts[0]?.disabled, false);
   assertEquals(authorityPuts[0]?.desiredState, {
-    needs: [],
+    needs: authorityNeedSet(),
     capabilities: [],
     resources: [],
     surfaces: [],

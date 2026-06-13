@@ -23,7 +23,11 @@ import {
   createAuthServiceInstancesRemoveHandler,
 } from "../admin/service_rpc.ts";
 import { analyzeContractProposal } from "../contract_proposal_analysis.ts";
-import { computeAuthorityNeedsDelta } from "../authority_needs_decision.ts";
+import {
+  emptyAuthorityNeeds,
+  mergeAuthorityNeeds,
+  normalizeAuthorityNeeds,
+} from "../authority_needs.ts";
 import { classifyDeploymentAuthorityPlan } from "../deployment_authority_plan.ts";
 import type { AuthContractsRuntime, RpcRegistrar } from "./types.ts";
 import type { AuthRuntimeDeps, RuntimeKV } from "../runtime_deps.ts";
@@ -57,65 +61,35 @@ function authoritySurfaces(needs: AuthorityNeedSet) {
 }
 
 function authorityNeeds(needs: AuthorityNeedSet) {
-  return [
-    ...needs.contracts.map((contract) => ({
-      kind: "contract" as const,
-      contractId: contract.contractId,
-      required: contract.required,
-    })),
-    ...needs.surfaces.map(({ required, ...surface }) => ({
-      kind: "surface" as const,
-      surface,
-      required,
-    })),
-    ...needs.capabilities.map((capability) => ({
-      kind: "capability" as const,
-      capability,
-      required: true,
-    })),
-    ...needs.resources.map((resource) => ({
-      kind: "resource" as const,
-      resource,
-      required: resource.required,
-    })),
-  ];
-}
-
-const EMPTY_AUTHORITY_NEEDS: AuthorityNeedSet = {
-  contracts: [],
-  surfaces: [],
-  capabilities: [],
-  resources: [],
-};
-
-function normalizedNeeds(needs: AuthorityNeedSet): AuthorityNeedSet {
-  return computeAuthorityNeedsDelta(EMPTY_AUTHORITY_NEEDS, needs);
+  return normalizeAuthorityNeeds(needs);
 }
 
 function mergeNeeds(...needs: AuthorityNeedSet[]): AuthorityNeedSet {
-  return normalizedNeeds({
-    contracts: needs.flatMap((entry) => entry.contracts),
-    surfaces: needs.flatMap((entry) => entry.surfaces),
-    capabilities: needs.flatMap((entry) => entry.capabilities),
-    resources: needs.flatMap((entry) => entry.resources),
-  });
+  return mergeAuthorityNeeds(...needs);
 }
 
 function currentNeeds(authority: DeploymentAuthority): AuthorityNeedSet {
-  return {
-    contracts: authority.desiredState.needs.flatMap((need) =>
-      need.kind === "contract"
-        ? [{ contractId: need.contractId, required: need.required }]
-        : []
-    ),
-    surfaces: authority.desiredState.needs.flatMap((need) =>
-      need.kind === "surface"
-        ? [{ ...need.surface, required: need.required }]
-        : []
-    ),
-    capabilities: authority.desiredState.capabilities,
-    resources: authority.desiredState.resources,
-  };
+  return normalizeAuthorityNeeds({
+    contracts: authority.desiredState.needs.contracts,
+    surfaces: [
+      ...authority.desiredState.needs.surfaces,
+      ...authority.desiredState.surfaces.map((surface) => ({
+        ...surface,
+        required: true,
+      })),
+    ],
+    capabilities: [
+      ...authority.desiredState.needs.capabilities,
+      ...authority.desiredState.capabilities.map((capability) => ({
+        capability,
+        required: true,
+      })),
+    ],
+    resources: [
+      ...authority.desiredState.needs.resources,
+      ...authority.desiredState.resources,
+    ],
+  });
 }
 
 function contractIdOf(
@@ -284,7 +258,7 @@ export async function registerServiceAdminRpcs(deps: {
       analysis.required,
       analysis.optional,
       {
-        ...EMPTY_AUTHORITY_NEEDS,
+        ...emptyAuthorityNeeds(),
         contracts: analysis.contributedAvailability.contracts,
       },
     );

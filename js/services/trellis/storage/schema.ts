@@ -400,9 +400,13 @@ export const deploymentAuthorityCapabilities = sqliteTable(
   {
     deploymentId: text("deployment_id").notNull(),
     capability: text("capability").notNull(),
+    required: integer("required", { mode: "boolean" }).notNull(),
+    source: text("source").notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.deploymentId, table.capability] }),
+    primaryKey({
+      columns: [table.deploymentId, table.capability, table.source],
+    }),
   ],
 );
 

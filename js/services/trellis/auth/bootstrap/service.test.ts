@@ -58,6 +58,10 @@ function mergeBoundaries(...boundaries: AuthorityNeedSet[]): AuthorityNeedSet {
   });
 }
 
+function emptyMaterializedGrants() {
+  return { capabilities: [], surfaces: [], nats: [] };
+}
+
 function authorityFromBoundary(
   boundary: AuthorityNeedSet,
   overrides: Partial<DeploymentAuthority> = {},
@@ -67,29 +71,8 @@ function authorityFromBoundary(
     kind: "service",
     disabled: false,
     desiredState: {
-      needs: [
-        ...boundary.contracts.map((contract) => ({
-          kind: "contract" as const,
-          contractId: contract.contractId,
-          required: contract.required,
-        })),
-        ...boundary.surfaces.map(({ required, ...surface }) => ({
-          kind: "surface" as const,
-          surface,
-          required,
-        })),
-        ...boundary.capabilities.map((capability) => ({
-          kind: "capability" as const,
-          capability,
-          required: true,
-        })),
-        ...boundary.resources.map((resource) => ({
-          kind: "resource" as const,
-          resource,
-          required: resource.required,
-        })),
-      ],
-      capabilities: boundary.capabilities,
+      needs: boundary,
+      capabilities: boundary.capabilities.map((need) => need.capability),
       resources: boundary.resources,
       surfaces: boundary.surfaces.map(({ required: _required, ...surface }) =>
         surface
@@ -472,7 +455,7 @@ async function createApp(args: {
       desiredVersion: initialAuthority.version,
       status: "current" as const,
       resourceBindings: bindings,
-      grants: [],
+      grants: emptyMaterializedGrants(),
       reconciledAt: TEST_NOW,
     }
     : args.materializedAuthority ?? undefined;
@@ -622,7 +605,7 @@ async function createApp(args: {
             desiredVersion: opts?.desiredVersion ?? authorityVersion,
             status: "current",
             resourceBindings: bindings,
-            grants: [],
+            grants: emptyMaterializedGrants(),
             reconciledAt: TEST_NOW,
           };
         },
@@ -1093,7 +1076,10 @@ Deno.test("POST /bootstrap/service plans authority update through known inactive
     action: "call",
     required: true,
   }]);
-  assertEquals(setup.plans[0]?.desiredChange.capabilities, ["dep.read"]);
+  assertEquals(setup.plans[0]?.desiredChange.capabilities, [{
+    capability: "dep.read",
+    required: true,
+  }]);
   assertEquals(setup.services.length, 0);
 });
 
@@ -1332,7 +1318,7 @@ Deno.test("POST /bootstrap/service does not reuse stale pending authority plans"
         deploymentId: "deployment_1",
         contractId: expanded.contract.id,
         contractDigest: expanded.digest,
-        requestedNeeds: [],
+        requestedNeeds: EMPTY_BOUNDARY,
         providedSurfaces: [],
         summary: { desiredVersion: "old-version" },
       },
@@ -1957,7 +1943,7 @@ Deno.test("POST /bootstrap/service reports reconciliation pending when materiali
         desiredVersion: "old-version",
         status: "current" as const,
         resourceBindings: [kvBinding("cache")],
-        grants: [],
+        grants: emptyMaterializedGrants(),
         reconciledAt: TEST_NOW,
       },
       {
@@ -1965,7 +1951,7 @@ Deno.test("POST /bootstrap/service reports reconciliation pending when materiali
         desiredVersion: TEST_NOW,
         status: "pending" as const,
         resourceBindings: [kvBinding("cache")],
-        grants: [],
+        grants: emptyMaterializedGrants(),
         reconciledAt: null,
       },
     ]
@@ -1997,7 +1983,7 @@ Deno.test("POST /bootstrap/service reports reconciliation failed", async () => {
       desiredVersion: TEST_NOW,
       status: "failed",
       resourceBindings: [kvBinding("cache")],
-      grants: [],
+      grants: emptyMaterializedGrants(),
       reconciledAt: TEST_NOW,
       error: "provisioning failed",
     },
