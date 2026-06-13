@@ -13,6 +13,11 @@ and this project adheres to
 - Fixed the `@qlever-llc/trellis` npm root export so browser bundlers select the
   browser-safe entrypoint without app-level Vite aliases, preventing DNT and
   Node/Deno builtin shims from leaking into browser client bundles.
+- Fixed Trellis contract catalog startup and lookup behavior so invalid cached
+  manifests are pruned from the SQLite `contracts` cache, stale derived
+  projections no longer block manifest hydration, active implementation offers
+  remain untouched when their cached manifest is missing, and presenting a full
+  valid manifest repairs a corrupt same-digest cache row.
 
 ## [0.10.16] - 2026-06-12
 

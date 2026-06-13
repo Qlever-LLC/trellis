@@ -12,6 +12,19 @@ import { type ContractRecord, ContractRecordSchema } from "./schemas.ts";
 type ContractRow = typeof contracts.$inferSelect;
 type ContractInsert = typeof contracts.$inferInsert;
 
+/** Minimal stored contract manifest record read without decoded projections. */
+export type StoredContractManifestRecord = {
+  digest: string;
+  id: string;
+  contract: string;
+};
+
+type ContractManifestRow = {
+  digest: string;
+  contractId: string;
+  contract: string;
+};
+
 function parseJsonField(name: string, value: string | null): unknown {
   if (value === null) {
     return undefined;
@@ -41,6 +54,16 @@ function decodeContractRow(row: ContractRow): ContractRecord {
     analysisSummary: parseJsonField("analysisSummary", row.analysisSummary),
     analysis: parseJsonField("analysis", row.analysis),
   });
+}
+
+function decodeContractManifestRow(
+  row: ContractManifestRow,
+): StoredContractManifestRecord {
+  return {
+    digest: row.digest,
+    id: row.contractId,
+    contract: row.contract,
+  };
 }
 
 function encodeContractRecord(record: ContractRecord): ContractInsert {
@@ -76,6 +99,20 @@ export class SqlContractStorageRepository {
     return row === undefined ? undefined : decodeContractRow(row);
   }
 
+  /** Returns the raw stored manifest for a digest without decoding projections. */
+  async getManifest(
+    digest: string,
+  ): Promise<StoredContractManifestRecord | undefined> {
+    const rows = await this.#db.select({
+      digest: contracts.digest,
+      contractId: contracts.contractId,
+      contract: contracts.contract,
+    }).from(contracts).where(eq(contracts.digest, digest)).limit(1);
+
+    const row = rows[0];
+    return row === undefined ? undefined : decodeContractManifestRow(row);
+  }
+
   /** Returns contract records for the requested digests ordered by digest. */
   async getMany(digests: Iterable<string>): Promise<ContractRecord[]> {
     const requested = [...new Set(digests)];
@@ -86,12 +123,42 @@ export class SqlContractStorageRepository {
     return rows.map((row) => decodeContractRow(row));
   }
 
+  /** Returns raw stored manifests for the requested digests ordered by digest. */
+  async getManifests(
+    digests: Iterable<string>,
+  ): Promise<StoredContractManifestRecord[]> {
+    const requested = [...new Set(digests)];
+    if (requested.length === 0) return [];
+    const rows = await this.#db.select({
+      digest: contracts.digest,
+      contractId: contracts.contractId,
+      contract: contracts.contract,
+    }).from(contracts).where(inArray(contracts.digest, requested)).orderBy(
+      contracts.digest,
+    );
+    return rows.map((row) => decodeContractManifestRow(row));
+  }
+
   /** Returns contract records for a contract id ordered by digest. */
   async listByContractId(contractId: string): Promise<ContractRecord[]> {
     const rows = await this.#db.select().from(contracts).where(
       eq(contracts.contractId, contractId),
     ).orderBy(contracts.digest);
     return rows.map((row) => decodeContractRow(row));
+  }
+
+  /** Returns raw stored manifests for a contract id ordered by digest. */
+  async listManifestsByContractId(
+    contractId: string,
+  ): Promise<StoredContractManifestRecord[]> {
+    const rows = await this.#db.select({
+      digest: contracts.digest,
+      contractId: contracts.contractId,
+      contract: contracts.contract,
+    }).from(contracts).where(eq(contracts.contractId, contractId)).orderBy(
+      contracts.digest,
+    );
+    return rows.map((row) => decodeContractManifestRow(row));
   }
 
   /** Inserts or replaces the contract record keyed by its digest. */
@@ -119,6 +186,19 @@ export class SqlContractStorageRepository {
       contracts.digest,
     ).limit(limit).offset(offset);
     return rows.map((row) => decodeContractRow(row));
+  }
+
+  /** Returns a bounded page of raw stored manifests ordered by digest. */
+  async listManifestPage(
+    query: BoundedListQuery,
+  ): Promise<StoredContractManifestRecord[]> {
+    const { offset, limit } = boundedListQuery(query);
+    const rows = await this.#db.select({
+      digest: contracts.digest,
+      contractId: contracts.contractId,
+      contract: contracts.contract,
+    }).from(contracts).orderBy(contracts.digest).limit(limit).offset(offset);
+    return rows.map((row) => decodeContractManifestRow(row));
   }
 
   /** Returns whether a contract record exists for the digest. */

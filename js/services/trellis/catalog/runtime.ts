@@ -17,7 +17,6 @@ import {
   getActiveCapabilityDefinitions,
   getActiveCatalog,
   getContractsById,
-  validateActiveDigestEntries,
   validateContractManifest,
   type ValidatedContract,
 } from "./store.ts";
@@ -29,7 +28,10 @@ import {
   validateActiveContractCompatibility,
   validateActiveContractUses,
 } from "./uses.ts";
-import type { SqlContractStorageRepository } from "./storage.ts";
+import type {
+  SqlContractStorageRepository,
+  StoredContractManifestRecord,
+} from "./storage.ts";
 import type { DeploymentAuthority } from "../auth/schemas.ts";
 
 type CatalogLogger = {
@@ -40,12 +42,6 @@ type CatalogLogger = {
 const consoleLogger: CatalogLogger = {
   warn: (fields, message) => console.warn(message, fields),
   error: (fields, message) => console.error(message, fields),
-};
-
-type InstalledContractRecord = {
-  digest: string;
-  id: string;
-  contract: string;
 };
 
 type ServiceDeploymentRecord = Awaited<
@@ -210,56 +206,6 @@ function checkOwnedSubject(args: {
   }
 }
 
-async function hydrateStoredContract(args: {
-  logger: CatalogLogger;
-  record: InstalledContractRecord;
-  message: string;
-}): Promise<ContractEntry | undefined> {
-  try {
-    const parsed = JSON.parse(args.record.contract);
-    if (!isJsonValue(parsed)) {
-      throw new Error("stored contract is not valid JSON value");
-    }
-    const validated = await validateContractManifest(parsed);
-    if (validated.digest !== args.record.digest) {
-      throw new Error("stored contract digest does not match persisted digest");
-    }
-    return {
-      digest: validated.digest,
-      contract: validated.contract,
-    };
-  } catch (error) {
-    args.logger.warn({
-      digest: args.record.digest,
-      contractId: args.record.id,
-      err: error instanceof Error ? error : undefined,
-      errorMessage: getErrorMessage(error),
-    }, args.message);
-    return undefined;
-  }
-}
-
-async function loadStoredContractOrThrow(args: {
-  record: InstalledContractRecord;
-  message: string;
-}): Promise<ContractEntry> {
-  try {
-    const parsed = JSON.parse(args.record.contract);
-    if (!isJsonValue(parsed)) {
-      throw new Error("stored contract is not valid JSON value");
-    }
-    const validated = await validateContractManifest(parsed);
-    if (validated.digest !== args.record.digest) {
-      throw new Error("stored contract digest does not match persisted digest");
-    }
-    return { digest: validated.digest, contract: validated.contract };
-  } catch (error) {
-    throw new Error(`${args.message} '${args.record.digest}'`, {
-      cause: error,
-    });
-  }
-}
-
 function getRequiredServiceCapabilities(
   activeEntries: readonly ContractEntry[],
   contract: TrellisContractV1,
@@ -332,118 +278,130 @@ export function createContractsModule(opts: {
     opts.builtinContracts.map((entry) => entry.digest),
   );
 
+  async function hydrateCachedManifest(args: {
+    record: StoredContractManifestRecord;
+    context: string;
+    pruneInvalid?: boolean;
+  }): Promise<ContractEntry | undefined> {
+    try {
+      const parsed = JSON.parse(args.record.contract);
+      if (!isJsonValue(parsed)) {
+        throw new Error("stored contract is not valid JSON value");
+      }
+      const validated = await validateContractManifest(parsed);
+      if (validated.digest !== args.record.digest) {
+        throw new Error(
+          "stored contract digest does not match persisted digest",
+        );
+      }
+      return {
+        digest: validated.digest,
+        contract: validated.contract,
+      };
+    } catch (error) {
+      logger.warn({
+        digest: args.record.digest,
+        contractId: args.record.id,
+        context: args.context,
+        err: error instanceof Error ? error : undefined,
+        errorMessage: getErrorMessage(error),
+      }, "Failed to hydrate cached contract manifest");
+      if (args.pruneInvalid === true) {
+        try {
+          await opts.contractStorage.delete(args.record.digest);
+        } catch (deleteError) {
+          logger.warn({
+            digest: args.record.digest,
+            contractId: args.record.id,
+            context: args.context,
+            err: deleteError instanceof Error ? deleteError : undefined,
+            errorMessage: getErrorMessage(deleteError),
+          }, "Failed to prune invalid cached contract manifest");
+        }
+      }
+      return undefined;
+    }
+  }
+
   async function getKnownEntry(
     digest: string,
   ): Promise<ContractEntry | undefined> {
     const builtin = builtinByDigest.get(digest);
     if (builtin) return { digest, contract: builtin };
 
-    const stored = await opts.contractStorage.get(digest);
+    const stored = await opts.contractStorage.getManifest(digest);
     if (stored) {
-      return await hydrateStoredContract({
-        logger,
-        record: {
-          digest: stored.digest,
-          id: stored.id,
-          contract: stored.contract,
-        },
-        message: "Failed to hydrate persisted contract",
+      return await hydrateCachedManifest({
+        record: stored,
+        context: "known-contract",
+        pruneInvalid: true,
       });
     }
 
     return undefined;
   }
 
-  async function loadEntriesForDigests(args: {
-    digests: Iterable<string>;
-    message: string;
-  }): Promise<ContractEntry[]> {
-    const requested = new Set(args.digests);
-    const entriesByDigest = new Map<string, TrellisContractV1>();
-    for (const digest of requested) {
-      const builtin = builtinByDigest.get(digest);
-      if (builtin) entriesByDigest.set(digest, builtin);
-    }
-
-    const missingAfterBuiltins = [...requested].filter((digest) =>
-      !entriesByDigest.has(digest)
-    );
-    const stored = await opts.contractStorage.getMany(missingAfterBuiltins);
-    for (const record of stored) {
-      const entry = await loadStoredContractOrThrow({
-        record: {
-          digest: record.digest,
-          id: record.id,
-          contract: record.contract,
-        },
-        message: args.message,
-      });
-      entriesByDigest.set(entry.digest, entry.contract);
-    }
-
-    const missingAfterStored = [...requested].filter((digest) =>
-      !entriesByDigest.has(digest)
-    );
-    for (const digest of missingAfterStored) {
-      throw new Error(`Unknown active contract digest '${digest}'`);
-    }
-
-    return validateActiveDigestEntries(entriesByDigest, requested);
-  }
-
   async function loadEffectiveEntry(args: {
     digest: string;
     contractId?: string;
     deploymentIds: string[];
+    reportCacheIssue: boolean;
   }): Promise<{ entry?: ContractEntry; issue?: ActiveCatalogIssue }> {
     const builtin = builtinByDigest.get(args.digest);
     if (builtin) return { entry: { digest: args.digest, contract: builtin } };
 
-    const stored = await opts.contractStorage.get(args.digest);
+    const stored = await opts.contractStorage.getManifest(args.digest);
     if (!stored) {
-      return {
-        issue: {
-          issueId: stableIssueId({
+      logger.warn({
+        digest: args.digest,
+        contractId: args.contractId,
+        context: "active-catalog",
+      }, "Active contract digest is not present in cached manifests");
+      if (args.reportCacheIssue) {
+        return {
+          issue: {
+            issueId: stableIssueId({
+              kind: "missing-active-contract",
+              contractId: args.contractId,
+              digest: args.digest,
+            }),
             kind: "missing-active-contract",
-            contractId: args.contractId,
+            ...(args.contractId ? { contractId: args.contractId } : {}),
             digest: args.digest,
-          }),
-          kind: "missing-active-contract",
-          ...(args.contractId ? { contractId: args.contractId } : {}),
-          digest: args.digest,
-          message: `Unknown active contract digest '${args.digest}'`,
-          deploymentIds: args.deploymentIds,
-          actions: [],
-        },
-      };
+            message: `Unknown active contract digest '${args.digest}'`,
+            deploymentIds: args.deploymentIds,
+            actions: [],
+          },
+        };
+      }
+      return {};
     }
 
-    const entry = await hydrateStoredContract({
-      logger,
-      record: {
-        digest: stored.digest,
-        id: stored.id,
-        contract: stored.contract,
-      },
-      message: "Failed to hydrate active contract",
+    const entry = await hydrateCachedManifest({
+      record: stored,
+      context: "active-catalog",
+      pruneInvalid: true,
     });
     if (!entry) {
-      return {
-        issue: {
-          issueId: stableIssueId({
+      if (args.reportCacheIssue) {
+        return {
+          issue: {
+            issueId: stableIssueId({
+              kind: "invalid-active-contract",
+              contractId: args.contractId ?? stored.id,
+              digest: args.digest,
+            }),
             kind: "invalid-active-contract",
             contractId: args.contractId ?? stored.id,
             digest: args.digest,
-          }),
-          kind: "invalid-active-contract",
-          contractId: args.contractId ?? stored.id,
-          digest: args.digest,
-          message:
-            `Active implementation offer references invalid stored contract digest '${args.digest}'`,
-          deploymentIds: args.deploymentIds,
-          actions: [],
-        },
-      };
+            message:
+              `Active digest '${args.digest}' references invalid cached contract manifest`,
+            deploymentIds: args.deploymentIds,
+            actions: [],
+          },
+        };
+      }
+      return {};
     }
     return { entry };
   }
@@ -458,33 +416,25 @@ export function createContractsModule(opts: {
       }
     }
     for (
-      const record of await opts.contractStorage.listByContractId(contractId)
+      const record of await opts.contractStorage.listManifestsByContractId(
+        contractId,
+      )
     ) {
       if (entries.has(record.digest)) continue;
-      const entry = await hydrateStoredContract({
-        logger,
+      const entry = await hydrateCachedManifest({
         record: {
           digest: record.digest,
           id: record.id,
           contract: record.contract,
         },
-        message: "Failed to hydrate persisted contract",
+        context: "known-contract-id",
+        pruneInvalid: true,
       });
       if (entry) entries.set(entry.digest, entry.contract);
     }
     return [...entries.entries()]
       .map(([digest, contract]) => ({ digest, contract }))
       .sort((left, right) => left.digest.localeCompare(right.digest));
-  }
-
-  async function loadActiveEntries(
-    validationOpts?: ActiveCatalogValidationOptions,
-  ): Promise<ContractEntry[]> {
-    const active = await collectProposedActiveDigests(validationOpts);
-    return await loadEntriesForDigests({
-      digests: active,
-      message: "Failed to load active contract",
-    });
   }
 
   async function validateManagedContract(args: {
@@ -618,18 +568,24 @@ export function createContractsModule(opts: {
       throw new Error("device contracts may not declare resources");
     }
 
-    const existing = await opts.contractStorage.get(validated.digest);
+    const existing = await opts.contractStorage.getManifest(validated.digest);
     if (existing) {
-      return {
-        id: validated.contract.id,
-        digest: validated.digest,
-        displayName: validated.contract.displayName,
-        description: validated.contract.description,
-        contract: validated.contract,
-        usedNamespaces: [...usedNamespaces].sort((left, right) =>
-          left.localeCompare(right)
-        ),
-      };
+      const hydrated = await hydrateCachedManifest({
+        record: existing,
+        context: "persist-contract",
+      });
+      if (hydrated) {
+        return {
+          id: validated.contract.id,
+          digest: validated.digest,
+          displayName: validated.contract.displayName,
+          description: validated.contract.description,
+          contract: validated.contract,
+          usedNamespaces: [...usedNamespaces].sort((left, right) =>
+            left.localeCompare(right)
+          ),
+        };
+      }
     }
 
     const now = new Date();
@@ -963,6 +919,7 @@ export function createContractsModule(opts: {
         digest: evidence.digest,
         contractId: evidence.contractId,
         deploymentIds: evidence.deploymentIds,
+        reportCacheIssue: evidence.offerIds.length === 0,
       });
       if (result.issue) {
         issues.push(result.issue);
@@ -995,12 +952,55 @@ export function createContractsModule(opts: {
     if (firstIssue) {
       throw new Error(summarizeActiveCatalogIssue(firstIssue));
     }
-    const activeEntries = await loadActiveEntries(validationOpts);
+    const activeEntries = effective.entries;
     validateActiveContractCompatibility(activeEntries);
     if (opts?.skipActiveUsesValidation !== true) {
       validateActiveContractUses(activeEntries);
     }
     return activeEntries;
+  }
+
+  async function pruneInvalidCachedContracts(): Promise<{
+    scanned: number;
+    valid: number;
+    pruned: number;
+  }> {
+    const pageSize = 100;
+    let offset = 0;
+    let scanned = 0;
+    let valid = 0;
+    let pruned = 0;
+
+    while (true) {
+      const records = await opts.contractStorage.listManifestPage({
+        offset,
+        limit: pageSize,
+      });
+      if (records.length === 0) break;
+
+      let retainedInPage = 0;
+      for (const record of records) {
+        scanned += 1;
+        const entry = await hydrateCachedManifest({
+          record,
+          context: "cache-pruning",
+          pruneInvalid: true,
+        });
+        if (entry) {
+          valid += 1;
+          retainedInPage += 1;
+        } else if (!(await opts.contractStorage.has(record.digest))) {
+          pruned += 1;
+        } else {
+          retainedInPage += 1;
+        }
+      }
+
+      offset += retainedInPage;
+      if (records.length < pageSize) break;
+    }
+
+    return { scanned, valid, pruned };
   }
 
   async function validateActiveCatalog(
@@ -1082,6 +1082,7 @@ export function createContractsModule(opts: {
       ),
     installDeviceContract,
     installServiceContract,
+    pruneInvalidCachedContracts,
     refreshActiveContracts,
     refreshActiveContractsForRemoval,
     validateActiveCatalog,

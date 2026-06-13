@@ -39,7 +39,12 @@ The flow:
 4. After the user authenticates and approval is satisfied, Trellis records the approved session immediately and the browser bind flow returns the approved session metadata, transport endpoints, and sentinel credentials for the app session.
 5. The app connects through `TrellisClient.connect(...)`, which generates fresh signed runtime auth proofs from the local session key and current contract digest during connect and reconnect.
 
-If Trellis does not know the digest in step 1, auth returns `manifest_required`. The browser client retries the same auth request with the full manifest, Trellis verifies that the manifest hashes to the presented digest, and the later runtime NATS auth path still presents only the digest.
+If Trellis does not know the digest in step 1, auth returns `manifest_required`.
+The browser client retries the same auth request with the full manifest, Trellis
+verifies that the manifest hashes to the presented digest, and the later runtime
+NATS auth path still presents only the digest. Trellis treats the stored manifest
+as a cache: invalid cached manifests can be pruned, and a later full-manifest
+request repopulates the same digest.
 
 CLI sessions use the same contract-bearing flow. If the Trellis CLI contract boundary changes beyond the identity authority anchored to the stored session public key, the CLI starts detached reauthentication with the portal URL or QR code. A generic NATS authorization denial during reconnect does not automatically delete the local CLI session; explicit revoked or missing-session responses still require a fresh `trellis login`.
 

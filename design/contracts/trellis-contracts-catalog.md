@@ -347,8 +347,10 @@ Manifest normalization is separate from digest projection:
 - manifest normalization produces the canonical supported manifest shape used
   for validation, persistence, code generation, and runtime install; it
   preserves human-facing fields such as `displayName`, `description`, and `docs`
-- the global `contracts` store is the authoritative content-addressed store for
-  full normalized manifests keyed by digest
+- the global `contracts` store is a content-addressed manifest cache keyed by
+  digest. Deployment authority, materialized authority, identity grants, and
+  implementation offers are the durable authority records; cached manifests are
+  rebuildable from later full-manifest presentation.
 - digest projection starts from the normalized manifest and keeps only fields
   that define runtime identity, authority, resources, dependencies, or wire
   shape
@@ -373,9 +375,11 @@ separate concepts.
 Terms:
 
 - **known contract**: a validated normalized manifest stored by digest in the
-  global `contracts` store, or a built-in Trellis manifest. Known contracts are
-  historical content-addressed facts. They are not runtime authority and do not
-  become active merely because they are stored.
+  global `contracts` cache, or a built-in Trellis manifest. Known contracts are
+  rebuildable content-addressed facts. They are not runtime authority and do not
+  become active merely because they are stored. If a cached manifest no longer
+  validates under the current runtime, Trellis may delete that cache entry and
+  require a future request to present the full manifest again.
 - **presented contract**: the manifest or digest supplied by a participant
   during bootstrap, reconnect, authority planning, or review. A presented
   contract is scoped to that request.
@@ -414,6 +418,14 @@ Rules:
 - known historical manifests MUST NOT be broadly merged into authority planning,
   reconciliation, dependency resolution, catalog, or runtime authorization
   decisions
+- invalid cached manifests MUST be treated as cache corruption, not authority
+  state. Trellis MAY prune invalid cached manifests without mutating
+  implementation offers, deployment authority, identity grants, materialized
+  authority, sessions, or resource bindings.
+- if an active offer references a digest whose non-builtin manifest is missing
+  from the cache, Trellis excludes that digest from the effective active catalog
+  until the manifest is presented again; the offer itself remains the runtime
+  liveness/evidence record.
 - deployment authority MAY include desired surfaces that no active
   implementation currently offers; that is allowed because deployment authority
   is desired state, not liveness

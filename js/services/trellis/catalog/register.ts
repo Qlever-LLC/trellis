@@ -101,6 +101,15 @@ export async function registerCatalog(
   });
 
   try {
+    await deps.contracts.pruneInvalidCachedContracts();
+  } catch (error) {
+    deps.logger.warn(
+      { error },
+      "Invalid cached contract pruning failed",
+    );
+  }
+
+  try {
     await deps.contracts.refreshActiveContracts();
   } catch (error) {
     deps.logger.warn(

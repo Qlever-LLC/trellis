@@ -15,6 +15,10 @@ Rules:
   `cargo xtask prepare`
 - generated SDKs, manifests, and package outputs belong under the service repo's
   generated output locations; do not edit generated files by hand
+- Trellis caches manifests by digest at runtime. If auth/bootstrap reports a
+  missing digest after the cache is pruned, regenerate from source and present the
+  full manifest; do not patch deployment authority or implementation offers by
+  hand.
 - prefer generated descriptors and generated client/facade methods
 - prefer generated provider facades for service handler registration when they
   are available

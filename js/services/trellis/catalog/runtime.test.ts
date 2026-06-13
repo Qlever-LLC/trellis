@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { digestContractManifest } from "@qlever-llc/trellis/contracts";
 import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
+import { eq } from "drizzle-orm";
 
 import {
   SqlDeploymentAuthorityRepository,
@@ -15,6 +16,7 @@ import {
   initializeTrellisStorageSchema,
   openTrellisStorageDb,
 } from "../storage/db.ts";
+import { contracts } from "../storage/schema.ts";
 import { planUserContractApproval } from "../auth/approval/plan.ts";
 import type { ContractsModule } from "./runtime.ts";
 import type { ContractRecord } from "./schemas.ts";
@@ -202,6 +204,22 @@ function makeOperationContract(
         output: { schema: "Output" },
       },
     },
+  };
+}
+
+function makeCachedOperationContractRecord(index: number): ContractRecord {
+  const name = `Page${index.toString().padStart(3, "0")}`;
+  const contract = makeOperationContract(
+    `${name.toLowerCase()}@v1`,
+    `operations.v1.${name}.Refund`,
+  );
+  return {
+    digest: digestContractManifest(contract),
+    id: contract.id,
+    displayName: contract.displayName,
+    description: contract.description,
+    installedAt: new Date(TEST_NOW),
+    contract: JSON.stringify(contract),
   };
 }
 
@@ -539,7 +557,7 @@ Deno.test("contracts runtime fails closed when an active digest is missing", asy
   });
 });
 
-Deno.test("contracts runtime reports missing active offer manifest without deleting offer", async () => {
+Deno.test("contracts runtime treats missing active offer manifest as cache miss", async () => {
   const dbPath = await Deno.makeTempFile({
     dir: "/tmp",
     prefix: "trellis-catalog-runtime-missing-active-",
@@ -611,10 +629,7 @@ Deno.test("contracts runtime reports missing active offer manifest without delet
     await module.refreshActiveContracts();
 
     assertEquals((await module.getActiveCatalog()).contracts, []);
-    assertEquals(
-      (await module.getActiveCatalogIssues()).map((issue) => issue.kind),
-      ["missing-active-contract"],
-    );
+    assertEquals(await module.getActiveCatalogIssues(), []);
     assertEquals(
       (await implementationOfferStorage.get("offer-missing"))?.offerId,
       "offer-missing",
@@ -781,7 +796,7 @@ Deno.test("contracts runtime reports incompatible active implementation offers",
   });
 });
 
-Deno.test("contracts runtime reports invalid active manifest without deleting stored facts", async () => {
+Deno.test("contracts runtime prunes invalid cached active manifests without deleting offers", async () => {
   await withContractsModule(async (
     module,
     contractStorage,
@@ -795,7 +810,13 @@ Deno.test("contracts runtime reports invalid active manifest without deleting st
       displayName: "Service",
       description: "Bad stored contract",
       installedAt: new Date(TEST_NOW),
-      contract: "{not json",
+      contract: JSON.stringify({
+        format: "trellis.contract.v1",
+        id: "service@v1",
+        displayName: "Service",
+        description: "Bad stored contract",
+        kind: "not-a-kind",
+      }),
     });
     await deployments.put(testServiceDeployment("service.default", [
       "Service",
@@ -820,18 +841,207 @@ Deno.test("contracts runtime reports invalid active manifest without deleting st
     await module.refreshActiveContracts();
 
     assertEquals((await module.getActiveCatalog()).contracts, []);
-    assertEquals(
-      (await module.getActiveCatalogIssues()).map((issue) => ({
-        kind: issue.kind,
-        digest: issue.digest,
-      })),
-      [{ kind: "invalid-active-contract", digest: "bad-digest" }],
-    );
-    assertEquals(
-      (await contractStorage.get("bad-digest"))?.digest,
-      "bad-digest",
-    );
+    assertEquals(await module.getActiveCatalogIssues(), []);
+    assertEquals(await contractStorage.has("bad-digest"), false);
     assertEquals((await offers.get("offer-bad"))?.offerId, "offer-bad");
+  });
+});
+
+Deno.test("contracts runtime hydrates active cached manifests despite stale projections", async () => {
+  const dbPath = await Deno.makeTempFile({
+    dir: "/tmp",
+    prefix: "trellis-catalog-runtime-stale-projections-",
+    suffix: ".sqlite",
+  });
+  const storage = await openTrellisStorageDb(dbPath);
+
+  try {
+    const { createContractsModule } = await import("./runtime.ts");
+    await initializeTrellisStorageSchema(storage);
+    const contractStorage = new SqlContractStorageRepository(storage.db);
+    const serviceDeploymentStorage = new SqlServiceDeploymentRepository(
+      storage.db,
+    );
+    const implementationOfferStorage = new SqlImplementationOfferRepository(
+      storage.db,
+    );
+    const module = createContractsModule({
+      builtinContracts: [],
+      contractStorage,
+      implementationOfferStorage,
+      deploymentAuthorityStorage: new SqlDeploymentAuthorityRepository(
+        storage.db,
+      ),
+      serviceInstanceStorage: new SqlServiceInstanceRepository(storage.db),
+      serviceDeploymentStorage,
+      deviceDeploymentStorage: new SqlDeviceDeploymentRepository(storage.db),
+      deviceInstanceStorage: new SqlDeviceInstanceRepository(storage.db),
+    });
+    const installed = await module.installServiceContract(
+      makeOperationContract("billing@v1", "operations.v1.Billing.Refund"),
+    );
+    await storage.db.update(contracts).set({
+      resources: "{",
+      analysisSummary: JSON.stringify({ namespaces: "stale" }),
+      analysis: JSON.stringify({ stale: true }),
+    }).where(eq(contracts.digest, installed.digest));
+    await serviceDeploymentStorage.put(
+      testServiceDeployment("billing.default", [
+        "Billing",
+      ]),
+    );
+    await putAcceptedOffer(
+      implementationOfferStorage,
+      "billing.default",
+      installed,
+    );
+
+    await module.refreshActiveContracts();
+
+    assertEquals(
+      (await module.getActiveCatalog()).contracts.map((entry) => entry.digest),
+      [installed.digest],
+    );
+    assertEquals(await module.getActiveCatalogIssues(), []);
+    await assertRejects(
+      () => contractStorage.get(installed.digest),
+      Error,
+      "Invalid JSON stored for contract resources",
+    );
+  } finally {
+    storage.client.close();
+    await Deno.remove(dbPath).catch(() => undefined);
+  }
+});
+
+Deno.test("contracts runtime repairs corrupt cached manifest on full manifest install", async () => {
+  await withContractsModule(async (module, contractStorage) => {
+    const contract = makeOperationContract(
+      "billing@v1",
+      "operations.v1.Billing.Refund",
+    );
+    const installed = await module.installServiceContract(contract);
+    await contractStorage.put({
+      digest: installed.digest,
+      id: installed.id,
+      displayName: "Corrupt Billing",
+      description: "Corrupt cached contract",
+      installedAt: new Date(TEST_NOW),
+      contract: "{not json",
+    });
+
+    await module.installServiceContract(contract);
+
+    assertEquals(await module.getKnownContract(installed.digest), contract);
+    const stored = await contractStorage.getManifest(installed.digest);
+    assertEquals(JSON.parse(stored?.contract ?? "null"), contract);
+    const repaired = await contractStorage.get(installed.digest);
+    assertEquals(repaired?.displayName, contract.displayName);
+    assertEquals(repaired?.description, contract.description);
+  });
+});
+
+Deno.test("contracts runtime prunes invalid cached manifests from known lookups", async () => {
+  await withContractsModule(async (module, contractStorage) => {
+    await contractStorage.put({
+      digest: "bad-known-digest",
+      id: "known@v1",
+      displayName: "Known",
+      description: "Bad stored contract",
+      installedAt: new Date(TEST_NOW),
+      contract: "{not json",
+    });
+
+    assertEquals(await module.getKnownContract("bad-known-digest"), undefined);
+    assertEquals(await contractStorage.has("bad-known-digest"), false);
+
+    await contractStorage.put({
+      digest: "bad-known-id-digest",
+      id: "known@v1",
+      displayName: "Known",
+      description: "Bad stored contract",
+      installedAt: new Date(TEST_NOW),
+      contract: "{not json",
+    });
+
+    assertEquals(await module.getKnownContractsById("known@v1"), []);
+    assertEquals(await contractStorage.has("bad-known-id-digest"), false);
+  });
+});
+
+Deno.test("contracts runtime reports invalid cached manifest pruning counts", async () => {
+  await withContractsModule(async (module, contractStorage) => {
+    const installed = await module.installServiceContract(
+      makeOperationContract("billing@v1", "operations.v1.Billing.Refund"),
+    );
+    await contractStorage.put({
+      digest: "bad-digest",
+      id: "service@v1",
+      displayName: "Service",
+      description: "Bad stored contract",
+      installedAt: new Date(TEST_NOW),
+      contract: "{not json",
+    });
+
+    assertEquals(await module.pruneInvalidCachedContracts(), {
+      scanned: 2,
+      valid: 1,
+      pruned: 1,
+    });
+    assertEquals(await contractStorage.has(installed.digest), true);
+    assertEquals(await contractStorage.has("bad-digest"), false);
+  });
+});
+
+Deno.test("contracts runtime prunes invalid cached manifests across paginated deletion", async () => {
+  await withContractsModule(async (module, contractStorage) => {
+    const validRecords = Array.from(
+      { length: 121 },
+      (_value, index) => makeCachedOperationContractRecord(index),
+    );
+    for (const record of validRecords) {
+      await contractStorage.put(record);
+    }
+
+    const sortedValidDigests = validRecords.map((record) => record.digest)
+      .sort();
+    const invalidDigests = {
+      beginning: "-",
+      middle: `${sortedValidDigests[48]}-`,
+      pageBoundary: `${sortedValidDigests[97]}-`,
+      end: "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+    };
+    for (const [label, digest] of Object.entries(invalidDigests)) {
+      await contractStorage.put({
+        digest,
+        id: `invalid-${label}@v1`,
+        displayName: `Invalid ${label}`,
+        description: `Invalid ${label} cached contract`,
+        installedAt: new Date(TEST_NOW),
+        contract: "{not json",
+      });
+    }
+
+    const beforeDigests = (await contractStorage.listManifestPage({
+      limit: 200,
+    })).map((record) => record.digest);
+    assertEquals(beforeDigests.length, 125);
+    assertEquals(beforeDigests[0], invalidDigests.beginning);
+    assertEquals(beforeDigests[50], invalidDigests.middle);
+    assertEquals(beforeDigests[100], invalidDigests.pageBoundary);
+    assertEquals(beforeDigests[124], invalidDigests.end);
+
+    assertEquals(await module.pruneInvalidCachedContracts(), {
+      scanned: 125,
+      valid: 121,
+      pruned: 4,
+    });
+    assertEquals(
+      (await contractStorage.listManifestPage({ limit: 200 })).map((record) =>
+        record.digest
+      ),
+      sortedValidDigests,
+    );
   });
 });
 

@@ -1,4 +1,10 @@
-import { assertEquals, assertInstanceOf, assertMatch } from "@std/assert";
+import {
+  assertEquals,
+  assertInstanceOf,
+  assertMatch,
+  assertRejects,
+} from "@std/assert";
+import { eq } from "drizzle-orm";
 
 import {
   initializeTrellisStorageSchema,
@@ -7,7 +13,10 @@ import {
 import type { TrellisStorage } from "../storage/db.ts";
 import { contracts } from "../storage/schema.ts";
 import type { ContractRecord } from "./schemas.ts";
-import { SqlContractStorageRepository } from "./storage.ts";
+import {
+  SqlContractStorageRepository,
+  type StoredContractManifestRecord,
+} from "./storage.ts";
 
 async function withRepository(
   test: (
@@ -148,6 +157,14 @@ function makeRecord(overrides: Partial<ContractRecord> = {}): ContractRecord {
   };
 }
 
+function manifestRecord(record: ContractRecord): StoredContractManifestRecord {
+  return {
+    digest: record.digest,
+    id: record.id,
+    contract: record.contract,
+  };
+}
+
 Deno.test("contract storage upserts and gets records by digest", async () => {
   await withRepository(async (repo, storage) => {
     const first = makeRecord();
@@ -174,6 +191,36 @@ Deno.test("contract storage upserts and gets records by digest", async () => {
   });
 });
 
+Deno.test("contract storage gets raw manifest records by digest", async () => {
+  await withRepository(async (repo) => {
+    const record = makeRecord();
+    await repo.put(record);
+
+    assertEquals(await repo.getManifest(record.digest), manifestRecord(record));
+    assertEquals(await repo.getManifest("missing"), undefined);
+  });
+});
+
+Deno.test("contract storage gets raw manifest when projections are invalid", async () => {
+  await withRepository(async (repo, storage) => {
+    const record = makeRecord();
+    await repo.put(record);
+
+    await storage.db.update(contracts).set({
+      resources: "{",
+      analysisSummary: JSON.stringify({ namespaces: "stale" }),
+      analysis: JSON.stringify({ stale: true }),
+    }).where(eq(contracts.digest, record.digest));
+
+    assertEquals(await repo.getManifest(record.digest), manifestRecord(record));
+    await assertRejects(
+      () => repo.get(record.digest),
+      Error,
+      "Invalid JSON stored for contract resources",
+    );
+  });
+});
+
 Deno.test("contract storage lists all records in digest order", async () => {
   await withRepository(async (repo) => {
     const second = makeRecord({ digest: "sha256-b", id: "b@v1" });
@@ -182,6 +229,39 @@ Deno.test("contract storage lists all records in digest order", async () => {
     await repo.put(first);
 
     assertEquals(await repo.listPage({ limit: 10 }), [first, second]);
+  });
+});
+
+Deno.test("contract storage lists raw manifests in digest order", async () => {
+  await withRepository(async (repo) => {
+    const third = makeRecord({ digest: "sha256-c", id: "shared@v1" });
+    const first = makeRecord({ digest: "sha256-a", id: "shared@v1" });
+    const second = makeRecord({ digest: "sha256-b", id: "shared@v1" });
+    await repo.put(third);
+    await repo.put(first);
+    await repo.put(second);
+
+    assertEquals(
+      await repo.getManifests([
+        third.digest,
+        first.digest,
+        second.digest,
+      ]),
+      [
+        manifestRecord(first),
+        manifestRecord(second),
+        manifestRecord(third),
+      ],
+    );
+    assertEquals(await repo.listManifestPage({ limit: 2 }), [
+      manifestRecord(first),
+      manifestRecord(second),
+    ]);
+    assertEquals(await repo.listManifestsByContractId("shared@v1"), [
+      manifestRecord(first),
+      manifestRecord(second),
+      manifestRecord(third),
+    ]);
   });
 });
 

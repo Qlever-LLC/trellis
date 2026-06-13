@@ -22,6 +22,11 @@ https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt
   top-level `uses`; runtime listeners consume only reconciled Trellis bindings,
   and runtime durable consumers are Trellis-provisioned only.
 - Runtime authority comes from deployment authority and identity authority.
+- The runtime `contracts` store is a digest-keyed manifest cache, not durable
+  authority. Invalid cached manifests may be pruned without changing
+  implementation offers, sessions, identity grants, deployment authority,
+  materialized authority, or resource bindings. If Trellis reports a missing
+  manifest for a digest, present the full manifest again.
 - NATS is the transport boundary. Application code should use generated Trellis
   APIs rather than hand-built subjects or raw NATS connection handles.
 - The runtime owns authentication, authorization, authority validation,
@@ -44,7 +49,9 @@ https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt
 4. Regenerate SDKs and contract artifacts with the repository's Trellis tooling.
 5. Review and update deployment authority through the normal Trellis CLI/runtime
    flow for the service deployment.
-6. Compile and test the service against the generated APIs. Treat generated API
+6. If runtime auth or bootstrap reports a missing digest, retry with the full
+   manifest generated from source so Trellis can repopulate its manifest cache.
+7. Compile and test the service against the generated APIs. Treat generated API
    errors as contract drift, not as places to add stringly typed shortcuts.
 
 Prefer source, generated SDKs, and generated API docs for exact signatures. Guides

@@ -42,6 +42,7 @@ export type AuthContractsRuntime = Pick<
   | "getActiveCatalogIssues"
   | "installDeviceContract"
   | "installServiceContract"
+  | "pruneInvalidCachedContracts"
   | "validateContract"
   | "refreshActiveContracts"
   | "refreshActiveContractsForRemoval"

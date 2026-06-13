@@ -22,6 +22,13 @@ does not approve an arbitrary list of contract digests. Contract evidence record
 what was reviewed and presented, while deployment authority remains the durable
 authority set.
 
+Cached contract manifests are not deployment authority. Trellis keeps known
+manifests in a digest-keyed cache so it can hydrate catalog metadata and validate
+future proposals, but materialized authority, implementation offers, identity
+grants, sessions, and resource bindings remain separate durable records. If a
+cached manifest becomes invalid under the current runtime, Trellis may prune that
+cache entry and require a later request to present the full manifest again.
+
 Same-contract replacement compatibility is part of authority planning. A
 compatible replacement can proceed as an authority update or no-op when the
 requested boundary already fits. An incompatible replacement for the same
@@ -100,6 +107,10 @@ normal follow-up after every accepted plan.
 Implementation offers are still required because they model accepted runtime
 availability, freshness, and dependency evidence. They are not materialized
 runtime permissions and do not create resources.
+
+If an offer references a digest whose non-built-in manifest is no longer cached,
+the offer remains recorded, but Trellis cannot use that digest to publish active
+catalog metadata until the manifest is presented and cached again.
 
 Authority migration is the operator-managed change from one accepted authority
 set to another. Add the new authority before rolling out runtimes that need it,
