@@ -8,6 +8,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed the `@qlever-llc/trellis` npm root export so browser bundlers select the
+  browser-safe entrypoint without app-level Vite aliases, preventing DNT and
+  Node/Deno builtin shims from leaking into browser client bundles.
+
 ## [0.10.16] - 2026-06-12
 
 ### Fixed

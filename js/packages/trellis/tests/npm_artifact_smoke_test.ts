@@ -126,6 +126,11 @@ Deno.test("trellis npm SDK exports resolve through public wrapper modules", asyn
   }
 
   const packageJson = JSON.parse(await Deno.readTextFile(packageJsonUrl));
+  assertEquals(packageJson.exports["."], {
+    browser: "./esm/browser.js",
+    import: "./esm/index.js",
+    require: "./script/index.js",
+  });
   assertEquals(packageJson.exports["./sdk/auth"], {
     import: "./esm/sdk/auth.js",
     require: "./script/sdk/auth.js",

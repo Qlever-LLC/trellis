@@ -41,6 +41,10 @@ function normalizeExportValue(value: unknown): unknown {
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 async function removeMissingRequireCondition(value: unknown): Promise<unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return value;
@@ -499,9 +503,15 @@ async function normalizePackageJsonExports() {
   const normalizedEntries = await Promise.all(
     Object.entries(exports).map(async ([key, value]) => {
       if (key === ".") {
+        const rootExportValue = await removeMissingRequireCondition(
+          normalizeExportValue(value),
+        );
         return [
           key,
-          await removeMissingRequireCondition(normalizeExportValue(value)),
+          {
+            browser: "./esm/browser.js",
+            ...(isRecord(rootExportValue) ? rootExportValue : {}),
+          },
         ];
       }
 
