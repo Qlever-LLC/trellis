@@ -599,12 +599,15 @@ async fn assert_narrow_materialized_authority_grants(
 }
 
 fn has_materialized_nats_grant(materialized: &Value, direction: &str, subject: &str) -> bool {
-    let Some(grants) = materialized.get("grants").and_then(Value::as_array) else {
+    let Some(grants) = materialized
+        .pointer("/grants/nats")
+        .or_else(|| materialized.get("grants"))
+        .and_then(Value::as_array)
+    else {
         return false;
     };
     grants.iter().any(|grant| {
-        grant.get("kind").and_then(Value::as_str) == Some("nats")
-            && grant.get("direction").and_then(Value::as_str) == Some(direction)
+        grant.get("direction").and_then(Value::as_str) == Some(direction)
             && grant.get("subject").and_then(Value::as_str) == Some(subject)
     })
 }

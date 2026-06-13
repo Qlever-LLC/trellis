@@ -25,7 +25,7 @@ sha2.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tokio = { workspace = true, features = ["io-util", "net", "sync"] }
-trellis-contracts = { path = "../contracts", version = "0.10.17" }
+trellis-contracts = { path = "../contracts", version = "0.10.18" }
 tracing.workspace = true
 ulid = "1.2.1"
 url = "2.5.8"

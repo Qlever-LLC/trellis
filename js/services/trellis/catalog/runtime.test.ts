@@ -113,7 +113,12 @@ function testDeviceDeployment(
 type TestDeploymentAuthorityKind = "service" | "device";
 
 type TestAuthorityDesiredState = {
-  needs: Array<{ kind: "contract"; contractId: string; required: boolean }>;
+  needs: {
+    contracts: Array<{ contractId: string; required: boolean }>;
+    surfaces: Array<never>;
+    capabilities: Array<never>;
+    resources: Array<never>;
+  };
   capabilities: string[];
   resources: Array<never>;
   surfaces: Array<never>;
@@ -123,11 +128,15 @@ function authorityDesiredState(
   contractIds: string[],
 ): TestAuthorityDesiredState {
   return {
-    needs: contractIds.map((contractId) => ({
-      kind: "contract",
-      contractId,
-      required: true,
-    })),
+    needs: {
+      contracts: contractIds.map((contractId) => ({
+        contractId,
+        required: true,
+      })),
+      surfaces: [],
+      capabilities: [],
+      resources: [],
+    },
     capabilities: [],
     resources: [],
     surfaces: [],

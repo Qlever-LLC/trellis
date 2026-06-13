@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.18-rc.1] - 2026-06-13
+
 ### Changed
 
 - Changed the public deployment authority protocol so proposal and desired-state

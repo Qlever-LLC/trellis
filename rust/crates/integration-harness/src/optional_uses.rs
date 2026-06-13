@@ -11,7 +11,9 @@ use trellis_rs::contracts::{
 };
 use trellis_rs::sdk::auth::client::AuthClient as SdkAuthClient;
 use trellis_rs::sdk::auth::types::{
-    AuthDeploymentAuthorityGetRequest, AuthDeploymentAuthorityReconcileRequest,
+    AuthDeploymentAuthorityGetRequest,
+    AuthDeploymentAuthorityGetResponseAuthorityDesiredStateNeedsSurfacesItem,
+    AuthDeploymentAuthorityReconcileRequest,
 };
 use trellis_rs::service::{
     ConnectedServiceRuntime, HandlerResult, ServerError, ServiceRuntimeError,
@@ -863,10 +865,8 @@ async fn approve_requests(
 
 fn assert_required_unknown_delta_fails_closed(requests: &[Value]) -> Result<()> {
     for request in requests {
-        let has_unknown_contract = plan_needs(request).iter().any(|need| {
-            need.get("kind").and_then(Value::as_str) == Some("contract")
-                && need.get("contractId").and_then(Value::as_str)
-                    == Some(UNKNOWN_REQUIRED_DEP_CONTRACT_ID)
+        let has_unknown_contract = plan_contract_needs(request).iter().any(|need| {
+            need.get("contractId").and_then(Value::as_str) == Some(UNKNOWN_REQUIRED_DEP_CONTRACT_ID)
                 && need.get("required").and_then(Value::as_bool) == Some(true)
         });
         if !has_unknown_contract {
@@ -927,8 +927,8 @@ fn assert_required_dependency_delta(
     Ok(())
 }
 
-fn plan_needs(plan: &Value) -> Vec<Value> {
-    plan.pointer("/proposal/requestedNeeds")
+fn plan_contract_needs(plan: &Value) -> Vec<Value> {
+    plan.pointer("/proposal/requestedNeeds/contracts")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default()
@@ -946,7 +946,11 @@ fn plan_capabilities(plan: &Value) -> Vec<String> {
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter_map(Value::as_str)
+        .filter_map(|value| {
+            value
+                .as_str()
+                .or_else(|| value.get("capability").and_then(Value::as_str))
+        })
         .map(ToOwned::to_owned)
         .collect()
 }
@@ -1117,10 +1121,9 @@ async fn wait_for_consumer_pending_optional_delta(
         consumer_digest,
     )
     .await?;
-    let has_optional_contract = plan_needs(&plan).iter().any(|need| {
-        need.get("kind").and_then(Value::as_str) == Some("contract")
-            && need.get("contractId").and_then(Value::as_str) == Some(DEPENDENCY_CONTRACT_ID)
-    });
+    let has_optional_contract = plan_contract_needs(&plan)
+        .iter()
+        .any(|need| need.get("contractId").and_then(Value::as_str) == Some(DEPENDENCY_CONTRACT_ID));
     let has_optional_surface = plan_surfaces(&plan).iter().any(|surface| {
         surface.get("contractId").and_then(Value::as_str) == Some(DEPENDENCY_CONTRACT_ID)
             && surface.get("name").and_then(Value::as_str) == Some("Optional.Dep.Ping")
@@ -1147,10 +1150,16 @@ async fn assert_consumer_authority_omits_dependency(auth_client: &SdkAuthClient<
         })
         .await
         .into_diagnostic()?;
-    if authority.authority.desired_state.needs.iter().any(|need| {
-        need.get("contractId").and_then(Value::as_str) == Some(DEPENDENCY_CONTRACT_ID)
-            || surface_need_matches(need, DEPENDENCY_CONTRACT_ID, "Optional.Dep.Ping")
-    }) {
+    let needs = &authority.authority.desired_state.needs;
+    if needs
+        .contracts
+        .iter()
+        .any(|need| need.contract_id == DEPENDENCY_CONTRACT_ID)
+        || needs
+            .surfaces
+            .iter()
+            .any(|need| surface_need_matches(need, DEPENDENCY_CONTRACT_ID, "Optional.Dep.Ping"))
+    {
         return Err(miette!(
             "consumer authority included missing optional dependency contract"
         ));
@@ -1182,14 +1191,13 @@ async fn assert_consumer_authority_includes_dependency(
         })
         .await
         .into_diagnostic()?;
-    let includes_contract = authority.authority.desired_state.needs.iter().any(|need| {
-        need.get("contractId").and_then(Value::as_str) == Some(DEPENDENCY_CONTRACT_ID)
-            && need.get("required").and_then(Value::as_bool) == Some(false)
-    });
-    let includes_surface = authority
-        .authority
-        .desired_state
-        .needs
+    let needs = &authority.authority.desired_state.needs;
+    let includes_contract = needs
+        .contracts
+        .iter()
+        .any(|need| need.contract_id == DEPENDENCY_CONTRACT_ID && !need.required);
+    let includes_surface = needs
+        .surfaces
         .iter()
         .any(|need| surface_need_matches(need, DEPENDENCY_CONTRACT_ID, "Optional.Dep.Ping"));
     if !includes_contract || !includes_surface {
@@ -1200,18 +1208,12 @@ async fn assert_consumer_authority_includes_dependency(
     Ok(())
 }
 
-fn surface_need_matches(need: &Value, contract_id: &str, surface_name: &str) -> bool {
-    need.get("kind").and_then(Value::as_str) == Some("surface")
-        && need
-            .get("surface")
-            .and_then(|surface| surface.get("contractId"))
-            .and_then(Value::as_str)
-            == Some(contract_id)
-        && need
-            .get("surface")
-            .and_then(|surface| surface.get("name"))
-            .and_then(Value::as_str)
-            == Some(surface_name)
+fn surface_need_matches(
+    need: &AuthDeploymentAuthorityGetResponseAuthorityDesiredStateNeedsSurfacesItem,
+    contract_id: &str,
+    surface_name: &str,
+) -> bool {
+    need.contract_id == contract_id && need.name == surface_name
 }
 
 async fn assert_optional_dependency_call(client: &TrellisClient) -> Result<()> {

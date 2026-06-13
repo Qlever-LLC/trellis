@@ -402,9 +402,14 @@ pub(crate) async fn run_admin_api_fixture(
         })
         .await
         .into_diagnostic()?;
-    if !authority.authority.desired_state.needs.iter().any(|need| {
-        need.get("contractId").and_then(Value::as_str) == Some(service_contract_id.as_str())
-    }) {
+    if !authority
+        .authority
+        .desired_state
+        .needs
+        .contracts
+        .iter()
+        .any(|need| need.contract_id == service_contract_id)
+    {
         return Err(miette!(
             "Auth.DeploymentAuthority.Get desired state did not identify service contract `{service_contract_id}`"
         ));
