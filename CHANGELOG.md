@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.17] - 2026-06-12
+
 ### Fixed
 
 - Fixed the `@qlever-llc/trellis` npm root export so browser bundlers select the

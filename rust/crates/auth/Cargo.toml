@@ -8,4 +8,4 @@ description = "Authentication flows and session helpers for Trellis clients."
 publish = false
 
 [dependencies]
-trellis-rs = { path = "../trellis", version = "0.10.16" }
+trellis-rs = { path = "../trellis", version = "0.10.17" }
