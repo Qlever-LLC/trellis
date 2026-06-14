@@ -96,8 +96,11 @@ Rules:
   integration tests that need a real isolated Trellis runtime. Start it with
   `TrellisTestRuntime.start({ trellis: { command: ... } })`, register services
   through `runtime.registerService(...)`, connect services with public
-  `TrellisService.connect(...)`, and let the runtime start the explicit Trellis
-  control-plane command as a spawned process.
+  `TrellisService.connect(...)`, connect app/client participants with
+  `runtime.connectClient(...)`, and let the runtime start the explicit Trellis
+  control-plane command as a spawned process. Allow migration authority plans only
+  in isolated mutable-dev tests through `authority.autoAccept` or per-approval
+  `allowPlanClassifications`.
 - the local `AGENTS.md` should record the contract source path, generated artifact
   command, format command, typecheck/clippy command, test command, run command,
   and migration command
@@ -131,7 +134,8 @@ contracts remain the input.
     local handler logic and the outbox/inbox behavior separately when possible.
    Use `@qlever-llc/trellis-test` when the boundary test must exercise real
    Trellis bootstrap, auth validation, deployment authority, generated clients,
-   events, jobs, operations, KV, store, state, or durable event consumers.
+   app/client auth, events, jobs, operations, KV, store, state, or durable event
+   consumers.
 8. Run formatting, type checks, generation checks, and tests before reporting
    completion.
 

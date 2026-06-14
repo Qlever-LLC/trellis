@@ -15,6 +15,10 @@ import {
 import { sdk as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
 import { generateSessionSeed } from "./control_plane_config.ts";
 import { waitFor } from "./wait.ts";
+import type {
+  TrellisTestAuthorityPlanClassification,
+  TrellisTestContractApproval,
+} from "./types.ts";
 
 type RuntimeContract = ContractModule<
   string,
@@ -26,6 +30,7 @@ type RuntimeContract = ContractModule<
 const ADMIN_USERNAME = "admin";
 
 const ADMIN_RPC_CALLS = [
+  "Auth.DeploymentAuthority.AcceptMigration",
   "Auth.DeploymentAuthority.AcceptUpdate",
   "Auth.DeploymentAuthority.Get",
   "Auth.DeploymentAuthority.Plan",
@@ -140,8 +145,10 @@ function deploymentKey(deployment: string): string {
   return `service:${deployment}`;
 }
 
-function contractKey(args: { deployment: string; contract: RuntimeContract }) {
-  return `${args.deployment}:${args.contract.CONTRACT.id}:${args.contract.CONTRACT_DIGEST}`;
+function isAuthorityPlanClassification(
+  value: string,
+): value is TrellisTestAuthorityPlanClassification {
+  return value === "update" || value === "migration";
 }
 
 /** Internal public-surface admin automation used by `TrellisTestRuntime`. */
@@ -151,9 +158,9 @@ export class TrellisTestAdminAutomation {
   readonly #defaultDeployment: string;
   readonly #defaultMutableDev: boolean;
   readonly #reconciliationMs: number;
+  readonly #autoAccept: ReadonlySet<TrellisTestAuthorityPlanClassification>;
   readonly #getBootstrapUrl: () => Promise<string>;
   readonly #createdDeployments = new Set<string>();
-  readonly #approvedContracts = new Set<string>();
   #bootstrapComplete: Promise<void> | undefined;
   #adminClient: Promise<AdminClient> | undefined;
   #connectedAdminClient: AdminClient | undefined;
@@ -165,6 +172,7 @@ export class TrellisTestAdminAutomation {
     defaultDeployment: string;
     defaultMutableDev: boolean;
     reconciliationMs: number;
+    autoAccept: readonly TrellisTestAuthorityPlanClassification[];
     getBootstrapUrl: () => Promise<string>;
   }) {
     this.#trellisUrl = args.trellisUrl.replace(/\/$/, "");
@@ -172,6 +180,7 @@ export class TrellisTestAdminAutomation {
     this.#defaultDeployment = args.defaultDeployment;
     this.#defaultMutableDev = args.defaultMutableDev;
     this.#reconciliationMs = args.reconciliationMs;
+    this.#autoAccept = new Set(args.autoAccept);
     this.#getBootstrapUrl = args.getBootstrapUrl;
   }
 
@@ -240,32 +249,63 @@ export class TrellisTestAdminAutomation {
     this.#createdDeployments.add(key);
   }
 
-  /** Plans, accepts, reconciles, and waits for a service contract update. */
+  /** Completes a public app/client authentication flow as the test admin user. */
+  async completeClientAuth(
+    ctx: ClientAuthRequiredContext,
+  ): Promise<ClientAuthContinuation> {
+    await this.#completeBootstrap();
+    return await completeLocalAuthFlow({
+      trellisUrl: this.#trellisUrl,
+      loginUrl: ctx.loginUrl,
+      password: this.#adminPassword,
+    });
+  }
+
+  /** Plans, accepts, reconciles, and waits for a contract authority change. */
   async approveContract(args: {
     deployment?: string;
     contract: RuntimeContract;
-  }): Promise<void> {
+    allowPlanClassifications?:
+      readonly TrellisTestAuthorityPlanClassification[];
+  }): Promise<TrellisTestContractApproval> {
     const deployment = args.deployment ?? this.#defaultDeployment;
     await this.createDeployment({ deployment });
-    const key = contractKey({ deployment, contract: args.contract });
-    if (this.#approvedContracts.has(key)) return;
     const client = await this.#client();
     const planned = await client.rpc.auth.deploymentAuthorityPlan({
       deploymentId: deployment,
       contract: args.contract.CONTRACT,
       expectedDigest: args.contract.CONTRACT_DIGEST,
     }).orThrow();
-    if (planned.plan.classification !== "update") {
+    const classification = planned.plan.classification;
+    if (!isAuthorityPlanClassification(classification)) {
       throw new Error(
-        `Trellis test runtime only auto-accepts update plans, got '${planned.plan.classification}'`,
+        `Trellis test runtime received unsupported authority plan classification '${classification}'`,
       );
     }
-    await client.rpc.auth.deploymentAuthorityAcceptUpdate({
-      planId: planned.plan.planId,
-    }).orThrow();
+    const allowed = args.allowPlanClassifications === undefined
+      ? this.#autoAccept
+      : new Set(args.allowPlanClassifications);
+    if (!allowed.has(classification)) {
+      throw new Error(
+        `Trellis test runtime cannot auto-accept '${classification}' authority plans; allowed classifications: ${
+          [...allowed].join(", ") || "none"
+        }`,
+      );
+    }
+    if (classification === "update") {
+      await client.rpc.auth.deploymentAuthorityAcceptUpdate({
+        planId: planned.plan.planId,
+      }).orThrow();
+    } else {
+      await client.rpc.auth.deploymentAuthorityAcceptMigration({
+        planId: planned.plan.planId,
+        acknowledgement:
+          "Approved by TrellisTestRuntime for an isolated mutable-dev integration test.",
+      }).orThrow();
+    }
     await this.reconcile(deployment);
     await this.waitReady(deployment);
-    this.#approvedContracts.add(key);
+    return { planId: planned.plan.planId, classification };
   }
 
   /** Triggers deployment-authority reconciliation for a service deployment. */
@@ -327,8 +367,6 @@ export class TrellisTestAdminAutomation {
     sessionKeySeed?: string;
   }): Promise<{ seed: string; sessionKey: string }> {
     const deployment = args.deployment ?? this.#defaultDeployment;
-    await this.createDeployment({ deployment });
-    await this.approveContract({ deployment, contract: args.contract });
     const key = await this.provisionServiceInstance({
       deployment,
       contract: args.contract,

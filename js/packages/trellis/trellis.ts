@@ -1405,6 +1405,8 @@ export type HandlerTrellis<
   publishPrepared(
     event: PreparedTrellisEvent,
   ): AsyncResult<void, UnexpectedError>;
+  /** Stops durable event listener loops owned by this handler runtime. */
+  stopEventListeners(): void;
 };
 
 function surfaceGroupName(key: string): string {
@@ -2077,6 +2079,7 @@ export class Trellis<
   #operationStore?: Promise<TypedKV<typeof DurableOperationRecordSchema>>;
   #eventConsumers: RuntimeEventConsumers;
   #durableEventLoops = new Map<string, DurableEventConsumerLoop<TA>>();
+  #durableEventListenersStopped = false;
 
   constructor(
     name: string, // Must be unique for a service
@@ -2345,6 +2348,7 @@ export class Trellis<
       prepare: (event, data) => this.prepare(event, data),
       publish: (event, data) => this.publish(event, data),
       publishPrepared: (event) => this.publishPrepared(event),
+      stopEventListeners: () => this.stopEventListeners(),
     };
   }
 
@@ -4321,7 +4325,7 @@ export class Trellis<
     fn: EventCallback<EventOf<TA, EventsOf<TA>>>;
     signal?: AbortSignal;
   }): void {
-    if (args.signal?.aborted) return;
+    if (args.signal?.aborted || this.#durableEventListenersStopped) return;
 
     const loop = this.#durableEventLoops.get(args.group) ?? {
       registrations: [],
@@ -4351,7 +4355,10 @@ export class Trellis<
     group: string,
     loop: DurableEventConsumerLoop<TA>,
   ): void {
-    if (loop.started || !this.#durableEventConsumerGroupReady(group, loop)) {
+    if (
+      this.#durableEventListenersStopped || loop.started ||
+      !this.#durableEventConsumerGroupReady(group, loop)
+    ) {
       return;
     }
     loop.started = true;
@@ -4401,7 +4408,10 @@ export class Trellis<
         if (isErr(info)) return info;
 
         const consumer = this.js.consumers.getConsumerFromInfo(info);
-        while (this.#durableEventConsumerGroupReady(group, loop)) {
+        while (
+          !this.#durableEventListenersStopped &&
+          this.#durableEventConsumerGroupReady(group, loop)
+        ) {
           const messages = await consumer.fetch({
             max_messages: 1,
             expires: 30_000,
@@ -4414,10 +4424,20 @@ export class Trellis<
           await this.#handleDurableEventConsumer(group, loop, messages)
             .orThrow();
         }
+      } catch (cause) {
+        if (
+          this.#durableEventListenersStopped ||
+          !this.#durableEventConsumerGroupReady(group, loop)
+        ) {
+          return ok(undefined);
+        }
+        return err(new UnexpectedError({ cause, context: { group } }));
       } finally {
         loop.started = false;
         loop.messages = undefined;
-        this.#startDurableEventConsumer(group, loop);
+        if (!this.#durableEventListenersStopped) {
+          this.#startDurableEventConsumer(group, loop);
+        }
       }
       return ok(undefined);
     })());
@@ -4567,6 +4587,15 @@ export class Trellis<
 
   wait(): AsyncResult<void, BaseError> {
     return this.#tasks.wait();
+  }
+
+  /** Stops durable event listener loops without closing the underlying transport. */
+  stopEventListeners(): void {
+    this.#durableEventListenersStopped = true;
+    for (const loop of this.#durableEventLoops.values()) {
+      loop.registrations.splice(0, loop.registrations.length);
+      loop.messages?.stop();
+    }
   }
 
   // FIXME: If are validating things twice in most cases...

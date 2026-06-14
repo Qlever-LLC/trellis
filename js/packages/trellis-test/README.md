@@ -29,6 +29,51 @@ const service = await TrellisService.connect({
 }).orThrow();
 ```
 
+App/client participants can connect through the same generated contract surfaces
+used by service repositories:
+
+```ts
+const client = await runtime.connectClient({
+  name: "entity-test-client",
+  contract: entityClientContract,
+});
+```
+
+For lower-level `TrellisClient.connect(...)` tests, create client key material
+and spread the returned auth continuation options:
+
+```ts
+const key = await runtime.registerClient({
+  name: "entity-test-client",
+  contract: entityClientContract,
+});
+
+const clientAuth = runtime.clientAuth(key);
+const client = await TrellisClient.connect({
+  trellisUrl: runtime.trellisUrl,
+  name: "entity-test-client",
+  contract: entityClientContract,
+  ...clientAuth,
+}).orThrow();
+```
+
+Authority automation accepts update plans by default. Isolated mutable-dev tests
+that intentionally exercise safe migration plans can opt in globally or per
+approval:
+
+```ts
+await using runtime = await TrellisTestRuntime.start({
+  trellis: { command: trellisCommand },
+  authority: { autoAccept: ["update", "migration"] },
+});
+
+const approval = await runtime.contracts.approve({
+  contract,
+  allowPlanClassifications: ["update", "migration"],
+});
+console.log(approval.classification);
+```
+
 The runtime starts an isolated NATS/JetStream container with generated Trellis
 accounts, credentials, auth-callout config, a fresh SQLite database, and a real
 Trellis control-plane process. Tests must provide `trellis.command` explicitly.

@@ -1,5 +1,12 @@
 import { join } from "@std/path";
-import { type ContractModule, type TrellisApiLike } from "@qlever-llc/trellis";
+import {
+  type ClientOpts,
+  type ContractModule,
+  createAuth,
+  type TrellisAPI,
+  type TrellisApiLike,
+  TrellisClient,
+} from "@qlever-llc/trellis";
 import { TrellisTestAdminAutomation } from "./admin_client.ts";
 import {
   buildControlPlaneConfig,
@@ -14,6 +21,12 @@ import {
   type TrellisProcessHandle,
 } from "./trellis_process.ts";
 import type {
+  TrellisTestAuthorityPlanClassification,
+  TrellisTestClientAuth,
+  TrellisTestClientContract,
+  TrellisTestClientKey,
+  TrellisTestConnectedClient,
+  TrellisTestContractApproval,
   TrellisTestRuntimeStartOptions,
   TrellisTestServiceKey,
   WaitForOptions,
@@ -47,8 +60,13 @@ export class TrellisTestRuntime implements AsyncDisposable {
   };
   readonly contracts: {
     approve(
-      args: { deployment?: string; contract: RuntimeContract },
-    ): Promise<void>;
+      args: {
+        deployment?: string;
+        contract: RuntimeContract;
+        allowPlanClassifications?:
+          readonly TrellisTestAuthorityPlanClassification[];
+      },
+    ): Promise<TrellisTestContractApproval>;
   };
   readonly services: {
     createInstance(args: {
@@ -96,10 +114,11 @@ export class TrellisTestRuntime implements AsyncDisposable {
       waitReady: (deployment) => this.#admin.waitReady(deployment),
     };
     this.contracts = {
-      approve: ({ deployment, contract }) =>
+      approve: ({ deployment, contract, allowPlanClassifications }) =>
         this.#admin.approveContract({
           deployment: deployment ?? this.#deployment,
           contract,
+          allowPlanClassifications,
         }),
     };
     this.services = {
@@ -170,6 +189,7 @@ export class TrellisTestRuntime implements AsyncDisposable {
           defaultDeployment: deployment,
           defaultMutableDev: options.trellis.mutableDev ?? true,
           reconciliationMs: timeouts.reconciliationMs,
+          autoAccept: options.authority?.autoAccept ?? ["update"],
           getBootstrapUrl: () =>
             startedControlPlane.waitForBootstrapUrl(timeouts.startupMs),
         }),
@@ -196,6 +216,54 @@ export class TrellisTestRuntime implements AsyncDisposable {
       contract: args.contract,
       sessionKeySeed: args.sessionKeySeed,
     });
+  }
+
+  /** Creates app/client session-key material for public `TrellisClient.connect` calls. */
+  async registerClient(args: {
+    name: string;
+    contract: TrellisTestClientContract;
+    sessionKeySeed?: string;
+  }): Promise<TrellisTestClientKey> {
+    const seed = args.sessionKeySeed ?? generateSessionSeed();
+    const auth = await createAuth({ sessionKeySeed: seed });
+    return { seed, sessionKey: auth.sessionKey };
+  }
+
+  /**
+   * Returns auth options and admin-backed auth continuation for a registered
+   * app/client participant. Spread the result into `TrellisClient.connect(...)`.
+   */
+  clientAuth(key: TrellisTestClientKey): TrellisTestClientAuth {
+    return {
+      auth: {
+        mode: "session_key",
+        sessionKeySeed: key.seed,
+        redirectTo: `${this.trellisUrl}/_trellis/test/client-auth`,
+      },
+      onAuthRequired: (ctx) => this.#admin.completeClientAuth(ctx),
+    };
+  }
+
+  /** Connects an app/client participant through the public generated client surface. */
+  async connectClient<
+    TContract extends TrellisTestClientContract<TrellisAPI>,
+  >(
+    args: ClientOpts & {
+      name: string;
+      contract: TContract;
+      sessionKeySeed?: string;
+    },
+  ): Promise<TrellisTestConnectedClient<TContract>> {
+    const key = await this.registerClient(args);
+    const auth = this.clientAuth(key);
+    const client = await TrellisClient.connect({
+      ...args,
+      trellisUrl: this.trellisUrl,
+      auth: auth.auth,
+      onAuthRequired: auth.onAuthRequired,
+    }).orThrow();
+    this.#clients.add(client);
+    return client as TrellisTestConnectedClient<TContract>;
   }
 
   /** Polls until `fn` returns a truthy value. */
