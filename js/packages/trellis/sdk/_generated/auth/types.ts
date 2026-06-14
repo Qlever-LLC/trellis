@@ -1,10 +1,10 @@
 // Generated from ./generated/contracts/manifests/trellis.auth@v1.json
-import type { RpcHandlerFn } from "../../../index.ts";
+import type { RpcHandlerFn, TrellisEventMessage } from "../../../index.ts";
 import type { API } from "./api.ts";
 
 export const CONTRACT_ID = "trellis.auth@v1" as const;
 export const CONTRACT_DIGEST =
-  "66nHnmmxUMmm2hZhW6bLyPlyCxaTgbWPKi2nYPQf-y8" as const;
+  "9lVBR9oyfFwuD9gvT9xR6GPK56QGUjwlvVqmVAkB7ZA" as const;
 
 export type AuthCapabilitiesListInput = { limit: number; offset?: number };
 export type AuthCapabilitiesListOutput = {
@@ -2329,16 +2329,34 @@ export type AuthDeviceUserAuthoritiesResolveOutput = {
 } | { reason?: string; status: "rejected" };
 
 export type AuthConnectionsClosedEvent = {
-  header: { id: string; time: string };
-} & { id: string; origin: string; sessionKey: string; userNkey: string };
+  id: string;
+  origin: string;
+  sessionKey: string;
+  userNkey: string;
+};
+export type AuthConnectionsClosedEventMessage = TrellisEventMessage<
+  AuthConnectionsClosedEvent
+>;
 
 export type AuthConnectionsKickedEvent = {
-  header: { id: string; time: string };
-} & { id: string; kickedBy: string; origin: string; userNkey: string };
+  id: string;
+  kickedBy: string;
+  origin: string;
+  userNkey: string;
+};
+export type AuthConnectionsKickedEventMessage = TrellisEventMessage<
+  AuthConnectionsKickedEvent
+>;
 
 export type AuthConnectionsOpenedEvent = {
-  header: { id: string; time: string };
-} & { id: string; origin: string; sessionKey: string; userNkey: string };
+  id: string;
+  origin: string;
+  sessionKey: string;
+  userNkey: string;
+};
+export type AuthConnectionsOpenedEventMessage = TrellisEventMessage<
+  AuthConnectionsOpenedEvent
+>;
 
 export type AuthDeviceUserAuthoritiesApprovedEvent = {
   approvedAt: string;
@@ -2359,6 +2377,9 @@ export type AuthDeviceUserAuthoritiesApprovedEvent = {
   };
   reviewId: string;
 };
+export type AuthDeviceUserAuthoritiesApprovedEventMessage = TrellisEventMessage<
+  AuthDeviceUserAuthoritiesApprovedEvent
+>;
 
 export type AuthDeviceUserAuthoritiesRequestedEvent = {
   deploymentId: string;
@@ -2372,6 +2393,8 @@ export type AuthDeviceUserAuthoritiesRequestedEvent = {
     userId: string;
   };
 };
+export type AuthDeviceUserAuthoritiesRequestedEventMessage =
+  TrellisEventMessage<AuthDeviceUserAuthoritiesRequestedEvent>;
 
 export type AuthDeviceUserAuthoritiesResolvedEvent = {
   deploymentId: string;
@@ -2386,6 +2409,9 @@ export type AuthDeviceUserAuthoritiesResolvedEvent = {
   };
   reviewId?: string;
 };
+export type AuthDeviceUserAuthoritiesResolvedEventMessage = TrellisEventMessage<
+  AuthDeviceUserAuthoritiesResolvedEvent
+>;
 
 export type AuthDeviceUserAuthoritiesReviewRequestedEvent = {
   deploymentId: string;
@@ -2400,10 +2426,18 @@ export type AuthDeviceUserAuthoritiesReviewRequestedEvent = {
   };
   reviewId: string;
 };
+export type AuthDeviceUserAuthoritiesReviewRequestedEventMessage =
+  TrellisEventMessage<AuthDeviceUserAuthoritiesReviewRequestedEvent>;
 
-export type AuthSessionsRevokedEvent =
-  & { header: { id: string; time: string } }
-  & { id: string; origin: string; revokedBy: string; sessionKey: string };
+export type AuthSessionsRevokedEvent = {
+  id: string;
+  origin: string;
+  revokedBy: string;
+  sessionKey: string;
+};
+export type AuthSessionsRevokedEventMessage = TrellisEventMessage<
+  AuthSessionsRevokedEvent
+>;
 
 export interface RpcMap {
   "Auth.Capabilities.List": {

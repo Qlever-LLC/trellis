@@ -313,15 +313,6 @@ export const IsoDateSchema = Type.Codec(
   .Decode((value: string) => parseIsoDate(value))
   .Encode((value: Date) => formatIsoDate(value));
 
-export const EventHeaderSchema = Type.Object({
-  header: Type.Object({
-    id: Type.String(),
-    time: IsoDateSchema,
-  }),
-});
-
-export type EventHeader = Static<typeof EventHeaderSchema>;
-
 /** Schema for a bounded pagination request. */
 export const PageRequestSchema = Type.Object({
   offset: Type.Optional(Type.Integer({ minimum: 0 })),

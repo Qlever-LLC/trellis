@@ -93,7 +93,6 @@ const serviceSchemas = {
   PingInput: Type.Object({ value: Type.String() }),
   PingOutput: Type.Object({ ok: Type.Boolean() }),
   ServiceChanged: Type.Object({
-    header: Type.Object({ id: Type.String(), time: Type.String() }),
     id: Type.String(),
     value: Type.String(),
   }),

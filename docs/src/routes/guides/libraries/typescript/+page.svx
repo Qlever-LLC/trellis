@@ -255,14 +255,19 @@ await service.handle.rpc.orders.ship(async ({ input, client }) => {
 });
 ```
 
-Direct `publish(...)` is the normal default. It prepares the event payload,
-assigns the event header, publishes to JetStream, and returns when the publish is
+Direct `publish(...)` is the normal default. It prepares the event body, assigns
+runtime event metadata, publishes to JetStream, and returns when the publish is
 acknowledged.
+
+Generated SDK event types represent the contract event body you author. Runtime
+metadata such as the generated event id and timestamp is available on
+`PreparedTrellisEvent.header` after `prepare(...)` and through the listener
+context when consuming events.
 
 Use `prepare(...)` plus an outbox only when the event must be committed together
 with service-local database state. The prepared form freezes the subject,
-encoded payload, event header, and publish headers so a worker can publish the
-same event later. `PreparedTrellisEvent` intentionally has no contract id or
+encoded body, runtime event metadata, and publish headers so a worker can publish
+the same event later. `PreparedTrellisEvent` intentionally has no contract id or
 contract digest; persisted outbox rows should not be coupled to the publisher's
 current deployment metadata.
 
@@ -327,9 +332,9 @@ key, no inbox is needed.
 ```ts
 import { SqlInboxRepository } from "@qlever-llc/trellis/service";
 
-await service.event.orders.shipped.listen(async (event) => {
+await service.event.orders.shipped.listen(async (event, context) => {
   const inbox = new SqlInboxRepository(db, "postgres");
-  if (!(await inbox.record(event.header.id))) return;
+  if (!(await inbox.record(context.id))) return;
 
   await applyNonIdempotentSideEffect(event);
 }, {}, { group: "shipmentProjection" }).orThrow();

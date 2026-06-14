@@ -26,7 +26,6 @@ export {
 export { mountStandardHealthRpc } from "../server/health_rpc.ts";
 export {
   HealthCheckResultSchema,
-  HealthHeartbeatHeaderSchema,
   HealthHeartbeatSchema,
   HealthHeartbeatServiceSchema,
   HealthInfoSchema,

@@ -5,6 +5,7 @@ import {
   assertThrows,
 } from "@std/assert";
 import {
+  headers as natsHeaders,
   type Msg,
   type MsgHdrs,
   type NatsConnection,
@@ -583,7 +584,9 @@ function createFakeNatsConnection(args: {
           } catch {
             value = {};
           }
-          subscription.push(createMessage(subject, value, bytes));
+          subscription.push(createMessage(subject, value, bytes, {
+            headers: opts?.headers,
+          }));
         }
       }
     },
@@ -2048,13 +2051,17 @@ Deno.test("bound service event listeners receive object args with deps", async (
 
     const prepared = service.event.test.pinged.prepare({ value: "one" })
       .orThrow();
-    connection.publish(prepared.subject, prepared.encodedPayload);
+    const headers = natsHeaders();
+    for (const [key, value] of Object.entries(prepared.headers)) {
+      headers.set(key, value);
+    }
+    connection.publish(prepared.subject, prepared.encodedPayload, { headers });
     await delay(10);
 
     assertEquals(observed, {
       value: "one",
-      eventId: prepared.payload.header.id,
-      eventTime: prepared.payload.header.time,
+      eventId: prepared.header.id,
+      eventTime: prepared.header.time,
       subject: prepared.subject,
       mode: "ephemeral",
       prefix: "dep",

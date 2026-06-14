@@ -19,9 +19,6 @@ import { Type } from "typebox";
 const schemas = {
   EventPayload: Type.Object({
     message: Type.String(),
-    header: Type.Optional(
-      Type.Object({ id: Type.String(), time: Type.String() }),
-    ),
   }),
 } as const;
 const harness = defineServiceContract({ schemas }, (ref) => ({
@@ -176,9 +173,7 @@ if (testCase === "durable-resubscribe") {
   try {
     await jetstream(invalidNats).publish(
       "events.v1.Harness.Rust.Event",
-      JSON.stringify({
-        header: { id: "invalid", time: "2026-05-13T00:00:00.000Z" },
-      }),
+      JSON.stringify({}),
     );
   } finally {
     await invalidNats.close();
@@ -222,10 +217,9 @@ if (testCase === "durable-resubscribe") {
       10000,
     );
     void client.event.harness.tsEvent.listen(
-      async (event) => {
+      async (event, context) => {
         const payload = event as {
           message?: string;
-          header?: { id?: unknown; time?: unknown };
         };
         if (payload.message !== Deno.env.get("HARNESS_MESSAGE")) {
           clearTimeout(timeout);
@@ -234,19 +228,18 @@ if (testCase === "durable-resubscribe") {
           );
           return ok(undefined);
         }
-        if (
-          typeof payload.header?.id !== "string" ||
-          typeof payload.header.time !== "string"
-        ) {
+        if (context.id.length === 0 || Number.isNaN(context.time.getTime())) {
           clearTimeout(timeout);
           reject(
-            new Error(`missing prepared event header ${JSON.stringify(event)}`),
+            new Error(
+              `missing prepared event metadata ${JSON.stringify(context)}`,
+            ),
           );
           return ok(undefined);
         }
 
-        if (await inbox.record(payload.header.id)) processed += 1;
-        const duplicate = await inbox.record(payload.header.id);
+        if (await inbox.record(context.id)) processed += 1;
+        const duplicate = await inbox.record(context.id);
         if (duplicate || processed !== 1) {
           clearTimeout(timeout);
           reject(

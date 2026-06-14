@@ -50,6 +50,8 @@ commands.
   enqueue, Drizzle services can use `@qlever-llc/trellis/service/drizzle` to
   adapt caller-owned SQLite databases or transactions; services still own
   migrations and transaction boundaries.
+- Generated TypeScript SDK event aliases are event bodies. Runtime event metadata
+  is available through `PreparedTrellisEvent.header` and listener context.
 - Event subject `params` must point at string, number, or integer-compatible
   payload fields. For `anyOf` or `oneOf` event payload schemas, every variant must
   contain each routed pointer.

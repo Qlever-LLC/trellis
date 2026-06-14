@@ -1323,7 +1323,7 @@ type ServiceEventOf<
 type ServiceEventPayloadOf<
   TA extends TrellisAPI,
   E extends ServiceEventName<TA>,
-> = Omit<ServiceEventOf<TA, E>, "header">;
+> = ServiceEventOf<TA, E> & Record<string, unknown>;
 
 type BoundEventHandleFn<
   TEventApi extends TrellisAPI,
@@ -1333,7 +1333,7 @@ type BoundEventHandleFn<
   TJobs extends ContractJobsMetadata,
   TDeps,
 > = (args: {
-  event: ServiceEventOf<TEventApi, E>;
+  event: ServiceEventPayloadOf<TEventApi, E>;
   context: EventListenerContext;
   client: Trellis<TTrellisApi, TKv, TJobs>;
   deps: TDeps;

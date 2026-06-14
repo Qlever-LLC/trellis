@@ -177,6 +177,10 @@ await client.event.orders.shipped.publish({
 }).orThrow();
 ```
 
+Generated SDK event types are event bodies. Trellis event metadata is assigned by
+the runtime and is available as `PreparedTrellisEvent.header` after `prepare(...)`
+and as `context.id` / `context.time` in event listeners.
+
 Use prepared events plus an outbox when a service-local database update and event
 enqueue must commit or roll back together:
 

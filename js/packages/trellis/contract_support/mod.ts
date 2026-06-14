@@ -100,8 +100,6 @@ export {
   CursorQuerySchema,
   type EventConsumerResourceBinding,
   EventConsumerResourceBindingSchema,
-  type EventHeader,
-  EventHeaderSchema,
   type InstalledServiceContract,
   InstalledServiceContractSchema,
   IsoDateSchema,

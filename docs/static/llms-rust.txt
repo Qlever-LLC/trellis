@@ -139,9 +139,11 @@ dispatch_outbox_once(&mut outbox, |event| async {
 .await?;
 ```
 
-`PreparedTrellisEvent` stores the subject, encoded payload, and message metadata
-needed for later publishing. It intentionally carries no contract id or contract
-digest.
+Generated event structs are event bodies only. `PreparedTrellisEvent` stores the
+subject, encoded payload, and message metadata needed for later publishing. It
+intentionally carries no contract id or contract digest. Metadata-aware
+subscribers should use `subscribe_messages` and `EventMessage::event_id()` /
+`event_time()`.
 
 Use an inbox store only for non-idempotent handlers:
 
@@ -149,8 +151,12 @@ Use an inbox store only for non-idempotent handlers:
 use trellis_rs::client::{InboxReceipt, InboxStore, SqliteInboxStore};
 
 let mut inbox = SqliteInboxStore::new(&sqlite);
-match inbox.record_received(event.header.id.as_str()).await? {
-    InboxReceipt::Accepted => apply_non_idempotent_side_effect(&event).await?,
+let Some(event_id) = message.event_id() else {
+    return Err(anyhow::anyhow!("event message missing Nats-Msg-Id"));
+};
+
+match inbox.record_received(event_id).await? {
+    InboxReceipt::Accepted => apply_non_idempotent_side_effect(message.payload()).await?,
     InboxReceipt::Duplicate => return Ok(()),
 }
 ```

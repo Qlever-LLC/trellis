@@ -1,4 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
+import { ok } from "@qlever-llc/result";
 import {
   headers as natsHeaders,
   type Msg,
@@ -215,8 +216,12 @@ const contract = defineServiceContract(
   {
     schemas: {
       Changed: Type.Object({
-        header: Type.Object({ id: Type.String(), time: Type.String() }),
         origin: Type.String(),
+        id: Type.String(),
+        value: Type.String(),
+      }),
+      HeaderNamed: Type.Object({
+        header: Type.String(),
         id: Type.String(),
         value: Type.String(),
       }),
@@ -231,6 +236,11 @@ const contract = defineServiceContract(
         version: "v1",
         params: ["/origin", "/id"],
         event: ref.schema("Changed"),
+      },
+      "Thing.HeaderNamed": {
+        version: "v1",
+        params: ["/header", "/id"],
+        event: ref.schema("HeaderNamed"),
       },
     },
   }),
@@ -258,11 +268,47 @@ Deno.test("prepare creates stable frozen event without contract metadata", () =>
   assertEquals(prepared.subject, "events.v1.Thing.Changed.test.one");
   assertEquals("contractId" in prepared, false);
   assertEquals("contractDigest" in prepared, false);
-  assertEquals(prepared.headers["Nats-Msg-Id"], prepared.payload.header.id);
+  assertEquals(prepared.headers["Nats-Msg-Id"], prepared.header.id);
+  assertEquals(prepared.headers["Trellis-Event-Time"], prepared.header.time);
   assertEquals(
     JSON.parse(prepared.encodedPayload),
-    prepared.payload,
+    {
+      origin: "test",
+      id: "one",
+      value: "first",
+    },
   );
+});
+
+Deno.test("prepare preserves user body field named header when it is not runtime metadata", () => {
+  const trellis = new Trellis(
+    "test",
+    createMockNatsConnection(),
+    createMockAuth(),
+    {
+      api: contract.API.owned,
+    },
+  );
+  const prepared = trellis.event.thing.headerNamed.prepare({
+    header: "user-header-value",
+    id: "one",
+    value: "first",
+  }).unwrapOrElse((error) => {
+    throw error;
+  });
+
+  assertEquals(
+    prepared.subject,
+    "events.v1.Thing.HeaderNamed.user-header-value.one",
+  );
+  assertEquals(prepared.payload.header, "user-header-value");
+  assertEquals(prepared.header.id, prepared.headers["Nats-Msg-Id"]);
+  assertEquals(prepared.header.time, prepared.headers["Trellis-Event-Time"]);
+  assertEquals(JSON.parse(prepared.encodedPayload), {
+    header: "user-header-value",
+    id: "one",
+    value: "first",
+  });
 });
 
 Deno.test("publishPrepared preserves prepared subject payload and headers", async () => {
@@ -270,6 +316,8 @@ Deno.test("publishPrepared preserves prepared subject payload and headers", asyn
     subject: string;
     payload: string;
     msgId: string | undefined;
+    status: string | undefined;
+    traceparent: string | undefined;
   }> = [];
   const trellis = new Trellis(
     "test",
@@ -290,6 +338,8 @@ Deno.test("publishPrepared preserves prepared subject payload and headers", asyn
           subject,
           payload,
           msgId: opts.headers.get("Nats-Msg-Id"),
+          status: opts.headers.get("status"),
+          traceparent: opts.headers.get("traceparent"),
         });
       },
     },
@@ -302,7 +352,14 @@ Deno.test("publishPrepared preserves prepared subject payload and headers", asyn
   }).unwrapOrElse((error) => {
     throw error;
   });
-  const result = await trellis.publishPrepared(prepared);
+  const result = await trellis.publishPrepared(Object.freeze({
+    ...prepared,
+    headers: Object.freeze({
+      ...prepared.headers,
+      status: "ok",
+      traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
+    }),
+  }));
   result.unwrapOrElse((error) => {
     throw error;
   });
@@ -310,8 +367,61 @@ Deno.test("publishPrepared preserves prepared subject payload and headers", asyn
   assertEquals(published, [{
     subject: prepared.subject,
     payload: prepared.encodedPayload,
-    msgId: prepared.payload.header.id,
+    msgId: prepared.header.id,
+    status: "ok",
+    traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
   }]);
+});
+
+Deno.test("listener context exposes metadata when body owns a header field", async () => {
+  const nc = createRoutedEventNatsConnection();
+  const trellis = new Trellis("event-service", nc, createMockAuth(), {
+    api: contract.API.owned,
+  });
+  let delivered:
+    | {
+      bodyHeader: string;
+      contextId: string;
+      contextTime: string;
+    }
+    | undefined;
+  const mounted = await trellis.event.thing.headerNamed.listen(
+    (event, context) => {
+      delivered = {
+        bodyHeader: event.header,
+        contextId: context.id,
+        contextTime: context.time.toISOString(),
+      };
+      return ok(undefined);
+    },
+    { header: "user-header-value", id: "one" },
+    { mode: "ephemeral" },
+  );
+  mounted.unwrapOrElse((error) => {
+    throw error;
+  });
+
+  const prepared = trellis.event.thing.headerNamed.prepare({
+    header: "user-header-value",
+    id: "one",
+    value: "first",
+  }).unwrapOrElse((error) => {
+    throw error;
+  });
+  const headers = natsHeaders();
+  for (const [key, value] of Object.entries(prepared.headers)) {
+    headers.set(key, value);
+  }
+  nc.publish(prepared.subject, prepared.encodedPayload, { headers });
+
+  await waitFor(() => delivered !== undefined);
+  assertEquals(delivered, {
+    bodyHeader: "user-header-value",
+    contextId: prepared.header.id,
+    contextTime: prepared.header.time,
+  });
+
+  await nc.close();
 });
 
 Deno.test("ephemeral event rejected handler error is annotated", async () => {

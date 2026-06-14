@@ -13,7 +13,7 @@ const CONTRACT_MODULE_METADATA = Symbol.for(
 
 export const CONTRACT_ID = "trellis.health@v1" as const;
 export const CONTRACT_DIGEST =
-  "RHDzeH2V6Nltzk6WklCLbTIK48hF0hNuO9Qk6-BosT4" as const;
+  "z9RdJVXAI4q-hSkpvUX_xMYEJaKslMsayevlW4UlSeQ" as const;
 export const CONTRACT = {
   "description":
     "Expose shared Trellis heartbeat events for service observability.",
@@ -61,14 +61,6 @@ export const CONTRACT = {
           },
           "type": "array",
         },
-        "header": {
-          "properties": {
-            "id": { "type": "string" },
-            "time": { "format": "date-time", "type": "string" },
-          },
-          "required": ["id", "time"],
-          "type": "object",
-        },
         "service": {
           "properties": {
             "contractDigest": { "type": "string" },
@@ -115,7 +107,7 @@ export const CONTRACT = {
         },
         "summary": { "type": "string" },
       },
-      "required": ["header", "service", "status", "checks"],
+      "required": ["service", "status", "checks"],
       "type": "object",
     },
   },

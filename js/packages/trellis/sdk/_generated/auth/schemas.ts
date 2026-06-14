@@ -234,29 +234,14 @@ export const AuthCatalogIssuesResolveResponseSchema = {
 } as const;
 
 export const AuthConnectionsClosedEventSchema = {
-  "allOf": [{
-    "properties": {
-      "header": {
-        "properties": {
-          "id": { "type": "string" },
-          "time": { "format": "date-time", "type": "string" },
-        },
-        "required": ["id", "time"],
-        "type": "object",
-      },
-    },
-    "required": ["header"],
-    "type": "object",
-  }, {
-    "properties": {
-      "id": { "type": "string" },
-      "origin": { "type": "string" },
-      "sessionKey": { "type": "string" },
-      "userNkey": { "type": "string" },
-    },
-    "required": ["origin", "id", "sessionKey", "userNkey"],
-    "type": "object",
-  }],
+  "properties": {
+    "id": { "type": "string" },
+    "origin": { "type": "string" },
+    "sessionKey": { "type": "string" },
+    "userNkey": { "type": "string" },
+  },
+  "required": ["origin", "id", "sessionKey", "userNkey"],
+  "type": "object",
 } as const;
 
 export const AuthConnectionsKickRequestSchema = {
@@ -272,29 +257,14 @@ export const AuthConnectionsKickResponseSchema = {
 } as const;
 
 export const AuthConnectionsKickedEventSchema = {
-  "allOf": [{
-    "properties": {
-      "header": {
-        "properties": {
-          "id": { "type": "string" },
-          "time": { "format": "date-time", "type": "string" },
-        },
-        "required": ["id", "time"],
-        "type": "object",
-      },
-    },
-    "required": ["header"],
-    "type": "object",
-  }, {
-    "properties": {
-      "id": { "type": "string" },
-      "kickedBy": { "type": "string" },
-      "origin": { "type": "string" },
-      "userNkey": { "type": "string" },
-    },
-    "required": ["origin", "id", "userNkey", "kickedBy"],
-    "type": "object",
-  }],
+  "properties": {
+    "id": { "type": "string" },
+    "kickedBy": { "type": "string" },
+    "origin": { "type": "string" },
+    "userNkey": { "type": "string" },
+  },
+  "required": ["origin", "id", "userNkey", "kickedBy"],
+  "type": "object",
 } as const;
 
 export const AuthConnectionsListRequestSchema = {
@@ -486,29 +456,14 @@ export const AuthConnectionsListResponseSchema = {
 } as const;
 
 export const AuthConnectionsOpenedEventSchema = {
-  "allOf": [{
-    "properties": {
-      "header": {
-        "properties": {
-          "id": { "type": "string" },
-          "time": { "format": "date-time", "type": "string" },
-        },
-        "required": ["id", "time"],
-        "type": "object",
-      },
-    },
-    "required": ["header"],
-    "type": "object",
-  }, {
-    "properties": {
-      "id": { "type": "string" },
-      "origin": { "type": "string" },
-      "sessionKey": { "type": "string" },
-      "userNkey": { "type": "string" },
-    },
-    "required": ["origin", "id", "sessionKey", "userNkey"],
-    "type": "object",
-  }],
+  "properties": {
+    "id": { "type": "string" },
+    "origin": { "type": "string" },
+    "sessionKey": { "type": "string" },
+    "userNkey": { "type": "string" },
+  },
+  "required": ["origin", "id", "sessionKey", "userNkey"],
+  "type": "object",
 } as const;
 
 export const AuthDeploymentAuthorityAcceptMigrationRequestSchema = {
@@ -6453,29 +6408,14 @@ export const AuthSessionsRevokeResponseSchema = {
 } as const;
 
 export const AuthSessionsRevokedEventSchema = {
-  "allOf": [{
-    "properties": {
-      "header": {
-        "properties": {
-          "id": { "type": "string" },
-          "time": { "format": "date-time", "type": "string" },
-        },
-        "required": ["id", "time"],
-        "type": "object",
-      },
-    },
-    "required": ["header"],
-    "type": "object",
-  }, {
-    "properties": {
-      "id": { "type": "string" },
-      "origin": { "type": "string" },
-      "revokedBy": { "type": "string" },
-      "sessionKey": { "type": "string" },
-    },
-    "required": ["origin", "id", "sessionKey", "revokedBy"],
-    "type": "object",
-  }],
+  "properties": {
+    "id": { "type": "string" },
+    "origin": { "type": "string" },
+    "revokedBy": { "type": "string" },
+    "sessionKey": { "type": "string" },
+  },
+  "required": ["origin", "id", "sessionKey", "revokedBy"],
+  "type": "object",
 } as const;
 
 export const AuthUserIdentitiesListRequestSchema = {

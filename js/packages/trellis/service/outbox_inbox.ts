@@ -698,14 +698,13 @@ export async function dispatchOutbox(
 export function outboxMessageToPrepared(
   message: OutboxMessage,
 ): PreparedTrellisEvent {
+  const payload = JSON.parse(message.payload) as Record<string, unknown>;
+  const header = eventHeaderFromMessage(message.headers);
   return Object.freeze({
     event: message.event,
     subject: message.subject,
-    payload: Object.freeze(
-      JSON.parse(message.payload) as Record<string, unknown> & {
-        header: { id: string; time: string };
-      },
-    ),
+    header: Object.freeze(header),
+    payload: Object.freeze(payload),
     encodedPayload: message.payload,
     headers: Object.freeze({ ...message.headers }),
   });
@@ -713,7 +712,18 @@ export function outboxMessageToPrepared(
 
 function messageId(event: PreparedTrellisEvent): string {
   return event.headers["Nats-Msg-Id"] ?? event.headers["nats-msg-id"] ??
-    event.payload.header.id;
+    event.header.id;
+}
+
+function eventHeaderFromMessage(
+  headers: Record<string, string>,
+): { id: string; time: string } {
+  const id = headers["Nats-Msg-Id"] ?? headers["nats-msg-id"];
+  const time = headers["Trellis-Event-Time"] ?? headers["trellis-event-time"];
+  return {
+    id: typeof id === "string" ? id : "",
+    time: typeof time === "string" ? time : new Date(0).toISOString(),
+  };
 }
 
 function rowToOutboxMessage(row: SqlRow): OutboxMessage {

@@ -674,7 +674,10 @@ fn push_rust_prepared_events(lines: &mut Vec<String>) {
     lines.extend([
         String::new(),
         "Prepared events and outbox/inbox:".to_string(),
-        "- `PreparedTrellisEvent` captures a validated subject, payload, and idempotency header.".to_string(),
+        "- Generated event structs are event bodies only; runtime metadata is separate from the body payload.".to_string(),
+        "- `PreparedTrellisEvent` captures a validated subject, encoded body payload, preserved transport headers, event id, and event time.".to_string(),
+        "- Published prepared events send `Nats-Msg-Id` from `event_id()` and `Trellis-Event-Time` from `event_time()`.".to_string(),
+        "- Use `subscribe_messages::<Descriptor>(...)` and `EventMessage::event_id()` / `event_time()` when subscribers need metadata.".to_string(),
         "- Use `prepare_event::<Descriptor>(...)`, `publish_prepared(...)`, and `dispatch_outbox_once(...)` for durable publish flows.".to_string(),
         "- Runtime stores include `OutboxStore`, `InboxStore`, `SqliteOutboxStore`, `SqliteInboxStore`, `PostgresOutboxStore`, `PostgresInboxStore`, `NatsKvOutboxStore`, and `NatsKvInboxStore`.".to_string(),
         String::new(),

@@ -21,14 +21,6 @@ export const HealthHeartbeatSchema = {
       },
       "type": "array",
     },
-    "header": {
-      "properties": {
-        "id": { "type": "string" },
-        "time": { "format": "date-time", "type": "string" },
-      },
-      "required": ["id", "time"],
-      "type": "object",
-    },
     "service": {
       "properties": {
         "contractDigest": { "type": "string" },
@@ -75,6 +67,6 @@ export const HealthHeartbeatSchema = {
     },
     "summary": { "type": "string" },
   },
-  "required": ["header", "service", "status", "checks"],
+  "required": ["service", "status", "checks"],
   "type": "object",
 } as const;

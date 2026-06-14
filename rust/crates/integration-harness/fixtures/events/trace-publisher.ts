@@ -19,9 +19,6 @@ new NodeTracerProvider({
 const schemas = {
   EventPayload: Type.Object({
     message: Type.String(),
-    header: Type.Optional(
-      Type.Object({ id: Type.String(), time: Type.String() }),
-    ),
   }),
 } as const;
 const harness = defineServiceContract({ schemas }, (ref) => ({

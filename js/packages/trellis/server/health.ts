@@ -61,10 +61,6 @@ export type ServiceHealthInfoFn = () => MaybePromise<
 >;
 
 export type HealthHeartbeat = {
-  header: {
-    id: string;
-    time: string;
-  };
   service: {
     name: string;
     kind: "service" | "device";
@@ -297,7 +293,7 @@ export function createHealthHeartbeat(args: {
   publishIntervalMs: number;
   checks: HealthCheckResult[];
   info?: ServiceHealthInfo;
-}): Omit<HealthHeartbeat, "header"> {
+}): HealthHeartbeat {
   const runtime = detectRuntime();
   const summary = summarizeHealthChecks(args.checks);
 
@@ -398,7 +394,7 @@ export class ServiceHealth {
     };
   }
 
-  async heartbeat(): Promise<Omit<HealthHeartbeat, "header">> {
+  async heartbeat(): Promise<HealthHeartbeat> {
     const checks = await this.checks();
     const info = this.#info ? await this.#info() : undefined;
     return createHealthHeartbeat({

@@ -2,9 +2,8 @@ use async_nats::header::HeaderMap;
 use bytes::Bytes;
 use futures_util::TryStreamExt;
 use postgres::Client as PostgresClient;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, types::Type as SqliteType, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -15,30 +14,51 @@ use crate::client::EventDescriptor;
 const OUTBOX_STATUS_PENDING: &str = "pending";
 const OUTBOX_STATUS_IN_FLIGHT: &str = "in_flight";
 const OUTBOX_STATUS_PUBLISHED: &str = "published";
+pub(crate) const EVENT_ID_HEADER: &str = "Nats-Msg-Id";
+pub(crate) const EVENT_TIME_HEADER: &str = "Trellis-Event-Time";
 
 /// A Trellis event prepared for durable storage or later publishing.
 ///
-/// The prepared form intentionally contains only the event subject, encoded
-/// payload, and event-derived message metadata. Contract identity and digest are
-/// not duplicated into this transport record.
+/// The prepared form stores the event subject, encoded body payload, transport
+/// headers, and event metadata separately. Contract identity and digest are not
+/// duplicated into this transport record.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PreparedTrellisEvent {
     subject: String,
     payload: Bytes,
-    message_id: Option<String>,
-    header_id: Option<String>,
-    header_time: Option<String>,
+    headers: HeaderMap,
+    event_id: String,
+    event_time: String,
 }
 
 impl PreparedTrellisEvent {
-    /// Build a prepared event from an already encoded JSON payload.
+    /// Build a prepared event from an already encoded JSON body payload.
+    ///
+    /// The event id and event time are generated as metadata and are not written
+    /// into the payload bytes.
     pub fn new(subject: impl Into<String>, payload: Bytes) -> Self {
         Self {
             subject: subject.into(),
             payload,
-            message_id: None,
-            header_id: None,
-            header_time: None,
+            headers: HeaderMap::new(),
+            event_id: Ulid::new().to_string(),
+            event_time: now_rfc3339(),
+        }
+    }
+
+    fn from_parts(
+        subject: String,
+        payload: Bytes,
+        headers: HeaderMap,
+        event_id: String,
+        event_time: String,
+    ) -> Self {
+        Self {
+            subject,
+            payload,
+            headers,
+            event_id,
+            event_time,
         }
     }
 
@@ -57,80 +77,44 @@ impl PreparedTrellisEvent {
         self.payload.clone()
     }
 
-    /// Return the deduplication message id used for `Nats-Msg-Id`, when present.
-    pub fn message_id(&self) -> Option<&str> {
-        self.message_id.as_deref()
+    /// Return transport headers preserved with this prepared event.
+    pub fn headers(&self) -> &HeaderMap {
+        &self.headers
     }
 
-    /// Return the event header id captured from the payload, when present.
-    pub fn header_id(&self) -> Option<&str> {
-        self.header_id.as_deref()
+    /// Replace the transport headers preserved with this prepared event.
+    ///
+    /// `publish_headers` overlays Trellis event metadata headers on top of these
+    /// values so stale `Nats-Msg-Id` or `Trellis-Event-Time` values cannot
+    /// override the prepared event metadata.
+    pub fn with_headers(mut self, headers: HeaderMap) -> Self {
+        self.headers = headers;
+        self
     }
 
-    /// Return the event header time captured from the payload, when present.
-    pub fn header_time(&self) -> Option<&str> {
-        self.header_time.as_deref()
+    /// Return the Trellis event id used as the `Nats-Msg-Id` publish header.
+    pub fn event_id(&self) -> &str {
+        &self.event_id
+    }
+
+    /// Return the Trellis event timestamp propagated as `Trellis-Event-Time`.
+    pub fn event_time(&self) -> &str {
+        &self.event_time
     }
 
     /// Return the NATS headers required to publish this prepared event.
-    pub fn publish_headers(&self) -> Option<HeaderMap> {
-        self.message_id.as_ref().map(|message_id| {
-            let mut headers = HeaderMap::new();
-            headers.insert("Nats-Msg-Id", message_id.as_str());
-            headers
-        })
-    }
-
-    fn from_value(subject: &str, mut value: Value) -> Result<Self, serde_json::Error> {
-        ensure_event_header(&mut value);
-        let header_id = value
-            .get("header")
-            .and_then(|header| header.get("id"))
-            .and_then(Value::as_str)
-            .map(ToString::to_string);
-        let header_time = value
-            .get("header")
-            .and_then(|header| header.get("time"))
-            .and_then(Value::as_str)
-            .map(ToString::to_string);
-        let payload = Bytes::from(serde_json::to_vec(&value)?);
-        Ok(Self {
-            subject: subject.to_string(),
-            payload,
-            message_id: header_id.clone(),
-            header_id,
-            header_time,
-        })
+    pub fn publish_headers(&self) -> HeaderMap {
+        let mut headers = self.headers.clone();
+        headers.insert(EVENT_ID_HEADER, self.event_id.as_str());
+        headers.insert(EVENT_TIME_HEADER, self.event_time.as_str());
+        headers
     }
 }
 
-fn ensure_event_header(value: &mut Value) {
-    let Value::Object(object) = value else {
-        return;
-    };
-
-    let has_complete_header =
-        object
-            .get("header")
-            .and_then(Value::as_object)
-            .is_some_and(|header| {
-                header.get("id").and_then(Value::as_str).is_some()
-                    && header.get("time").and_then(Value::as_str).is_some()
-            });
-    if has_complete_header {
-        return;
-    }
-
-    let time = OffsetDateTime::now_utc()
+fn now_rfc3339() -> String {
+    OffsetDateTime::now_utc()
         .format(&Rfc3339)
-        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string());
-    object.insert(
-        "header".to_string(),
-        serde_json::json!({
-            "id": Ulid::new().to_string(),
-            "time": time,
-        }),
-    );
+        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
 }
 
 /// Prepare one descriptor-backed typed event without publishing it.
@@ -149,7 +133,14 @@ pub fn prepare_event_value<T>(
 where
     T: Serialize + ?Sized,
 {
-    PreparedTrellisEvent::from_value(subject, serde_json::to_value(event)?)
+    Ok(PreparedTrellisEvent::new(
+        subject,
+        Bytes::from(serde_json::to_vec(event)?),
+    ))
+}
+
+fn sqlite_header_decode_error(error: serde_json::Error) -> rusqlite::Error {
+    rusqlite::Error::FromSqlConversionFailure(3, SqliteType::Text, Box::new(error))
 }
 
 /// Errors returned by Trellis event outbox and inbox stores.
@@ -211,14 +202,14 @@ pub trait OutboxStore {
 
 /// Storage abstraction for consumer-side duplicate suppression.
 pub trait InboxStore {
-    /// Record an incoming message id and report whether it was newly accepted.
+    /// Record an incoming event id and report whether it was newly accepted.
     fn record_received(
         &mut self,
-        message_id: &str,
+        event_id: &str,
     ) -> impl std::future::Future<Output = Result<InboxReceipt, EventStoreError>>;
 }
 
-/// Result of recording an inbox message id.
+/// Result of recording an inbox event id.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InboxReceipt {
     /// This message id was not seen before and should be processed.
@@ -356,8 +347,8 @@ impl MemoryInboxStore {
 }
 
 impl InboxStore for MemoryInboxStore {
-    async fn record_received(&mut self, message_id: &str) -> Result<InboxReceipt, EventStoreError> {
-        if self.seen.insert(message_id.to_string()) {
+    async fn record_received(&mut self, event_id: &str) -> Result<InboxReceipt, EventStoreError> {
+        if self.seen.insert(event_id.to_string()) {
             Ok(InboxReceipt::Accepted)
         } else {
             Ok(InboxReceipt::Duplicate)
@@ -384,9 +375,9 @@ impl<'a> SqliteOutboxStore<'a> {
                 id TEXT PRIMARY KEY,\
                 subject TEXT NOT NULL,\
                 payload BLOB NOT NULL,\
-                message_id TEXT,\
-                header_id TEXT,\
-                header_time TEXT,\
+                headers TEXT NOT NULL,\
+                event_id TEXT NOT NULL,\
+                event_time TEXT NOT NULL,\
                 status TEXT NOT NULL,\
                 attempts INTEGER NOT NULL DEFAULT 0,\
                 last_error TEXT\
@@ -404,16 +395,16 @@ impl OutboxStore for SqliteOutboxStore<'_> {
     ) -> Result<(), EventStoreError> {
         self.connection.execute(
             "INSERT INTO trellis_outbox_events \
-                (id, subject, payload, message_id, header_id, header_time, status, attempts) \
+                (id, subject, payload, headers, event_id, event_time, status, attempts) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0) \
              ON CONFLICT(id) DO NOTHING",
             params![
                 id,
                 event.subject(),
                 event.payload(),
-                event.message_id(),
-                event.header_id(),
-                event.header_time(),
+                serde_json::to_string(event.headers())?,
+                event.event_id(),
+                event.event_time(),
                 OUTBOX_STATUS_PENDING,
             ],
         )?;
@@ -424,21 +415,24 @@ impl OutboxStore for SqliteOutboxStore<'_> {
         let row = self
             .connection
             .query_row(
-                "SELECT id, subject, payload, message_id, header_id, header_time, attempts, last_error \
+                "SELECT id, subject, payload, headers, event_id, event_time, attempts, last_error \
                  FROM trellis_outbox_events WHERE status = ?1 ORDER BY rowid LIMIT 1",
                 params![OUTBOX_STATUS_PENDING],
                 |row| {
                     let id: String = row.get(0)?;
                     let attempts: u32 = row.get::<_, i64>(6)?.try_into().unwrap_or(u32::MAX);
+                    let header_json: String = row.get(3)?;
+                    let headers =
+                        serde_json::from_str(&header_json).map_err(sqlite_header_decode_error)?;
                     Ok(OutboxEventRecord {
                         id,
-                        event: PreparedTrellisEvent {
-                            subject: row.get(1)?,
-                            payload: Bytes::from(row.get::<_, Vec<u8>>(2)?),
-                            message_id: row.get(3)?,
-                            header_id: row.get(4)?,
-                            header_time: row.get(5)?,
-                        },
+                        event: PreparedTrellisEvent::from_parts(
+                            row.get(1)?,
+                            Bytes::from(row.get::<_, Vec<u8>>(2)?),
+                            headers,
+                            row.get(4)?,
+                            row.get(5)?,
+                        ),
                         attempts,
                         last_error: row.get(7)?,
                     })
@@ -488,8 +482,8 @@ impl<'a> SqliteInboxStore<'a> {
     /// Create a minimal test schema for this adapter.
     pub fn create_schema(connection: &Connection) -> Result<(), EventStoreError> {
         connection.execute_batch(
-            "CREATE TABLE IF NOT EXISTS trellis_inbox_messages (\
-                message_id TEXT PRIMARY KEY\
+            "CREATE TABLE IF NOT EXISTS trellis_inbox_events (\
+                event_id TEXT PRIMARY KEY\
             );",
         )?;
         Ok(())
@@ -497,10 +491,10 @@ impl<'a> SqliteInboxStore<'a> {
 }
 
 impl InboxStore for SqliteInboxStore<'_> {
-    async fn record_received(&mut self, message_id: &str) -> Result<InboxReceipt, EventStoreError> {
+    async fn record_received(&mut self, event_id: &str) -> Result<InboxReceipt, EventStoreError> {
         let inserted = self.connection.execute(
-            "INSERT INTO trellis_inbox_messages (message_id) VALUES (?1) ON CONFLICT(message_id) DO NOTHING",
-            params![message_id],
+            "INSERT INTO trellis_inbox_events (event_id) VALUES (?1) ON CONFLICT(event_id) DO NOTHING",
+            params![event_id],
         )?;
         if inserted == 0 {
             Ok(InboxReceipt::Duplicate)
@@ -536,9 +530,9 @@ impl<'a> PostgresOutboxStore<'a> {
                 id TEXT PRIMARY KEY,\
                 subject TEXT NOT NULL,\
                 payload BYTEA NOT NULL,\
-                message_id TEXT,\
-                header_id TEXT,\
-                header_time TEXT,\
+                headers TEXT NOT NULL,\
+                event_id TEXT NOT NULL,\
+                event_time TEXT NOT NULL,\
                 status TEXT NOT NULL,\
                 attempts INTEGER NOT NULL DEFAULT 0,\
                 last_error TEXT\
@@ -556,16 +550,16 @@ impl OutboxStore for PostgresOutboxStore<'_> {
     ) -> Result<(), EventStoreError> {
         self.client.execute(
             "INSERT INTO trellis_outbox_events \
-                (id, subject, payload, message_id, header_id, header_time, status, attempts) \
+                (id, subject, payload, headers, event_id, event_time, status, attempts) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, 0) \
              ON CONFLICT(id) DO NOTHING",
             &[
                 &id,
                 &event.subject(),
                 &event.payload(),
-                &event.message_id(),
-                &event.header_id(),
-                &event.header_time(),
+                &serde_json::to_string(event.headers())?,
+                &event.event_id(),
+                &event.event_time(),
                 &OUTBOX_STATUS_PENDING,
             ],
         )?;
@@ -574,7 +568,7 @@ impl OutboxStore for PostgresOutboxStore<'_> {
 
     async fn claim_next(&mut self) -> Result<Option<OutboxEventRecord>, EventStoreError> {
         let row = self.client.query_opt(
-            "SELECT id, subject, payload, message_id, header_id, header_time, attempts, last_error \
+            "SELECT id, subject, payload, headers, event_id, event_time, attempts, last_error \
              FROM trellis_outbox_events WHERE status = $1 ORDER BY id LIMIT 1",
             &[&OUTBOX_STATUS_PENDING],
         )?;
@@ -589,15 +583,17 @@ impl OutboxStore for PostgresOutboxStore<'_> {
             "UPDATE trellis_outbox_events SET status = $1, attempts = $2 WHERE id = $3",
             &[&OUTBOX_STATUS_IN_FLIGHT, &(attempts as i32), &id],
         )?;
+        let header_json: String = row.get(3);
+        let headers = serde_json::from_str(&header_json)?;
         Ok(Some(OutboxEventRecord {
             id,
-            event: PreparedTrellisEvent {
-                subject: row.get(1),
-                payload: Bytes::from(row.get::<_, Vec<u8>>(2)),
-                message_id: row.get(3),
-                header_id: row.get(4),
-                header_time: row.get(5),
-            },
+            event: PreparedTrellisEvent::from_parts(
+                row.get(1),
+                Bytes::from(row.get::<_, Vec<u8>>(2)),
+                headers,
+                row.get(4),
+                row.get(5),
+            ),
             attempts,
             last_error: row.get(7),
         }))
@@ -642,8 +638,8 @@ impl<'a> PostgresInboxStore<'a> {
     /// Create a minimal test schema for this adapter.
     pub fn create_schema(client: &mut PostgresClient) -> Result<(), EventStoreError> {
         client.batch_execute(
-            "CREATE TABLE IF NOT EXISTS trellis_inbox_messages (\
-                message_id TEXT PRIMARY KEY\
+            "CREATE TABLE IF NOT EXISTS trellis_inbox_events (\
+                event_id TEXT PRIMARY KEY\
             );",
         )?;
         Ok(())
@@ -651,10 +647,10 @@ impl<'a> PostgresInboxStore<'a> {
 }
 
 impl InboxStore for PostgresInboxStore<'_> {
-    async fn record_received(&mut self, message_id: &str) -> Result<InboxReceipt, EventStoreError> {
+    async fn record_received(&mut self, event_id: &str) -> Result<InboxReceipt, EventStoreError> {
         let inserted = self.client.execute(
-            "INSERT INTO trellis_inbox_messages (message_id) VALUES ($1) ON CONFLICT(message_id) DO NOTHING",
-            &[&message_id],
+            "INSERT INTO trellis_inbox_events (event_id) VALUES ($1) ON CONFLICT(event_id) DO NOTHING",
+            &[&event_id],
         )?;
         if inserted == 0 {
             Ok(InboxReceipt::Duplicate)
@@ -668,9 +664,9 @@ impl InboxStore for PostgresInboxStore<'_> {
 struct StoredPreparedEvent {
     subject: String,
     payload: Vec<u8>,
-    message_id: Option<String>,
-    header_id: Option<String>,
-    header_time: Option<String>,
+    headers: HeaderMap,
+    event_id: String,
+    event_time: String,
     attempts: u32,
     last_error: Option<String>,
     status: String,
@@ -681,9 +677,9 @@ impl StoredPreparedEvent {
         Self {
             subject: event.subject().to_string(),
             payload: event.payload().to_vec(),
-            message_id: event.message_id().map(ToString::to_string),
-            header_id: event.header_id().map(ToString::to_string),
-            header_time: event.header_time().map(ToString::to_string),
+            headers: event.headers().clone(),
+            event_id: event.event_id().to_string(),
+            event_time: event.event_time().to_string(),
             attempts: 0,
             last_error: None,
             status: OUTBOX_STATUS_PENDING.to_string(),
@@ -693,13 +689,13 @@ impl StoredPreparedEvent {
     fn into_record(self, id: String) -> OutboxEventRecord {
         OutboxEventRecord {
             id,
-            event: PreparedTrellisEvent {
-                subject: self.subject,
-                payload: Bytes::from(self.payload),
-                message_id: self.message_id,
-                header_id: self.header_id,
-                header_time: self.header_time,
-            },
+            event: PreparedTrellisEvent::from_parts(
+                self.subject,
+                Bytes::from(self.payload),
+                self.headers,
+                self.event_id,
+                self.event_time,
+            ),
             attempts: self.attempts,
             last_error: self.last_error,
         }
@@ -855,14 +851,14 @@ impl NatsKvInboxStore {
         }
     }
 
-    fn key(&self, message_id: &str) -> String {
-        format!("{}inbox/{message_id}", self.prefix)
+    fn key(&self, event_id: &str) -> String {
+        format!("{}inbox/{event_id}", self.prefix)
     }
 }
 
 impl InboxStore for NatsKvInboxStore {
-    async fn record_received(&mut self, message_id: &str) -> Result<InboxReceipt, EventStoreError> {
-        match self.store.create(self.key(message_id), Bytes::new()).await {
+    async fn record_received(&mut self, event_id: &str) -> Result<InboxReceipt, EventStoreError> {
+        match self.store.create(self.key(event_id), Bytes::new()).await {
             Ok(_) => Ok(InboxReceipt::Accepted),
             Err(error) => {
                 let message = error.to_string();
@@ -879,31 +875,26 @@ impl InboxStore for NatsKvInboxStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
     #[derive(Debug, Deserialize, Serialize)]
     struct TestEvent {
-        header: TestHeader,
+        header: String,
         value: String,
     }
 
     #[derive(Debug, Deserialize, Serialize)]
-    struct TestEventWithoutHeader {
+    struct TestEventWithoutDomainHeader {
         value: String,
     }
 
-    #[derive(Debug, Deserialize, Serialize)]
-    struct TestHeader {
-        id: String,
-        time: String,
-    }
+    struct TestDescriptorWithoutDomainHeader;
 
-    struct TestDescriptorWithoutHeader;
+    impl EventDescriptor for TestDescriptorWithoutDomainHeader {
+        type Event = TestEventWithoutDomainHeader;
 
-    impl EventDescriptor for TestDescriptorWithoutHeader {
-        type Event = TestEventWithoutHeader;
-
-        const KEY: &'static str = "Test.EventWithoutHeader";
-        const SUBJECT: &'static str = "events.v1.Test.EventWithoutHeader";
+        const KEY: &'static str = "Test.EventWithoutDomainHeader";
+        const SUBJECT: &'static str = "events.v1.Test.EventWithoutDomainHeader";
         const PUBLISH_CAPABILITIES: &'static [&'static str] = &[];
         const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &[];
     }
@@ -921,53 +912,72 @@ mod tests {
 
     fn test_event() -> TestEvent {
         TestEvent {
-            header: TestHeader {
-                id: "evt_1".to_string(),
-                time: "2026-05-25T00:00:00Z".to_string(),
-            },
+            header: "domain-header".to_string(),
             value: "payload".to_string(),
         }
     }
 
     #[test]
-    fn prepare_event_preserves_subject_payload_and_headers() {
+    fn prepare_event_preserves_subject_and_body_payload() {
         let prepared = prepare_event::<TestDescriptor>(&test_event()).expect("event prepares");
         assert_eq!(prepared.subject(), "events.v1.Test.Event");
-        assert_eq!(prepared.message_id(), Some("evt_1"));
-        assert_eq!(prepared.header_id(), Some("evt_1"));
-        assert_eq!(prepared.header_time(), Some("2026-05-25T00:00:00Z"));
+        assert!(!prepared.event_id().is_empty());
+        assert!(prepared.event_time().ends_with('Z'));
         assert_eq!(
             serde_json::from_slice::<Value>(prepared.payload()).expect("payload is json"),
             serde_json::json!({
-                "header": { "id": "evt_1", "time": "2026-05-25T00:00:00Z" },
+                "header": "domain-header",
                 "value": "payload"
             })
         );
-        let headers = prepared
-            .publish_headers()
-            .expect("message id header exists");
+        let headers = prepared.publish_headers();
         assert_eq!(
-            headers.get("Nats-Msg-Id").map(|value| value.as_str()),
-            Some("evt_1")
+            headers.get(EVENT_ID_HEADER).map(|value| value.as_str()),
+            Some(prepared.event_id())
+        );
+        assert_eq!(
+            headers.get(EVENT_TIME_HEADER).map(|value| value.as_str()),
+            Some(prepared.event_time())
         );
     }
 
     #[test]
-    fn prepare_event_adds_header_when_missing() {
-        let prepared = prepare_event::<TestDescriptorWithoutHeader>(&TestEventWithoutHeader {
-            value: "payload".to_string(),
-        })
-        .expect("event prepares");
+    fn prepare_event_does_not_add_header_when_missing() {
+        let prepared =
+            prepare_event::<TestDescriptorWithoutDomainHeader>(&TestEventWithoutDomainHeader {
+                value: "payload".to_string(),
+            })
+            .expect("event prepares");
         let payload = serde_json::from_slice::<Value>(prepared.payload()).expect("payload is json");
-        let header = payload
-            .get("header")
-            .and_then(Value::as_object)
-            .expect("prepared payload has header");
-        assert!(header.get("id").and_then(Value::as_str).is_some());
-        assert!(header.get("time").and_then(Value::as_str).is_some());
+        assert!(payload.get("header").is_none());
+        assert!(!prepared.event_id().is_empty());
+        assert!(prepared.event_time().ends_with('Z'));
+    }
+
+    #[test]
+    fn publish_headers_preserve_existing_headers_and_overlay_metadata() {
+        let mut existing = HeaderMap::new();
+        existing.insert(
+            "traceparent",
+            "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01",
+        );
+        existing.insert(EVENT_ID_HEADER, "stale");
+        let prepared = prepare_event::<TestDescriptor>(&test_event())
+            .expect("event prepares")
+            .with_headers(existing);
+
+        let headers = prepared.publish_headers();
         assert_eq!(
-            prepared.message_id(),
-            header.get("id").and_then(Value::as_str)
+            headers.get("traceparent").map(|value| value.as_str()),
+            Some("00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01")
+        );
+        assert_eq!(
+            headers.get(EVENT_ID_HEADER).map(|value| value.as_str()),
+            Some(prepared.event_id())
+        );
+        assert_eq!(
+            headers.get(EVENT_TIME_HEADER).map(|value| value.as_str()),
+            Some(prepared.event_time())
         );
     }
 

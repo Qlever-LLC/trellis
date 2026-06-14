@@ -335,11 +335,6 @@ Deno.test("health wire schemas accept additive fields", () => {
     requestId: "req_123",
   }));
   assert(Value.Check(HealthHeartbeatSchema, {
-    header: {
-      id: "evt_123",
-      time: "2026-01-01T00:00:00.000Z",
-      source: "activity",
-    },
     service: {
       name: "activity",
       kind: "service",

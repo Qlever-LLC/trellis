@@ -2957,13 +2957,34 @@ pub struct AuthDeviceUserAuthoritiesResolveProgress {
 pub struct AuthDeviceUserAuthoritiesResolveOutput(pub Value);
 /// Generated schema type `AuthConnectionsClosedEvent`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthConnectionsClosedEvent(pub Value);
+pub struct AuthConnectionsClosedEvent {
+    pub id: String,
+    pub origin: String,
+    #[serde(rename = "sessionKey")]
+    pub session_key: String,
+    #[serde(rename = "userNkey")]
+    pub user_nkey: String,
+}
 /// Generated schema type `AuthConnectionsKickedEvent`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthConnectionsKickedEvent(pub Value);
+pub struct AuthConnectionsKickedEvent {
+    pub id: String,
+    #[serde(rename = "kickedBy")]
+    pub kicked_by: String,
+    pub origin: String,
+    #[serde(rename = "userNkey")]
+    pub user_nkey: String,
+}
 /// Generated schema type `AuthConnectionsOpenedEvent`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthConnectionsOpenedEvent(pub Value);
+pub struct AuthConnectionsOpenedEvent {
+    pub id: String,
+    pub origin: String,
+    #[serde(rename = "sessionKey")]
+    pub session_key: String,
+    #[serde(rename = "userNkey")]
+    pub user_nkey: String,
+}
 /// Generated schema type `AuthDeviceUserAuthoritiesApprovedEvent`.
 /// Generated schema type `AuthDeviceUserAuthoritiesApprovedEventApprovedBy`.
 /// Generated schema type `AuthDeviceUserAuthoritiesApprovedEventApprovedByIdentity`.
@@ -3127,4 +3148,11 @@ pub struct AuthDeviceUserAuthoritiesReviewRequestedEvent {
 }
 /// Generated schema type `AuthSessionsRevokedEvent`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AuthSessionsRevokedEvent(pub Value);
+pub struct AuthSessionsRevokedEvent {
+    pub id: String,
+    pub origin: String,
+    #[serde(rename = "revokedBy")]
+    pub revoked_by: String,
+    #[serde(rename = "sessionKey")]
+    pub session_key: String,
+}

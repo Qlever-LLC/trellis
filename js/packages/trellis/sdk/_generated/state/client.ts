@@ -131,12 +131,12 @@ export interface TrellisStateClient {
     readonly health: {
       heartbeat: {
         publish(
-          event: Omit<HealthSdk.HealthHeartbeatEvent, "header">,
+          event: HealthSdk.HealthHeartbeatEvent,
         ): AsyncResult<void, ValidationError | UnexpectedError>;
         prepare(
-          event: Omit<HealthSdk.HealthHeartbeatEvent, "header">,
+          event: HealthSdk.HealthHeartbeatEvent,
         ): Result<
-          PreparedTrellisEvent<Omit<HealthSdk.HealthHeartbeatEvent, "header">>,
+          PreparedTrellisEvent<HealthSdk.HealthHeartbeatEvent>,
           ValidationError | UnexpectedError
         >;
         listen(
@@ -167,12 +167,12 @@ export interface ServiceEventSurface<TDeps> {
   readonly health: {
     heartbeat: {
       publish(
-        event: Omit<HealthSdk.HealthHeartbeatEvent, "header">,
+        event: HealthSdk.HealthHeartbeatEvent,
       ): AsyncResult<void, ValidationError | UnexpectedError>;
       prepare(
-        event: Omit<HealthSdk.HealthHeartbeatEvent, "header">,
+        event: HealthSdk.HealthHeartbeatEvent,
       ): Result<
-        PreparedTrellisEvent<Omit<HealthSdk.HealthHeartbeatEvent, "header">>,
+        PreparedTrellisEvent<HealthSdk.HealthHeartbeatEvent>,
         ValidationError | UnexpectedError
       >;
       listen(

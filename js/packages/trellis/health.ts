@@ -18,7 +18,6 @@ export {
 } from "./server/health.ts";
 export {
   HealthCheckResultSchema,
-  HealthHeartbeatHeaderSchema,
   HealthHeartbeatSchema,
   HealthHeartbeatServiceSchema,
   HealthInfoSchema,

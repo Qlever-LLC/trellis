@@ -17,12 +17,6 @@ pub struct HealthHeartbeatEventChecksItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
 }
-/// Generated schema type `HealthHeartbeatEventHeader`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct HealthHeartbeatEventHeader {
-    pub id: String,
-    pub time: String,
-}
 /// Generated schema type `HealthHeartbeatEventService`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HealthHeartbeatEventService {
@@ -50,7 +44,6 @@ pub struct HealthHeartbeatEventService {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HealthHeartbeatEvent {
     pub checks: Vec<HealthHeartbeatEventChecksItem>,
-    pub header: HealthHeartbeatEventHeader,
     pub service: HealthHeartbeatEventService,
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
