@@ -78,6 +78,8 @@ fn resources() -> ServiceResourceBindings {
                     logs: true,
                     dlq: true,
                     concurrency: 2,
+                    key_concurrency: None,
+                    queue: None,
                 },
             )]),
         }),

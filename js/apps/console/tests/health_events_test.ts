@@ -9,10 +9,6 @@ import {
 
 function heartbeat(overrides?: Partial<HealthHeartbeat>): HealthHeartbeat {
   return {
-    header: {
-      id: overrides?.header?.id ?? "01TEST",
-      time: overrides?.header?.time ?? "2026-01-01T00:00:00.000Z",
-    },
     service: {
       name: overrides?.service?.name ?? "activity",
       kind: overrides?.service?.kind ?? "service",
@@ -39,26 +35,29 @@ function heartbeat(overrides?: Partial<HealthHeartbeat>): HealthHeartbeat {
 Deno.test("appendHealthEvent keeps newest events first within the fixed window", () => {
   const events = appendHealthEvent(
     [],
-    heartbeat({ header: { id: "a", time: "2026-01-01T00:00:00.000Z" } }),
+    heartbeat(),
+    { id: "a" },
     10,
     2,
   );
   const next = appendHealthEvent(
     events,
-    heartbeat({ header: { id: "b", time: "2026-01-01T00:00:01.000Z" } }),
+    heartbeat(),
+    { id: "b" },
     20,
     2,
   );
   const finalEvents = appendHealthEvent(
     next,
-    heartbeat({ header: { id: "c", time: "2026-01-01T00:00:02.000Z" } }),
+    heartbeat(),
+    { id: "c" },
     30,
     2,
   );
 
   assertEquals(finalEvents.length, 2);
-  assertEquals(finalEvents[0].heartbeat.header.id, "c");
-  assertEquals(finalEvents[1].heartbeat.header.id, "b");
+  assertEquals(finalEvents[0].id, "c:30");
+  assertEquals(finalEvents[1].id, "b:20");
 });
 
 Deno.test("summarizeHealthServices marks services offline when all instances are stale", () => {
