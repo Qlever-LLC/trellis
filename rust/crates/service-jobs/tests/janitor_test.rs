@@ -21,6 +21,8 @@ fn sample_job(id: &str, state: JobState, deadline: Option<&str>) -> Job {
         deadline: deadline.map(ToString::to_string),
         progress: None,
         logs: None,
+        concurrency: None,
+        queue_policy: None,
     }
 }
 

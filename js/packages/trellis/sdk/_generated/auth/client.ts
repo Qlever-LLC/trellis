@@ -33,7 +33,6 @@ import type {
 } from "../../../index.ts";
 import type { API, Api } from "./api.ts";
 import type * as Types from "./types.ts";
-import type * as HealthSdk from "../health/mod.ts";
 
 type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
 
@@ -566,24 +565,6 @@ export interface TrellisAuthClient {
         ): AsyncResult<void, ValidationError | UnexpectedError>;
       };
     };
-    readonly health: {
-      heartbeat: {
-        publish(
-          event: Omit<HealthSdk.HealthHeartbeatEvent, "header">,
-        ): AsyncResult<void, ValidationError | UnexpectedError>;
-        prepare(
-          event: Omit<HealthSdk.HealthHeartbeatEvent, "header">,
-        ): Result<
-          PreparedTrellisEvent<Omit<HealthSdk.HealthHeartbeatEvent, "header">>,
-          ValidationError | UnexpectedError
-        >;
-        listen(
-          handler: EventCallback<HealthSdk.HealthHeartbeatEvent>,
-          subjectData?: Record<string, unknown>,
-          opts?: EventOpts,
-        ): AsyncResult<void, ValidationError | UnexpectedError>;
-      };
-    };
   };
   readonly feed: {};
   readonly operation: {
@@ -757,24 +738,6 @@ export interface ServiceEventSurface<TDeps> {
       >;
       listen(
         handler: ServiceEventHandler<Types.AuthSessionsRevokedEvent, TDeps>,
-        subjectData?: Record<string, unknown>,
-        opts?: EventOpts,
-      ): AsyncResult<void, ValidationError | UnexpectedError>;
-    };
-  };
-  readonly health: {
-    heartbeat: {
-      publish(
-        event: Omit<HealthSdk.HealthHeartbeatEvent, "header">,
-      ): AsyncResult<void, ValidationError | UnexpectedError>;
-      prepare(
-        event: Omit<HealthSdk.HealthHeartbeatEvent, "header">,
-      ): Result<
-        PreparedTrellisEvent<Omit<HealthSdk.HealthHeartbeatEvent, "header">>,
-        ValidationError | UnexpectedError
-      >;
-      listen(
-        handler: ServiceEventHandler<HealthSdk.HealthHeartbeatEvent, TDeps>,
         subjectData?: Record<string, unknown>,
         opts?: EventOpts,
       ): AsyncResult<void, ValidationError | UnexpectedError>;

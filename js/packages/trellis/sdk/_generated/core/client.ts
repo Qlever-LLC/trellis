@@ -33,7 +33,6 @@ import type {
 } from "../../../index.ts";
 import type { API, Api } from "./api.ts";
 import type * as Types from "./types.ts";
-import type * as HealthSdk from "../health/mod.ts";
 
 type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
 
@@ -111,26 +110,7 @@ export interface TrellisCoreClient {
       ): AsyncResult<Types.TrellisSurfaceStatusOutput, BaseError>;
     };
   };
-  readonly event: {
-    readonly health: {
-      heartbeat: {
-        publish(
-          event: Omit<HealthSdk.HealthHeartbeatEvent, "header">,
-        ): AsyncResult<void, ValidationError | UnexpectedError>;
-        prepare(
-          event: Omit<HealthSdk.HealthHeartbeatEvent, "header">,
-        ): Result<
-          PreparedTrellisEvent<Omit<HealthSdk.HealthHeartbeatEvent, "header">>,
-          ValidationError | UnexpectedError
-        >;
-        listen(
-          handler: EventCallback<HealthSdk.HealthHeartbeatEvent>,
-          subjectData?: Record<string, unknown>,
-          opts?: EventOpts,
-        ): AsyncResult<void, ValidationError | UnexpectedError>;
-      };
-    };
-  };
+  readonly event: {};
   readonly feed: {};
   readonly operation: {};
   wait(): AsyncResult<void, BaseError>;
@@ -147,26 +127,7 @@ export type ServiceWithDeps<TDeps> = Omit<TrellisCoreClient, "event"> & {
   with<TNextDeps>(deps: TNextDeps): ServiceWithDeps<TNextDeps>;
 };
 
-export interface ServiceEventSurface<TDeps> {
-  readonly health: {
-    heartbeat: {
-      publish(
-        event: Omit<HealthSdk.HealthHeartbeatEvent, "header">,
-      ): AsyncResult<void, ValidationError | UnexpectedError>;
-      prepare(
-        event: Omit<HealthSdk.HealthHeartbeatEvent, "header">,
-      ): Result<
-        PreparedTrellisEvent<Omit<HealthSdk.HealthHeartbeatEvent, "header">>,
-        ValidationError | UnexpectedError
-      >;
-      listen(
-        handler: ServiceEventHandler<HealthSdk.HealthHeartbeatEvent, TDeps>,
-        subjectData?: Record<string, unknown>,
-        opts?: EventOpts,
-      ): AsyncResult<void, ValidationError | UnexpectedError>;
-    };
-  };
-}
+export type ServiceEventSurface<TDeps> = {};
 
 export interface ServiceHandle<TDeps = undefined> {
   readonly rpc: {

@@ -135,6 +135,10 @@ pub struct JobsQueueResourceBinding {
     pub dlq: bool,
     /// Suggested worker concurrency for this queue.
     pub concurrency: i64,
+    /// Optional normalized keyed concurrency policy for this queue.
+    pub key_concurrency: Option<crate::jobs::bindings::JobKeyConcurrencyBinding>,
+    /// Optional normalized queue-depth policy for keyed queues.
+    pub queue: Option<crate::jobs::bindings::JobQueueDepthBinding>,
 }
 
 /// Schema reference attached to a jobs queue binding.

@@ -75,6 +75,38 @@ export const TrellisBindingsGetResponseSchema = {
                           "type": "integer",
                         },
                         "dlq": { "type": "boolean" },
+                        "keyConcurrency": {
+                          "properties": {
+                            "heartbeatIntervalMs": {
+                              "minimum": 1,
+                              "type": "integer",
+                            },
+                            "heartbeatTtlMs": {
+                              "minimum": 1,
+                              "type": "integer",
+                            },
+                            "key": {
+                              "items": { "minLength": 1, "type": "string" },
+                              "minItems": 1,
+                              "type": "array",
+                            },
+                            "maxActive": { "minimum": 1, "type": "integer" },
+                            "stalePolicy": {
+                              "anyOf": [{
+                                "const": "fail-stale",
+                                "type": "string",
+                              }, { "const": "block", "type": "string" }],
+                            },
+                          },
+                          "required": [
+                            "key",
+                            "maxActive",
+                            "heartbeatIntervalMs",
+                            "heartbeatTtlMs",
+                            "stalePolicy",
+                          ],
+                          "type": "object",
+                        },
                         "logs": { "type": "boolean" },
                         "maxDeliver": { "minimum": 1, "type": "integer" },
                         "payload": {
@@ -86,6 +118,23 @@ export const TrellisBindingsGetResponseSchema = {
                         },
                         "progress": { "type": "boolean" },
                         "publishPrefix": { "minLength": 1, "type": "string" },
+                        "queue": {
+                          "properties": {
+                            "maxQueuedPerKey": {
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "whenFull": {
+                              "anyOf": [
+                                { "const": "reject", "type": "string" },
+                                { "const": "coalesce", "type": "string" },
+                                { "const": "replace-oldest", "type": "string" },
+                              ],
+                            },
+                          },
+                          "required": ["maxQueuedPerKey", "whenFull"],
+                          "type": "object",
+                        },
                         "queueType": { "minLength": 1, "type": "string" },
                         "result": {
                           "properties": {
@@ -381,6 +430,26 @@ export const TrellisContractGetResponseSchema = {
                   "required": ["markdown"],
                   "type": "object",
                 },
+                "keyConcurrency": {
+                  "properties": {
+                    "heartbeatIntervalMs": { "minimum": 1, "type": "integer" },
+                    "heartbeatTtlMs": { "minimum": 1, "type": "integer" },
+                    "key": {
+                      "items": { "minLength": 1, "type": "string" },
+                      "minItems": 1,
+                      "type": "array",
+                    },
+                    "maxActive": { "minimum": 1, "type": "integer" },
+                    "stalePolicy": {
+                      "anyOf": [{ "const": "fail-stale", "type": "string" }, {
+                        "const": "block",
+                        "type": "string",
+                      }],
+                    },
+                  },
+                  "required": ["key"],
+                  "type": "object",
+                },
                 "logs": { "type": "boolean" },
                 "maxDeliver": { "minimum": 1, "type": "integer" },
                 "payload": {
@@ -391,6 +460,18 @@ export const TrellisContractGetResponseSchema = {
                   "type": "object",
                 },
                 "progress": { "type": "boolean" },
+                "queue": {
+                  "properties": {
+                    "maxQueuedPerKey": { "minimum": 0, "type": "integer" },
+                    "whenFull": {
+                      "anyOf": [{ "const": "reject", "type": "string" }, {
+                        "const": "coalesce",
+                        "type": "string",
+                      }, { "const": "replace-oldest", "type": "string" }],
+                    },
+                  },
+                  "type": "object",
+                },
                 "result": {
                   "properties": {
                     "schema": { "minLength": 1, "type": "string" },

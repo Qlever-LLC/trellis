@@ -42,6 +42,12 @@ https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt
   deployment approval, resource bindings, request context, and wire validation.
 - Use operations for caller-visible async workflows. Use jobs for service-private
   background work.
+- Use job `keyConcurrency` for service-private work that must have at most one
+  active job per logical key across service instances. The existing numeric job
+  `concurrency` setting remains worker-count concurrency. Keyed concurrency
+  defaults should fail clearly (`stalePolicy: "fail-stale"`,
+  `whenFull: "reject"`); coalescing and replacing queued jobs must be explicit
+  queue policy choices.
 - Public expected failures should be modeled in the contract or as Result-style
   values. Reserve thrown exceptions or panics for unexpected boundary failures.
 
@@ -133,6 +139,9 @@ expected by that repo.
 - Adding compatibility shims before confirming that compatibility is required.
 - Treating jobs as caller-visible workflows. Use operations for caller-visible
   async work.
+- Depending on Trellis keyed concurrency as the only durable correctness guard.
+  It prevents duplicate active work; service-owned checkpoint commits and
+  database side effects should still be idempotent.
 - Publishing an event before a local transaction commits when downstream systems
   require the local state and event to be atomic. Use prepared events and an
   outbox in that case.

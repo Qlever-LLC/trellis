@@ -14,6 +14,17 @@ export const JobsCancelResponseSchema = {
     "job": {
       "properties": {
         "completedAt": { "format": "date-time", "type": "string" },
+        "concurrency": {
+          "properties": {
+            "heartbeatAt": { "format": "date-time", "type": "string" },
+            "key": { "minLength": 1, "type": "string" },
+            "keyHash": { "minLength": 1, "type": "string" },
+            "leaseExpiresAt": { "format": "date-time", "type": "string" },
+            "staleTakeoverCount": { "minimum": 0, "type": "integer" },
+          },
+          "required": ["key", "keyHash"],
+          "type": "object",
+        },
         "context": {
           "properties": {
             "requestId": { "minLength": 1, "type": "string" },
@@ -57,6 +68,16 @@ export const JobsCancelResponseSchema = {
             "step": { "type": "string" },
             "total": { "minimum": 0, "type": "integer" },
           },
+          "type": "object",
+        },
+        "queuePolicy": {
+          "properties": {
+            "existingJobId": { "minLength": 1, "type": "string" },
+            "outcome": { "minLength": 1, "type": "string" },
+            "reason": { "minLength": 1, "type": "string" },
+            "replacedJobId": { "minLength": 1, "type": "string" },
+          },
+          "required": ["outcome"],
           "type": "object",
         },
         "result": {},
@@ -111,6 +132,17 @@ export const JobsDismissDLQResponseSchema = {
     "job": {
       "properties": {
         "completedAt": { "format": "date-time", "type": "string" },
+        "concurrency": {
+          "properties": {
+            "heartbeatAt": { "format": "date-time", "type": "string" },
+            "key": { "minLength": 1, "type": "string" },
+            "keyHash": { "minLength": 1, "type": "string" },
+            "leaseExpiresAt": { "format": "date-time", "type": "string" },
+            "staleTakeoverCount": { "minimum": 0, "type": "integer" },
+          },
+          "required": ["key", "keyHash"],
+          "type": "object",
+        },
         "context": {
           "properties": {
             "requestId": { "minLength": 1, "type": "string" },
@@ -154,6 +186,16 @@ export const JobsDismissDLQResponseSchema = {
             "step": { "type": "string" },
             "total": { "minimum": 0, "type": "integer" },
           },
+          "type": "object",
+        },
+        "queuePolicy": {
+          "properties": {
+            "existingJobId": { "minLength": 1, "type": "string" },
+            "outcome": { "minLength": 1, "type": "string" },
+            "reason": { "minLength": 1, "type": "string" },
+            "replacedJobId": { "minLength": 1, "type": "string" },
+          },
+          "required": ["outcome"],
           "type": "object",
         },
         "result": {},
@@ -195,6 +237,72 @@ export const JobsDismissDLQResponseSchema = {
   "type": "object",
 } as const;
 
+export const JobsGetKeyRequestSchema = {
+  "properties": {
+    "key": { "minLength": 1, "type": "string" },
+    "service": { "minLength": 1, "type": "string" },
+    "type": { "minLength": 1, "type": "string" },
+  },
+  "required": ["service", "type", "key"],
+  "type": "object",
+} as const;
+
+export const JobsGetKeyResponseSchema = {
+  "properties": {
+    "active": {
+      "items": {
+        "properties": {
+          "heartbeatAgeMs": { "minimum": 0, "type": "integer" },
+          "heartbeatAt": { "format": "date-time", "type": "string" },
+          "instanceId": { "type": "string" },
+          "jobId": { "minLength": 1, "type": "string" },
+          "leaseExpiresAt": { "format": "date-time", "type": "string" },
+          "startedAt": { "format": "date-time", "type": "string" },
+        },
+        "required": [
+          "jobId",
+          "instanceId",
+          "startedAt",
+          "heartbeatAt",
+          "heartbeatAgeMs",
+          "leaseExpiresAt",
+        ],
+        "type": "object",
+      },
+      "type": "array",
+    },
+    "key": { "minLength": 1, "type": "string" },
+    "keyHash": { "minLength": 1, "type": "string" },
+    "latestPolicyReason": { "minLength": 1, "type": "string" },
+    "queued": {
+      "items": {
+        "properties": {
+          "createdAt": { "format": "date-time", "type": "string" },
+          "jobId": { "minLength": 1, "type": "string" },
+        },
+        "required": ["jobId", "createdAt"],
+        "type": "object",
+      },
+      "type": "array",
+    },
+    "queuedDepth": { "minimum": 0, "type": "integer" },
+    "service": { "minLength": 1, "type": "string" },
+    "staleTakeoverCount": { "minimum": 0, "type": "integer" },
+    "type": { "minLength": 1, "type": "string" },
+  },
+  "required": [
+    "service",
+    "type",
+    "key",
+    "keyHash",
+    "active",
+    "queued",
+    "queuedDepth",
+    "staleTakeoverCount",
+  ],
+  "type": "object",
+} as const;
+
 export const JobsGetRequestSchema = {
   "description":
     "Jobs admin ids are globally addressable; callers identify jobs by id only.",
@@ -208,6 +316,17 @@ export const JobsGetResponseSchema = {
     "job": {
       "properties": {
         "completedAt": { "format": "date-time", "type": "string" },
+        "concurrency": {
+          "properties": {
+            "heartbeatAt": { "format": "date-time", "type": "string" },
+            "key": { "minLength": 1, "type": "string" },
+            "keyHash": { "minLength": 1, "type": "string" },
+            "leaseExpiresAt": { "format": "date-time", "type": "string" },
+            "staleTakeoverCount": { "minimum": 0, "type": "integer" },
+          },
+          "required": ["key", "keyHash"],
+          "type": "object",
+        },
         "context": {
           "properties": {
             "requestId": { "minLength": 1, "type": "string" },
@@ -251,6 +370,16 @@ export const JobsGetResponseSchema = {
             "step": { "type": "string" },
             "total": { "minimum": 0, "type": "integer" },
           },
+          "type": "object",
+        },
+        "queuePolicy": {
+          "properties": {
+            "existingJobId": { "minLength": 1, "type": "string" },
+            "outcome": { "minLength": 1, "type": "string" },
+            "reason": { "minLength": 1, "type": "string" },
+            "replacedJobId": { "minLength": 1, "type": "string" },
+          },
+          "required": ["outcome"],
           "type": "object",
         },
         "result": {},
@@ -325,6 +454,17 @@ export const JobsListDLQResponseSchema = {
       "items": {
         "properties": {
           "completedAt": { "format": "date-time", "type": "string" },
+          "concurrency": {
+            "properties": {
+              "heartbeatAt": { "format": "date-time", "type": "string" },
+              "key": { "minLength": 1, "type": "string" },
+              "keyHash": { "minLength": 1, "type": "string" },
+              "leaseExpiresAt": { "format": "date-time", "type": "string" },
+              "staleTakeoverCount": { "minimum": 0, "type": "integer" },
+            },
+            "required": ["key", "keyHash"],
+            "type": "object",
+          },
           "context": {
             "properties": {
               "requestId": { "minLength": 1, "type": "string" },
@@ -369,6 +509,16 @@ export const JobsListDLQResponseSchema = {
               "step": { "type": "string" },
               "total": { "minimum": 0, "type": "integer" },
             },
+            "type": "object",
+          },
+          "queuePolicy": {
+            "properties": {
+              "existingJobId": { "minLength": 1, "type": "string" },
+              "outcome": { "minLength": 1, "type": "string" },
+              "reason": { "minLength": 1, "type": "string" },
+              "replacedJobId": { "minLength": 1, "type": "string" },
+            },
+            "required": ["outcome"],
             "type": "object",
           },
           "result": {},
@@ -450,6 +600,17 @@ export const JobsListResponseSchema = {
       "items": {
         "properties": {
           "completedAt": { "format": "date-time", "type": "string" },
+          "concurrency": {
+            "properties": {
+              "heartbeatAt": { "format": "date-time", "type": "string" },
+              "key": { "minLength": 1, "type": "string" },
+              "keyHash": { "minLength": 1, "type": "string" },
+              "leaseExpiresAt": { "format": "date-time", "type": "string" },
+              "staleTakeoverCount": { "minimum": 0, "type": "integer" },
+            },
+            "required": ["key", "keyHash"],
+            "type": "object",
+          },
           "context": {
             "properties": {
               "requestId": { "minLength": 1, "type": "string" },
@@ -494,6 +655,16 @@ export const JobsListResponseSchema = {
               "step": { "type": "string" },
               "total": { "minimum": 0, "type": "integer" },
             },
+            "type": "object",
+          },
+          "queuePolicy": {
+            "properties": {
+              "existingJobId": { "minLength": 1, "type": "string" },
+              "outcome": { "minLength": 1, "type": "string" },
+              "reason": { "minLength": 1, "type": "string" },
+              "replacedJobId": { "minLength": 1, "type": "string" },
+            },
+            "required": ["outcome"],
             "type": "object",
           },
           "result": {},
@@ -599,6 +770,17 @@ export const JobsReplayDLQResponseSchema = {
     "job": {
       "properties": {
         "completedAt": { "format": "date-time", "type": "string" },
+        "concurrency": {
+          "properties": {
+            "heartbeatAt": { "format": "date-time", "type": "string" },
+            "key": { "minLength": 1, "type": "string" },
+            "keyHash": { "minLength": 1, "type": "string" },
+            "leaseExpiresAt": { "format": "date-time", "type": "string" },
+            "staleTakeoverCount": { "minimum": 0, "type": "integer" },
+          },
+          "required": ["key", "keyHash"],
+          "type": "object",
+        },
         "context": {
           "properties": {
             "requestId": { "minLength": 1, "type": "string" },
@@ -642,6 +824,16 @@ export const JobsReplayDLQResponseSchema = {
             "step": { "type": "string" },
             "total": { "minimum": 0, "type": "integer" },
           },
+          "type": "object",
+        },
+        "queuePolicy": {
+          "properties": {
+            "existingJobId": { "minLength": 1, "type": "string" },
+            "outcome": { "minLength": 1, "type": "string" },
+            "reason": { "minLength": 1, "type": "string" },
+            "replacedJobId": { "minLength": 1, "type": "string" },
+          },
+          "required": ["outcome"],
           "type": "object",
         },
         "result": {},
@@ -696,6 +888,17 @@ export const JobsRetryResponseSchema = {
     "job": {
       "properties": {
         "completedAt": { "format": "date-time", "type": "string" },
+        "concurrency": {
+          "properties": {
+            "heartbeatAt": { "format": "date-time", "type": "string" },
+            "key": { "minLength": 1, "type": "string" },
+            "keyHash": { "minLength": 1, "type": "string" },
+            "leaseExpiresAt": { "format": "date-time", "type": "string" },
+            "staleTakeoverCount": { "minimum": 0, "type": "integer" },
+          },
+          "required": ["key", "keyHash"],
+          "type": "object",
+        },
         "context": {
           "properties": {
             "requestId": { "minLength": 1, "type": "string" },
@@ -739,6 +942,16 @@ export const JobsRetryResponseSchema = {
             "step": { "type": "string" },
             "total": { "minimum": 0, "type": "integer" },
           },
+          "type": "object",
+        },
+        "queuePolicy": {
+          "properties": {
+            "existingJobId": { "minLength": 1, "type": "string" },
+            "outcome": { "minLength": 1, "type": "string" },
+            "reason": { "minLength": 1, "type": "string" },
+            "replacedJobId": { "minLength": 1, "type": "string" },
+          },
+          "required": ["outcome"],
           "type": "object",
         },
         "result": {},

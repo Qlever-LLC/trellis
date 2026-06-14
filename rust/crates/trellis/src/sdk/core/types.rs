@@ -34,10 +34,31 @@ pub struct TrellisBindingsGetResponseBindingResourcesEventConsumersValue {
 }
 /// Generated schema type `TrellisBindingsGetResponseBindingResourcesJobs`.
 /// Generated schema type `TrellisBindingsGetResponseBindingResourcesJobsQueuesValue`.
+/// Generated schema type `TrellisBindingsGetResponseBindingResourcesJobsQueuesValueKeyConcurrency`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrellisBindingsGetResponseBindingResourcesJobsQueuesValueKeyConcurrency {
+    #[serde(rename = "heartbeatIntervalMs")]
+    pub heartbeat_interval_ms: i64,
+    #[serde(rename = "heartbeatTtlMs")]
+    pub heartbeat_ttl_ms: i64,
+    pub key: Vec<String>,
+    #[serde(rename = "maxActive")]
+    pub max_active: i64,
+    #[serde(rename = "stalePolicy")]
+    pub stale_policy: String,
+}
 /// Generated schema type `TrellisBindingsGetResponseBindingResourcesJobsQueuesValuePayload`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TrellisBindingsGetResponseBindingResourcesJobsQueuesValuePayload {
     pub schema: String,
+}
+/// Generated schema type `TrellisBindingsGetResponseBindingResourcesJobsQueuesValueQueue`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrellisBindingsGetResponseBindingResourcesJobsQueuesValueQueue {
+    #[serde(rename = "maxQueuedPerKey")]
+    pub max_queued_per_key: i64,
+    #[serde(rename = "whenFull")]
+    pub when_full: String,
 }
 /// Generated schema type `TrellisBindingsGetResponseBindingResourcesJobsQueuesValueResult`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -57,6 +78,10 @@ pub struct TrellisBindingsGetResponseBindingResourcesJobsQueuesValue {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_deadline_ms: Option<i64>,
     pub dlq: bool,
+    #[serde(rename = "keyConcurrency")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_concurrency:
+        Option<TrellisBindingsGetResponseBindingResourcesJobsQueuesValueKeyConcurrency>,
     pub logs: bool,
     #[serde(rename = "maxDeliver")]
     pub max_deliver: i64,
@@ -64,6 +89,8 @@ pub struct TrellisBindingsGetResponseBindingResourcesJobsQueuesValue {
     pub progress: bool,
     #[serde(rename = "publishPrefix")]
     pub publish_prefix: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue: Option<TrellisBindingsGetResponseBindingResourcesJobsQueuesValueQueue>,
     #[serde(rename = "queueType")]
     pub queue_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -241,10 +268,37 @@ pub struct TrellisContractGetResponseContractJobsValueDocs {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
 }
+/// Generated schema type `TrellisContractGetResponseContractJobsValueKeyConcurrency`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrellisContractGetResponseContractJobsValueKeyConcurrency {
+    #[serde(rename = "heartbeatIntervalMs")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heartbeat_interval_ms: Option<i64>,
+    #[serde(rename = "heartbeatTtlMs")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heartbeat_ttl_ms: Option<i64>,
+    pub key: Vec<String>,
+    #[serde(rename = "maxActive")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_active: Option<i64>,
+    #[serde(rename = "stalePolicy")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stale_policy: Option<String>,
+}
 /// Generated schema type `TrellisContractGetResponseContractJobsValuePayload`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TrellisContractGetResponseContractJobsValuePayload {
     pub schema: String,
+}
+/// Generated schema type `TrellisContractGetResponseContractJobsValueQueue`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrellisContractGetResponseContractJobsValueQueue {
+    #[serde(rename = "maxQueuedPerKey")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_queued_per_key: Option<i64>,
+    #[serde(rename = "whenFull")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub when_full: Option<String>,
 }
 /// Generated schema type `TrellisContractGetResponseContractJobsValueResult`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -268,6 +322,9 @@ pub struct TrellisContractGetResponseContractJobsValue {
     pub dlq: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub docs: Option<TrellisContractGetResponseContractJobsValueDocs>,
+    #[serde(rename = "keyConcurrency")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_concurrency: Option<TrellisContractGetResponseContractJobsValueKeyConcurrency>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logs: Option<bool>,
     #[serde(rename = "maxDeliver")]
@@ -276,6 +333,8 @@ pub struct TrellisContractGetResponseContractJobsValue {
     pub payload: TrellisContractGetResponseContractJobsValuePayload,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub progress: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue: Option<TrellisContractGetResponseContractJobsValueQueue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<TrellisContractGetResponseContractJobsValueResult>,
 }

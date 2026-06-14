@@ -36,6 +36,11 @@ Rules:
   alias, and `eventConsumers.<group>.self` selects events owned by the same
   contract. Dependency durable consumption remains authority-backed by top-level
   `uses`; runtime durable consumers are Trellis-provisioned only.
+- service-private jobs that must be singleton per logical key should declare
+  `keyConcurrency`. Keep the existing numeric `concurrency` field for
+  worker-count concurrency. Keyed queues default to clear failure
+  (`stalePolicy: "fail-stale"`, `whenFull: "reject"`); coalescing or replacing
+  queued jobs should be explicit policy.
 
 ## Use generated descriptors and facades
 

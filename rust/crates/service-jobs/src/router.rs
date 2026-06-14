@@ -2,13 +2,13 @@
 
 use serde_json::Value;
 use trellis_rs::sdk::jobs::rpc::{
-    Empty, JobsCancelRpc, JobsDismissDLQRpc, JobsGetRpc, JobsHealthRpc, JobsListDLQRpc,
-    JobsListRpc, JobsListServicesRpc, JobsReplayDLQRpc, JobsRetryRpc,
+    Empty, JobsCancelRpc, JobsDismissDLQRpc, JobsGetKeyRpc, JobsGetRpc, JobsHealthRpc,
+    JobsListDLQRpc, JobsListRpc, JobsListServicesRpc, JobsReplayDLQRpc, JobsRetryRpc,
 };
 use trellis_rs::sdk::jobs::types::{
-    JobsCancelRequest, JobsDismissDLQRequest, JobsGetRequest, JobsHealthResponse,
-    JobsListDLQRequest, JobsListRequest, JobsListServicesRequest, JobsReplayDLQRequest,
-    JobsRetryRequest,
+    JobsCancelRequest, JobsDismissDLQRequest, JobsGetKeyRequest, JobsGetRequest,
+    JobsHealthResponse, JobsListDLQRequest, JobsListRequest, JobsListServicesRequest,
+    JobsReplayDLQRequest, JobsRetryRequest,
 };
 use trellis_rs::service::{DeclaredRpcError, Router, ServerError};
 
@@ -45,6 +45,13 @@ pub fn build_router_with_query(query: JobsQuery) -> Router {
         move |_ctx, input: JobsGetRequest| {
             let query = query.clone();
             async move { query.get_job(&input).await.map_err(map_query_error) }
+        }
+    });
+    router.register_rpc::<JobsGetKeyRpc, _, _>({
+        let query = query.clone();
+        move |_ctx, input: JobsGetKeyRequest| {
+            let query = query.clone();
+            async move { query.get_key(&input).await.map_err(map_query_error) }
         }
     });
     router.register_rpc::<JobsCancelRpc, _, _>({

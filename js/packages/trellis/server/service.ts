@@ -105,9 +105,11 @@ import {
   ActiveJob as PublicActiveJob,
   type JobIdentity,
   type JobLogEntry,
+  JobNotEnqueuedError,
   type JobProgress,
   JobRef,
   type JobSnapshot,
+  type JobSubmitOutcome,
   JobWorkerHostAdapter,
   type TerminalJob,
 } from "../jobs.ts";
@@ -116,6 +118,18 @@ import {
   JobProcessError as InternalJobProcessError,
 } from "./internal_jobs/job-manager.ts";
 import { startNatsWorkerHostFromBinding } from "./internal_jobs/runtime-worker.ts";
+import {
+  createNatsJobKeyCoordinator,
+  normalizeJobKeyPolicy,
+} from "./internal_jobs/key-coordinator.ts";
+import type {
+  JobKeyConcurrencyBinding,
+  JobQueuePolicyBinding,
+} from "./internal_jobs/key-coordinator.ts";
+import type {
+  JobsBinding,
+  JobsQueueBinding,
+} from "./internal_jobs/bindings.ts";
 import type { ActiveJob as InternalActiveJob } from "./internal_jobs/active-job.ts";
 import {
   type Job as InternalJob,
@@ -149,6 +163,8 @@ type ResourceBindingJobsQueue = {
   logs: boolean;
   dlq: boolean;
   concurrency: number;
+  keyConcurrency?: JobKeyConcurrencyBinding;
+  queue?: JobQueuePolicyBinding;
 };
 
 type ResourceBindingJobs = {
@@ -156,6 +172,71 @@ type ResourceBindingJobs = {
   workStream?: string;
   queues: Record<string, ResourceBindingJobsQueue>;
 };
+
+function normalizeResourceJobsBinding(
+  binding: ResourceBindingJobs,
+): JobsBinding {
+  const queues: Record<string, JobsQueueBinding> = {};
+  for (const [name, queue] of Object.entries(binding.queues)) {
+    const baseQueue = baseJobsQueueBinding(queue);
+    if (!queue.keyConcurrency) {
+      queues[name] = {
+        ...baseQueue,
+        ...(queue.queue ? { queue: normalizeQueuePolicy(queue.queue) } : {}),
+      };
+      continue;
+    }
+
+    const policy = normalizeJobKeyPolicy({
+      keyConcurrency: queue.keyConcurrency,
+      queue: queue.queue,
+    });
+    queues[name] = {
+      ...baseQueue,
+      keyConcurrency: {
+        key: policy.key,
+        maxActive: policy.maxActive,
+        heartbeatIntervalMs: policy.heartbeatIntervalMs,
+        heartbeatTtlMs: policy.heartbeatTtlMs,
+        stalePolicy: policy.stalePolicy,
+      },
+      queue: policy.queue,
+    };
+  }
+  return { namespace: binding.namespace, queues };
+}
+
+function baseJobsQueueBinding(
+  queue: ResourceBindingJobsQueue,
+): Omit<JobsQueueBinding, "keyConcurrency" | "queue"> {
+  return {
+    queueType: queue.queueType,
+    publishPrefix: queue.publishPrefix,
+    workSubject: queue.workSubject,
+    consumerName: queue.consumerName,
+    payload: queue.payload,
+    ...(queue.result ? { result: queue.result } : {}),
+    maxDeliver: queue.maxDeliver,
+    backoffMs: queue.backoffMs,
+    ackWaitMs: queue.ackWaitMs,
+    ...(queue.defaultDeadlineMs !== undefined
+      ? { defaultDeadlineMs: queue.defaultDeadlineMs }
+      : {}),
+    progress: queue.progress,
+    logs: queue.logs,
+    dlq: queue.dlq,
+    concurrency: queue.concurrency,
+  };
+}
+
+function normalizeQueuePolicy(
+  queue: JobQueuePolicyBinding,
+): JobsQueueBinding["queue"] {
+  return {
+    maxQueuedPerKey: queue.maxQueuedPerKey ?? 0,
+    whenFull: queue.whenFull ?? "reject",
+  };
+}
 
 type ResourceBindingEventConsumer = {
   stream: string;
@@ -1208,6 +1289,9 @@ export type JobQueue<
   TJobs extends ContractJobsMetadata = {},
 > = {
   create(payload: TPayload): AsyncResult<JobRef<TPayload, TResult>, BaseError>;
+  submit(
+    payload: TPayload,
+  ): AsyncResult<JobSubmitOutcome<TPayload, TResult>, BaseError>;
   handle(
     handler: (args: {
       job: PublicActiveJob<TPayload, TResult>;
@@ -1419,6 +1503,9 @@ type BoundJobQueue<
   TDeps,
 > = {
   create(payload: TPayload): AsyncResult<JobRef<TPayload, TResult>, BaseError>;
+  submit(
+    payload: TPayload,
+  ): AsyncResult<JobSubmitOutcome<TPayload, TResult>, BaseError>;
   handle(
     handler: (args: {
       job: PublicActiveJob<TPayload, TResult>;
@@ -2081,7 +2168,8 @@ function isTerminalJobState(
   state: string,
 ): state is TerminalJob<unknown, unknown>["state"] {
   return state === "completed" || state === "failed" || state === "cancelled" ||
-    state === "expired" || state === "dead" || state === "dismissed";
+    state === "expired" || state === "skipped" || state === "stale" ||
+    state === "dead" || state === "dismissed";
 }
 
 function isTerminalJobSnapshot<TPayload, TResult>(
@@ -2202,6 +2290,9 @@ function snapshotFromLifecycleEvent<TPayload, TResult>(
     case "failed":
     case "cancelled":
     case "expired":
+    case "skipped":
+    case "stale":
+    case "staleCompletionIgnored":
     case "dead":
     case "dismissed":
       return event.error === undefined ? base : {
@@ -2359,8 +2450,8 @@ function createJobLifecycleTracker(nc: NatsConnection): JobLifecycleTracker {
 function createJobRef<TPayload, TResult>(args: {
   nc: NatsConnection;
   queueType: string;
-  jobsBinding: ResourceBindingJobs;
-  queueBinding: ResourceBindingJobsQueue;
+  jobsBinding: JobsBinding;
+  queueBinding: JobsQueueBinding;
   seed: JobSnapshot<TPayload, TResult>;
   lifecycle: JobLifecycleTracker;
 }): JobRef<TPayload, TResult> {
@@ -2467,6 +2558,10 @@ function createJobsFacade<
   const handlers = new Map<string, RegisteredJobHandler<unknown, unknown>>();
   const jobsFacade: Record<string, unknown> = {};
   const lifecycle = createJobLifecycleTracker(args.nc);
+  const keyCoordinator = createNatsJobKeyCoordinator(args.nc);
+  const jobsBinding = args.jobsBinding
+    ? normalizeResourceJobsBinding(args.jobsBinding)
+    : undefined;
   let activeHost: JobWorkerHostAdapter | undefined;
   let startupPromise:
     | Promise<Result<JobWorkerHostAdapter, BaseError>>
@@ -2474,14 +2569,13 @@ function createJobsFacade<
   let stopPromise: Promise<Result<void, BaseError>> | undefined;
 
   for (const queueType of Object.keys(args.contractJobs ?? {})) {
-    const queueBinding = args.jobsBinding?.queues[queueType];
+    const queueBinding = jobsBinding?.queues[queueType];
     if (queueBinding) lifecycle.watch(queueBinding);
 
     jobsFacade[queueType] = {
       create: (payload) =>
         AsyncResult.from((async () => {
           try {
-            const jobsBinding = args.jobsBinding;
             if (!jobsBinding) {
               return Result.err(
                 toUnexpectedError(new Error("Jobs bindings are unavailable")),
@@ -2499,6 +2593,7 @@ function createJobsFacade<
             const manager = new InternalJobManager<unknown, unknown>({
               nc: args.nc,
               jobs: jobsBinding,
+              keyCoordinator,
             });
             await args.nc.flush();
             const created = await manager.create(queueType, payload);
@@ -2510,6 +2605,67 @@ function createJobsFacade<
               seed: created as JobSnapshot<unknown, unknown>,
               lifecycle,
             }));
+          } catch (cause) {
+            if (cause instanceof JobNotEnqueuedError) {
+              return Result.err(cause);
+            }
+            return Result.err(toUnexpectedError(cause));
+          }
+        })()),
+      submit: (payload) =>
+        AsyncResult.from((async () => {
+          try {
+            if (!jobsBinding) {
+              return Result.err(
+                toUnexpectedError(new Error("Jobs bindings are unavailable")),
+              );
+            }
+            const queueBinding = jobsBinding.queues[queueType];
+            if (!queueBinding) {
+              return Result.err(toUnexpectedError(
+                new Error(
+                  `Jobs binding for queue '${queueType}' is unavailable`,
+                ),
+              ));
+            }
+
+            const manager = new InternalJobManager<unknown, unknown>({
+              nc: args.nc,
+              jobs: jobsBinding,
+              keyCoordinator,
+            });
+            await args.nc.flush();
+            const outcome = await manager.submit(queueType, payload);
+            if (outcome.kind === "accepted") {
+              return Result.ok({
+                kind: "accepted",
+                key: outcome.key,
+                ref: createJobRef({
+                  nc: args.nc,
+                  queueType,
+                  jobsBinding,
+                  queueBinding,
+                  seed: outcome.job as JobSnapshot<unknown, unknown>,
+                  lifecycle,
+                }),
+              });
+            }
+            if (outcome.kind === "replaced") {
+              return Result.ok({
+                kind: "replaced",
+                key: outcome.key,
+                replaced: outcome.replaced,
+                ref: createJobRef({
+                  nc: args.nc,
+                  queueType,
+                  jobsBinding,
+                  queueBinding,
+                  seed: outcome.job as JobSnapshot<unknown, unknown>,
+                  lifecycle,
+                }),
+              });
+            }
+            return Result.ok(outcome);
           } catch (cause) {
             return Result.err(toUnexpectedError(cause));
           }
@@ -2554,7 +2710,7 @@ function createJobsFacade<
           return Result.ok(host);
         }
 
-        if (!args.jobsBinding || !args.workStream) {
+        if (!jobsBinding || !args.workStream) {
           return Result.err(toUnexpectedError(
             new Error(
               "Jobs infrastructure bindings are unavailable for this service",
@@ -2562,7 +2718,6 @@ function createJobsFacade<
           ));
         }
 
-        const jobsBinding = args.jobsBinding;
         const workStream = args.workStream;
 
         const hosts = [] as Array<{ stop(): Promise<void> }>;
@@ -2582,6 +2737,7 @@ function createJobsFacade<
             const manager = new InternalJobManager<unknown, unknown>({
               nc: args.nc,
               jobs: jobsBinding,
+              keyCoordinator,
             });
             const host = await startNatsWorkerHostFromBinding<unknown>({
               jobs: jobsBinding,
@@ -2750,6 +2906,7 @@ function createBoundJobsFacade<
     if (!queue) continue;
     boundJobs[queueType] = {
       create: (payload) => queue.create(payload),
+      submit: (payload) => queue.submit(payload),
       handle: (handler) =>
         queue.handle(({ job, client }) =>
           handler({

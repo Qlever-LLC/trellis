@@ -262,6 +262,8 @@ mod tests {
             deadline: None,
             progress: None,
             logs: None,
+            concurrency: None,
+            queue_policy: None,
         }
     }
 

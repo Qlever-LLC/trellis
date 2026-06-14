@@ -104,6 +104,16 @@ await service.handle.operation.orders.process(async ({ input, op }) => {
 
 `op.attach(job.value)` blocks until the job chain completes. Pass `job.value` — the unwrapped `JobRef` from the `Result<JobRef>`. The framework extracts the typed output from the terminal job snapshot to resolve the caller's `OperationRef`.
 
+If the attached queue uses keyed concurrency, `create(...)` may return a typed
+expected failure when another active or queued job already owns the same key. In
+that case, translate the failure into operation progress or a terminal operation
+error that is meaningful to the caller. If you intentionally want to report
+policy outcomes such as `coalesced` or `replaced`, use the job queue's
+policy-aware `submit(...)` helper and attach only the `JobRef` returned by an
+`accepted` or `replaced` outcome. Do not attach a caller's operation to a job that
+was merely reported as already running unless your service has explicitly built a
+shared operation-progress model.
+
 ### Deferring terminal completion
 
 Most handlers complete by returning `Result.ok(output)`, `op.attach(job)`, or a

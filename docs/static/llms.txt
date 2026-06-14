@@ -37,6 +37,10 @@ commands.
   lifecycle status and shutdown.
 - Use operations for caller-visible async workflows. Use jobs for service-private
   background execution.
+- For service-private work that must be singleton per logical entity, declare
+  job `keyConcurrency` instead of building ad hoc scheduler dedupe. Defaults
+  should fail clearly (`stalePolicy: "fail-stale"`, `whenFull: "reject"`);
+  coalescing or replacing queued work must be explicit.
 - Model expected public failures with declared errors or `Result`-style values.
 - Event subject `params` must point at string, number, or integer-compatible
   payload fields. For `anyOf` or `oneOf` event payload schemas, every variant must

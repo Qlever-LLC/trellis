@@ -164,6 +164,8 @@ fn terminal_job_from_event(current: &Job, event: &JobEvent) -> Job {
         JobEventType::Failed
         | JobEventType::Cancelled
         | JobEventType::Expired
+        | JobEventType::Skipped
+        | JobEventType::Stale
         | JobEventType::Dead
         | JobEventType::Dismissed => {
             next.last_error = event.error.clone();
@@ -213,6 +215,8 @@ mod tests {
             deadline: None,
             progress: None,
             logs: None,
+            concurrency: None,
+            queue_policy: None,
         }
     }
 

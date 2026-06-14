@@ -8,6 +8,8 @@ import {
   JobsCancelResponseSchema,
   JobsDismissDLQRequestSchema,
   JobsDismissDLQResponseSchema,
+  JobsGetKeyRequestSchema,
+  JobsGetKeyResponseSchema,
   JobsGetRequestSchema,
   JobsGetResponseSchema,
   JobsHealthResponseSchema,
@@ -68,6 +70,25 @@ export const OWNED_API = {
       subject: "rpc.v1.Jobs.Get",
       input: schema<Types.JobsGetInput>(JobsGetRequestSchema),
       output: schema<Types.JobsGetOutput>(JobsGetResponseSchema),
+      callerCapabilities: ["trellis.jobs::admin.read"],
+      errors: ["UnexpectedError", "ValidationError", "NotFoundError"] as const,
+      declaredErrorTypes: [
+        "UnexpectedError",
+        "ValidationError",
+        "NotFoundError",
+      ] as const,
+      runtimeErrors: [
+        {
+          type: "NotFoundError",
+          schema: schema<Types.NotFoundErrorData>(NotFoundErrorDataSchema),
+          fromSerializable: Types.NotFoundError.fromSerializable,
+        },
+      ] as const,
+    },
+    "Jobs.GetKey": {
+      subject: "rpc.v1.Jobs.GetKey",
+      input: schema<Types.JobsGetKeyInput>(JobsGetKeyRequestSchema),
+      output: schema<Types.JobsGetKeyOutput>(JobsGetKeyResponseSchema),
       callerCapabilities: ["trellis.jobs::admin.read"],
       errors: ["UnexpectedError", "ValidationError", "NotFoundError"] as const,
       declaredErrorTypes: [

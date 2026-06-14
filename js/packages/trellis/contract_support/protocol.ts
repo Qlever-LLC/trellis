@@ -76,6 +76,30 @@ export const ContractStateSchema = Type.Record(
 
 export type ContractState = Static<typeof ContractStateSchema>;
 
+export const JobKeyConcurrencySchema = Type.Object({
+  key: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+  maxActive: Type.Optional(Type.Integer({ minimum: 1 })),
+  heartbeatIntervalMs: Type.Optional(Type.Integer({ minimum: 1 })),
+  heartbeatTtlMs: Type.Optional(Type.Integer({ minimum: 1 })),
+  stalePolicy: Type.Optional(Type.Union([
+    Type.Literal("fail-stale"),
+    Type.Literal("block"),
+  ])),
+});
+
+export type JobKeyConcurrency = Static<typeof JobKeyConcurrencySchema>;
+
+export const JobQueueDepthSchema = Type.Object({
+  maxQueuedPerKey: Type.Optional(Type.Integer({ minimum: 0 })),
+  whenFull: Type.Optional(Type.Union([
+    Type.Literal("reject"),
+    Type.Literal("coalesce"),
+    Type.Literal("replace-oldest"),
+  ])),
+});
+
+export type JobQueueDepth = Static<typeof JobQueueDepthSchema>;
+
 export const ContractJobQueueSchema = Type.Object({
   payload: ContractSchemaRefSchema,
   result: Type.Optional(ContractSchemaRefSchema),
@@ -87,6 +111,8 @@ export const ContractJobQueueSchema = Type.Object({
   logs: Type.Optional(Type.Boolean()),
   dlq: Type.Optional(Type.Boolean()),
   concurrency: Type.Optional(Type.Integer({ minimum: 1 })),
+  keyConcurrency: Type.Optional(JobKeyConcurrencySchema),
+  queue: Type.Optional(JobQueueDepthSchema),
   docs: Type.Optional(ContractDocsSchema),
 });
 
@@ -173,6 +199,34 @@ export const StoreResourceBindingSchema = Type.Object({
 
 export type StoreResourceBinding = Static<typeof StoreResourceBindingSchema>;
 
+export const JobsQueueKeyConcurrencyBindingSchema = Type.Object({
+  key: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+  maxActive: Type.Integer({ minimum: 1 }),
+  heartbeatIntervalMs: Type.Integer({ minimum: 1 }),
+  heartbeatTtlMs: Type.Integer({ minimum: 1 }),
+  stalePolicy: Type.Union([
+    Type.Literal("fail-stale"),
+    Type.Literal("block"),
+  ]),
+});
+
+export type JobsQueueKeyConcurrencyBinding = Static<
+  typeof JobsQueueKeyConcurrencyBindingSchema
+>;
+
+export const JobsQueueDepthBindingSchema = Type.Object({
+  maxQueuedPerKey: Type.Integer({ minimum: 0 }),
+  whenFull: Type.Union([
+    Type.Literal("reject"),
+    Type.Literal("coalesce"),
+    Type.Literal("replace-oldest"),
+  ]),
+});
+
+export type JobsQueueDepthBinding = Static<
+  typeof JobsQueueDepthBindingSchema
+>;
+
 export const JobsQueueBindingSchema = Type.Object({
   queueType: Type.String({ minLength: 1 }),
   publishPrefix: Type.String({ minLength: 1 }),
@@ -188,6 +242,8 @@ export const JobsQueueBindingSchema = Type.Object({
   logs: Type.Boolean(),
   dlq: Type.Boolean(),
   concurrency: Type.Integer({ minimum: 1 }),
+  keyConcurrency: Type.Optional(JobsQueueKeyConcurrencyBindingSchema),
+  queue: Type.Optional(JobsQueueDepthBindingSchema),
 });
 
 export type JobsQueueBinding = Static<typeof JobsQueueBindingSchema>;

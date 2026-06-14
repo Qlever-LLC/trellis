@@ -52,6 +52,8 @@ fn job_and_event_serde_use_expected_wire_keys() {
         deadline: None,
         progress: None,
         logs: None,
+        concurrency: None,
+        queue_policy: None,
     };
     let job_json = serde_json::to_value(job).unwrap();
     assert_eq!(job_json.get("type"), Some(&json!("document-process")));
@@ -80,6 +82,8 @@ fn job_and_event_serde_use_expected_wire_keys() {
         payload: Some(json!({ "documentId": "doc-1" })),
         result: None,
         deadline: None,
+        concurrency: None,
+        queue_policy: None,
         timestamp: "2026-03-28T12:00:00.000Z".to_string(),
     };
     let event_json = serde_json::to_value(event).unwrap();

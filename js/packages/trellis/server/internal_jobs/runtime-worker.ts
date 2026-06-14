@@ -177,6 +177,8 @@ type StartQueueWorkerLoopOptions<TResult> = {
     args: ResultValidationArgs<TResult>,
   ) => Promise<void> | void;
   handler: (job: ActiveJob<unknown, TResult>) => Promise<TResult>;
+  instanceId?: string;
+  deferralBackoffMs?: number;
 };
 
 type StartNatsQueueWorkerOptions<TResult> =
@@ -199,6 +201,7 @@ type StartNatsQueueWorkerOptions<TResult> =
       args: ResultValidationArgs<TResult>,
     ) => Promise<void> | void;
     handler: (job: ActiveJob<unknown, TResult>) => Promise<TResult>;
+    instanceId?: string;
   };
 
 function toWorkerConsumer(
@@ -252,7 +255,8 @@ export async function processWorkPayloadWithContextAndHeartbeat<TResult>(
       args: ResultValidationArgs<TResult>,
     ) => Promise<void> | void;
   },
-  runtime?: { redeliveryCount?: number },
+  runtime?: { latestState?: Job["state"]; redeliveryCount?: number },
+  instanceId?: string,
 ): Promise<JobProcessOutcome<TResult> | undefined> {
   const event = parseWorkPayloadEvent(payload);
   if (!event) {
@@ -280,7 +284,9 @@ export async function processWorkPayloadWithContextAndHeartbeat<TResult>(
       return await handler(activeJob);
     },
     {
+      latestState: runtime?.latestState,
       redeliveryCount: runtime?.redeliveryCount,
+      instanceId,
     },
     {
       validateResult: validation?.validateResult
@@ -323,6 +329,7 @@ export function ackActionForOutcome(
   switch (outcome.outcome) {
     case "retry":
     case "interrupted":
+    case "deferred":
       return "nak";
     default:
       return "ack";
@@ -381,6 +388,7 @@ export async function startQueueWorkerLoop<TResult>(
         continue;
       }
       if (lifecycleWorkDecision(latestLifecycle) === "skip-ack") {
+        await options.manager.cleanupQueuedKeyedJob(job);
         registry.clearPending(key);
         await msg.ack();
         continue;
@@ -394,6 +402,7 @@ export async function startQueueWorkerLoop<TResult>(
           continue;
         }
         if (projectedWorkDecision(projected, job) === "skip-ack") {
+          await options.manager.cleanupQueuedKeyedJob(job);
           registry.clearPending(key);
           await msg.ack();
           continue;
@@ -422,11 +431,15 @@ export async function startQueueWorkerLoop<TResult>(
             validateResult: options.validateResult,
           },
           {
+            latestState: latestLifecycle?.state,
             redeliveryCount: msg.info?.redeliveryCount,
           },
+          options.instanceId,
         );
         if (ackActionForOutcome(outcome) === "ack") {
           await msg.ack();
+        } else if (outcome?.outcome === "deferred") {
+          await msg.nak(options.deferralBackoffMs ?? 1_000);
         } else {
           await msg.nak();
         }
@@ -512,6 +525,8 @@ export async function startNatsQueueWorker<TResult>(
     resultSchema: queue.result,
     validateResult: options.validateResult,
     handler: options.handler,
+    instanceId: options.instanceId,
+    deferralBackoffMs: queue.backoffMs[0] ?? 1_000,
   });
 }
 
@@ -624,6 +639,7 @@ export async function startNatsWorkerHostFromBinding<TResult>(
         validatePayload: options.validatePayload,
         validateResult: options.validateResult,
         handler: options.handler,
+        instanceId: options.instanceId,
       };
       return await (isCustomNatsRuntimeDeps(options)
         ? startNatsQueueWorker({

@@ -66,6 +66,13 @@ impl<'a> JobsRpc<'a> {
     ) -> Result<super::types::JobsGetResponse, TrellisClientError> {
         self.inner.call::<super::rpc::JobsGetRpc>(input).await
     }
+    /// Call `Jobs.GetKey`.
+    pub async fn get_key(
+        &self,
+        input: &super::types::JobsGetKeyRequest,
+    ) -> Result<super::types::JobsGetKeyResponse, TrellisClientError> {
+        self.inner.call::<super::rpc::JobsGetKeyRpc>(input).await
+    }
     /// Call `Jobs.Health`.
     pub async fn health(&self) -> Result<super::types::JobsHealthResponse, TrellisClientError> {
         self.inner

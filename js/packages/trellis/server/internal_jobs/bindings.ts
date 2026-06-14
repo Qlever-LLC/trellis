@@ -13,6 +13,17 @@ export type JobsQueueBinding = {
   logs: boolean;
   dlq: boolean;
   concurrency: number;
+  keyConcurrency?: {
+    key: string[];
+    maxActive: number;
+    heartbeatIntervalMs: number;
+    heartbeatTtlMs: number;
+    stalePolicy: "fail-stale" | "block";
+  };
+  queue?: {
+    maxQueuedPerKey: number;
+    whenFull: "reject" | "coalesce" | "replace-oldest";
+  };
 };
 
 export type JobsBinding = {

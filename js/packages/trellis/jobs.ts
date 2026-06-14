@@ -1,4 +1,4 @@
-import { AsyncResult, type BaseError, Result } from "@qlever-llc/result";
+import { AsyncResult, BaseError, Result } from "@qlever-llc/result";
 import { UnexpectedError } from "./errors/index.ts";
 import { type StaticDecode, Type } from "typebox";
 
@@ -41,6 +41,8 @@ export type JobState =
   | "failed"
   | "cancelled"
   | "expired"
+  | "skipped"
+  | "stale"
   | "dead"
   | "dismissed";
 
@@ -49,6 +51,116 @@ export type JobIdentity = {
   jobType: string;
   id: string;
 };
+
+export type JobNotEnqueuedReason =
+  | "active-limit"
+  | "queue-depth"
+  | "stale-blocked"
+  | "coalesced";
+
+export type JobNotEnqueuedErrorData = {
+  id: string;
+  type: "JobNotEnqueuedError";
+  message: string;
+  reason: JobNotEnqueuedReason;
+  key: string;
+  active: number;
+  queued: number;
+  limit: number;
+  existingJobId?: string;
+  context?: Record<string, unknown>;
+  traceId?: string;
+};
+
+/** Error returned when keyed job admission does not create a new job. */
+export class JobNotEnqueuedError extends BaseError<JobNotEnqueuedErrorData> {
+  override readonly name = "JobNotEnqueuedError" as const;
+  readonly reason: JobNotEnqueuedReason;
+  readonly key: string;
+  readonly active: number;
+  readonly queued: number;
+  readonly limit: number;
+  readonly existingJobId?: string;
+
+  constructor(
+    options: ErrorOptions & {
+      reason: JobNotEnqueuedReason;
+      key: string;
+      active: number;
+      queued: number;
+      limit: number;
+      existingJobId?: string;
+      message?: string;
+      context?: Record<string, unknown>;
+      id?: string;
+      traceId?: string;
+    },
+  ) {
+    const {
+      reason,
+      key,
+      active,
+      queued,
+      limit,
+      existingJobId,
+      message,
+      ...baseOptions
+    } = options;
+    super(
+      message ?? `Job was not enqueued for key '${key}': ${reason}`,
+      baseOptions,
+    );
+    this.reason = reason;
+    this.key = key;
+    this.active = active;
+    this.queued = queued;
+    this.limit = limit;
+    this.existingJobId = existingJobId;
+  }
+
+  /** Serializes the admission error for transport or logging. */
+  override toSerializable(): JobNotEnqueuedErrorData {
+    const base = this.baseSerializable();
+    return {
+      id: base.id,
+      type: this.name,
+      message: base.message,
+      reason: this.reason,
+      key: this.key,
+      active: this.active,
+      queued: this.queued,
+      limit: this.limit,
+      ...(this.existingJobId !== undefined
+        ? { existingJobId: this.existingJobId }
+        : {}),
+      ...(base.context !== undefined ? { context: base.context } : {}),
+      ...(base.traceId !== undefined ? { traceId: base.traceId } : {}),
+    };
+  }
+}
+
+export type JobSubmitOutcome<TPayload, TResult> =
+  | { kind: "accepted"; ref: JobRef<TPayload, TResult>; key?: string }
+  | {
+    kind: "rejected";
+    key: string;
+    reason: "active-limit" | "queue-depth" | "stale-blocked";
+    active: number;
+    queued: number;
+    limit: number;
+  }
+  | {
+    kind: "coalesced";
+    key: string;
+    existing: JobIdentity;
+    reason: string;
+  }
+  | {
+    kind: "replaced";
+    key: string;
+    replaced: JobIdentity;
+    ref: JobRef<TPayload, TResult>;
+  };
 
 export type JobSnapshot<TPayload, TResult> = {
   id: string;
@@ -81,6 +193,8 @@ export type TerminalJob<TPayload, TResult> = JobSnapshot<TPayload, TResult> & {
     | "failed"
     | "cancelled"
     | "expired"
+    | "skipped"
+    | "stale"
     | "dead"
     | "dismissed";
 };
@@ -269,6 +383,9 @@ export class JobQueue<TPayload, TResult> {
       job: ActiveJob<TPayload, TResult>,
     ) => Promise<Result<TResult, BaseError>>,
   ) => void;
+  readonly #submit: (
+    payload: TPayload,
+  ) => AsyncResult<JobSubmitOutcome<TPayload, TResult>, BaseError>;
 
   constructor(impl: {
     create: (
@@ -279,14 +396,34 @@ export class JobQueue<TPayload, TResult> {
         job: ActiveJob<TPayload, TResult>,
       ) => Promise<Result<TResult, BaseError>>,
     ) => void;
+    submit?: (
+      payload: TPayload,
+    ) => AsyncResult<JobSubmitOutcome<TPayload, TResult>, BaseError>;
   }) {
     this.#create = impl.create;
     this.#handle = impl.handle;
+    this.#submit = impl.submit ??
+      ((payload) =>
+        impl.create(payload).map((ref) => ({ kind: "accepted", ref })));
   }
 
   create(payload: TPayload): AsyncResult<JobRef<TPayload, TResult>, BaseError> {
     try {
       return this.#create(payload);
+    } catch (cause) {
+      return AsyncResult.err(toUnexpectedError(cause));
+    }
+  }
+
+  /**
+   * Submits a job using queue policy outcomes for keyed queues.
+   * Unkeyed queues accept and return a new job reference.
+   */
+  submit(
+    payload: TPayload,
+  ): AsyncResult<JobSubmitOutcome<TPayload, TResult>, BaseError> {
+    try {
+      return this.#submit(payload);
     } catch (cause) {
       return AsyncResult.err(toUnexpectedError(cause));
     }

@@ -13,7 +13,7 @@ const CONTRACT_MODULE_METADATA = Symbol.for(
 
 export const CONTRACT_ID = "trellis.core@v1" as const;
 export const CONTRACT_DIGEST =
-  "L4HW6uUIxDhK1Kpa_PUxpumoMberMgiCgJTNN5Qvje0" as const;
+  "1vbZgyhBkgKDSkzqvkwItxObBfaLNdysxFBeTT-Ng2c" as const;
 export const CONTRACT = {
   "capabilities": {
     "trellis.core::catalog.read": {
@@ -170,6 +170,41 @@ export const CONTRACT = {
                               "type": "integer",
                             },
                             "dlq": { "type": "boolean" },
+                            "keyConcurrency": {
+                              "properties": {
+                                "heartbeatIntervalMs": {
+                                  "minimum": 1,
+                                  "type": "integer",
+                                },
+                                "heartbeatTtlMs": {
+                                  "minimum": 1,
+                                  "type": "integer",
+                                },
+                                "key": {
+                                  "items": { "minLength": 1, "type": "string" },
+                                  "minItems": 1,
+                                  "type": "array",
+                                },
+                                "maxActive": {
+                                  "minimum": 1,
+                                  "type": "integer",
+                                },
+                                "stalePolicy": {
+                                  "anyOf": [{
+                                    "const": "fail-stale",
+                                    "type": "string",
+                                  }, { "const": "block", "type": "string" }],
+                                },
+                              },
+                              "required": [
+                                "key",
+                                "maxActive",
+                                "heartbeatIntervalMs",
+                                "heartbeatTtlMs",
+                                "stalePolicy",
+                              ],
+                              "type": "object",
+                            },
                             "logs": { "type": "boolean" },
                             "maxDeliver": { "minimum": 1, "type": "integer" },
                             "payload": {
@@ -183,6 +218,26 @@ export const CONTRACT = {
                             "publishPrefix": {
                               "minLength": 1,
                               "type": "string",
+                            },
+                            "queue": {
+                              "properties": {
+                                "maxQueuedPerKey": {
+                                  "minimum": 0,
+                                  "type": "integer",
+                                },
+                                "whenFull": {
+                                  "anyOf": [
+                                    { "const": "reject", "type": "string" },
+                                    { "const": "coalesce", "type": "string" },
+                                    {
+                                      "const": "replace-oldest",
+                                      "type": "string",
+                                    },
+                                  ],
+                                },
+                              },
+                              "required": ["maxQueuedPerKey", "whenFull"],
+                              "type": "object",
                             },
                             "queueType": { "minLength": 1, "type": "string" },
                             "result": {
@@ -478,6 +533,29 @@ export const CONTRACT = {
                       "required": ["markdown"],
                       "type": "object",
                     },
+                    "keyConcurrency": {
+                      "properties": {
+                        "heartbeatIntervalMs": {
+                          "minimum": 1,
+                          "type": "integer",
+                        },
+                        "heartbeatTtlMs": { "minimum": 1, "type": "integer" },
+                        "key": {
+                          "items": { "minLength": 1, "type": "string" },
+                          "minItems": 1,
+                          "type": "array",
+                        },
+                        "maxActive": { "minimum": 1, "type": "integer" },
+                        "stalePolicy": {
+                          "anyOf": [
+                            { "const": "fail-stale", "type": "string" },
+                            { "const": "block", "type": "string" },
+                          ],
+                        },
+                      },
+                      "required": ["key"],
+                      "type": "object",
+                    },
                     "logs": { "type": "boolean" },
                     "maxDeliver": { "minimum": 1, "type": "integer" },
                     "payload": {
@@ -488,6 +566,18 @@ export const CONTRACT = {
                       "type": "object",
                     },
                     "progress": { "type": "boolean" },
+                    "queue": {
+                      "properties": {
+                        "maxQueuedPerKey": { "minimum": 0, "type": "integer" },
+                        "whenFull": {
+                          "anyOf": [{ "const": "reject", "type": "string" }, {
+                            "const": "coalesce",
+                            "type": "string",
+                          }, { "const": "replace-oldest", "type": "string" }],
+                        },
+                      },
+                      "type": "object",
+                    },
                     "result": {
                       "properties": {
                         "schema": { "minLength": 1, "type": "string" },

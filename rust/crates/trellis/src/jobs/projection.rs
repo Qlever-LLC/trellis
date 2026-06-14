@@ -7,6 +7,8 @@ pub fn is_terminal(state: JobState) -> bool {
             | JobState::Failed
             | JobState::Cancelled
             | JobState::Expired
+            | JobState::Skipped
+            | JobState::Stale
             | JobState::Dead
             | JobState::Dismissed
     )
@@ -52,7 +54,16 @@ pub fn reduce_job_event(current: Option<&Job>, event: &JobEvent) -> Option<Job> 
         deadline: current.deadline.clone(),
         progress: current.progress.clone(),
         logs: current.logs.clone(),
+        concurrency: current.concurrency.clone(),
+        queue_policy: current.queue_policy.clone(),
     };
+
+    if let Some(concurrency) = &event.concurrency {
+        next.concurrency = Some(concurrency.clone());
+    }
+    if let Some(queue_policy) = &event.queue_policy {
+        next.queue_policy = Some(queue_policy.clone());
+    }
 
     match event.event_type {
         JobEventType::Started => {
@@ -75,10 +86,16 @@ pub fn reduce_job_event(current: Option<&Job>, event: &JobEvent) -> Option<Job> 
         JobEventType::Failed
         | JobEventType::Cancelled
         | JobEventType::Expired
+        | JobEventType::Skipped
+        | JobEventType::Stale
         | JobEventType::Dead
         | JobEventType::Dismissed => {
             next.last_error = event.error.clone();
             next.completed_at = Some(event.timestamp.clone());
+        }
+        JobEventType::Heartbeat => {}
+        JobEventType::StaleCompletionIgnored => {
+            next.last_error = event.error.clone();
         }
         JobEventType::Retry => {
             next.last_error = event.error.clone();
@@ -96,6 +113,8 @@ pub fn reduce_job_event(current: Option<&Job>, event: &JobEvent) -> Option<Job> 
             next.last_error = None;
             next.progress = None;
             next.logs = None;
+            next.concurrency = event.concurrency.clone();
+            next.queue_policy = event.queue_policy.clone();
             next.tries = 0;
         }
         JobEventType::Created => {}
@@ -131,6 +150,16 @@ fn is_legal_transition(current: &Job, event: &JobEvent) -> bool {
                 current.state,
                 JobState::Pending | JobState::Retry | JobState::Active
             ) && event.previous_state == Some(current.state)
+        }
+        JobEventType::Skipped => {
+            matches!(current.state, JobState::Pending | JobState::Retry)
+                && event.previous_state == Some(current.state)
+        }
+        JobEventType::Stale => {
+            current.state == JobState::Active && event.previous_state == Some(JobState::Active)
+        }
+        JobEventType::Heartbeat | JobEventType::StaleCompletionIgnored => {
+            current.state == JobState::Active && event.previous_state == Some(JobState::Active)
         }
         JobEventType::Retried => {
             matches!(current.state, JobState::Failed | JobState::Dead)
@@ -168,5 +197,7 @@ fn seed_job_from_event(event: &JobEvent) -> Option<Job> {
         deadline: event.deadline.clone(),
         progress: None,
         logs: None,
+        concurrency: event.concurrency.clone(),
+        queue_policy: event.queue_policy.clone(),
     })
 }

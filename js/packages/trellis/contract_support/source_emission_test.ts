@@ -10,6 +10,7 @@ import {
   digestContractManifest,
   globalCapabilityName,
   normalizeContractManifest,
+  parseContractManifest,
 } from "./mod.ts";
 import { unwrapSchema } from "./runtime.ts";
 import { sdk as health } from "../sdk/health.ts";
@@ -497,6 +498,74 @@ Deno.test("defineServiceContract emits docs on owned contract surfaces", () => {
     markdown: "Store docs.",
   });
   assertEquals(normalizeContractManifest(contract.CONTRACT), contract.CONTRACT);
+});
+
+Deno.test("defineServiceContract emits keyed job concurrency policy", () => {
+  const contract = defineServiceContract(
+    { schemas: baseSchemas },
+    (ref) => ({
+      id: "jobs.keyed@v1",
+      displayName: "Keyed Jobs",
+      description: "Verify keyed jobs manifest emission.",
+      jobs: {
+        syncTickets: {
+          payload: ref.schema("StringValue"),
+          concurrency: 8,
+          keyConcurrency: {
+            key: ["zendesk", "/value", "tickets"],
+            maxActive: 1,
+            heartbeatIntervalMs: 30_000,
+            heartbeatTtlMs: 120_000,
+            stalePolicy: "fail-stale",
+          },
+          queue: {
+            maxQueuedPerKey: 0,
+            whenFull: "reject",
+          },
+        },
+      },
+    }),
+  );
+
+  assertEquals(contract.CONTRACT.jobs?.syncTickets, {
+    payload: { schema: "StringValue" },
+    concurrency: 8,
+    keyConcurrency: {
+      key: ["zendesk", "/value", "tickets"],
+      maxActive: 1,
+      heartbeatIntervalMs: 30_000,
+      heartbeatTtlMs: 120_000,
+      stalePolicy: "fail-stale",
+    },
+    queue: {
+      maxQueuedPerKey: 0,
+      whenFull: "reject",
+    },
+  });
+});
+
+Deno.test("contract parsing rejects invalid keyed job JSON Pointer syntax", () => {
+  assertThrows(
+    () =>
+      parseContractManifest({
+        format: "trellis.contract.v1",
+        id: "jobs.invalid-key@v1",
+        displayName: "Invalid Keyed Jobs",
+        description: "Invalid keyed jobs manifest.",
+        kind: "service",
+        schemas: { StringValue: JSON.parse(JSON.stringify(StringSchema)) },
+        jobs: {
+          syncTickets: {
+            payload: { schema: "StringValue" },
+            keyConcurrency: {
+              key: ["zendesk", "/origin~bad"],
+            },
+          },
+        },
+      }),
+    Error,
+    "invalid JSON Pointer escape",
+  );
 });
 
 Deno.test("contract digest ignores docs-only differences", () => {

@@ -189,6 +189,8 @@ mod tests {
             deadline: deadline.map(str::to_string),
             progress: None,
             logs: None,
+            concurrency: None,
+            queue_policy: None,
         }
     }
 

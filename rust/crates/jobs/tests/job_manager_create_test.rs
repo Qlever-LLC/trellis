@@ -79,6 +79,8 @@ fn sample_bindings() -> JobsBinding {
                 progress: true,
                 logs: true,
                 concurrency: 1,
+                key_concurrency: None,
+                queue: None,
             },
         )]),
     }

@@ -49,6 +49,54 @@ pub struct JobsQueueBinding {
     pub logs: bool,
     /// Suggested worker concurrency for the queue.
     pub concurrency: u32,
+    /// Optional normalized keyed concurrency policy.
+    pub key_concurrency: Option<JobKeyConcurrencyBinding>,
+    /// Optional normalized queue-depth policy for keyed queues.
+    pub queue: Option<JobQueueDepthBinding>,
+}
+
+/// Normalized keyed concurrency policy for one jobs queue.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JobKeyConcurrencyBinding {
+    /// Ordered key template segments.
+    pub key: Vec<String>,
+    /// Maximum active jobs for one derived key.
+    pub max_active: u32,
+    /// Key lease heartbeat interval in milliseconds.
+    pub heartbeat_interval_ms: u64,
+    /// Key lease TTL in milliseconds.
+    pub heartbeat_ttl_ms: u64,
+    /// Behavior for expired active slots.
+    pub stale_policy: JobKeyStalePolicy,
+}
+
+/// Stale active-key policy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JobKeyStalePolicy {
+    /// Mark stale jobs before acquiring their expired slot.
+    FailStale,
+    /// Block later jobs while an active key slot is stale.
+    Block,
+}
+
+/// Normalized queue-depth policy for one keyed jobs queue.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JobQueueDepthBinding {
+    /// Maximum queued jobs allowed for one derived key.
+    pub max_queued_per_key: u64,
+    /// Behavior when the per-key queue is full.
+    pub when_full: JobQueueWhenFull,
+}
+
+/// Queue-full policy for keyed jobs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JobQueueWhenFull {
+    /// Reject the new job.
+    Reject,
+    /// Return the existing active or queued job.
+    Coalesce,
+    /// Replace the oldest queued job for the same key.
+    ReplaceOldest,
 }
 
 /// Errors returned while decoding jobs bindings from core bootstrap data.
@@ -75,6 +123,40 @@ struct JobsQueueBindingValue {
     progress: bool,
     logs: bool,
     concurrency: u32,
+    key_concurrency: Option<JobKeyConcurrencyBindingValue>,
+    queue: Option<JobQueueDepthBindingValue>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JobKeyConcurrencyBindingValue {
+    key: Vec<String>,
+    max_active: u32,
+    heartbeat_interval_ms: u64,
+    heartbeat_ttl_ms: u64,
+    stale_policy: JobKeyStalePolicyValue,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum JobKeyStalePolicyValue {
+    FailStale,
+    Block,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JobQueueDepthBindingValue {
+    max_queued_per_key: u64,
+    when_full: JobQueueWhenFullValue,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum JobQueueWhenFullValue {
+    Reject,
+    Coalesce,
+    ReplaceOldest,
 }
 
 #[derive(Debug)]
@@ -90,6 +172,8 @@ struct NormalizedJobsQueueBinding {
     progress: bool,
     logs: bool,
     concurrency: u32,
+    key_concurrency: Option<JobKeyConcurrencyBinding>,
+    queue: Option<JobQueueDepthBinding>,
 }
 
 /// Parse a raw jobs binding map into the handwritten runtime binding type.
@@ -158,6 +242,8 @@ fn jobs_queue_binding_from_normalized(queue: NormalizedJobsQueueBinding) -> Jobs
         progress: queue.progress,
         logs: queue.logs,
         concurrency: queue.concurrency,
+        key_concurrency: queue.key_concurrency,
+        queue: queue.queue,
     }
 }
 
@@ -183,6 +269,8 @@ fn normalize_json_queue_binding(
         progress: parsed.progress,
         logs: parsed.logs,
         concurrency: parsed.concurrency,
+        key_concurrency: parsed.key_concurrency.map(job_key_concurrency_from_value),
+        queue: parsed.queue.map(job_queue_depth_from_value),
     })
 }
 
@@ -190,6 +278,18 @@ fn normalize_core_queue_binding(
     queue_type: &str,
     queue: &trellis_sdk_core::types::TrellisBindingsGetResponseBindingResourcesJobsQueuesValue,
 ) -> Result<NormalizedJobsQueueBinding, JobsBindingError> {
+    let parsed_policy: JobsQueueBindingValue =
+        serde_json::from_value(serde_json::to_value(queue).map_err(|error| {
+            JobsBindingError::InvalidQueueBinding {
+                queue_type: queue_type.to_string(),
+                details: error.to_string(),
+            }
+        })?)
+        .map_err(|error| JobsBindingError::InvalidQueueBinding {
+            queue_type: queue_type.to_string(),
+            details: error.to_string(),
+        })?;
+
     Ok(NormalizedJobsQueueBinding {
         queue_type: queue.queue_type.clone(),
         publish_prefix: queue.publish_prefix.clone(),
@@ -210,7 +310,37 @@ fn normalize_core_queue_binding(
         progress: queue.progress,
         logs: queue.logs,
         concurrency: i64_to_u32(queue.concurrency, queue_type, "concurrency")?,
+        key_concurrency: parsed_policy
+            .key_concurrency
+            .map(job_key_concurrency_from_value),
+        queue: parsed_policy.queue.map(job_queue_depth_from_value),
     })
+}
+
+fn job_key_concurrency_from_value(
+    value: JobKeyConcurrencyBindingValue,
+) -> JobKeyConcurrencyBinding {
+    JobKeyConcurrencyBinding {
+        key: value.key,
+        max_active: value.max_active,
+        heartbeat_interval_ms: value.heartbeat_interval_ms,
+        heartbeat_ttl_ms: value.heartbeat_ttl_ms,
+        stale_policy: match value.stale_policy {
+            JobKeyStalePolicyValue::FailStale => JobKeyStalePolicy::FailStale,
+            JobKeyStalePolicyValue::Block => JobKeyStalePolicy::Block,
+        },
+    }
+}
+
+fn job_queue_depth_from_value(value: JobQueueDepthBindingValue) -> JobQueueDepthBinding {
+    JobQueueDepthBinding {
+        max_queued_per_key: value.max_queued_per_key,
+        when_full: match value.when_full {
+            JobQueueWhenFullValue::Reject => JobQueueWhenFull::Reject,
+            JobQueueWhenFullValue::Coalesce => JobQueueWhenFull::Coalesce,
+            JobQueueWhenFullValue::ReplaceOldest => JobQueueWhenFull::ReplaceOldest,
+        },
+    }
 }
 
 fn i64_to_u64(value: i64, queue_type: &str, field: &str) -> Result<u64, JobsBindingError> {

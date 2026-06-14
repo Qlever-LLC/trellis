@@ -64,6 +64,10 @@ import {
   ContractResourcesSchema,
   ContractSchemaRefSchema,
   ContractStateSchema,
+  type JobKeyConcurrency,
+  JobKeyConcurrencySchema,
+  type JobQueueDepth,
+  JobQueueDepthSchema,
 } from "./protocol.ts";
 
 export {
@@ -100,8 +104,16 @@ export {
   type InstalledServiceContract,
   InstalledServiceContractSchema,
   IsoDateSchema,
+  type JobKeyConcurrency,
+  JobKeyConcurrencySchema,
+  type JobQueueDepth,
+  JobQueueDepthSchema,
   type JobsQueueBinding,
   JobsQueueBindingSchema,
+  type JobsQueueDepthBinding,
+  JobsQueueDepthBindingSchema,
+  type JobsQueueKeyConcurrencyBinding,
+  JobsQueueKeyConcurrencyBindingSchema,
   type JobsResourceBinding,
   JobsResourceBindingSchema,
   type KvResourceBinding,
@@ -555,6 +567,8 @@ export type ContractJobQueueResource = {
   logs?: boolean;
   dlq?: boolean;
   concurrency?: number;
+  keyConcurrency?: JobKeyConcurrency;
+  queue?: JobQueueDepth;
   docs?: ContractDocs;
 };
 
@@ -961,6 +975,17 @@ export type ContractSourceJobQueue<
   logs?: boolean;
   dlq?: boolean;
   concurrency?: number;
+  keyConcurrency?: {
+    key: readonly string[];
+    maxActive?: number;
+    heartbeatIntervalMs?: number;
+    heartbeatTtlMs?: number;
+    stalePolicy?: "fail-stale" | "block";
+  };
+  queue?: {
+    maxQueuedPerKey?: number;
+    whenFull?: "reject" | "coalesce" | "replace-oldest";
+  };
   docs?: ContractDocs;
 };
 
@@ -3119,7 +3144,110 @@ function errorDecl(error: ContractErrorDecl): ContractErrorDecl {
   };
 }
 
-function jobQueue(queue: ContractJobQueue): ContractJobQueue {
+type JobKeyConcurrencyLike = {
+  key: readonly string[];
+  maxActive?: number;
+  heartbeatIntervalMs?: number;
+  heartbeatTtlMs?: number;
+  stalePolicy?: "fail-stale" | "block";
+};
+
+type JobQueueDepthLike = {
+  maxQueuedPerKey?: number;
+  whenFull?: "reject" | "coalesce" | "replace-oldest";
+};
+
+function assertValidJsonPointerSyntax(
+  queueType: string,
+  pointer: string,
+): void {
+  if (!pointer.startsWith("/")) {
+    throw new Error(
+      `jobs queue '${queueType}' keyConcurrency.key pointer segment '${pointer}' must start with '/'`,
+    );
+  }
+  for (let index = 0; index < pointer.length; index += 1) {
+    if (pointer[index] !== "~") continue;
+    const escaped = pointer[index + 1];
+    if (escaped !== "0" && escaped !== "1") {
+      throw new Error(
+        `jobs queue '${queueType}' keyConcurrency.key pointer segment '${pointer}' has invalid JSON Pointer escape at offset ${index}; use '~0' for '~' and '~1' for '/'`,
+      );
+    }
+    index += 1;
+  }
+}
+
+function assertValidJobKeyConcurrency(
+  queueType: string,
+  keyConcurrency: JobKeyConcurrencyLike | undefined,
+): void {
+  if (!keyConcurrency) return;
+  if (keyConcurrency.key.length === 0) {
+    throw new Error(
+      `jobs queue '${queueType}' keyConcurrency.key must contain at least one segment`,
+    );
+  }
+  for (const segment of keyConcurrency.key) {
+    if (segment.length === 0) {
+      throw new Error(
+        `jobs queue '${queueType}' keyConcurrency.key segments must be non-empty strings`,
+      );
+    }
+    if (segment.startsWith("/")) {
+      assertValidJsonPointerSyntax(queueType, segment);
+    }
+  }
+  if (
+    keyConcurrency.heartbeatIntervalMs !== undefined &&
+    keyConcurrency.heartbeatTtlMs !== undefined &&
+    keyConcurrency.heartbeatTtlMs <= keyConcurrency.heartbeatIntervalMs
+  ) {
+    throw new Error(
+      `jobs queue '${queueType}' keyConcurrency.heartbeatTtlMs must exceed heartbeatIntervalMs`,
+    );
+  }
+}
+
+function jobKeyConcurrency(
+  queueType: string,
+  keyConcurrency: JobKeyConcurrencyLike | undefined,
+): JobKeyConcurrency | undefined {
+  assertValidJobKeyConcurrency(queueType, keyConcurrency);
+  if (!keyConcurrency) return undefined;
+  return {
+    key: [...keyConcurrency.key],
+    ...(keyConcurrency.maxActive !== undefined
+      ? { maxActive: keyConcurrency.maxActive }
+      : {}),
+    ...(keyConcurrency.heartbeatIntervalMs !== undefined
+      ? { heartbeatIntervalMs: keyConcurrency.heartbeatIntervalMs }
+      : {}),
+    ...(keyConcurrency.heartbeatTtlMs !== undefined
+      ? { heartbeatTtlMs: keyConcurrency.heartbeatTtlMs }
+      : {}),
+    ...(keyConcurrency.stalePolicy !== undefined
+      ? { stalePolicy: keyConcurrency.stalePolicy }
+      : {}),
+  };
+}
+
+function jobQueueDepth(
+  queue: JobQueueDepthLike | undefined,
+): JobQueueDepth | undefined {
+  if (!queue) return undefined;
+  return {
+    ...(queue.maxQueuedPerKey !== undefined
+      ? { maxQueuedPerKey: queue.maxQueuedPerKey }
+      : {}),
+    ...(queue.whenFull !== undefined ? { whenFull: queue.whenFull } : {}),
+  };
+}
+
+function jobQueue(
+  queueType: string,
+  queue: ContractJobQueue,
+): ContractJobQueue {
   return {
     payload: schemaRef(queue.payload),
     ...(queue.result ? { result: schemaRef(queue.result) } : {}),
@@ -3135,6 +3263,10 @@ function jobQueue(queue: ContractJobQueue): ContractJobQueue {
     ...(queue.concurrency !== undefined
       ? { concurrency: queue.concurrency }
       : {}),
+    ...(queue.keyConcurrency
+      ? { keyConcurrency: jobKeyConcurrency(queueType, queue.keyConcurrency) }
+      : {}),
+    ...(queue.queue ? { queue: jobQueueDepth(queue.queue) } : {}),
     ...(queue.docs ? { docs: contractDocs(queue.docs) } : {}),
   };
 }
@@ -3208,7 +3340,16 @@ export function normalizeContractManifest(
       : {}),
     ...(contract.events ? { events: mapValues(contract.events, event) } : {}),
     ...(contract.feeds ? { feeds: mapValues(contract.feeds, feed) } : {}),
-    ...(contract.jobs ? { jobs: mapValues(contract.jobs, jobQueue) } : {}),
+    ...(contract.jobs
+      ? {
+        jobs: Object.fromEntries(
+          Object.entries(contract.jobs).map(([queueType, queue]) => [
+            queueType,
+            jobQueue(queueType, queue),
+          ]),
+        ),
+      }
+      : {}),
     ...(contract.eventConsumers
       ? {
         eventConsumers: mapValues(
@@ -3411,6 +3552,12 @@ function emitJobs(
         ...(queue.concurrency !== undefined
           ? { concurrency: queue.concurrency }
           : {}),
+        ...(queue.keyConcurrency
+          ? {
+            keyConcurrency: jobKeyConcurrency(queueType, queue.keyConcurrency),
+          }
+          : {}),
+        ...(queue.queue ? { queue: jobQueueDepth(queue.queue) } : {}),
         ...(queue.docs ? { docs: contractDocs(queue.docs) } : {}),
       } satisfies ContractJobQueue,
     ]),

@@ -382,6 +382,49 @@
         }
       }
     },
+    "jobKeyConcurrency": {
+      "type": "object",
+      "required": ["key"],
+      "properties": {
+        "key": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "maxActive": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "heartbeatIntervalMs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "heartbeatTtlMs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "stalePolicy": {
+          "type": "string",
+          "enum": ["fail-stale", "block"]
+        }
+      }
+    },
+    "jobQueueDepth": {
+      "type": "object",
+      "properties": {
+        "maxQueuedPerKey": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "whenFull": {
+          "type": "string",
+          "enum": ["reject", "coalesce", "replace-oldest"]
+        }
+      }
+    },
     "jobQueue": {
       "type": "object",
       "required": ["payload"],
@@ -423,6 +466,12 @@
         "concurrency": {
           "type": "integer",
           "minimum": 1
+        },
+        "keyConcurrency": {
+          "$ref": "#/$defs/jobKeyConcurrency"
+        },
+        "queue": {
+          "$ref": "#/$defs/jobQueueDepth"
         },
         "docs": {
           "$ref": "#/$defs/docs"

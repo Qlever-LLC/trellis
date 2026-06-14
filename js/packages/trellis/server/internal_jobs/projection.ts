@@ -5,6 +5,8 @@ const TERMINAL_STATES = new Set<JobState>([
   "failed",
   "cancelled",
   "expired",
+  "skipped",
+  "stale",
   "dead",
   "dismissed",
 ]);

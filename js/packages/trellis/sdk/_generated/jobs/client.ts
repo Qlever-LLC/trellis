@@ -117,6 +117,10 @@ export interface TrellisJobsClient {
         input: Types.JobsGetInput,
         opts?: RequestOpts,
       ): AsyncResult<Types.JobsGetOutput, BaseError>;
+      getKey(
+        input: Types.JobsGetKeyInput,
+        opts?: RequestOpts,
+      ): AsyncResult<Types.JobsGetKeyOutput, BaseError>;
       health(
         input: Types.JobsHealthInput,
         opts?: RequestOpts,
@@ -225,6 +229,13 @@ export interface ServiceHandle<TDeps = undefined> {
       ): Promise<void>;
       get(
         handler: RpcHandler<Types.JobsGetInput, Types.JobsGetOutput, TDeps>,
+      ): Promise<void>;
+      getKey(
+        handler: RpcHandler<
+          Types.JobsGetKeyInput,
+          Types.JobsGetKeyOutput,
+          TDeps
+        >,
       ): Promise<void>;
       health(
         handler: RpcHandler<

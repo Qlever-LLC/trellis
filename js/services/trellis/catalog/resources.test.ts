@@ -1336,6 +1336,51 @@ Deno.test("jobs resource requests apply queue defaults", () => {
   ]);
 });
 
+Deno.test("jobs resource requests normalize keyed queue defaults", () => {
+  const contract = {
+    ...CONTRACT,
+    schemas: {
+      Payload: { type: "object" },
+    },
+    resources: {},
+    jobs: {
+      "sync-tickets": {
+        payload: { schema: "Payload" },
+        ackWaitMs: 90_000,
+        concurrency: 8,
+        keyConcurrency: {
+          key: ["zendesk", "/origin", "tickets"],
+        },
+      },
+    },
+  } as TrellisContractV1;
+
+  assertEquals(getJobsQueueRequests(contract), [
+    {
+      queueType: "sync-tickets",
+      payload: { schema: "Payload" },
+      maxDeliver: 5,
+      backoffMs: [5000, 30000, 120000, 600000, 1800000],
+      ackWaitMs: 90_000,
+      progress: true,
+      logs: true,
+      dlq: true,
+      concurrency: 8,
+      keyConcurrency: {
+        key: ["zendesk", "/origin", "tickets"],
+        maxActive: 1,
+        heartbeatIntervalMs: 30_000,
+        heartbeatTtlMs: 90_000,
+        stalePolicy: "fail-stale",
+      },
+      queue: {
+        maxQueuedPerKey: 0,
+        whenFull: "reject",
+      },
+    },
+  ]);
+});
+
 Deno.test("jobs provisioning requires NATS", async () => {
   const contract = {
     ...CONTRACT,
@@ -1419,6 +1464,12 @@ Deno.test("jobs resource grants use service-visible queue bindings", () => {
     true,
   );
   assertEquals(
+    grants.publish.includes(
+      "trellis.work.document_activity_25c0dcc8dbcd.document-process",
+    ),
+    false,
+  );
+  assertEquals(
     grants.publish.includes("$JS.API.CONSUMER.CREATE.JOBS_WORK.>"),
     false,
   );
@@ -1443,4 +1494,47 @@ Deno.test("jobs resource grants use service-visible queue bindings", () => {
   assertEquals(grants.publish.includes("$JS.API.STREAM.INFO.JOBS"), false);
   assertEquals(grants.publish.includes("$JS.API.DIRECT.GET.JOBS"), true);
   assertEquals(grants.publish.includes("$JS.API.DIRECT.GET.JOBS.>"), true);
+  assertEquals(
+    grants.publish.includes("$KV.JOBS_KEYS_document_activity_25c0dcc8dbcd.>"),
+    true,
+  );
+  assertEquals(grants.publish.includes("$KV.JOBS_KEYS.>"), false);
+  assertEquals(
+    grants.publish.includes(
+      "$JS.API.$KV.JOBS_KEYS_document_activity_25c0dcc8dbcd.>",
+    ),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes(
+      "$JS.API.STREAM.MSG.GET.KV_JOBS_KEYS_document_activity_25c0dcc8dbcd",
+    ),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes(
+      "$JS.API.DIRECT.GET.KV_JOBS_KEYS_document_activity_25c0dcc8dbcd.>",
+    ),
+    true,
+  );
+  assertEquals(
+    grants.publish.includes("$JS.API.STREAM.MSG.GET.KV_JOBS_KEYS"),
+    false,
+  );
+  assertEquals(
+    grants.publish.includes("$JS.API.DIRECT.GET.KV_JOBS_KEYS"),
+    false,
+  );
+  assertEquals(
+    grants.publish.includes("$JS.API.DIRECT.GET.KV_JOBS_KEYS.>"),
+    false,
+  );
+  assertEquals(
+    grants.publish.includes("$JS.API.CONSUMER.CREATE.KV_JOBS_KEYS.>"),
+    false,
+  );
+  assertEquals(
+    grants.publish.includes("$JS.API.CONSUMER.MSG.NEXT.KV_JOBS_KEYS.>"),
+    false,
+  );
 });

@@ -10,7 +10,7 @@ This guide is for operators. If you are a service author, see [Jobs: TypeScript]
 runtime is Trellis infrastructure that implements its admin behavior:
 
 - **SQL projection** — a queryable read-optimized view of current job state derived from the JetStream source of truth
-- **Global RPCs** — `Jobs.List`, `Jobs.Get`, `Jobs.Cancel`, `Jobs.Retry`, `Jobs.ReplayDLQ`, `Jobs.DismissDLQ`, `Jobs.ListServices`, `Jobs.Health`
+- **Global RPCs** — `Jobs.List`, `Jobs.Get`, `Jobs.GetKey`, `Jobs.Cancel`, `Jobs.Retry`, `Jobs.ReplayDLQ`, `Jobs.DismissDLQ`, `Jobs.ListServices`, `Jobs.Health`
 - **Janitor** — background cleanup of expired jobs and stale projection entries
 
 The Jobs admin runtime is stateless and horizontally scalable. It does not participate in job correctness — it is a derived observability layer. The JetStream stream remains the source of truth.
@@ -48,6 +48,27 @@ console.log(job.context.requestId, job.context.traceId);
 Projected job records include `context.requestId`, `context.traceId`,
 `context.traceparent`, and optional `context.tracestate` so operators can pivot
 from a job to related RPC, event, operation, and service logs.
+
+## Inspecting keyed concurrency
+
+Jobs that declare `keyConcurrency` expose their derived key in admin
+projection. Use `Jobs.GetKey` to inspect why work is waiting or rejected for a
+logical key:
+
+```ts
+const key = await client.rpc.jobs.getKey({
+  service: "zendesk-sync",
+  type: "sync-tickets",
+  key: "zendesk:foo:tickets",
+});
+
+console.log(key.active, key.queued, key.heartbeatAgeMs);
+```
+
+Key status includes the active job identity, queued depth, heartbeat age, lease
+expiry, stale takeover count, and the latest queue-policy reason such as
+`active-limit`, `queue-depth`, `coalesced`, or `replaced`. A stale active job is
+reported explicitly; it is not inferred from worker-presence heartbeats.
 
 ## Cancelling a job
 

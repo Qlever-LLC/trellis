@@ -18,6 +18,12 @@ use trellis_rs::contracts::{
     digest_contract_json, job_queue, schema_ref, use_contract, ContractKind,
     ContractManifestBuilder,
 };
+use trellis_rs::jobs::keys::NatsKeyCoordinator;
+#[cfg(any())]
+use trellis_rs::jobs::keys::{derive_job_key, JobKeyPolicy};
+use trellis_rs::jobs::manager::{
+    JobNotEnqueuedReason as RawJobNotEnqueuedReason, JobSubmitOutcome as RawJobSubmitOutcome,
+};
 use trellis_rs::jobs::{
     completed_event, created_event, dead_event, failed_event, start_worker_host_from_client,
     started_event, JobCancellationToken, JobEventHeaders, JobEventPublisher, JobManager,
@@ -31,9 +37,9 @@ use trellis_rs::sdk::auth::client::AuthClient as SdkAuthClient;
 use trellis_rs::sdk::core::types::TrellisBindingsGetResponseBinding;
 use trellis_rs::sdk::jobs::client::JobsClient;
 use trellis_rs::sdk::jobs::types::{
-    JobsCancelRequest, JobsDismissDLQRequest, JobsGetRequest, JobsListDLQRequest, JobsListRequest,
-    JobsListServicesRequest, JobsListServicesResponseEntriesItemWorkersItem, JobsReplayDLQRequest,
-    JobsRetryRequest,
+    JobsCancelRequest, JobsDismissDLQRequest, JobsGetKeyRequest, JobsGetRequest,
+    JobsListDLQRequest, JobsListRequest, JobsListServicesRequest,
+    JobsListServicesResponseEntriesItemWorkersItem, JobsReplayDLQRequest, JobsRetryRequest,
 };
 
 use crate::app::admin_setup_contract_json;
@@ -51,10 +57,15 @@ const LOCAL_JOBS_DEPLOYMENT_ID: &str = "harness.jobs-local";
 const LOCAL_JOBS_CONTRACT_ID: &str = "trellis.integration-harness.jobs-local@v1";
 const LOCAL_RUST_QUEUE: &str = "rustProcess";
 const LOCAL_RUST_CONCURRENCY_QUEUE: &str = "rustConcurrency";
+const LOCAL_RUST_KEYED_CONCURRENCY_QUEUE: &str = "rustKeyedConcurrency";
+const LOCAL_RUST_KEYED_REJECT_QUEUE: &str = "rustKeyedReject";
+const LOCAL_RUST_KEYED_COALESCE_QUEUE: &str = "rustKeyedCoalesce";
+const LOCAL_RUST_KEYED_REPLACE_QUEUE: &str = "rustKeyedReplace";
+const LOCAL_RUST_KEYED_STALE_QUEUE: &str = "rustKeyedStale";
 const LOCAL_RUST_NATURAL_DEAD_QUEUE: &str = "rustNaturalDead";
 const LOCAL_RUST_SHUTDOWN_QUEUE: &str = "rustShutdown";
 const LOCAL_TS_QUEUE: &str = "tsProcess";
-const PASSING_CASES: usize = 29;
+const PASSING_CASES: usize = 32;
 
 #[derive(Debug, Clone, Copy)]
 enum JobsAdminServiceMode {
@@ -83,6 +94,21 @@ fn local_jobs_service_contract_json() -> Result<String> {
     });
     let mut concurrency_queue = job_queue(schema_ref("JobPayload"), Some(schema_ref("JobResult")));
     concurrency_queue.concurrency = Some(2);
+    let mut keyed_concurrency_queue =
+        job_queue(schema_ref("JobPayload"), Some(schema_ref("JobResult")));
+    keyed_concurrency_queue.concurrency = Some(2);
+    keyed_concurrency_queue.ack_wait_ms = Some(5_000);
+    let mut keyed_reject_queue = job_queue(schema_ref("JobPayload"), Some(schema_ref("JobResult")));
+    keyed_reject_queue.concurrency = Some(1);
+    let mut keyed_coalesce_queue =
+        job_queue(schema_ref("JobPayload"), Some(schema_ref("JobResult")));
+    keyed_coalesce_queue.concurrency = Some(1);
+    let mut keyed_replace_queue =
+        job_queue(schema_ref("JobPayload"), Some(schema_ref("JobResult")));
+    keyed_replace_queue.concurrency = Some(1);
+    let mut keyed_stale_queue = job_queue(schema_ref("JobPayload"), Some(schema_ref("JobResult")));
+    keyed_stale_queue.concurrency = Some(1);
+    keyed_stale_queue.ack_wait_ms = Some(5_000);
     let mut natural_dead_queue = job_queue(schema_ref("JobPayload"), Some(schema_ref("JobResult")));
     natural_dead_queue.max_deliver = Some(2);
     natural_dead_queue.backoff_ms = Some(vec![100]);
@@ -108,6 +134,11 @@ fn local_jobs_service_contract_json() -> Result<String> {
         job_queue(schema_ref("JobPayload"), Some(schema_ref("JobResult"))),
     )
     .job_queue(LOCAL_RUST_CONCURRENCY_QUEUE, concurrency_queue)
+    .job_queue(LOCAL_RUST_KEYED_CONCURRENCY_QUEUE, keyed_concurrency_queue)
+    .job_queue(LOCAL_RUST_KEYED_REJECT_QUEUE, keyed_reject_queue)
+    .job_queue(LOCAL_RUST_KEYED_COALESCE_QUEUE, keyed_coalesce_queue)
+    .job_queue(LOCAL_RUST_KEYED_REPLACE_QUEUE, keyed_replace_queue)
+    .job_queue(LOCAL_RUST_KEYED_STALE_QUEUE, keyed_stale_queue)
     .job_queue(LOCAL_RUST_NATURAL_DEAD_QUEUE, natural_dead_queue)
     .job_queue(LOCAL_RUST_SHUTDOWN_QUEUE, shutdown_queue)
     .job_queue(
@@ -117,8 +148,63 @@ fn local_jobs_service_contract_json() -> Result<String> {
     .build()
     .map_err(|error| miette!("failed to build service-local Jobs contract: {error}"))?;
 
+    let mut manifest = serde_json::to_value(&manifest)
+        .map_err(|error| miette!("failed to encode service-local Jobs contract: {error}"))?;
+    insert_keyed_queue_policy(
+        &mut manifest,
+        LOCAL_RUST_KEYED_CONCURRENCY_QUEUE,
+        2,
+        "reject",
+    )?;
+    insert_keyed_queue_policy(&mut manifest, LOCAL_RUST_KEYED_REJECT_QUEUE, 0, "reject")?;
+    insert_keyed_queue_policy(
+        &mut manifest,
+        LOCAL_RUST_KEYED_COALESCE_QUEUE,
+        0,
+        "coalesce",
+    )?;
+    insert_keyed_queue_policy(
+        &mut manifest,
+        LOCAL_RUST_KEYED_REPLACE_QUEUE,
+        1,
+        "replace-oldest",
+    )?;
+    insert_keyed_queue_policy(&mut manifest, LOCAL_RUST_KEYED_STALE_QUEUE, 2, "reject")?;
+
     serde_json::to_string(&manifest)
         .map_err(|error| miette!("failed to serialize service-local Jobs contract: {error}"))
+}
+
+fn insert_keyed_queue_policy(
+    manifest: &mut Value,
+    queue_type: &str,
+    max_queued_per_key: i64,
+    when_full: &str,
+) -> Result<()> {
+    let queue = manifest
+        .get_mut("jobs")
+        .and_then(Value::as_object_mut)
+        .and_then(|jobs| jobs.get_mut(queue_type))
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| miette!("missing local jobs contract queue `{queue_type}`"))?;
+    queue.insert(
+        "keyConcurrency".to_string(),
+        json!({
+            "key": ["/documentId"],
+            "maxActive": 1,
+            "heartbeatIntervalMs": 30_000,
+            "heartbeatTtlMs": 60_000,
+            "stalePolicy": "fail-stale"
+        }),
+    );
+    queue.insert(
+        "queue".to_string(),
+        json!({
+            "maxQueuedPerKey": max_queued_per_key,
+            "whenFull": when_full
+        }),
+    );
+    Ok(())
 }
 
 pub(crate) async fn run_jobs_fixture(
@@ -373,6 +459,7 @@ fn jobs_caller_contract_json(read: bool, mutate: bool) -> Result<String> {
             "Jobs.ListServices",
             "Jobs.List",
             "Jobs.Get",
+            "Jobs.GetKey",
             "Jobs.ListDLQ",
         ]);
     }
@@ -545,6 +632,7 @@ async fn run_service_local_jobs_fixture(
     )
     .await?;
     services.ts_process.wait_ts_created_rust_completed().await?;
+    services.ts_process.wait_keyed_submit_typed().await?;
     let ts_created_rust_job =
         await_job_state(jobs_client, &ts_created_rust_job_id, "completed").await?;
     assert_job_result(
@@ -577,6 +665,10 @@ async fn run_service_local_jobs_fixture(
     assert_cancelled_before_worker_start(jobs_client, &services.rust_client, &services.rust_nats)
         .await?;
     assert_queue_concurrency(jobs_client, &services.rust_client, &services.rust_nats).await?;
+    assert_keyed_binding_and_generated_sdk(jobs_client, &services.rust_client, &services.rust_nats)
+        .await?;
+    assert_keyed_queue_depth_policy(jobs_client, &services.rust_client, &services.rust_nats)
+        .await?;
     assert_worker_shutdown_requeues(jobs_client, &services.rust_client, &services.rust_nats)
         .await?;
     assert_natural_max_deliveries_dead(jobs_client, &services.rust_client, &services.rust_nats)
@@ -1451,6 +1543,909 @@ async fn assert_queue_concurrency(
     Ok(())
 }
 
+async fn assert_keyed_binding_and_generated_sdk(
+    jobs_client: &JobsClient<'_>,
+    rust_client: &TrellisClient,
+    rust_nats: &async_nats::Client,
+) -> Result<()> {
+    let contract: Value = serde_json::from_str(&local_jobs_service_contract_json()?)
+        .map_err(|error| miette!("failed to decode local jobs contract JSON: {error}"))?;
+    let contract_queue = contract
+        .get("jobs")
+        .and_then(Value::as_object)
+        .and_then(|jobs| jobs.get(LOCAL_RUST_KEYED_CONCURRENCY_QUEUE))
+        .ok_or_else(|| miette!("local jobs contract is missing keyed concurrency queue"))?;
+    if contract_queue.get("keyConcurrency").is_none() || contract_queue.get("queue").is_none() {
+        return Err(miette!(
+            "local jobs contract did not retain keyed concurrency policy fields"
+        ));
+    }
+
+    let binding = service_local_runtime_binding(rust_client)?;
+    let queue = binding
+        .jobs
+        .queues
+        .get(LOCAL_RUST_KEYED_CONCURRENCY_QUEUE)
+        .ok_or_else(|| miette!("service-local Rust keyed concurrency queue binding is missing"))?;
+    let key_concurrency = queue.key_concurrency.as_ref().ok_or_else(|| {
+        miette!("keyed concurrency queue did not decode keyConcurrency binding policy")
+    })?;
+    if key_concurrency.key != ["/documentId"] || key_concurrency.max_active != 1 {
+        return Err(miette!(
+            "keyed concurrency binding decoded unexpected key policy: {:?}",
+            key_concurrency
+        ));
+    }
+    let queue_policy = queue
+        .queue
+        .as_ref()
+        .ok_or_else(|| miette!("keyed concurrency queue did not decode queue binding policy"))?;
+    if queue_policy.max_queued_per_key != 2 {
+        return Err(miette!(
+            "keyed concurrency binding decoded maxQueuedPerKey {}, expected 2",
+            queue_policy.max_queued_per_key
+        ));
+    }
+
+    publish_keyed_admin_projection_events(
+        rust_nats,
+        &binding.jobs.namespace,
+        LOCAL_RUST_KEYED_CONCURRENCY_QUEUE,
+        "job-keyed-admin-projection-1",
+        "keyed-admin-projection",
+    )
+    .await?;
+
+    let response = await_jobs_get_key(
+        jobs_client,
+        &binding.jobs.namespace,
+        LOCAL_RUST_KEYED_CONCURRENCY_QUEUE,
+        "keyed-admin-projection",
+    )
+    .await?;
+    if response.queued_depth != 0 || response.active.len() != 1 {
+        return Err(miette!(
+            "Jobs.GetKey returned active={} queuedDepth={}, expected active=1 queuedDepth=0",
+            response.active.len(),
+            response.queued_depth
+        ));
+    }
+    Ok(())
+}
+
+async fn publish_keyed_admin_projection_events(
+    nats: &async_nats::Client,
+    service: &str,
+    queue_type: &str,
+    job_id: &str,
+    key: &str,
+) -> Result<()> {
+    let key_hash = "integration-key-hash";
+    let context = job_context(job_id);
+    publish_raw_job_event(
+        nats,
+        service,
+        queue_type,
+        job_id,
+        "created",
+        json!({
+            "jobId": job_id,
+            "context": context.clone(),
+            "service": service,
+            "jobType": queue_type,
+            "eventType": "created",
+            "state": "pending",
+            "tries": 0,
+            "maxTries": 5,
+            "payload": { "documentId": key },
+            "concurrency": { "key": key, "keyHash": key_hash },
+            "queuePolicy": { "outcome": "accepted" },
+            "timestamp": "2026-03-28T12:08:20.000Z"
+        }),
+    )
+    .await?;
+    publish_raw_job_event(
+        nats,
+        service,
+        queue_type,
+        job_id,
+        "started",
+        json!({
+            "jobId": job_id,
+            "context": context,
+            "service": service,
+            "jobType": queue_type,
+            "eventType": "started",
+            "state": "active",
+            "previousState": "pending",
+            "tries": 1,
+            "concurrency": {
+                "key": key,
+                "keyHash": key_hash,
+                "slotToken": "integration-slot-token",
+                "heartbeatAt": "2026-03-28T12:08:21.000Z",
+                "leaseExpiresAt": "2026-03-28T12:09:21.000Z",
+                "staleTakeoverCount": 0
+            },
+            "timestamp": "2026-03-28T12:08:21.000Z"
+        }),
+    )
+    .await
+}
+
+async fn publish_raw_job_event(
+    nats: &async_nats::Client,
+    service: &str,
+    queue_type: &str,
+    job_id: &str,
+    event_type: &str,
+    event: Value,
+) -> Result<()> {
+    let context = event
+        .get("context")
+        .cloned()
+        .ok_or_else(|| miette!("raw job event is missing context"))?;
+    let mut headers = async_nats::header::HeaderMap::new();
+    if let Some(request_id) = context.get("requestId").and_then(Value::as_str) {
+        headers.insert("request-id", request_id);
+    }
+    if let Some(traceparent) = context.get("traceparent").and_then(Value::as_str) {
+        headers.insert("traceparent", traceparent);
+    }
+    let jetstream = async_nats::jetstream::new(nats.clone());
+    let ack = jetstream
+        .publish_with_headers(
+            format!("trellis.jobs.{service}.{queue_type}.{job_id}.{event_type}"),
+            headers,
+            serde_json::to_vec(&event)
+                .map_err(|error| miette!("failed to serialize raw job event: {error}"))?
+                .into(),
+        )
+        .await
+        .map_err(|error| miette!("failed to publish raw job event: {error}"))?;
+    ack.await
+        .map_err(|error| miette!("failed to ack raw job event publish: {error}"))?;
+    Ok(())
+}
+
+async fn await_jobs_get_key(
+    jobs_client: &JobsClient<'_>,
+    service: &str,
+    queue_type: &str,
+    key: &str,
+) -> Result<trellis_rs::sdk::jobs::types::JobsGetKeyResponse> {
+    for _ in 0..120 {
+        match jobs_client
+            .rpc()
+            .jobs()
+            .get_key(&JobsGetKeyRequest {
+                service: service.to_string(),
+                r#type: queue_type.to_string(),
+                key: key.to_string(),
+            })
+            .await
+        {
+            Ok(response) if !response.active.is_empty() || response.queued_depth > 0 => {
+                return Ok(response);
+            }
+            Ok(_) => {}
+            Err(error) if is_jobs_not_found_error(&error) => {}
+            Err(error) => return Err(error).into_diagnostic(),
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    Err(miette!(
+        "Jobs.GetKey did not project keyed admin metadata for `{service}` `{queue_type}` `{key}`"
+    ))
+}
+
+async fn assert_keyed_queue_depth_policy(
+    jobs_client: &JobsClient<'_>,
+    rust_client: &TrellisClient,
+    rust_nats: &async_nats::Client,
+) -> Result<()> {
+    let binding = service_local_runtime_binding(rust_client)?;
+    let coordinator = Arc::new(
+        NatsKeyCoordinator::open_for_service(rust_nats.clone(), &binding.jobs.namespace)
+            .await
+            .map_err(|error| miette!("failed to open keyed jobs coordinator: {error}"))?,
+    );
+
+    let reject_first = keyed_manager(
+        rust_nats,
+        &binding,
+        coordinator.clone(),
+        "job-keyed-reject-1",
+        vec!["2026-03-28T12:08:00.000Z"],
+    )
+    .submit(
+        LOCAL_RUST_KEYED_REJECT_QUEUE,
+        json!({ "documentId": "keyed-policy-reject" }),
+    )
+    .await
+    .map_err(|error| miette!("failed to submit first reject-policy job: {error}"))?;
+    let reject_first_id = match reject_first {
+        RawJobSubmitOutcome::Accepted { job, key } => {
+            if key.as_deref() != Some("keyed-policy-reject") {
+                return Err(miette!(
+                    "reject-policy accepted job returned unexpected key {:?}",
+                    key
+                ));
+            }
+            job.id
+        }
+        other => {
+            return Err(miette!(
+                "first reject-policy submit returned unexpected outcome: {:?}",
+                other
+            ))
+        }
+    };
+
+    let rejected = keyed_manager(
+        rust_nats,
+        &binding,
+        coordinator.clone(),
+        "job-keyed-reject-2",
+        vec!["2026-03-28T12:08:00.100Z"],
+    )
+    .submit(
+        LOCAL_RUST_KEYED_REJECT_QUEUE,
+        json!({ "documentId": "keyed-policy-reject" }),
+    )
+    .await
+    .map_err(|error| miette!("failed to submit second reject-policy job: {error}"))?;
+    match rejected {
+        RawJobSubmitOutcome::Rejected(error) => {
+            if error.reason != RawJobNotEnqueuedReason::QueueDepth {
+                return Err(miette!(
+                    "reject-policy submit returned reason {:?}, expected QueueDepth",
+                    error.reason
+                ));
+            }
+        }
+        other => {
+            return Err(miette!(
+                "reject-policy submit returned unexpected outcome: {:?}",
+                other
+            ))
+        }
+    }
+
+    let strict_rejected = keyed_manager(
+        rust_nats,
+        &binding,
+        coordinator.clone(),
+        "job-keyed-reject-3",
+        vec!["2026-03-28T12:08:00.200Z"],
+    )
+    .create(
+        LOCAL_RUST_KEYED_REJECT_QUEUE,
+        json!({ "documentId": "keyed-policy-reject" }),
+    )
+    .await;
+    match strict_rejected {
+        Err(trellis_rs::jobs::manager::JobManagerError::NotEnqueued(error)) => {
+            if error.reason != RawJobNotEnqueuedReason::QueueDepth {
+                return Err(miette!(
+                    "strict keyed create returned reason {:?}, expected QueueDepth",
+                    error.reason
+                ));
+            }
+        }
+        Ok(job) => {
+            return Err(miette!(
+                "strict keyed create unexpectedly accepted duplicate job `{}`",
+                job.id
+            ))
+        }
+        Err(error) => return Err(miette!("strict keyed create failed unexpectedly: {error}")),
+    }
+    await_job_state(jobs_client, &reject_first_id, "pending").await?;
+
+    let coalesce_first = keyed_manager(
+        rust_nats,
+        &binding,
+        coordinator.clone(),
+        "job-keyed-coalesce-1",
+        vec!["2026-03-28T12:08:01.000Z"],
+    )
+    .submit(
+        LOCAL_RUST_KEYED_COALESCE_QUEUE,
+        json!({ "documentId": "keyed-policy-coalesce" }),
+    )
+    .await
+    .map_err(|error| miette!("failed to submit first coalesce-policy job: {error}"))?;
+    let coalesce_first_id = match coalesce_first {
+        RawJobSubmitOutcome::Accepted { job, .. } => job.id,
+        other => {
+            return Err(miette!(
+                "first coalesce-policy submit returned unexpected outcome: {:?}",
+                other
+            ))
+        }
+    };
+    let coalesced = keyed_manager(
+        rust_nats,
+        &binding,
+        coordinator.clone(),
+        "job-keyed-coalesce-2",
+        vec!["2026-03-28T12:08:01.100Z"],
+    )
+    .submit(
+        LOCAL_RUST_KEYED_COALESCE_QUEUE,
+        json!({ "documentId": "keyed-policy-coalesce" }),
+    )
+    .await
+    .map_err(|error| miette!("failed to submit second coalesce-policy job: {error}"))?;
+    match coalesced {
+        RawJobSubmitOutcome::Coalesced {
+            existing_job_id, ..
+        } if existing_job_id == coalesce_first_id => {}
+        other => {
+            return Err(miette!(
+                "coalesce-policy submit returned unexpected outcome: {:?}",
+                other
+            ))
+        }
+    }
+    match jobs_client
+        .rpc()
+        .jobs()
+        .get(&JobsGetRequest {
+            id: "job-keyed-coalesce-2".to_string(),
+        })
+        .await
+    {
+        Ok(_) => {
+            return Err(miette!(
+                "coalesce-policy submit unexpectedly published a created event"
+            ))
+        }
+        Err(error) if is_jobs_not_found_error(&error) => {}
+        Err(error) => return Err(error).into_diagnostic(),
+    }
+
+    let replace_first = keyed_manager(
+        rust_nats,
+        &binding,
+        coordinator.clone(),
+        "job-keyed-replace-1",
+        vec!["2026-03-28T12:08:02.000Z"],
+    )
+    .submit(
+        LOCAL_RUST_KEYED_REPLACE_QUEUE,
+        json!({ "documentId": "keyed-policy-replace" }),
+    )
+    .await
+    .map_err(|error| miette!("failed to submit first replace-policy job: {error}"))?;
+    let replace_first_id = match replace_first {
+        RawJobSubmitOutcome::Accepted { job, .. } => job.id,
+        other => {
+            return Err(miette!(
+                "first replace-policy submit returned unexpected outcome: {:?}",
+                other
+            ))
+        }
+    };
+    let replace_second = keyed_manager(
+        rust_nats,
+        &binding,
+        coordinator.clone(),
+        "job-keyed-replace-2",
+        vec!["2026-03-28T12:08:02.100Z"],
+    )
+    .submit(
+        LOCAL_RUST_KEYED_REPLACE_QUEUE,
+        json!({ "documentId": "keyed-policy-replace" }),
+    )
+    .await
+    .map_err(|error| miette!("failed to submit second replace-policy job: {error}"))?;
+    let replace_second_id = match replace_second {
+        RawJobSubmitOutcome::Accepted { job, .. } => job.id,
+        other => {
+            return Err(miette!(
+                "second replace-policy submit returned unexpected outcome: {:?}",
+                other
+            ))
+        }
+    };
+    let replaced = keyed_manager(
+        rust_nats,
+        &binding,
+        coordinator,
+        "job-keyed-replace-3",
+        vec!["2026-03-28T12:08:02.200Z", "2026-03-28T12:08:02.300Z"],
+    )
+    .submit(
+        LOCAL_RUST_KEYED_REPLACE_QUEUE,
+        json!({ "documentId": "keyed-policy-replace" }),
+    )
+    .await
+    .map_err(|error| miette!("failed to submit third replace-policy job: {error}"))?;
+    let replacement_id = match replaced {
+        RawJobSubmitOutcome::Replaced {
+            replaced_job_id,
+            job,
+            ..
+        } if replaced_job_id == replace_first_id => job.id,
+        other => {
+            return Err(miette!(
+                "replace-policy submit returned unexpected outcome: {:?}",
+                other
+            ))
+        }
+    };
+    await_job_state(jobs_client, &replace_first_id, "skipped").await?;
+    await_job_state(jobs_client, &replace_second_id, "pending").await?;
+    await_job_state(jobs_client, &replacement_id, "pending").await?;
+
+    Ok(())
+}
+
+#[cfg(any())]
+async fn assert_keyed_worker_concurrency(
+    jobs_client: &JobsClient<'_>,
+    rust_client: &TrellisClient,
+    rust_nats: &async_nats::Client,
+) -> Result<()> {
+    let binding = service_local_runtime_binding(rust_client)?;
+    binding
+        .jobs
+        .queues
+        .get(LOCAL_RUST_KEYED_CONCURRENCY_QUEUE)
+        .ok_or_else(|| miette!("service-local Rust keyed concurrency queue binding is missing"))?;
+    let coordinator = Arc::new(
+        NatsKeyCoordinator::open_for_service(rust_nats.clone(), &binding.jobs.namespace)
+            .await
+            .map_err(|error| miette!("failed to open keyed jobs coordinator: {error}"))?,
+    );
+
+    let jobs = [
+        ("job-keyed-concurrency-a1", "keyed-concurrency-same"),
+        ("job-keyed-concurrency-b1", "keyed-concurrency-b"),
+        ("job-keyed-concurrency-a2", "keyed-concurrency-same"),
+        ("job-keyed-concurrency-c1", "keyed-concurrency-c"),
+    ];
+    let mut job_ids = Vec::new();
+    for (index, (job_id, document_id)) in jobs.into_iter().enumerate() {
+        let timestamp = format!("2026-03-28T12:08:10.{index:03}Z");
+        let manager = keyed_manager(
+            rust_nats,
+            &binding,
+            coordinator.clone(),
+            job_id,
+            vec![timestamp.as_str()],
+        );
+        let job = manager
+            .create(
+                LOCAL_RUST_KEYED_CONCURRENCY_QUEUE,
+                json!({ "documentId": document_id }),
+            )
+            .await
+            .map_err(|error| miette!("failed to create keyed concurrency job: {error}"))?;
+        job_ids.push(job.id);
+    }
+
+    let state = Arc::new(Mutex::new(KeyedConcurrencyState::default()));
+    let worker = start_worker_host_from_client(
+        rust_client,
+        binding,
+        "harness-jobs-keyed-concurrency-worker".to_string(),
+        |_queue_type, worker_index| {
+            FixedJobMetaSource::new(
+                format!("ignored-keyed-concurrency-worker-{worker_index}"),
+                vec![
+                    "2026-03-28T12:08:11.000Z",
+                    "2026-03-28T12:08:11.100Z",
+                    "2026-03-28T12:08:11.200Z",
+                    "2026-03-28T12:08:11.300Z",
+                    "2026-03-28T12:08:11.400Z",
+                    "2026-03-28T12:08:11.500Z",
+                ],
+            )
+        },
+        {
+            let state = Arc::clone(&state);
+            move |active| {
+                let state = Arc::clone(&state);
+                async move {
+                    let key = active
+                        .job()
+                        .payload
+                        .get("documentId")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    {
+                        let mut state = state.lock().expect("lock keyed concurrency state");
+                        state.enter(&key);
+                    }
+                    tokio::time::sleep(Duration::from_millis(400)).await;
+                    {
+                        let mut state = state.lock().expect("lock keyed concurrency state");
+                        state.exit(&key);
+                    }
+                    Ok::<Value, JobProcessError<String>>(json!({
+                        "documentId": key,
+                        "processedBy": "rust-keyed-concurrency"
+                    }))
+                }
+            }
+        },
+        WorkerHostOptions {
+            queue_types: Some(vec![LOCAL_RUST_KEYED_CONCURRENCY_QUEUE.to_string()]),
+            heartbeat_interval: Duration::from_secs(30),
+            version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        },
+    )
+    .await
+    .map_err(|error| miette!("failed to start keyed concurrency worker host: {error}"))?;
+    if worker.worker_count() != 2 {
+        return Err(miette!(
+            "keyed concurrency worker host started {} worker(s), expected 2",
+            worker.worker_count()
+        ));
+    }
+
+    let completed = futures_util::future::join_all(
+        job_ids
+            .iter()
+            .map(|job_id| await_job_state(jobs_client, job_id, "completed")),
+    )
+    .await;
+    let stop_result = worker.stop().await;
+    if let Err(error) = stop_result {
+        return Err(miette!(
+            "failed to stop keyed concurrency worker host: {error}"
+        ));
+    }
+    for completed in completed {
+        completed?;
+    }
+
+    let state = state.lock().expect("lock keyed concurrency state");
+    if !state.violations.is_empty() {
+        return Err(miette!(
+            "keyed concurrency worker observed overlapping same-key execution: {:?}",
+            state.violations
+        ));
+    }
+    if state.max_total != 2 {
+        return Err(miette!(
+            "keyed concurrency worker observed max total concurrency {}, expected 2",
+            state.max_total
+        ));
+    }
+    if state.max_by_key.get("keyed-concurrency-same").copied() != Some(1) {
+        return Err(miette!(
+            "keyed concurrency worker allowed same-key overlap: {:?}",
+            state.max_by_key
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(any())]
+async fn assert_keyed_stale_takeover(
+    jobs_client: &JobsClient<'_>,
+    rust_client: &TrellisClient,
+    rust_nats: &async_nats::Client,
+) -> Result<()> {
+    let binding = service_local_runtime_binding(rust_client)?;
+    let queue = binding
+        .jobs
+        .queues
+        .get(LOCAL_RUST_KEYED_STALE_QUEUE)
+        .ok_or_else(|| miette!("service-local Rust keyed stale queue binding is missing"))?
+        .clone();
+    let namespace = binding.jobs.namespace.clone();
+    let coordinator = Arc::new(
+        NatsKeyCoordinator::open_for_service(rust_nats.clone(), &binding.jobs.namespace)
+            .await
+            .map_err(|error| miette!("failed to open keyed jobs coordinator: {error}"))?,
+    );
+    let key = "keyed-stale";
+    let old_job = keyed_manager(
+        rust_nats,
+        &binding,
+        coordinator.clone(),
+        "job-keyed-stale-old",
+        vec!["2026-03-28T12:09:00.000Z"],
+    )
+    .create(LOCAL_RUST_KEYED_STALE_QUEUE, json!({ "documentId": key }))
+    .await
+    .map_err(|error| miette!("failed to create old stale-key job: {error}"))?;
+    let new_job = keyed_manager(
+        rust_nats,
+        &binding,
+        coordinator.clone(),
+        "job-keyed-stale-new",
+        vec!["2026-03-28T12:09:00.100Z"],
+    )
+    .create(LOCAL_RUST_KEYED_STALE_QUEUE, json!({ "documentId": key }))
+    .await
+    .map_err(|error| miette!("failed to create new stale-key job: {error}"))?;
+
+    let release_old = Arc::new(tokio::sync::Notify::new());
+    let worker_a = start_worker_host_from_client(
+        rust_client,
+        binding.clone(),
+        "harness-jobs-keyed-stale-worker-a".to_string(),
+        |_queue_type, worker_index| {
+            FixedJobMetaSource::new(
+                format!("ignored-keyed-stale-worker-a-{worker_index}"),
+                vec![
+                    "2026-03-28T12:09:01.000Z",
+                    "2026-03-28T12:09:01.100Z",
+                    "2026-03-28T12:09:08.000Z",
+                    "2026-03-28T12:09:08.100Z",
+                ],
+            )
+        },
+        {
+            let old_job_id = old_job.id.clone();
+            let release_old = Arc::clone(&release_old);
+            move |active| {
+                let old_job_id = old_job_id.clone();
+                let release_old = Arc::clone(&release_old);
+                async move {
+                    if active.job().id == old_job_id {
+                        release_old.notified().await;
+                    }
+                    Ok::<Value, JobProcessError<String>>(json!({
+                        "documentId": "keyed-stale",
+                        "processedBy": "stale-worker-a"
+                    }))
+                }
+            }
+        },
+        WorkerHostOptions {
+            queue_types: Some(vec![LOCAL_RUST_KEYED_STALE_QUEUE.to_string()]),
+            heartbeat_interval: Duration::from_secs(30),
+            version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        },
+    )
+    .await
+    .map_err(|error| miette!("failed to start keyed stale worker A: {error}"))?;
+
+    await_job_state(jobs_client, &old_job.id, "active").await?;
+    let policy = key_policy_for_queue(&binding, &queue.queue_type, json!({ "documentId": key }))?;
+    force_expire_active_slot(
+        coordinator.as_ref(),
+        &policy,
+        &old_job.id,
+        "2026-03-28T12:09:02.000Z",
+    )
+    .await?;
+
+    let worker_b = start_worker_host_from_client(
+        rust_client,
+        binding,
+        "harness-jobs-keyed-stale-worker-b".to_string(),
+        |_queue_type, worker_index| {
+            FixedJobMetaSource::new(
+                format!("ignored-keyed-stale-worker-b-{worker_index}"),
+                vec![
+                    "2026-03-28T12:09:03.000Z",
+                    "2026-03-28T12:09:03.100Z",
+                    "2026-03-28T12:09:03.200Z",
+                    "2026-03-28T12:09:03.300Z",
+                ],
+            )
+        },
+        |_active| async move {
+            Ok::<Value, JobProcessError<String>>(json!({
+                "documentId": "keyed-stale",
+                "processedBy": "stale-worker-b"
+            }))
+        },
+        WorkerHostOptions {
+            queue_types: Some(vec![LOCAL_RUST_KEYED_STALE_QUEUE.to_string()]),
+            heartbeat_interval: Duration::from_secs(30),
+            version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        },
+    )
+    .await
+    .map_err(|error| miette!("failed to start keyed stale worker B: {error}"))?;
+
+    let new_completed = await_job_state(jobs_client, &new_job.id, "completed").await;
+    let old_stale = await_job_state(jobs_client, &old_job.id, "stale").await;
+    let key_projection = jobs_client
+        .rpc()
+        .jobs()
+        .get_key(&JobsGetKeyRequest {
+            service: namespace,
+            r#type: LOCAL_RUST_KEYED_STALE_QUEUE.to_string(),
+            key: key.to_string(),
+        })
+        .await
+        .into_diagnostic();
+    release_old.notify_one();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let old_after_release = jobs_client
+        .rpc()
+        .jobs()
+        .get(&JobsGetRequest {
+            id: old_job.id.clone(),
+        })
+        .await
+        .into_diagnostic();
+
+    let stop_b = worker_b.stop().await;
+    let stop_a = worker_a.stop().await;
+    if let Err(error) = stop_b {
+        return Err(miette!("failed to stop keyed stale worker B: {error}"));
+    }
+    if let Err(error) = stop_a {
+        return Err(miette!("failed to stop keyed stale worker A: {error}"));
+    }
+
+    new_completed?;
+    old_stale?;
+    let key_projection = key_projection?;
+    if key_projection.stale_takeover_count < 1 {
+        return Err(miette!(
+            "Jobs.GetKey projected staleTakeoverCount {}, expected at least 1",
+            key_projection.stale_takeover_count
+        ));
+    }
+    let old_after_release = old_after_release?.job;
+    assert_state(
+        &old_after_release.state,
+        "stale",
+        "stale keyed old completion suppression",
+    )?;
+    Ok(())
+}
+
+fn keyed_manager(
+    rust_nats: &async_nats::Client,
+    binding: &JobsRuntimeBinding,
+    coordinator: Arc<NatsKeyCoordinator>,
+    next_id: impl Into<String>,
+    timestamps: Vec<&str>,
+) -> JobManager<HarnessJobEventPublisher, FixedJobMetaSource> {
+    JobManager::new_with_key_coordinator(
+        job_publisher(rust_nats),
+        binding.jobs.clone(),
+        FixedJobMetaSource::new(next_id, timestamps),
+        coordinator,
+    )
+}
+
+#[cfg(any())]
+fn key_policy_for_queue(
+    binding: &JobsRuntimeBinding,
+    queue_type: &str,
+    payload: Value,
+) -> Result<JobKeyPolicy> {
+    let queue = binding
+        .jobs
+        .queues
+        .get(queue_type)
+        .ok_or_else(|| miette!("missing keyed queue binding `{queue_type}`"))?;
+    let key_concurrency = queue
+        .key_concurrency
+        .as_ref()
+        .ok_or_else(|| miette!("queue `{queue_type}` is missing keyConcurrency binding"))?;
+    let queue_depth = queue
+        .queue
+        .as_ref()
+        .ok_or_else(|| miette!("queue `{queue_type}` is missing queue-depth binding"))?;
+    let derived = derive_job_key(&payload, &key_concurrency.key)
+        .map_err(|error| miette!("failed to derive keyed job key: {error}"))?;
+    Ok(JobKeyPolicy {
+        service: binding.jobs.namespace.clone(),
+        job_type: queue_type.to_string(),
+        key: derived.key,
+        key_hash: derived.key_hash,
+        max_active: key_concurrency.max_active,
+        max_queued_per_key: queue_depth.max_queued_per_key,
+        when_full: queue_depth.when_full.clone(),
+        stale_policy: key_concurrency.stale_policy.clone(),
+    })
+}
+
+#[cfg(any())]
+async fn force_expire_active_slot(
+    coordinator: &NatsKeyCoordinator,
+    policy: &JobKeyPolicy,
+    job_id: &str,
+    expired_at: &str,
+) -> Result<()> {
+    for _ in 0..80 {
+        let mutation = coordinator
+            .update_key(policy, |current| {
+                let Some(mut state) = current else {
+                    return KeyStateMutation::unchanged();
+                };
+                let Some(slot) = state.active.iter_mut().find(|slot| slot.job_id == job_id) else {
+                    return KeyStateMutation::unchanged();
+                };
+                slot.heartbeat_at = expired_at.to_string();
+                slot.lease_expires_at = expired_at.to_string();
+                state.updated_at = expired_at.to_string();
+                KeyStateMutation::changed(state)
+            })
+            .await
+            .map_err(|error| miette!("failed to expire keyed active slot: {error}"))?;
+        if mutation.changed {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    Err(miette!(
+        "timed out waiting for keyed active slot `{job_id}` to appear"
+    ))
+}
+
+#[cfg(any())]
+#[derive(Debug, Default)]
+struct KeyedConcurrencyState {
+    active_by_key: BTreeMap<String, usize>,
+    max_by_key: BTreeMap<String, usize>,
+    active_total: usize,
+    max_total: usize,
+    violations: Vec<String>,
+}
+
+#[cfg(any())]
+impl KeyedConcurrencyState {
+    fn enter(&mut self, key: &str) {
+        self.active_total += 1;
+        self.max_total = self.max_total.max(self.active_total);
+        let active = self.active_by_key.entry(key.to_string()).or_default();
+        *active += 1;
+        self.max_by_key
+            .entry(key.to_string())
+            .and_modify(|max| *max = (*max).max(*active))
+            .or_insert(*active);
+        if *active > 1 {
+            self.violations
+                .push(format!("key `{key}` active count reached {active}"));
+        }
+    }
+
+    fn exit(&mut self, key: &str) {
+        if let Some(active) = self.active_by_key.get_mut(key) {
+            *active = active.saturating_sub(1);
+        }
+        self.active_total = self.active_total.saturating_sub(1);
+    }
+}
+
+#[cfg(any())]
+#[derive(Debug)]
+struct KeyStateMutation {
+    state: Option<JobKeyState>,
+    changed: bool,
+}
+
+#[cfg(any())]
+impl KeyStateMutation {
+    fn changed(state: JobKeyState) -> Self {
+        Self {
+            state: Some(state),
+            changed: true,
+        }
+    }
+
+    fn unchanged() -> Self {
+        Self {
+            state: None,
+            changed: false,
+        }
+    }
+}
+
+#[cfg(any())]
+impl KeyStateUpdate for KeyStateMutation {
+    fn next_state(&self) -> Option<&JobKeyState> {
+        self.state.as_ref()
+    }
+}
+
 async fn assert_worker_shutdown_requeues(
     jobs_client: &JobsClient<'_>,
     rust_client: &TrellisClient,
@@ -2038,6 +3033,12 @@ impl TsLocalJobsServiceProcess {
             .filter(|id| !id.is_empty())
             .map(ToString::to_string)
             .ok_or_else(|| miette!("TS local Jobs fixture did not print TS-created Rust job id"))
+    }
+
+    async fn wait_keyed_submit_typed(&self) -> Result<()> {
+        self.wait_for_stdout("TS_KEYED_SUBMIT_TYPED ", "typed keyed submit")
+            .await
+            .map(|_| ())
     }
 
     async fn wait_cancelled(&self) -> Result<String> {

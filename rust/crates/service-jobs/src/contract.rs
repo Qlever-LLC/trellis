@@ -2,8 +2,8 @@
 
 use trellis_rs::sdk::jobs::contract as generated_contract;
 use trellis_rs::sdk::jobs::rpc::{
-    JobsCancelRpc, JobsDismissDLQRpc, JobsGetRpc, JobsHealthRpc, JobsListDLQRpc, JobsListRpc,
-    JobsListServicesRpc, JobsReplayDLQRpc, JobsRetryRpc,
+    JobsCancelRpc, JobsDismissDLQRpc, JobsGetKeyRpc, JobsGetRpc, JobsHealthRpc, JobsListDLQRpc,
+    JobsListRpc, JobsListServicesRpc, JobsReplayDLQRpc, JobsRetryRpc,
 };
 use trellis_rs::service::BootstrapContractRef;
 use trellis_rs::service::RpcDescriptor;
@@ -16,6 +16,7 @@ pub const JOBS_RPC_SUBJECTS: &[&str] = &[
     <JobsListServicesRpc as RpcDescriptor>::SUBJECT,
     <JobsListRpc as RpcDescriptor>::SUBJECT,
     <JobsGetRpc as RpcDescriptor>::SUBJECT,
+    <JobsGetKeyRpc as RpcDescriptor>::SUBJECT,
     <JobsCancelRpc as RpcDescriptor>::SUBJECT,
     <JobsRetryRpc as RpcDescriptor>::SUBJECT,
     <JobsListDLQRpc as RpcDescriptor>::SUBJECT,

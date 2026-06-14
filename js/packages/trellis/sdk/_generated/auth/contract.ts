@@ -13,7 +13,7 @@ const CONTRACT_MODULE_METADATA = Symbol.for(
 
 export const CONTRACT_ID = "trellis.auth@v1" as const;
 export const CONTRACT_DIGEST =
-  "U-Y6P1smzJB4MeG6NdhDuZ0CTT2BWOud9iL1zIQktMM" as const;
+  "1VGahwhAflVSrrGWBLuvPJh9K-38OO25f651G892NLc" as const;
 export const CONTRACT = {
   "capabilities": {
     "trellis.auth::device.review": {
@@ -6482,6 +6482,41 @@ export const CONTRACT = {
                               "type": "integer",
                             },
                             "dlq": { "type": "boolean" },
+                            "keyConcurrency": {
+                              "properties": {
+                                "heartbeatIntervalMs": {
+                                  "minimum": 1,
+                                  "type": "integer",
+                                },
+                                "heartbeatTtlMs": {
+                                  "minimum": 1,
+                                  "type": "integer",
+                                },
+                                "key": {
+                                  "items": { "minLength": 1, "type": "string" },
+                                  "minItems": 1,
+                                  "type": "array",
+                                },
+                                "maxActive": {
+                                  "minimum": 1,
+                                  "type": "integer",
+                                },
+                                "stalePolicy": {
+                                  "anyOf": [{
+                                    "const": "fail-stale",
+                                    "type": "string",
+                                  }, { "const": "block", "type": "string" }],
+                                },
+                              },
+                              "required": [
+                                "key",
+                                "maxActive",
+                                "heartbeatIntervalMs",
+                                "heartbeatTtlMs",
+                                "stalePolicy",
+                              ],
+                              "type": "object",
+                            },
                             "logs": { "type": "boolean" },
                             "maxDeliver": { "minimum": 1, "type": "integer" },
                             "payload": {
@@ -6495,6 +6530,26 @@ export const CONTRACT = {
                             "publishPrefix": {
                               "minLength": 1,
                               "type": "string",
+                            },
+                            "queue": {
+                              "properties": {
+                                "maxQueuedPerKey": {
+                                  "minimum": 0,
+                                  "type": "integer",
+                                },
+                                "whenFull": {
+                                  "anyOf": [
+                                    { "const": "reject", "type": "string" },
+                                    { "const": "coalesce", "type": "string" },
+                                    {
+                                      "const": "replace-oldest",
+                                      "type": "string",
+                                    },
+                                  ],
+                                },
+                              },
+                              "required": ["maxQueuedPerKey", "whenFull"],
+                              "type": "object",
                             },
                             "queueType": { "minLength": 1, "type": "string" },
                             "result": {
@@ -6658,6 +6713,41 @@ export const CONTRACT = {
                               "type": "integer",
                             },
                             "dlq": { "type": "boolean" },
+                            "keyConcurrency": {
+                              "properties": {
+                                "heartbeatIntervalMs": {
+                                  "minimum": 1,
+                                  "type": "integer",
+                                },
+                                "heartbeatTtlMs": {
+                                  "minimum": 1,
+                                  "type": "integer",
+                                },
+                                "key": {
+                                  "items": { "minLength": 1, "type": "string" },
+                                  "minItems": 1,
+                                  "type": "array",
+                                },
+                                "maxActive": {
+                                  "minimum": 1,
+                                  "type": "integer",
+                                },
+                                "stalePolicy": {
+                                  "anyOf": [{
+                                    "const": "fail-stale",
+                                    "type": "string",
+                                  }, { "const": "block", "type": "string" }],
+                                },
+                              },
+                              "required": [
+                                "key",
+                                "maxActive",
+                                "heartbeatIntervalMs",
+                                "heartbeatTtlMs",
+                                "stalePolicy",
+                              ],
+                              "type": "object",
+                            },
                             "logs": { "type": "boolean" },
                             "maxDeliver": { "minimum": 1, "type": "integer" },
                             "payload": {
@@ -6671,6 +6761,26 @@ export const CONTRACT = {
                             "publishPrefix": {
                               "minLength": 1,
                               "type": "string",
+                            },
+                            "queue": {
+                              "properties": {
+                                "maxQueuedPerKey": {
+                                  "minimum": 0,
+                                  "type": "integer",
+                                },
+                                "whenFull": {
+                                  "anyOf": [
+                                    { "const": "reject", "type": "string" },
+                                    { "const": "coalesce", "type": "string" },
+                                    {
+                                      "const": "replace-oldest",
+                                      "type": "string",
+                                    },
+                                  ],
+                                },
+                              },
+                              "required": ["maxQueuedPerKey", "whenFull"],
+                              "type": "object",
                             },
                             "queueType": { "minLength": 1, "type": "string" },
                             "result": {
@@ -6848,6 +6958,44 @@ export const CONTRACT = {
                                 "type": "integer",
                               },
                               "dlq": { "type": "boolean" },
+                              "keyConcurrency": {
+                                "properties": {
+                                  "heartbeatIntervalMs": {
+                                    "minimum": 1,
+                                    "type": "integer",
+                                  },
+                                  "heartbeatTtlMs": {
+                                    "minimum": 1,
+                                    "type": "integer",
+                                  },
+                                  "key": {
+                                    "items": {
+                                      "minLength": 1,
+                                      "type": "string",
+                                    },
+                                    "minItems": 1,
+                                    "type": "array",
+                                  },
+                                  "maxActive": {
+                                    "minimum": 1,
+                                    "type": "integer",
+                                  },
+                                  "stalePolicy": {
+                                    "anyOf": [{
+                                      "const": "fail-stale",
+                                      "type": "string",
+                                    }, { "const": "block", "type": "string" }],
+                                  },
+                                },
+                                "required": [
+                                  "key",
+                                  "maxActive",
+                                  "heartbeatIntervalMs",
+                                  "heartbeatTtlMs",
+                                  "stalePolicy",
+                                ],
+                                "type": "object",
+                              },
                               "logs": { "type": "boolean" },
                               "maxDeliver": { "minimum": 1, "type": "integer" },
                               "payload": {
@@ -6864,6 +7012,28 @@ export const CONTRACT = {
                               "publishPrefix": {
                                 "minLength": 1,
                                 "type": "string",
+                              },
+                              "queue": {
+                                "properties": {
+                                  "maxQueuedPerKey": {
+                                    "minimum": 0,
+                                    "type": "integer",
+                                  },
+                                  "whenFull": {
+                                    "anyOf": [{
+                                      "const": "reject",
+                                      "type": "string",
+                                    }, {
+                                      "const": "coalesce",
+                                      "type": "string",
+                                    }, {
+                                      "const": "replace-oldest",
+                                      "type": "string",
+                                    }],
+                                  },
+                                },
+                                "required": ["maxQueuedPerKey", "whenFull"],
+                                "type": "object",
                               },
                               "queueType": { "minLength": 1, "type": "string" },
                               "result": {
@@ -7041,6 +7211,41 @@ export const CONTRACT = {
                               "type": "integer",
                             },
                             "dlq": { "type": "boolean" },
+                            "keyConcurrency": {
+                              "properties": {
+                                "heartbeatIntervalMs": {
+                                  "minimum": 1,
+                                  "type": "integer",
+                                },
+                                "heartbeatTtlMs": {
+                                  "minimum": 1,
+                                  "type": "integer",
+                                },
+                                "key": {
+                                  "items": { "minLength": 1, "type": "string" },
+                                  "minItems": 1,
+                                  "type": "array",
+                                },
+                                "maxActive": {
+                                  "minimum": 1,
+                                  "type": "integer",
+                                },
+                                "stalePolicy": {
+                                  "anyOf": [{
+                                    "const": "fail-stale",
+                                    "type": "string",
+                                  }, { "const": "block", "type": "string" }],
+                                },
+                              },
+                              "required": [
+                                "key",
+                                "maxActive",
+                                "heartbeatIntervalMs",
+                                "heartbeatTtlMs",
+                                "stalePolicy",
+                              ],
+                              "type": "object",
+                            },
                             "logs": { "type": "boolean" },
                             "maxDeliver": { "minimum": 1, "type": "integer" },
                             "payload": {
@@ -7054,6 +7259,26 @@ export const CONTRACT = {
                             "publishPrefix": {
                               "minLength": 1,
                               "type": "string",
+                            },
+                            "queue": {
+                              "properties": {
+                                "maxQueuedPerKey": {
+                                  "minimum": 0,
+                                  "type": "integer",
+                                },
+                                "whenFull": {
+                                  "anyOf": [
+                                    { "const": "reject", "type": "string" },
+                                    { "const": "coalesce", "type": "string" },
+                                    {
+                                      "const": "replace-oldest",
+                                      "type": "string",
+                                    },
+                                  ],
+                                },
+                              },
+                              "required": ["maxQueuedPerKey", "whenFull"],
+                              "type": "object",
                             },
                             "queueType": { "minLength": 1, "type": "string" },
                             "result": {
@@ -9668,6 +9893,38 @@ export const CONTRACT = {
                           "type": "integer",
                         },
                         "dlq": { "type": "boolean" },
+                        "keyConcurrency": {
+                          "properties": {
+                            "heartbeatIntervalMs": {
+                              "minimum": 1,
+                              "type": "integer",
+                            },
+                            "heartbeatTtlMs": {
+                              "minimum": 1,
+                              "type": "integer",
+                            },
+                            "key": {
+                              "items": { "minLength": 1, "type": "string" },
+                              "minItems": 1,
+                              "type": "array",
+                            },
+                            "maxActive": { "minimum": 1, "type": "integer" },
+                            "stalePolicy": {
+                              "anyOf": [{
+                                "const": "fail-stale",
+                                "type": "string",
+                              }, { "const": "block", "type": "string" }],
+                            },
+                          },
+                          "required": [
+                            "key",
+                            "maxActive",
+                            "heartbeatIntervalMs",
+                            "heartbeatTtlMs",
+                            "stalePolicy",
+                          ],
+                          "type": "object",
+                        },
                         "logs": { "type": "boolean" },
                         "maxDeliver": { "minimum": 1, "type": "integer" },
                         "payload": {
@@ -9679,6 +9936,23 @@ export const CONTRACT = {
                         },
                         "progress": { "type": "boolean" },
                         "publishPrefix": { "minLength": 1, "type": "string" },
+                        "queue": {
+                          "properties": {
+                            "maxQueuedPerKey": {
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "whenFull": {
+                              "anyOf": [
+                                { "const": "reject", "type": "string" },
+                                { "const": "coalesce", "type": "string" },
+                                { "const": "replace-oldest", "type": "string" },
+                              ],
+                            },
+                          },
+                          "required": ["maxQueuedPerKey", "whenFull"],
+                          "type": "object",
+                        },
                         "queueType": { "minLength": 1, "type": "string" },
                         "result": {
                           "properties": {

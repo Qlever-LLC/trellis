@@ -49,6 +49,70 @@ pub struct JobsPage {
     pub next_offset: Option<u64>,
 }
 
+/// Keyed concurrency metadata projected from job lifecycle event metadata.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct JobConcurrencyMetadata {
+    pub key: String,
+    pub key_hash: String,
+    pub instance_id: Option<String>,
+    pub heartbeat_at: Option<String>,
+    pub lease_expires_at: Option<String>,
+    pub stale_takeover_count: Option<u64>,
+}
+
+/// Queue policy metadata projected from job lifecycle event metadata.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct JobQueuePolicyMetadata {
+    pub outcome: String,
+    pub reason: Option<String>,
+    pub existing_job_id: Option<String>,
+    pub replaced_job_id: Option<String>,
+}
+
+/// Optional admin metadata associated with one projected job.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct JobProjectionMetadata {
+    pub concurrency: Option<JobConcurrencyMetadata>,
+    pub queue_policy: Option<JobQueuePolicyMetadata>,
+}
+
+/// Sparse metadata patch extracted from one lifecycle event payload.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct JobProjectionMetadataPatch {
+    pub concurrency: Option<JobConcurrencyMetadata>,
+    pub queue_policy: Option<JobQueuePolicyMetadata>,
+}
+
+/// Projection-backed active job entry for one keyed-concurrency key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectedJobKeyActive {
+    pub job_id: String,
+    pub instance_id: Option<String>,
+    pub started_at: Option<String>,
+    pub heartbeat_at: Option<String>,
+    pub lease_expires_at: Option<String>,
+}
+
+/// Projection-backed queued job entry for one keyed-concurrency key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectedJobKeyQueued {
+    pub job_id: String,
+    pub created_at: String,
+}
+
+/// Projection-backed state for one keyed-concurrency key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectedJobKey {
+    pub service: String,
+    pub job_type: String,
+    pub key: String,
+    pub key_hash: String,
+    pub active: Vec<ProjectedJobKeyActive>,
+    pub queued: Vec<ProjectedJobKeyQueued>,
+    pub stale_takeover_count: u64,
+    pub latest_policy_reason: Option<String>,
+}
+
 /// Errors returned by the SQLite Jobs projection store.
 #[derive(Debug, thiserror::Error)]
 pub enum SqliteJobsStoreError {
@@ -125,6 +189,27 @@ impl SqliteJobsStore {
             CREATE INDEX IF NOT EXISTS idx_worker_presence_fresh
                 ON worker_presence_projection (heartbeat_at DESC, service ASC, job_type ASC, instance_id ASC);
 
+            CREATE TABLE IF NOT EXISTS jobs_metadata_projection (
+                service TEXT NOT NULL,
+                job_type TEXT NOT NULL,
+                id TEXT NOT NULL,
+                concurrency_key TEXT,
+                concurrency_key_hash TEXT,
+                concurrency_instance_id TEXT,
+                concurrency_heartbeat_at TEXT,
+                concurrency_lease_expires_at TEXT,
+                concurrency_stale_takeover_count INTEGER,
+                queue_policy_outcome TEXT,
+                queue_policy_reason TEXT,
+                queue_policy_existing_job_id TEXT,
+                queue_policy_replaced_job_id TEXT,
+                updated_at TEXT NOT NULL,
+                updated_at_nanos INTEGER NOT NULL,
+                PRIMARY KEY (service, job_type, id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_jobs_metadata_key
+                ON jobs_metadata_projection (service, job_type, concurrency_key);
+
             CREATE TABLE IF NOT EXISTS projection_metadata (
                 name TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -132,7 +217,9 @@ impl SqliteJobsStore {
             "#,
         )?;
         ensure_projection_timestamp_columns(&connection)?;
+        ensure_metadata_timestamp_columns(&connection)?;
         backfill_projection_timestamp_columns(&connection)?;
+        backfill_metadata_timestamp_columns(&connection)?;
         Ok(())
     }
 
@@ -210,6 +297,118 @@ impl SqliteJobsStore {
             .transpose()
     }
 
+    /// Merge one sparse metadata patch into a projected job metadata row.
+    pub fn apply_job_metadata_patch(
+        &self,
+        service: &str,
+        job_type: &str,
+        id: &str,
+        timestamp: &str,
+        patch: &JobProjectionMetadataPatch,
+    ) -> Result<(), SqliteJobsStoreError> {
+        if patch.concurrency.is_none() && patch.queue_policy.is_none() {
+            return Ok(());
+        }
+
+        let existing = self
+            .get_job_metadata(service, job_type, id)?
+            .unwrap_or_default();
+        let concurrency =
+            merge_concurrency_metadata(existing.concurrency, patch.concurrency.clone());
+        let queue_policy =
+            merge_queue_policy_metadata(existing.queue_policy, patch.queue_policy.clone());
+
+        let stale_takeover_count = concurrency
+            .as_ref()
+            .and_then(|metadata| metadata.stale_takeover_count)
+            .map(|count| i64::try_from(count).unwrap_or(i64::MAX));
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| SqliteJobsStoreError::Poisoned)?;
+        connection.execute(
+            r#"
+            INSERT INTO jobs_metadata_projection
+                (service, job_type, id, concurrency_key, concurrency_key_hash, concurrency_instance_id,
+                 concurrency_heartbeat_at, concurrency_lease_expires_at, concurrency_stale_takeover_count,
+                 queue_policy_outcome, queue_policy_reason, queue_policy_existing_job_id,
+                 queue_policy_replaced_job_id, updated_at, updated_at_nanos)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+            ON CONFLICT(service, job_type, id) DO UPDATE SET
+                concurrency_key = excluded.concurrency_key,
+                concurrency_key_hash = excluded.concurrency_key_hash,
+                concurrency_instance_id = excluded.concurrency_instance_id,
+                concurrency_heartbeat_at = excluded.concurrency_heartbeat_at,
+                concurrency_lease_expires_at = excluded.concurrency_lease_expires_at,
+                concurrency_stale_takeover_count = excluded.concurrency_stale_takeover_count,
+                queue_policy_outcome = excluded.queue_policy_outcome,
+                queue_policy_reason = excluded.queue_policy_reason,
+                queue_policy_existing_job_id = excluded.queue_policy_existing_job_id,
+                queue_policy_replaced_job_id = excluded.queue_policy_replaced_job_id,
+                updated_at = excluded.updated_at,
+                updated_at_nanos = excluded.updated_at_nanos
+            "#,
+            params![
+                service,
+                job_type,
+                id,
+                concurrency.as_ref().map(|metadata| metadata.key.as_str()),
+                concurrency.as_ref().map(|metadata| metadata.key_hash.as_str()),
+                concurrency
+                    .as_ref()
+                    .and_then(|metadata| metadata.instance_id.as_deref()),
+                concurrency
+                    .as_ref()
+                    .and_then(|metadata| metadata.heartbeat_at.as_deref()),
+                concurrency
+                    .as_ref()
+                    .and_then(|metadata| metadata.lease_expires_at.as_deref()),
+                stale_takeover_count,
+                queue_policy.as_ref().map(|metadata| metadata.outcome.as_str()),
+                queue_policy
+                    .as_ref()
+                    .and_then(|metadata| metadata.reason.as_deref()),
+                queue_policy
+                    .as_ref()
+                    .and_then(|metadata| metadata.existing_job_id.as_deref()),
+                queue_policy
+                    .as_ref()
+                    .and_then(|metadata| metadata.replaced_job_id.as_deref()),
+                timestamp,
+                timestamp_str_nanos(timestamp),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Fetch projected admin metadata for one job.
+    pub fn get_job_metadata(
+        &self,
+        service: &str,
+        job_type: &str,
+        id: &str,
+    ) -> Result<Option<JobProjectionMetadata>, SqliteJobsStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| SqliteJobsStoreError::Poisoned)?;
+        Ok(connection
+            .query_row(
+                r#"
+                SELECT concurrency_key, concurrency_key_hash, concurrency_instance_id,
+                       concurrency_heartbeat_at, concurrency_lease_expires_at,
+                       concurrency_stale_takeover_count, queue_policy_outcome,
+                       queue_policy_reason, queue_policy_existing_job_id,
+                       queue_policy_replaced_job_id
+                FROM jobs_metadata_projection
+                WHERE service = ?1 AND job_type = ?2 AND id = ?3
+                "#,
+                params![service, job_type, id],
+                metadata_from_row,
+            )
+            .optional()?)
+    }
+
     /// Fetch a job by the globally addressable admin id.
     pub fn get_job_by_global_id(&self, id: &str) -> Result<Option<Job>, SqliteJobsStoreError> {
         let connection = self
@@ -225,6 +424,32 @@ impl SqliteJobsStore {
             .optional()?
             .map(|json| decode_job_json(&json))
             .transpose()
+    }
+
+    /// Fetch projected admin metadata by globally addressable admin job id.
+    pub fn get_job_metadata_by_global_id(
+        &self,
+        id: &str,
+    ) -> Result<Option<JobProjectionMetadata>, SqliteJobsStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| SqliteJobsStoreError::Poisoned)?;
+        Ok(connection
+            .query_row(
+                r#"
+                SELECT concurrency_key, concurrency_key_hash, concurrency_instance_id,
+                       concurrency_heartbeat_at, concurrency_lease_expires_at,
+                       concurrency_stale_takeover_count, queue_policy_outcome,
+                       queue_policy_reason, queue_policy_existing_job_id,
+                       queue_policy_replaced_job_id
+                FROM jobs_metadata_projection
+                WHERE id = ?1
+                "#,
+                params![id],
+                metadata_from_row,
+            )
+            .optional()?)
     }
 
     /// List projected jobs with stable offset pagination.
@@ -294,6 +519,115 @@ impl SqliteJobsStore {
             jobs.push(decode_job_json(&row?)?);
         }
         Ok(jobs)
+    }
+
+    /// Fetch projection-backed keyed-concurrency state for one service/job-type/key.
+    pub fn get_projected_key(
+        &self,
+        service: &str,
+        job_type: &str,
+        key: &str,
+    ) -> Result<Option<ProjectedJobKey>, SqliteJobsStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| SqliteJobsStoreError::Poisoned)?;
+        let mut statement = connection.prepare(
+            r#"
+            SELECT j.job_json, m.concurrency_key_hash, m.concurrency_instance_id,
+                   m.concurrency_heartbeat_at, m.concurrency_lease_expires_at,
+                   m.concurrency_stale_takeover_count, m.queue_policy_reason,
+                   m.updated_at_nanos
+            FROM jobs_metadata_projection m
+            JOIN jobs_projection j
+              ON j.service = m.service AND j.job_type = m.job_type AND j.id = m.id
+            WHERE m.service = ?1 AND m.job_type = ?2 AND m.concurrency_key = ?3
+            ORDER BY j.updated_at_nanos DESC, j.id ASC
+            "#,
+        )?;
+        let rows = statement.query_map(params![service, job_type, key], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<i64>>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, Option<i64>>(7)?,
+            ))
+        })?;
+
+        let mut key_hash = None;
+        let mut active = Vec::new();
+        let mut queued = Vec::new();
+        let mut stale_takeover_count = 0;
+        let mut latest_policy_reason = None;
+        let mut latest_policy_reason_nanos = i64::MIN;
+
+        for row in rows {
+            let (
+                job_json,
+                row_key_hash,
+                instance_id,
+                heartbeat_at,
+                lease_expires_at,
+                row_stale_takeover_count,
+                policy_reason,
+                metadata_updated_at_nanos,
+            ) = row?;
+            let job = decode_job_json(&job_json)?;
+            if key_hash.is_none() {
+                key_hash = row_key_hash;
+            }
+            if let Some(count) = row_stale_takeover_count.and_then(i64_to_u64) {
+                stale_takeover_count = stale_takeover_count.max(count);
+            }
+            if let Some(reason) = policy_reason {
+                let updated_at_nanos = metadata_updated_at_nanos.unwrap_or(i64::MIN);
+                if latest_policy_reason.is_none() || updated_at_nanos >= latest_policy_reason_nanos
+                {
+                    latest_policy_reason = Some(reason);
+                    latest_policy_reason_nanos = updated_at_nanos;
+                }
+            }
+            match job.state {
+                JobState::Active => active.push(ProjectedJobKeyActive {
+                    job_id: job.id,
+                    instance_id,
+                    started_at: job.started_at,
+                    heartbeat_at,
+                    lease_expires_at,
+                }),
+                JobState::Pending | JobState::Retry => queued.push(ProjectedJobKeyQueued {
+                    job_id: job.id,
+                    created_at: job.created_at,
+                }),
+                _ => {}
+            }
+        }
+
+        let Some(key_hash) = key_hash else {
+            return Ok(None);
+        };
+
+        active.sort_by(|left, right| left.job_id.cmp(&right.job_id));
+        queued.sort_by(|left, right| {
+            left.created_at
+                .cmp(&right.created_at)
+                .then_with(|| left.job_id.cmp(&right.job_id))
+        });
+
+        Ok(Some(ProjectedJobKey {
+            service: service.to_string(),
+            job_type: job_type.to_string(),
+            key: key.to_string(),
+            key_hash,
+            active,
+            queued,
+            stale_takeover_count,
+            latest_policy_reason,
+        }))
     }
 
     /// Upsert one worker-presence projection row.
@@ -473,6 +807,127 @@ fn backfill_projection_timestamp_columns(
     Ok(())
 }
 
+fn ensure_metadata_timestamp_columns(connection: &Connection) -> Result<(), SqliteJobsStoreError> {
+    let mut statement = connection.prepare("PRAGMA table_info(jobs_metadata_projection)")?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(statement);
+    if !columns.iter().any(|column| column == "updated_at_nanos") {
+        connection.execute(
+            "ALTER TABLE jobs_metadata_projection ADD COLUMN updated_at_nanos INTEGER",
+            [],
+        )?;
+    }
+    Ok(())
+}
+
+fn backfill_metadata_timestamp_columns(
+    connection: &Connection,
+) -> Result<(), SqliteJobsStoreError> {
+    let mut statement = connection.prepare(
+        r#"
+        SELECT service, job_type, id, updated_at
+        FROM jobs_metadata_projection
+        WHERE updated_at_nanos IS NULL
+        "#,
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+        ))
+    })?;
+    let mut backfills = Vec::new();
+    for row in rows {
+        let (service, job_type, id, updated_at) = row?;
+        backfills.push((service, job_type, id, timestamp_str_nanos(&updated_at)));
+    }
+    drop(statement);
+
+    for (service, job_type, id, updated_at_nanos) in backfills {
+        connection.execute(
+            r#"
+            UPDATE jobs_metadata_projection
+            SET updated_at_nanos = ?1
+            WHERE service = ?2 AND job_type = ?3 AND id = ?4
+            "#,
+            params![updated_at_nanos, service, job_type, id],
+        )?;
+    }
+    Ok(())
+}
+
+fn metadata_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<JobProjectionMetadata> {
+    let key = row.get::<_, Option<String>>(0)?;
+    let key_hash = row.get::<_, Option<String>>(1)?;
+    let concurrency = match (key, key_hash) {
+        (Some(key), Some(key_hash)) => Some(JobConcurrencyMetadata {
+            key,
+            key_hash,
+            instance_id: row.get(2)?,
+            heartbeat_at: row.get(3)?,
+            lease_expires_at: row.get(4)?,
+            stale_takeover_count: row.get::<_, Option<i64>>(5)?.and_then(i64_to_u64),
+        }),
+        _ => None,
+    };
+    let queue_policy = row
+        .get::<_, Option<String>>(6)?
+        .map(|outcome| JobQueuePolicyMetadata {
+            outcome,
+            reason: row.get::<_, Option<String>>(7).ok().flatten(),
+            existing_job_id: row.get::<_, Option<String>>(8).ok().flatten(),
+            replaced_job_id: row.get::<_, Option<String>>(9).ok().flatten(),
+        });
+    Ok(JobProjectionMetadata {
+        concurrency,
+        queue_policy,
+    })
+}
+
+fn merge_concurrency_metadata(
+    existing: Option<JobConcurrencyMetadata>,
+    patch: Option<JobConcurrencyMetadata>,
+) -> Option<JobConcurrencyMetadata> {
+    match (existing, patch) {
+        (None, None) => None,
+        (Some(existing), None) => Some(existing),
+        (None, Some(patch)) => Some(patch),
+        (Some(existing), Some(patch)) => Some(JobConcurrencyMetadata {
+            key: patch.key,
+            key_hash: patch.key_hash,
+            instance_id: patch.instance_id.or(existing.instance_id),
+            heartbeat_at: patch.heartbeat_at.or(existing.heartbeat_at),
+            lease_expires_at: patch.lease_expires_at.or(existing.lease_expires_at),
+            stale_takeover_count: patch.stale_takeover_count.or(existing.stale_takeover_count),
+        }),
+    }
+}
+
+fn merge_queue_policy_metadata(
+    existing: Option<JobQueuePolicyMetadata>,
+    patch: Option<JobQueuePolicyMetadata>,
+) -> Option<JobQueuePolicyMetadata> {
+    match (existing, patch) {
+        (None, None) => None,
+        (Some(existing), None) => Some(existing),
+        (None, Some(patch)) => Some(patch),
+        (Some(existing), Some(patch)) => Some(JobQueuePolicyMetadata {
+            outcome: patch.outcome,
+            reason: patch.reason.or(existing.reason),
+            existing_job_id: patch.existing_job_id.or(existing.existing_job_id),
+            replaced_job_id: patch.replaced_job_id.or(existing.replaced_job_id),
+        }),
+    }
+}
+
+fn i64_to_u64(value: i64) -> Option<u64> {
+    u64::try_from(value).ok()
+}
+
 fn decode_job_json(json: &str) -> Result<Job, SqliteJobsStoreError> {
     serde_json::from_str(json).map_err(|error| SqliteJobsStoreError::DecodeJson {
         model: "job",
@@ -530,6 +985,8 @@ fn job_state_token(state: JobState) -> &'static str {
         JobState::Failed => "failed",
         JobState::Cancelled => "cancelled",
         JobState::Expired => "expired",
+        JobState::Skipped => "skipped",
+        JobState::Stale => "stale",
         JobState::Dead => "dead",
         JobState::Dismissed => "dismissed",
     }
@@ -579,6 +1036,8 @@ mod tests {
             deadline: None,
             progress: None,
             logs: None,
+            concurrency: None,
+            queue_policy: None,
         }
     }
 
@@ -1209,6 +1668,82 @@ mod tests {
             jobs.iter().map(|job| job.id.as_str()).collect::<Vec<_>>(),
             vec!["at-millis", "at-offset"]
         );
+    }
+
+    #[test]
+    fn projected_key_uses_job_states_and_metadata() {
+        let store = SqliteJobsStore::open_in_memory().expect("store should open");
+        let mut active = job(
+            "active",
+            "svc",
+            "sync",
+            "2026-01-01T00:02:00Z",
+            JobState::Active,
+        );
+        active.started_at = Some("2026-01-01T00:01:00Z".to_string());
+        let queued = job(
+            "queued",
+            "svc",
+            "sync",
+            "2026-01-01T00:01:00Z",
+            JobState::Pending,
+        );
+        store.upsert_job(&active).expect("active job should insert");
+        store.upsert_job(&queued).expect("queued job should insert");
+        store
+            .apply_job_metadata_patch(
+                "svc",
+                "sync",
+                "active",
+                "2026-01-01T00:02:00Z",
+                &JobProjectionMetadataPatch {
+                    concurrency: Some(JobConcurrencyMetadata {
+                        key: "tenant-1".to_string(),
+                        key_hash: "hash-1".to_string(),
+                        instance_id: Some("worker-1".to_string()),
+                        heartbeat_at: Some("2026-01-01T00:02:00Z".to_string()),
+                        lease_expires_at: Some("2026-01-01T00:04:00Z".to_string()),
+                        stale_takeover_count: Some(3),
+                    }),
+                    queue_policy: None,
+                },
+            )
+            .expect("active metadata should insert");
+        store
+            .apply_job_metadata_patch(
+                "svc",
+                "sync",
+                "queued",
+                "2026-01-01T00:03:00Z",
+                &JobProjectionMetadataPatch {
+                    concurrency: Some(JobConcurrencyMetadata {
+                        key: "tenant-1".to_string(),
+                        key_hash: "hash-1".to_string(),
+                        ..Default::default()
+                    }),
+                    queue_policy: Some(JobQueuePolicyMetadata {
+                        outcome: "rejected".to_string(),
+                        reason: Some("queue-depth".to_string()),
+                        existing_job_id: None,
+                        replaced_job_id: None,
+                    }),
+                },
+            )
+            .expect("queued metadata should insert");
+
+        let key = store
+            .get_projected_key("svc", "sync", "tenant-1")
+            .expect("key query should succeed")
+            .expect("key should exist");
+
+        assert_eq!(key.key_hash, "hash-1");
+        assert_eq!(key.stale_takeover_count, 3);
+        assert_eq!(key.latest_policy_reason.as_deref(), Some("queue-depth"));
+        assert_eq!(key.active.len(), 1);
+        assert_eq!(key.active[0].job_id, "active");
+        assert_eq!(key.active[0].instance_id.as_deref(), Some("worker-1"));
+        assert_eq!(key.queued.len(), 1);
+        assert_eq!(key.queued[0].job_id, "queued");
     }
 
     #[test]

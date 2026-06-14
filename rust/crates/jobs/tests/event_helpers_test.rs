@@ -1,11 +1,13 @@
 use serde_json::json;
 use trellis_jobs::events::{
     cancelled_event, completed_event, created_event, dead_event, dismissed_event, expired_event,
-    failed_event, logged_event, progress_event, retried_event, retry_event, started_event,
+    failed_event, heartbeat_event, logged_event, progress_event, retried_event, retry_event,
+    skipped_event, stale_completion_ignored_event, stale_event, started_event,
+    started_event_with_concurrency,
 };
 use trellis_jobs::subjects::job_event_subject;
 use trellis_jobs::types::{
-    JobContext, JobEventType, JobLogEntry, JobLogLevel, JobProgress, JobState,
+    JobConcurrency, JobContext, JobEventType, JobLogEntry, JobLogLevel, JobProgress, JobState,
 };
 
 fn sample_context() -> JobContext {
@@ -15,6 +17,32 @@ fn sample_context() -> JobContext {
         traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01".to_string(),
         tracestate: None,
     }
+}
+
+#[test]
+fn started_event_with_concurrency_serializes_instance_id() {
+    let event = started_event_with_concurrency(
+        "documents",
+        "document-process",
+        "job-1",
+        &sample_context(),
+        JobState::Pending,
+        1,
+        "2026-03-28T12:01:00.000Z",
+        JobConcurrency {
+            key: "tenant-1".to_string(),
+            key_hash: "hash-1".to_string(),
+            instance_id: Some("worker-1".to_string()),
+            slot_token: Some("slot-1".to_string()),
+            heartbeat_at: Some("2026-03-28T12:01:00.000Z".to_string()),
+            lease_expires_at: Some("2026-03-28T12:02:00.000Z".to_string()),
+            stale_takeover_count: Some(0),
+        },
+    );
+
+    let value = serde_json::to_value(&event).expect("event should serialize");
+
+    assert_eq!(value["concurrency"]["instanceId"], json!("worker-1"));
 }
 
 #[test]
@@ -236,4 +264,55 @@ fn event_helpers_set_expected_event_type_and_state_pairs() {
     );
     assert_eq!(dismissed.event_type, JobEventType::Dismissed);
     assert_eq!(dismissed.state, JobState::Dismissed);
+
+    let skipped = skipped_event(
+        "documents",
+        "document-process",
+        "job-1",
+        &sample_context(),
+        JobState::Pending,
+        0,
+        "2026-03-28T12:04:00.000Z",
+        Some("replaced"),
+    );
+    assert_eq!(skipped.event_type, JobEventType::Skipped);
+    assert_eq!(skipped.state, JobState::Skipped);
+
+    let stale = stale_event(
+        "documents",
+        "document-process",
+        "job-1",
+        &sample_context(),
+        1,
+        "2026-03-28T12:04:10.000Z",
+        Some("lease expired"),
+        None,
+    );
+    assert_eq!(stale.event_type, JobEventType::Stale);
+    assert_eq!(stale.state, JobState::Stale);
+
+    let heartbeat = heartbeat_event(
+        "documents",
+        "document-process",
+        "job-1",
+        &sample_context(),
+        1,
+        "2026-03-28T12:04:20.000Z",
+        None,
+    );
+    assert_eq!(heartbeat.event_type, JobEventType::Heartbeat);
+    assert_eq!(heartbeat.state, JobState::Active);
+
+    let ignored = stale_completion_ignored_event(
+        "documents",
+        "document-process",
+        "job-1",
+        &sample_context(),
+        1,
+        "2026-03-28T12:04:30.000Z",
+        Some("lost key slot"),
+        None,
+    );
+    assert_eq!(ignored.event_type, JobEventType::StaleCompletionIgnored);
+    assert_eq!(ignored.state, JobState::Active);
 }

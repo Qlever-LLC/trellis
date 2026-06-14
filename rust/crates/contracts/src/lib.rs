@@ -42,7 +42,8 @@ pub use model::{
     ContractOperationTransferDirection, ContractResources, ContractRpcMethod, ContractRpcTransfer,
     ContractRpcTransferDirection, ContractSchemaRef, ContractStateKind, ContractStateStore,
     ContractStoreResource, ContractUseFeed, ContractUseOperation, ContractUsePubSub,
-    ContractUseRef, ContractUseRpc, ContractUses, FeedCapabilities, LoadedManifest,
+    ContractUseRef, ContractUseRpc, ContractUses, FeedCapabilities, JobKeyConcurrencyDescriptor,
+    JobKeyConcurrencyStalePolicy, JobQueueDepthDescriptor, JobQueueWhenFullPolicy, LoadedManifest,
     OperationCapabilities, PubSubCapabilities, RpcCapabilities, CATALOG_FORMAT_V1,
     CONTRACT_FORMAT_V1,
 };

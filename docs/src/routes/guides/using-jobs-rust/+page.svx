@@ -199,6 +199,45 @@ job.heartbeat().await?;
 
 Returning `Err(...)` from a handler triggers JetStream NAK and redelivery per the `backoffMs` schedule. After `maxDeliver` attempts the job moves to the `dead` queue. Use `job.is_redelivery()` and `job.redelivery_count()` to adjust behavior on redelivery.
 
+## 7. Keyed concurrency and queue depth
+
+Use keyed concurrency when one logical unit of work must have at most one active
+job across all service instances. Queues without `keyConcurrency` keep normal
+work-queue behavior. The existing numeric `concurrency` option still controls how
+many worker tasks run for the queue; `keyConcurrency` controls the active limit
+for a derived logical key.
+
+```json
+"jobs": {
+  "sync-tickets": {
+    "payload": { "schema": "SyncTicketsPayload" },
+    "result": { "schema": "SyncTicketsResult" },
+    "concurrency": 4,
+    "keyConcurrency": {
+      "key": ["zendesk", "/origin", "tickets"],
+      "maxActive": 1,
+      "stalePolicy": "fail-stale"
+    },
+    "queue": {
+      "maxQueuedPerKey": 1,
+      "whenFull": "reject"
+    }
+  }
+}
+```
+
+The default keyed policy is conservative: `maxActive: 1`,
+`stalePolicy: "fail-stale"`, `maxQueuedPerKey: 0`, and `whenFull: "reject"`.
+That means Trellis fails a duplicate create by default instead of silently
+coalescing or replacing work. Use the generated strict `create(...)` method when
+you need a new job or a typed failure; use the generated policy-aware
+`submit(...)` method when the service needs to inspect `accepted`, `rejected`,
+`coalesced`, or `replaced` outcomes.
+
+Even with keyed concurrency, keep service-owned checkpoint commits idempotent.
+Trellis prevents duplicate active work; your service database should still guard
+durable state and external side effects.
+
 ## Next steps
 
 - [Operations: Rust](/guides/using-operations-rust) — expose a caller-visible `Orders.Process` operation backed by these jobs

@@ -235,6 +235,69 @@ app.jobs.chargePayment.handle(async ({ job }) => {
 });
 ```
 
+## 8. Keyed concurrency and queue depth
+
+Use keyed concurrency when one logical unit of work must have at most one active
+job across all service instances. Existing queues without `keyConcurrency` keep
+the normal work-queue behavior. The existing numeric `concurrency` option still
+controls how many worker tasks run for the queue; `keyConcurrency` controls the
+active limit for a derived logical key.
+
+```ts
+jobs: {
+  syncTickets: {
+    payload: { schema: "SyncTicketsPayload" },
+    result: { schema: "SyncTicketsResult" },
+    concurrency: 4,
+    keyConcurrency: {
+      key: ["zendesk", "/origin", "tickets"],
+      maxActive: 1,
+      stalePolicy: "fail-stale",
+    },
+    queue: {
+      maxQueuedPerKey: 1,
+      whenFull: "reject",
+    },
+  },
+}
+```
+
+The default keyed policy is conservative: `maxActive: 1`,
+`stalePolicy: "fail-stale"`, `maxQueuedPerKey: 0`, and `whenFull: "reject"`.
+That means Trellis fails a duplicate create by default instead of silently
+coalescing or replacing work. Opt into `whenFull: "coalesce"` for scheduler ticks
+that should compress into an existing queued/running job, or
+`whenFull: "replace-oldest"` when newer queued payloads supersede older queued
+payloads.
+
+Use `create(payload)` when you need a new job or a typed failure. Use
+`submit(payload)` when the caller needs to inspect whether the runtime accepted,
+rejected, coalesced, or replaced work:
+
+```ts
+const submitted = await service.jobs.syncTickets.submit({ origin: "foo" });
+if (submitted.isErr()) return Result.err(submitted.error);
+
+switch (submitted.value.kind) {
+  case "accepted":
+    console.info("sync job accepted", submitted.value.ref.id);
+    break;
+  case "rejected":
+    console.info("sync already active or queued", submitted.value.key);
+    break;
+  case "coalesced":
+    console.info("sync coalesced", submitted.value.existing);
+    break;
+  case "replaced":
+    console.info("sync job replaced older queued work", submitted.value.ref.id);
+    break;
+}
+```
+
+Even with keyed concurrency, keep service-owned checkpoint commits idempotent.
+Trellis prevents duplicate active work; your service database should still guard
+durable state and external side effects.
+
 ## Development loop
 
 1. Update job schemas and the contract's top-level `jobs` map
