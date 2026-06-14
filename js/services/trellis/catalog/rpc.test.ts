@@ -6,8 +6,6 @@ import type {
   DeploymentAuthority,
   DeploymentAuthorityMaterialization,
 } from "../auth/schemas.ts";
-import type { TrellisContractGetResponse } from "../../../packages/trellis/models/trellis/rpc/TrellisContractGet.ts";
-
 import {
   createTrellisBindingsGetHandler,
   createTrellisCatalogHandler,
@@ -836,7 +834,7 @@ Deno.test("Trellis.Contract.Get preserves contract and surface docs", async () =
     digest: "digest-documented",
   });
 
-  const value = result.take() as TrellisContractGetResponse;
+  const value = result.take() as { contract: TrellisContractV1 };
   assertEquals(value.contract.docs, documentedContract.docs);
   assertEquals(
     value.contract.rpc?.["Documented.Read"]?.docs,

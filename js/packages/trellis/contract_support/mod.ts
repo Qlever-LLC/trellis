@@ -84,6 +84,7 @@ export {
   ContractJobQueueSchema,
   ContractJobsSchema,
   ContractKvResourceSchema,
+  type ContractResourceBindings,
   ContractResourceBindingsSchema,
   ContractResourcesSchema,
   ContractSchemaRefSchema,
@@ -5605,4 +5606,11 @@ export type {
   SerializableErrorData,
   TrellisAPI,
 };
-export { canonicalizeJson, digestJson, isJsonValue, schema, unwrapSchema };
+export {
+  canonicalizeJson,
+  digestJson,
+  isJsonValue,
+  schema,
+  sha256Base64urlSync,
+  unwrapSchema,
+};

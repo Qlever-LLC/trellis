@@ -59,6 +59,7 @@ export function parseSchema<S extends SchemaLike>(
   }
 }
 
+/** Parses unknown JSON-compatible data with an arbitrary Trellis schema. */
 export function parseUnknownSchema(
   schema: SchemaLike,
   data: JsonValue,

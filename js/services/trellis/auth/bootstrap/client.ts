@@ -1,11 +1,13 @@
 import type { Context } from "@hono/hono";
 import { AsyncResult } from "@qlever-llc/result";
-import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
+import type {
+  ContractResourceBindings,
+  TrellisContractV1,
+} from "@qlever-llc/trellis/contracts";
 import { type StaticDecode, Type } from "typebox";
 import { Value } from "typebox/value";
 
 import type { ContractsModule } from "../../catalog/runtime.ts";
-import type { ContractResourceBindings } from "../../../../packages/trellis/contract_support/protocol.ts";
 import type { CapabilityGroupLoader } from "../capability_groups.ts";
 import { resolveSessionPrincipal } from "../session/principal.ts";
 import type { SentinelCreds, Session, SessionKey } from "../schemas.ts";

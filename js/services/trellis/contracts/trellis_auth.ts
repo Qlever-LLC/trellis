@@ -150,48 +150,32 @@ import {
   ImplementationOfferSchema,
   ServiceDeploymentSchema,
   ServiceInstanceSchema,
-} from "../../../packages/trellis/auth/protocol.ts";
-import { defineServiceContract } from "@qlever-llc/trellis";
+} from "@qlever-llc/trellis/auth";
+import { defineServiceContract } from "@qlever-llc/trellis/contracts";
 import {
   HealthResponseSchema,
   HealthRpcSchema,
 } from "@qlever-llc/trellis/health";
 import {
-  type AuthConnectionsOpenedEvent,
-  AuthConnectionsOpenedEventSchema,
-} from "../../../packages/trellis/models/auth/events/AuthConnect.ts";
-import {
-  type AuthConnectionsKickedEvent,
-  AuthConnectionsKickedEventSchema,
-} from "../../../packages/trellis/models/auth/events/AuthConnectionKicked.ts";
-import {
   type AuthConnectionsClosedEvent,
   AuthConnectionsClosedEventSchema,
-} from "../../../packages/trellis/models/auth/events/AuthDisconnect.ts";
-import {
+  type AuthConnectionsKickedEvent,
+  AuthConnectionsKickedEventSchema,
+  AuthConnectionsKickRequestSchema as AuthConnectionsKickSchema,
+  AuthConnectionsKickResponseSchema,
+  AuthConnectionsListRequestSchema as AuthConnectionsListSchema,
+  AuthConnectionsListResponseSchema,
+  type AuthConnectionsOpenedEvent,
+  AuthConnectionsOpenedEventSchema,
+  AuthSessionsListRequestSchema as AuthSessionsListSchema,
+  AuthSessionsListResponseSchema,
+  AuthSessionsLogoutRequestSchema as AuthSessionsLogoutSchema,
+  AuthSessionsLogoutResponseSchema,
   type AuthSessionsRevokedEvent,
   AuthSessionsRevokedEventSchema,
-} from "../../../packages/trellis/models/auth/events/AuthSessionRevoked.ts";
-import {
-  AuthConnectionsKickResponseSchema,
-  AuthConnectionsKickSchema,
-} from "../../../packages/trellis/models/auth/rpc/KickConnection.ts";
-import {
-  AuthConnectionsListResponseSchema,
-  AuthConnectionsListSchema,
-} from "../../../packages/trellis/models/auth/rpc/ListConnections.ts";
-import {
-  AuthSessionsListResponseSchema,
-  AuthSessionsListSchema,
-} from "../../../packages/trellis/models/auth/rpc/ListSessions.ts";
-import {
-  AuthSessionsLogoutResponseSchema,
-  AuthSessionsLogoutSchema,
-} from "../../../packages/trellis/models/auth/rpc/Logout.ts";
-import {
+  AuthSessionsRevokeRequestSchema as AuthSessionsRevokeSchema,
   AuthSessionsRevokeResponseSchema,
-  AuthSessionsRevokeSchema,
-} from "../../../packages/trellis/models/auth/rpc/RevokeSession.ts";
+} from "@qlever-llc/trellis/sdk/auth";
 
 const schemas = {
   AuthDeviceUserAuthoritiesReviewsDecideRequest:

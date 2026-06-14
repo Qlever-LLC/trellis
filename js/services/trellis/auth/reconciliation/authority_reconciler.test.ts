@@ -409,6 +409,7 @@ Deno.test("physical authority materializer creates desired resource bindings", a
   assertEquals(calls.map((call) => call.kind), [
     "event-consumer",
     "jobs-infrastructure",
+    "kv",
     "jobs-consumer",
     "kv",
     "store",

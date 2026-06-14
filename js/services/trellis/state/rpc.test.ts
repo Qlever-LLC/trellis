@@ -9,8 +9,10 @@ import {
   UnexpectedError,
   ValidationError,
 } from "@qlever-llc/trellis";
-import { StateAdminGetResponseSchema } from "../../../packages/trellis/models/trellis/rpc/StateAdminGet.ts";
-import { StateAdminListResponseSchema } from "../../../packages/trellis/models/trellis/rpc/StateAdminList.ts";
+import {
+  StateAdminGetResponseSchema,
+  StateAdminListResponseSchema,
+} from "@qlever-llc/trellis/sdk/state";
 
 import { createSessionResolver, createStateHandlers } from "./rpc.ts";
 import { StateStore } from "./storage.ts";

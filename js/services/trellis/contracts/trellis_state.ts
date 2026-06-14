@@ -1,39 +1,46 @@
-import { defineServiceContract } from "@qlever-llc/trellis";
+import { defineServiceContract } from "@qlever-llc/trellis/contracts";
+import Type from "typebox";
 import {
+  StateAdminDeleteRequestSchema as StateAdminDeleteSchema,
   StateAdminDeleteResponseSchema,
-  StateAdminDeleteSchema,
-} from "../../../packages/trellis/models/trellis/rpc/StateAdminDelete.ts";
-import {
+  StateAdminGetRequestSchema as StateAdminGetSchema,
   StateAdminGetResponseSchema,
-  StateAdminGetSchema,
-} from "../../../packages/trellis/models/trellis/rpc/StateAdminGet.ts";
-import {
+  StateAdminListRequestSchema as StateAdminListSchema,
   StateAdminListResponseSchema,
-  StateAdminListSchema,
-} from "../../../packages/trellis/models/trellis/rpc/StateAdminList.ts";
-import {
+  StateDeleteRequestSchema as StateDeleteSchema,
   StateDeleteResponseSchema,
-  StateDeleteSchema,
-} from "../../../packages/trellis/models/trellis/rpc/StateDelete.ts";
-import {
+  StateGetRequestSchema as StateGetSchema,
   StateGetResponseSchema,
-  StateGetSchema,
-} from "../../../packages/trellis/models/trellis/rpc/StateGet.ts";
-import {
+  StateListRequestSchema as StateListSchema,
   StateListResponseSchema,
-  StateListSchema,
-} from "../../../packages/trellis/models/trellis/rpc/StateList.ts";
-import {
+  StatePutRequestSchema as StatePutSchema,
   StatePutResponseSchema,
-  StatePutSchema,
-} from "../../../packages/trellis/models/trellis/rpc/StatePut.ts";
-import {
-  JsonValueSchema,
-  StateEntrySchema,
-  StateMigrationRequiredSchema,
-  StateScopeSchema,
-  StateUserTargetSchema,
-} from "../../../packages/trellis/models/trellis/State.ts";
+} from "@qlever-llc/trellis/sdk/state";
+
+const JsonValueSchema = Type.Unknown();
+const StateScopeSchema = Type.Union([
+  Type.Literal("userApp"),
+  Type.Literal("deviceApp"),
+]);
+const StateEntrySchema = Type.Object({
+  key: Type.Optional(Type.String({ minLength: 1 })),
+  value: JsonValueSchema,
+  revision: Type.String({ minLength: 1 }),
+  updatedAt: Type.String({ format: "date-time" }),
+  expiresAt: Type.Optional(Type.String({ format: "date-time" })),
+});
+const StateMigrationRequiredSchema = Type.Object({
+  migrationRequired: Type.Literal(true),
+  entry: StateEntrySchema,
+  stateVersion: Type.String({ minLength: 1 }),
+  currentStateVersion: Type.String({ minLength: 1 }),
+  writerContractDigest: Type.String({ minLength: 1 }),
+});
+const StateUserTargetSchema = Type.Object({
+  origin: Type.String({ minLength: 1 }),
+  id: Type.String({ minLength: 1 }),
+  userId: Type.Optional(Type.String({ minLength: 1 })),
+});
 
 const schemas = {
   JsonValue: JsonValueSchema,

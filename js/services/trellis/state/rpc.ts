@@ -1,5 +1,9 @@
-import type { JsonValue } from "@qlever-llc/trellis";
-import { isJsonValue } from "@qlever-llc/trellis";
+import type {
+  ContractStateKind,
+  JsonValue,
+  SchemaLike,
+} from "@qlever-llc/trellis/contracts";
+import { isJsonValue } from "@qlever-llc/trellis/contracts";
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 import { AuthRequestsValidateResponseSchema } from "@qlever-llc/trellis/auth";
 import type { StaticDecode } from "typebox";
@@ -9,44 +13,28 @@ import {
   ValidationError,
 } from "@qlever-llc/trellis";
 import { isErr, Result } from "@qlever-llc/result";
-import type { parseUnknownSchema } from "../../../packages/trellis/codec.ts";
-import type { SchemaLike } from "../../../packages/trellis/contracts.ts";
-
 import type {
   StateAdminDeleteInput,
-  StateAdminDeleteResponse,
-} from "../../../packages/trellis/models/trellis/rpc/StateAdminDelete.ts";
-import type {
+  StateAdminDeleteOutput as StateAdminDeleteResponse,
   StateAdminGetInput,
-  StateAdminGetResponse,
-} from "../../../packages/trellis/models/trellis/rpc/StateAdminGet.ts";
-import type {
+  StateAdminGetOutput as StateAdminGetResponse,
   StateAdminListInput,
-  StateAdminListResponse,
-} from "../../../packages/trellis/models/trellis/rpc/StateAdminList.ts";
-import type {
+  StateAdminListOutput as StateAdminListResponse,
   StateDeleteInput,
-  StateDeleteResponse,
-} from "../../../packages/trellis/models/trellis/rpc/StateDelete.ts";
-import type {
+  StateDeleteOutput as StateDeleteResponse,
   StateGetInput,
-  StateGetResponse,
-} from "../../../packages/trellis/models/trellis/rpc/StateGet.ts";
-import type {
+  StateGetOutput as StateGetResponse,
   StateListInput,
-  StateListResponse,
-} from "../../../packages/trellis/models/trellis/rpc/StateList.ts";
-import type {
+  StateListOutput as StateListResponse,
   StatePutInput,
-  StatePutResponse,
-} from "../../../packages/trellis/models/trellis/rpc/StatePut.ts";
-import type { StateStoreKind } from "../../../packages/trellis/models/trellis/State.ts";
+  StatePutOutput as StatePutResponse,
+} from "@qlever-llc/trellis/sdk/state";
 import type { Session } from "../auth/schemas.ts";
 import type { ResolvedStateStore } from "./model.ts";
 import { StateStore } from "./storage.ts";
 
 type ContractStateStore = {
-  kind: StateStoreKind;
+  kind: ContractStateKind;
   schema: { schema: string };
   stateVersion?: string;
   acceptedVersions?: Record<string, { schema: string }>;
@@ -154,7 +142,7 @@ function requireStoreDefinition(
 
 function isSchemaLike(
   schema: unknown,
-): schema is Parameters<typeof parseUnknownSchema>[0] {
+): schema is SchemaLike {
   return typeof schema === "boolean" ||
     (schema !== null && typeof schema === "object");
 }
@@ -163,7 +151,7 @@ function requireStoreSchema(
   contract: StateContractLike | undefined,
   definition: ContractStateStore,
   store: string,
-): Result<Parameters<typeof parseUnknownSchema>[0], ValidationError> {
+): Result<SchemaLike, ValidationError> {
   const schema = contract?.schemas?.[definition.schema.schema];
   if (!isSchemaLike(schema)) {
     return Result.err(
@@ -183,10 +171,10 @@ function requireAcceptedVersionSchemas(
   definition: ContractStateStore,
   store: string,
 ): Result<
-  Record<string, Parameters<typeof parseUnknownSchema>[0]>,
+  Record<string, SchemaLike>,
   ValidationError
 > {
-  const schemas: Record<string, Parameters<typeof parseUnknownSchema>[0]> = {};
+  const schemas: Record<string, SchemaLike> = {};
   for (
     const [version, ref] of Object.entries(definition.acceptedVersions ?? {})
   ) {
