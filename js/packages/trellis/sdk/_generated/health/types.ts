@@ -1,7 +1,9 @@
 // Generated from ./generated/contracts/manifests/trellis.health@v1.json
+import type { TrellisEventMessage } from "../../../index.ts";
+
 export const CONTRACT_ID = "trellis.health@v1" as const;
 export const CONTRACT_DIGEST =
-  "RHDzeH2V6Nltzk6WklCLbTIK48hF0hNuO9Qk6-BosT4" as const;
+  "z9RdJVXAI4q-hSkpvUX_xMYEJaKslMsayevlW4UlSeQ" as const;
 
 export type HealthHeartbeatEvent = {
   checks: Array<
@@ -14,7 +16,6 @@ export type HealthHeartbeatEvent = {
       summary?: string;
     }
   >;
-  header: { id: string; time: string };
   service: {
     contractDigest: string;
     contractId: string;
@@ -31,6 +32,9 @@ export type HealthHeartbeatEvent = {
   status: "healthy" | "unhealthy" | "degraded";
   summary?: string;
 };
+export type HealthHeartbeatEventMessage = TrellisEventMessage<
+  HealthHeartbeatEvent
+>;
 
 export interface RpcMap {
 }

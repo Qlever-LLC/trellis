@@ -19,6 +19,7 @@ function prepared(id: string): PreparedTrellisEvent {
   return Object.freeze({
     event: "Thing.Changed",
     subject: "events.v1.Thing.Changed",
+    header: Object.freeze({ id, time: "2026-05-25T00:00:00.000Z" }),
     payload,
     encodedPayload: JSON.stringify(payload),
     headers: Object.freeze({ "Nats-Msg-Id": id }),

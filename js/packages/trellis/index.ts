@@ -42,7 +42,6 @@ export type {
 export {
   createHealthHeartbeat,
   HealthCheckResultSchema,
-  HealthHeartbeatHeaderSchema,
   HealthHeartbeatSchema,
   HealthHeartbeatServiceSchema,
   HealthInfoSchema,
@@ -245,6 +244,8 @@ export type {
   RuntimeStateStoresForContract,
   RuntimeStateStoreShape,
   StateFacade,
+  TrellisEventHeader,
+  TrellisEventMessage,
   TrellisFor,
   ValueStateStoreClient,
 } from "./trellis.ts";

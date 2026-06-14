@@ -9,9 +9,6 @@ import { Type } from "typebox";
 const schemas = {
   EventPayload: Type.Object({
     message: Type.String(),
-    header: Type.Optional(
-      Type.Object({ id: Type.String(), time: Type.String() }),
-    ),
   }),
   EmptyRequest: Type.Object({}, { additionalProperties: false }),
   StartConsumerResponse: Type.Object({ started: Type.Boolean() }),

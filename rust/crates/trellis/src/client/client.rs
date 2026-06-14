@@ -14,6 +14,7 @@ use time::OffsetDateTime;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
+use super::events::{EVENT_ID_HEADER, EVENT_TIME_HEADER};
 use crate::client::operations::{OperationDescriptor, OperationInvoker, OperationTransport};
 use crate::client::proof::{new_request_id, now_iat_seconds};
 use crate::client::transfer::{
@@ -116,6 +117,20 @@ impl<T> EventMessage<T> {
     /// Return the raw NATS headers delivered with the event message, if present.
     pub fn headers(&self) -> Option<&HeaderMap> {
         self.message.headers.as_ref()
+    }
+
+    /// Return the Trellis event id from the `Nats-Msg-Id` header, when present.
+    pub fn event_id(&self) -> Option<&str> {
+        self.headers()
+            .and_then(|headers| headers.get(EVENT_ID_HEADER))
+            .map(|value| value.as_str())
+    }
+
+    /// Return the Trellis event timestamp from the `Trellis-Event-Time` header, when present.
+    pub fn event_time(&self) -> Option<&str> {
+        self.headers()
+            .and_then(|headers| headers.get(EVENT_TIME_HEADER))
+            .map(|value| value.as_str())
     }
 
     /// Return the raw JSON payload bytes.
@@ -285,16 +300,9 @@ enum HealthHeartbeatServiceKind {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct HealthHeartbeat {
-    header: HealthHeartbeatHeader,
     service: HealthHeartbeatService,
     status: &'static str,
     checks: Vec<HealthHeartbeatCheck>,
-}
-
-#[derive(Debug, Serialize)]
-struct HealthHeartbeatHeader {
-    id: String,
-    time: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -760,10 +768,6 @@ fn new_service_instance_id() -> String {
 
 fn build_health_heartbeat(config: &HealthHeartbeatConfig) -> HealthHeartbeat {
     HealthHeartbeat {
-        header: HealthHeartbeatHeader {
-            id: next_health_heartbeat_id(),
-            time: now_rfc3339(),
-        },
         service: HealthHeartbeatService {
             name: config.service_name.clone(),
             kind: config.kind,
@@ -784,13 +788,24 @@ fn build_health_heartbeat(config: &HealthHeartbeatConfig) -> HealthHeartbeat {
     }
 }
 
+fn health_heartbeat_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(EVENT_ID_HEADER, next_health_heartbeat_id());
+    headers.insert(EVENT_TIME_HEADER, now_rfc3339());
+    headers
+}
+
 async fn publish_health_heartbeat(nats: &async_nats::Client, config: &HealthHeartbeatConfig) {
     let heartbeat = build_health_heartbeat(config);
     let Ok(payload) = serde_json::to_vec(&heartbeat) else {
         return;
     };
     let _ = nats
-        .publish(HEALTH_HEARTBEAT_SUBJECT.to_string(), Bytes::from(payload))
+        .publish_with_headers(
+            HEALTH_HEARTBEAT_SUBJECT.to_string(),
+            health_heartbeat_headers(),
+            Bytes::from(payload),
+        )
         .await;
 }
 
@@ -1213,19 +1228,13 @@ impl TrellisClient {
     ) -> Result<(), TrellisClientError> {
         let jetstream = jetstream::new(self.nats.clone());
         let publish = async {
-            if let Some(headers) = event.publish_headers() {
-                jetstream
-                    .publish_with_headers(
-                        event.subject().to_string(),
-                        headers,
-                        event.payload_bytes(),
-                    )
-                    .await
-            } else {
-                jetstream
-                    .publish(event.subject().to_string(), event.payload_bytes())
-                    .await
-            }
+            jetstream
+                .publish_with_headers(
+                    event.subject().to_string(),
+                    event.publish_headers(),
+                    event.payload_bytes(),
+                )
+                .await
         };
         let ack = timeout(std::time::Duration::from_millis(self.timeout_ms), publish)
             .await
@@ -1751,12 +1760,7 @@ mod tests {
         let value = serde_json::to_value(&heartbeat).expect("heartbeat json");
 
         assert_eq!(HEALTH_HEARTBEAT_SUBJECT, "events.v1.Health.Heartbeat");
-        assert!(value["header"]["id"]
-            .as_str()
-            .is_some_and(|id| !id.is_empty()));
-        assert!(value["header"]["time"]
-            .as_str()
-            .is_some_and(|time| time.ends_with('Z')));
+        assert!(value.get("header").is_none());
         assert_eq!(
             value["service"],
             json!({
@@ -1776,6 +1780,18 @@ mod tests {
             json!([{ "name": "nats", "status": "ok", "latencyMs": 0 }])
         );
         assert!(value.get("summary").is_none());
+    }
+
+    #[test]
+    fn health_heartbeat_metadata_uses_event_headers() {
+        let headers = health_heartbeat_headers();
+
+        assert!(headers
+            .get(EVENT_ID_HEADER)
+            .is_some_and(|id| !id.as_str().is_empty()));
+        assert!(headers
+            .get(EVENT_TIME_HEADER)
+            .is_some_and(|time| time.as_str().ends_with('Z')));
     }
 
     #[test]

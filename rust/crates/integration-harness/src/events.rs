@@ -42,15 +42,7 @@ fn harness_service_contract_json() -> Result<String> {
     let event_schema = json!({
         "type": "object",
         "properties": {
-            "message": { "type": "string" },
-            "header": {
-                "type": "object",
-                "properties": {
-                    "id": { "type": "string" },
-                    "time": { "type": "string" }
-                },
-                "required": ["id", "time"]
-            }
+            "message": { "type": "string" }
         },
         "required": ["message"]
     });
@@ -107,15 +99,7 @@ fn harness_service_consumer_contract_json() -> Result<String> {
     let event_schema = json!({
         "type": "object",
         "properties": {
-            "message": { "type": "string" },
-            "header": {
-                "type": "object",
-                "properties": {
-                    "id": { "type": "string" },
-                    "time": { "type": "string" }
-                },
-                "required": ["id", "time"]
-            }
+            "message": { "type": "string" }
         },
         "required": ["message"]
     });
@@ -280,16 +264,8 @@ fn harness_publish_only_contract_json() -> Result<String> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-struct HarnessEventHeader {
-    id: String,
-    time: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct HarnessEventPayload {
     message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    header: Option<HarnessEventHeader>,
 }
 
 struct HarnessRustEvent;
@@ -427,6 +403,7 @@ pub(crate) async fn run_events_fixture(
         trellis_url,
         &caller_login.state.session_seed,
         &caller_client,
+        &caller_nats,
     )
     .await
     .map_err(|error| miette!("TS publish -> rust subscribe failed: {error}"))?;
@@ -655,7 +632,6 @@ async fn assert_rust_publish_rust_subscribe(
     client.flush().await.into_diagnostic()?;
     let expected = HarnessEventPayload {
         message: "rust-publish-rust-subscribe".to_string(),
-        header: Some(event_header("rust-publish-rust-subscribe")),
     };
     client
         .publish::<HarnessRustEvent>(&expected)
@@ -666,12 +642,7 @@ async fn assert_rust_publish_rust_subscribe(
     if decode_live_message::<HarnessRustEvent>(&event)? != expected {
         return Err(miette!("{} event mismatch", HarnessRustEvent::KEY));
     }
-    let expected_id = expected
-        .header
-        .as_ref()
-        .map(|header| header.id.as_str())
-        .ok_or_else(|| miette!("{} expected event had no header", HarnessRustEvent::KEY))?;
-    assert_live_event_header(&event, "Nats-Msg-Id", expected_id)
+    assert_live_event_metadata(&event)
 }
 
 async fn assert_rust_publish_ts_subscribe(
@@ -685,7 +656,6 @@ async fn assert_rust_publish_ts_subscribe(
     client
         .publish::<HarnessRustEvent>(&HarnessEventPayload {
             message: expected.to_string(),
-            header: Some(event_header(expected)),
         })
         .await
         .into_diagnostic()?;
@@ -697,18 +667,19 @@ async fn assert_ts_publish_rust_subscribe(
     trellis_url: &str,
     caller_session_seed: &str,
     client: &TrellisClient,
+    nats: &async_nats::Client,
 ) -> Result<()> {
-    let mut events = client
-        .subscribe::<HarnessTsEvent>()
-        .await
-        .into_diagnostic()?;
+    let mut events = subscribe_live_messages::<HarnessTsEvent>(nats).await?;
     client.flush().await.into_diagnostic()?;
     let expected = HarnessEventPayload {
         message: "ts-publish-rust-subscribe".to_string(),
-        header: None,
     };
     run_ts_publisher(trellis_url, caller_session_seed, &expected.message).await?;
-    expect_event_with_header::<HarnessTsEvent>(&mut events, &expected.message).await
+    let event = expect_live_message::<HarnessTsEvent>(&mut events).await?;
+    if decode_live_message::<HarnessTsEvent>(&event)? != expected {
+        return Err(miette!("{} event mismatch", HarnessTsEvent::KEY));
+    }
+    assert_live_event_metadata(&event)
 }
 
 async fn assert_ts_trace_publish_rust_subscribe(
@@ -731,13 +702,7 @@ async fn assert_ts_trace_publish_rust_subscribe(
             payload
         ));
     }
-    let payload_header = payload.header.ok_or_else(|| {
-        miette!(
-            "{} traced event did not include header",
-            HarnessTsEvent::KEY
-        )
-    })?;
-    assert_live_event_header(&event, "Nats-Msg-Id", &payload_header.id)?;
+    assert_live_event_metadata(&event)?;
     let traceparent = live_event_header_value(&event, "traceparent")?;
     if !traceparent.contains(&trace_id) {
         return Err(miette!(
@@ -772,7 +737,6 @@ async fn assert_rust_handler_nak_redelivery(
     let mut events = consumer.messages().await.into_diagnostic()?;
     let expected = HarnessEventPayload {
         message: "rust-handler-nak".to_string(),
-        header: Some(event_header("rust-handler-nak")),
     };
     publisher_client
         .publish::<HarnessRustEvent>(&expected)
@@ -806,12 +770,7 @@ async fn assert_rust_invalid_payload_terminates(
 ) -> Result<()> {
     let consumer = open_harness_durable_consumer(nats_server, trellis_creds, durable_name).await?;
     let mut events = consumer.messages().await.into_diagnostic()?;
-    publish_raw_event(
-        publisher_nats,
-        HARNESS_RUST_EVENT_SUBJECT,
-        &json!({ "header": { "id": "invalid", "time": "2026-05-13T00:00:00.000Z" } }),
-    )
-    .await?;
+    publish_raw_event(publisher_nats, HARNESS_RUST_EVENT_SUBJECT, &json!({})).await?;
     let invalid = expect_jetstream_message::<HarnessRustEvent>(&mut events).await?;
     if decode_jetstream_message::<HarnessRustEvent>(&invalid).is_ok() {
         return Err(miette!("invalid Rust event payload decoded successfully"));
@@ -832,7 +791,6 @@ async fn assert_rust_ephemeral_abort(
     client
         .publish::<HarnessRustEvent>(&HarnessEventPayload {
             message: "rust-ephemeral-first".to_string(),
-            header: Some(event_header("rust-ephemeral-first")),
         })
         .await
         .into_diagnostic()?;
@@ -844,7 +802,6 @@ async fn assert_rust_ephemeral_abort(
     client
         .publish::<HarnessRustEvent>(&HarnessEventPayload {
             message: "rust-ephemeral-second".to_string(),
-            header: Some(event_header("rust-ephemeral-second")),
         })
         .await
         .into_diagnostic()?;
@@ -865,7 +822,6 @@ async fn assert_rust_prepared_outbox_inbox(
 
     let expected = HarnessEventPayload {
         message: "rust-prepared-outbox-inbox".to_string(),
-        header: Some(event_header("rust-prepared-outbox-inbox")),
     };
     let prepared = client
         .prepare_event::<HarnessRustEvent>(&expected)
@@ -898,6 +854,8 @@ async fn assert_rust_prepared_outbox_inbox(
     if decode_live_message::<HarnessRustEvent>(&event)? != expected {
         return Err(miette!("prepared outbox event payload mismatch"));
     }
+    assert_live_event_header(&event, "Nats-Msg-Id", prepared.event_id())?;
+    assert_live_event_header(&event, "Trellis-Event-Time", prepared.event_time())?;
 
     let event_id = live_event_header_value(&event, "Nats-Msg-Id")?.to_string();
     let mut inbox = NatsKvInboxStore::new(store, "rust-prepared/");
@@ -945,7 +903,6 @@ async fn open_events_kv_store(
 async fn assert_rust_denied_publish(client: &TrellisClient) -> Result<()> {
     let event = HarnessEventPayload {
         message: "rust-denied-publish".to_string(),
-        header: Some(event_header("rust-denied-publish")),
     };
     let result = async {
         client
@@ -963,43 +920,6 @@ async fn assert_rust_denied_publish(client: &TrellisClient) -> Result<()> {
     Ok(())
 }
 
-async fn expect_event_with_header<D>(
-    events: &mut futures_util::stream::BoxStream<
-        'static,
-        Result<HarnessEventPayload, trellis_rs::client::TrellisClientError>,
-    >,
-    expected_message: &str,
-) -> Result<()>
-where
-    D: trellis_rs::client::EventDescriptor<Event = HarnessEventPayload>,
-{
-    let event = tokio::time::timeout(Duration::from_secs(10), events.next())
-        .await
-        .map_err(|_| miette!("{} subscription timed out", D::KEY))?
-        .ok_or_else(|| miette!("{} subscription ended before event", D::KEY))?
-        .into_diagnostic()?;
-    if event.message != expected_message {
-        return Err(miette!("{} event message mismatch: {:?}", D::KEY, event));
-    }
-    let header = event
-        .header
-        .ok_or_else(|| miette!("{} event did not include header", D::KEY))?;
-    if header.id.is_empty() || header.time.is_empty() {
-        return Err(miette!(
-            "{} event header had empty fields: {header:?}",
-            D::KEY
-        ));
-    }
-    Ok(())
-}
-
-fn event_header(id: &str) -> HarnessEventHeader {
-    HarnessEventHeader {
-        id: id.to_string(),
-        time: "2026-05-13T00:00:00.000Z".to_string(),
-    }
-}
-
 async fn assert_rust_denied_subscribe(client: &TrellisClient) -> Result<()> {
     let mut events = client
         .subscribe::<HarnessRustEvent>()
@@ -1009,7 +929,6 @@ async fn assert_rust_denied_subscribe(client: &TrellisClient) -> Result<()> {
     client
         .publish::<HarnessRustEvent>(&HarnessEventPayload {
             message: "rust-denied-subscribe".to_string(),
-            header: Some(event_header("rust-denied-subscribe")),
         })
         .await
         .into_diagnostic()?;
@@ -1102,6 +1021,18 @@ where
     D: trellis_rs::client::EventDescriptor<Event = HarnessEventPayload>,
 {
     serde_json::from_slice(&message.payload).into_diagnostic()
+}
+
+fn assert_live_event_metadata(event: &async_nats::Message) -> Result<()> {
+    let event_id = live_event_header_value(event, "Nats-Msg-Id")?;
+    if event_id.is_empty() {
+        return Err(miette!("event had empty Nats-Msg-Id header"));
+    }
+    let event_time = live_event_header_value(event, "Trellis-Event-Time")?;
+    if event_time.is_empty() {
+        return Err(miette!("event had empty Trellis-Event-Time header"));
+    }
+    Ok(())
 }
 
 fn assert_live_event_header(event: &async_nats::Message, name: &str, expected: &str) -> Result<()> {

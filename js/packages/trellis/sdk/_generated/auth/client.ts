@@ -33,6 +33,7 @@ import type {
 } from "../../../index.ts";
 import type { API, Api } from "./api.ts";
 import type * as Types from "./types.ts";
+import type * as HealthSdk from "../health/mod.ts";
 
 type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
 
@@ -416,14 +417,12 @@ export interface TrellisAuthClient {
     readonly auth: {
       connectionsClosed: {
         publish(
-          event: Omit<Types.AuthConnectionsClosedEvent, "header">,
+          event: Types.AuthConnectionsClosedEvent,
         ): AsyncResult<void, ValidationError | UnexpectedError>;
         prepare(
-          event: Omit<Types.AuthConnectionsClosedEvent, "header">,
+          event: Types.AuthConnectionsClosedEvent,
         ): Result<
-          PreparedTrellisEvent<
-            Omit<Types.AuthConnectionsClosedEvent, "header">
-          >,
+          PreparedTrellisEvent<Types.AuthConnectionsClosedEvent>,
           ValidationError | UnexpectedError
         >;
         listen(
@@ -434,14 +433,12 @@ export interface TrellisAuthClient {
       };
       connectionsKicked: {
         publish(
-          event: Omit<Types.AuthConnectionsKickedEvent, "header">,
+          event: Types.AuthConnectionsKickedEvent,
         ): AsyncResult<void, ValidationError | UnexpectedError>;
         prepare(
-          event: Omit<Types.AuthConnectionsKickedEvent, "header">,
+          event: Types.AuthConnectionsKickedEvent,
         ): Result<
-          PreparedTrellisEvent<
-            Omit<Types.AuthConnectionsKickedEvent, "header">
-          >,
+          PreparedTrellisEvent<Types.AuthConnectionsKickedEvent>,
           ValidationError | UnexpectedError
         >;
         listen(
@@ -452,14 +449,12 @@ export interface TrellisAuthClient {
       };
       connectionsOpened: {
         publish(
-          event: Omit<Types.AuthConnectionsOpenedEvent, "header">,
+          event: Types.AuthConnectionsOpenedEvent,
         ): AsyncResult<void, ValidationError | UnexpectedError>;
         prepare(
-          event: Omit<Types.AuthConnectionsOpenedEvent, "header">,
+          event: Types.AuthConnectionsOpenedEvent,
         ): Result<
-          PreparedTrellisEvent<
-            Omit<Types.AuthConnectionsOpenedEvent, "header">
-          >,
+          PreparedTrellisEvent<Types.AuthConnectionsOpenedEvent>,
           ValidationError | UnexpectedError
         >;
         listen(
@@ -470,14 +465,12 @@ export interface TrellisAuthClient {
       };
       deviceUserAuthoritiesApproved: {
         publish(
-          event: Omit<Types.AuthDeviceUserAuthoritiesApprovedEvent, "header">,
+          event: Types.AuthDeviceUserAuthoritiesApprovedEvent,
         ): AsyncResult<void, ValidationError | UnexpectedError>;
         prepare(
-          event: Omit<Types.AuthDeviceUserAuthoritiesApprovedEvent, "header">,
+          event: Types.AuthDeviceUserAuthoritiesApprovedEvent,
         ): Result<
-          PreparedTrellisEvent<
-            Omit<Types.AuthDeviceUserAuthoritiesApprovedEvent, "header">
-          >,
+          PreparedTrellisEvent<Types.AuthDeviceUserAuthoritiesApprovedEvent>,
           ValidationError | UnexpectedError
         >;
         listen(
@@ -488,14 +481,12 @@ export interface TrellisAuthClient {
       };
       deviceUserAuthoritiesRequested: {
         publish(
-          event: Omit<Types.AuthDeviceUserAuthoritiesRequestedEvent, "header">,
+          event: Types.AuthDeviceUserAuthoritiesRequestedEvent,
         ): AsyncResult<void, ValidationError | UnexpectedError>;
         prepare(
-          event: Omit<Types.AuthDeviceUserAuthoritiesRequestedEvent, "header">,
+          event: Types.AuthDeviceUserAuthoritiesRequestedEvent,
         ): Result<
-          PreparedTrellisEvent<
-            Omit<Types.AuthDeviceUserAuthoritiesRequestedEvent, "header">
-          >,
+          PreparedTrellisEvent<Types.AuthDeviceUserAuthoritiesRequestedEvent>,
           ValidationError | UnexpectedError
         >;
         listen(
@@ -506,14 +497,12 @@ export interface TrellisAuthClient {
       };
       deviceUserAuthoritiesResolved: {
         publish(
-          event: Omit<Types.AuthDeviceUserAuthoritiesResolvedEvent, "header">,
+          event: Types.AuthDeviceUserAuthoritiesResolvedEvent,
         ): AsyncResult<void, ValidationError | UnexpectedError>;
         prepare(
-          event: Omit<Types.AuthDeviceUserAuthoritiesResolvedEvent, "header">,
+          event: Types.AuthDeviceUserAuthoritiesResolvedEvent,
         ): Result<
-          PreparedTrellisEvent<
-            Omit<Types.AuthDeviceUserAuthoritiesResolvedEvent, "header">
-          >,
+          PreparedTrellisEvent<Types.AuthDeviceUserAuthoritiesResolvedEvent>,
           ValidationError | UnexpectedError
         >;
         listen(
@@ -524,19 +513,13 @@ export interface TrellisAuthClient {
       };
       deviceUserAuthoritiesReviewRequested: {
         publish(
-          event: Omit<
-            Types.AuthDeviceUserAuthoritiesReviewRequestedEvent,
-            "header"
-          >,
+          event: Types.AuthDeviceUserAuthoritiesReviewRequestedEvent,
         ): AsyncResult<void, ValidationError | UnexpectedError>;
         prepare(
-          event: Omit<
-            Types.AuthDeviceUserAuthoritiesReviewRequestedEvent,
-            "header"
-          >,
+          event: Types.AuthDeviceUserAuthoritiesReviewRequestedEvent,
         ): Result<
           PreparedTrellisEvent<
-            Omit<Types.AuthDeviceUserAuthoritiesReviewRequestedEvent, "header">
+            Types.AuthDeviceUserAuthoritiesReviewRequestedEvent
           >,
           ValidationError | UnexpectedError
         >;
@@ -550,16 +533,34 @@ export interface TrellisAuthClient {
       };
       sessionsRevoked: {
         publish(
-          event: Omit<Types.AuthSessionsRevokedEvent, "header">,
+          event: Types.AuthSessionsRevokedEvent,
         ): AsyncResult<void, ValidationError | UnexpectedError>;
         prepare(
-          event: Omit<Types.AuthSessionsRevokedEvent, "header">,
+          event: Types.AuthSessionsRevokedEvent,
         ): Result<
-          PreparedTrellisEvent<Omit<Types.AuthSessionsRevokedEvent, "header">>,
+          PreparedTrellisEvent<Types.AuthSessionsRevokedEvent>,
           ValidationError | UnexpectedError
         >;
         listen(
           handler: EventCallback<Types.AuthSessionsRevokedEvent>,
+          subjectData?: Record<string, unknown>,
+          opts?: EventOpts,
+        ): AsyncResult<void, ValidationError | UnexpectedError>;
+      };
+    };
+    readonly health: {
+      heartbeat: {
+        publish(
+          event: HealthSdk.HealthHeartbeatEvent,
+        ): AsyncResult<void, ValidationError | UnexpectedError>;
+        prepare(
+          event: HealthSdk.HealthHeartbeatEvent,
+        ): Result<
+          PreparedTrellisEvent<HealthSdk.HealthHeartbeatEvent>,
+          ValidationError | UnexpectedError
+        >;
+        listen(
+          handler: EventCallback<HealthSdk.HealthHeartbeatEvent>,
           subjectData?: Record<string, unknown>,
           opts?: EventOpts,
         ): AsyncResult<void, ValidationError | UnexpectedError>;
@@ -590,12 +591,12 @@ export interface ServiceEventSurface<TDeps> {
   readonly auth: {
     connectionsClosed: {
       publish(
-        event: Omit<Types.AuthConnectionsClosedEvent, "header">,
+        event: Types.AuthConnectionsClosedEvent,
       ): AsyncResult<void, ValidationError | UnexpectedError>;
       prepare(
-        event: Omit<Types.AuthConnectionsClosedEvent, "header">,
+        event: Types.AuthConnectionsClosedEvent,
       ): Result<
-        PreparedTrellisEvent<Omit<Types.AuthConnectionsClosedEvent, "header">>,
+        PreparedTrellisEvent<Types.AuthConnectionsClosedEvent>,
         ValidationError | UnexpectedError
       >;
       listen(
@@ -606,12 +607,12 @@ export interface ServiceEventSurface<TDeps> {
     };
     connectionsKicked: {
       publish(
-        event: Omit<Types.AuthConnectionsKickedEvent, "header">,
+        event: Types.AuthConnectionsKickedEvent,
       ): AsyncResult<void, ValidationError | UnexpectedError>;
       prepare(
-        event: Omit<Types.AuthConnectionsKickedEvent, "header">,
+        event: Types.AuthConnectionsKickedEvent,
       ): Result<
-        PreparedTrellisEvent<Omit<Types.AuthConnectionsKickedEvent, "header">>,
+        PreparedTrellisEvent<Types.AuthConnectionsKickedEvent>,
         ValidationError | UnexpectedError
       >;
       listen(
@@ -622,12 +623,12 @@ export interface ServiceEventSurface<TDeps> {
     };
     connectionsOpened: {
       publish(
-        event: Omit<Types.AuthConnectionsOpenedEvent, "header">,
+        event: Types.AuthConnectionsOpenedEvent,
       ): AsyncResult<void, ValidationError | UnexpectedError>;
       prepare(
-        event: Omit<Types.AuthConnectionsOpenedEvent, "header">,
+        event: Types.AuthConnectionsOpenedEvent,
       ): Result<
-        PreparedTrellisEvent<Omit<Types.AuthConnectionsOpenedEvent, "header">>,
+        PreparedTrellisEvent<Types.AuthConnectionsOpenedEvent>,
         ValidationError | UnexpectedError
       >;
       listen(
@@ -638,14 +639,12 @@ export interface ServiceEventSurface<TDeps> {
     };
     deviceUserAuthoritiesApproved: {
       publish(
-        event: Omit<Types.AuthDeviceUserAuthoritiesApprovedEvent, "header">,
+        event: Types.AuthDeviceUserAuthoritiesApprovedEvent,
       ): AsyncResult<void, ValidationError | UnexpectedError>;
       prepare(
-        event: Omit<Types.AuthDeviceUserAuthoritiesApprovedEvent, "header">,
+        event: Types.AuthDeviceUserAuthoritiesApprovedEvent,
       ): Result<
-        PreparedTrellisEvent<
-          Omit<Types.AuthDeviceUserAuthoritiesApprovedEvent, "header">
-        >,
+        PreparedTrellisEvent<Types.AuthDeviceUserAuthoritiesApprovedEvent>,
         ValidationError | UnexpectedError
       >;
       listen(
@@ -659,14 +658,12 @@ export interface ServiceEventSurface<TDeps> {
     };
     deviceUserAuthoritiesRequested: {
       publish(
-        event: Omit<Types.AuthDeviceUserAuthoritiesRequestedEvent, "header">,
+        event: Types.AuthDeviceUserAuthoritiesRequestedEvent,
       ): AsyncResult<void, ValidationError | UnexpectedError>;
       prepare(
-        event: Omit<Types.AuthDeviceUserAuthoritiesRequestedEvent, "header">,
+        event: Types.AuthDeviceUserAuthoritiesRequestedEvent,
       ): Result<
-        PreparedTrellisEvent<
-          Omit<Types.AuthDeviceUserAuthoritiesRequestedEvent, "header">
-        >,
+        PreparedTrellisEvent<Types.AuthDeviceUserAuthoritiesRequestedEvent>,
         ValidationError | UnexpectedError
       >;
       listen(
@@ -680,14 +677,12 @@ export interface ServiceEventSurface<TDeps> {
     };
     deviceUserAuthoritiesResolved: {
       publish(
-        event: Omit<Types.AuthDeviceUserAuthoritiesResolvedEvent, "header">,
+        event: Types.AuthDeviceUserAuthoritiesResolvedEvent,
       ): AsyncResult<void, ValidationError | UnexpectedError>;
       prepare(
-        event: Omit<Types.AuthDeviceUserAuthoritiesResolvedEvent, "header">,
+        event: Types.AuthDeviceUserAuthoritiesResolvedEvent,
       ): Result<
-        PreparedTrellisEvent<
-          Omit<Types.AuthDeviceUserAuthoritiesResolvedEvent, "header">
-        >,
+        PreparedTrellisEvent<Types.AuthDeviceUserAuthoritiesResolvedEvent>,
         ValidationError | UnexpectedError
       >;
       listen(
@@ -701,19 +696,13 @@ export interface ServiceEventSurface<TDeps> {
     };
     deviceUserAuthoritiesReviewRequested: {
       publish(
-        event: Omit<
-          Types.AuthDeviceUserAuthoritiesReviewRequestedEvent,
-          "header"
-        >,
+        event: Types.AuthDeviceUserAuthoritiesReviewRequestedEvent,
       ): AsyncResult<void, ValidationError | UnexpectedError>;
       prepare(
-        event: Omit<
-          Types.AuthDeviceUserAuthoritiesReviewRequestedEvent,
-          "header"
-        >,
+        event: Types.AuthDeviceUserAuthoritiesReviewRequestedEvent,
       ): Result<
         PreparedTrellisEvent<
-          Omit<Types.AuthDeviceUserAuthoritiesReviewRequestedEvent, "header">
+          Types.AuthDeviceUserAuthoritiesReviewRequestedEvent
         >,
         ValidationError | UnexpectedError
       >;
@@ -728,16 +717,34 @@ export interface ServiceEventSurface<TDeps> {
     };
     sessionsRevoked: {
       publish(
-        event: Omit<Types.AuthSessionsRevokedEvent, "header">,
+        event: Types.AuthSessionsRevokedEvent,
       ): AsyncResult<void, ValidationError | UnexpectedError>;
       prepare(
-        event: Omit<Types.AuthSessionsRevokedEvent, "header">,
+        event: Types.AuthSessionsRevokedEvent,
       ): Result<
-        PreparedTrellisEvent<Omit<Types.AuthSessionsRevokedEvent, "header">>,
+        PreparedTrellisEvent<Types.AuthSessionsRevokedEvent>,
         ValidationError | UnexpectedError
       >;
       listen(
         handler: ServiceEventHandler<Types.AuthSessionsRevokedEvent, TDeps>,
+        subjectData?: Record<string, unknown>,
+        opts?: EventOpts,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+    };
+  };
+  readonly health: {
+    heartbeat: {
+      publish(
+        event: HealthSdk.HealthHeartbeatEvent,
+      ): AsyncResult<void, ValidationError | UnexpectedError>;
+      prepare(
+        event: HealthSdk.HealthHeartbeatEvent,
+      ): Result<
+        PreparedTrellisEvent<HealthSdk.HealthHeartbeatEvent>,
+        ValidationError | UnexpectedError
+      >;
+      listen(
+        handler: ServiceEventHandler<HealthSdk.HealthHeartbeatEvent, TDeps>,
         subjectData?: Record<string, unknown>,
         opts?: EventOpts,
       ): AsyncResult<void, ValidationError | UnexpectedError>;

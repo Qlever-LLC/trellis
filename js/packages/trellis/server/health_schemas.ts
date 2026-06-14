@@ -24,11 +24,6 @@ export const HealthResponseSchema = Type.Object({
   checks: Type.Array(HealthCheckResultSchema),
 });
 
-export const HealthHeartbeatHeaderSchema = Type.Object({
-  id: Type.String(),
-  time: Type.String({ format: "date-time" }),
-});
-
 export const HealthHeartbeatServiceSchema = Type.Object({
   name: Type.String(),
   kind: Type.Union([Type.Literal("service"), Type.Literal("device")]),
@@ -49,7 +44,6 @@ export const HealthHeartbeatServiceSchema = Type.Object({
 });
 
 export const HealthHeartbeatSchema = Type.Object({
-  header: HealthHeartbeatHeaderSchema,
   service: HealthHeartbeatServiceSchema,
   status: Type.Union([
     Type.Literal("healthy"),

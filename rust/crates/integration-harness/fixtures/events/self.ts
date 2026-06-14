@@ -10,9 +10,6 @@ import { Type } from "typebox";
 const schemas = {
   EventPayload: Type.Object({
     message: Type.String(),
-    header: Type.Optional(
-      Type.Object({ id: Type.String(), time: Type.String() }),
-    ),
   }),
 } as const;
 const harness = defineServiceContract({ schemas }, (ref) => ({
@@ -75,14 +72,14 @@ const received = new Promise<void>((resolve, reject) => {
     10000,
   );
   void client.event.harness.tsEvent.listen(
-    (event) => {
-      const header =
-        (event as { header?: { id?: unknown; time?: unknown } }).header;
+    (event, context) => {
       if ((event as { message?: string }).message !== message) {
         reject(new Error(`unexpected self event ${JSON.stringify(event)}`));
       }
-      if (typeof header?.id !== "string" || typeof header.time !== "string") {
-        reject(new Error(`missing self event header ${JSON.stringify(event)}`));
+      if (context.id.length === 0 || Number.isNaN(context.time.getTime())) {
+        reject(
+          new Error(`missing self event metadata ${JSON.stringify(context)}`),
+        );
       }
       clearTimeout(timeout);
       resolve();

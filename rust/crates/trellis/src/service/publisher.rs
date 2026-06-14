@@ -1,6 +1,5 @@
-use bytes::Bytes;
-
 use super::{EventDescriptor, ServerError};
+use crate::client::PreparedTrellisEvent;
 
 /// A thin descriptor-backed event publisher over NATS.
 #[derive(Debug, Clone)]
@@ -18,9 +17,14 @@ impl EventPublisher {
     where
         D: EventDescriptor,
     {
-        let payload = Bytes::from(serde_json::to_vec(event)?);
+        let prepared =
+            PreparedTrellisEvent::new(D::SUBJECT, bytes::Bytes::from(serde_json::to_vec(event)?));
         self.client
-            .publish(D::SUBJECT.to_string(), payload)
+            .publish_with_headers(
+                prepared.subject().to_string(),
+                prepared.publish_headers(),
+                prepared.payload_bytes(),
+            )
             .await
             .map_err(|error| ServerError::Nats(error.to_string()))?;
         Ok(())

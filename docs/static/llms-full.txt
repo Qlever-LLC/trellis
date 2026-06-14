@@ -59,6 +59,9 @@ https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt
    For events with subject `params`, route only string, number, or
    integer-compatible payload fields. If the event payload is an `anyOf` or
    `oneOf` union, every branch must expose each routed pointer.
+   Generated TypeScript SDK event aliases model event bodies; Trellis runtime
+   event metadata is exposed through prepared-event metadata, NATS headers, and
+   listener context.
 3. Declare cross-contract dependencies under `uses` with the smallest required
    surface selection.
 4. Regenerate SDKs and contract artifacts with the repository's Trellis tooling.

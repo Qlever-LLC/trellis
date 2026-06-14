@@ -280,7 +280,6 @@ function createDurablePullTestConnection(): {
     responses,
     deliver: (subject) => {
       const data = new TextEncoder().encode(JSON.stringify({
-        header: { id: "event-1", time: new Date(0).toISOString() },
         value: "value",
       }));
       const message: Msg & { size(): number } = {
@@ -319,10 +318,6 @@ const eventTestContract = defineServiceContract(
   {
     schemas: {
       EventPayload: Type.Object({
-        header: Type.Object({
-          id: Type.String(),
-          time: Type.String(),
-        }),
         value: Type.String(),
       }),
     },
@@ -344,10 +339,6 @@ const eventConsumerSourceContract = defineServiceContract(
   {
     schemas: {
       EventPayload: Type.Object({
-        header: Type.Object({
-          id: Type.String(),
-          time: Type.String(),
-        }),
         value: Type.String(),
       }),
     },
@@ -403,10 +394,6 @@ const selfGroupedEventConsumerTestContract = defineServiceContract(
   {
     schemas: {
       EventPayload: Type.Object({
-        header: Type.Object({
-          id: Type.String(),
-          time: Type.String(),
-        }),
         value: Type.String(),
       }),
     },

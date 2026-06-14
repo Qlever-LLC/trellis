@@ -161,9 +161,11 @@ Error metrics:
 
 ## Request Correlation
 
-RPCs and jobs include a `requestId` for correlation and audit. Domain events
-carry their own `header.id` and trace context; they do not currently emit a
-separate `request-id` NATS header unless they are job lifecycle events.
+RPCs and jobs include a `requestId` for correlation and audit. Domain event
+contract payloads are bodies only; Trellis assigns event identity and timestamp
+as runtime metadata (`Nats-Msg-Id` and `Trellis-Event-Time` headers) alongside
+trace context. Domain events do not currently emit a separate `request-id` NATS
+header unless they are job lifecycle events.
 
 Rules:
 
@@ -181,10 +183,10 @@ Propagation:
 | ------------------------------ | -------------------------------------------- |
 | RPC handler                    | generated on receipt                         |
 | RPC response                   | echoed from handler                          |
-| Domain event                   | not set; use event `header.id` and trace     |
+| Domain event                   | not set; use `Nats-Msg-Id` and trace         |
 | Job created from RPC/event/job | inherited when available; otherwise new ULID |
 | Job lifecycle event            | copied from `job.context.requestId`          |
-| Scheduled or cron job/event    | new ULID for jobs; event `header.id` only    |
+| Scheduled or cron job/event    | new ULID for jobs; event `Nats-Msg-Id` only  |
 
 Job correlation:
 
@@ -208,6 +210,8 @@ Auth/admin control-plane correlation:
 
 Event deduplication:
 
-- domain events include `Nats-Msg-Id: <event.header.id>`
+- domain events include `Nats-Msg-Id: <event id>` as transport metadata
+- domain events include `Trellis-Event-Time: <event timestamp>` as transport
+  metadata
 - JetStream deduplicates within its configured window
 - this protects against duplicate publication on retries and reconnects

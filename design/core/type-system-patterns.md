@@ -125,7 +125,9 @@ Rules:
 - one schema per file, named after the type
 - schema constants use `<Name>Schema`
 - TypeScript types use `<Name>` without a suffix
-- events combine shared headers with payload where needed
+- event schemas describe contract bodies only; Trellis runtime metadata such as
+  event id/time stays outside the body in prepared-event metadata and transport
+  headers
 - simple RPC schemas may pair input and response in one file
 - operation schemas typically split input, progress, and output
 - service-specific schemas stay with the owning service

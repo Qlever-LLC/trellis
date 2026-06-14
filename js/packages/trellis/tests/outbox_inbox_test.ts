@@ -20,15 +20,19 @@ import {
 
 function prepared(id: string): PreparedTrellisEvent {
   const payload = Object.freeze({
-    header: Object.freeze({ id, time: "2026-05-25T00:00:00.000Z" }),
     value: "test",
   });
+  const time = "2026-05-25T00:00:00.000Z";
   return Object.freeze({
     event: "Thing.Changed",
     subject: "events.v1.Thing.Changed",
+    header: Object.freeze({ id, time }),
     payload,
     encodedPayload: JSON.stringify(payload),
-    headers: Object.freeze({ "Nats-Msg-Id": id }),
+    headers: Object.freeze({
+      "Nats-Msg-Id": id,
+      "Trellis-Event-Time": time,
+    }),
   });
 }
 
@@ -74,7 +78,7 @@ Deno.test("outbox dispatch marks successes and retries failures", async () => {
     publishPrepared: (event) =>
       AsyncResult.from(
         Promise.resolve(
-          event.payload.header.id === "fail"
+          event.header.id === "fail"
             ? err(new UnexpectedError({ cause: new Error("boom") }))
             : ok(undefined),
         ),
@@ -99,7 +103,10 @@ Deno.test("outbox dispatch marks successes and retries failures", async () => {
     event: "Thing.Changed",
     subject: "events.v1.Thing.Changed",
     payload: JSON.stringify(prepared("fail").payload),
-    headers: { "Nats-Msg-Id": "fail" },
+    headers: {
+      "Nats-Msg-Id": "fail",
+      "Trellis-Event-Time": "2026-05-25T00:00:00.000Z",
+    },
     state: "failed",
     attempts: 1,
     createdAt: failed.createdAt,
@@ -126,7 +133,7 @@ Deno.test("NatsKvOutboxRepository dispatches through typed KV adapter", async ()
     publishPrepared: (event) =>
       AsyncResult.from(
         Promise.resolve(
-          event.payload.header.id === "kv_fail"
+          event.header.id === "kv_fail"
             ? err(new UnexpectedError({ cause: new Error("boom") }))
             : ok(undefined),
         ),
@@ -219,7 +226,7 @@ Deno.test("OutboxDispatcher keeps draining due messages after a failed batch", a
   await repository.enqueue(prepared("still_due"));
   const runtime: Pick<Trellis, "publishPrepared"> = {
     publishPrepared: (event) =>
-      event.payload.header.id === "fails_first"
+      event.header.id === "fails_first"
         ? AsyncResult.err(new UnexpectedError({ cause: new Error("boom") }))
         : AsyncResult.ok(undefined),
   };
@@ -338,7 +345,7 @@ Deno.test("OutboxDispatcher retries after timer fires during a long drain", asyn
   let blockedStarted = false;
   const runtime: Pick<Trellis, "publishPrepared"> = {
     publishPrepared: (event) => {
-      if (event.payload.header.id === "blocked_publish") {
+      if (event.header.id === "blocked_publish") {
         blockedStarted = true;
         return AsyncResult.from(
           blockedPublish.promise.then(() => ok(undefined)),

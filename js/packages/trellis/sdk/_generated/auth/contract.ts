@@ -13,7 +13,7 @@ const CONTRACT_MODULE_METADATA = Symbol.for(
 
 export const CONTRACT_ID = "trellis.auth@v1" as const;
 export const CONTRACT_DIGEST =
-  "1VGahwhAflVSrrGWBLuvPJh9K-38OO25f651G892NLc" as const;
+  "OehMFuEyTKjYpQHhyrijgsZZs1YlG2qkxd8bKffgydc" as const;
 export const CONTRACT = {
   "capabilities": {
     "trellis.auth::device.review": {
@@ -1326,29 +1326,14 @@ export const CONTRACT = {
       "type": "object",
     },
     "AuthConnectionsClosedEvent": {
-      "allOf": [{
-        "properties": {
-          "header": {
-            "properties": {
-              "id": { "type": "string" },
-              "time": { "format": "date-time", "type": "string" },
-            },
-            "required": ["id", "time"],
-            "type": "object",
-          },
-        },
-        "required": ["header"],
-        "type": "object",
-      }, {
-        "properties": {
-          "id": { "type": "string" },
-          "origin": { "type": "string" },
-          "sessionKey": { "type": "string" },
-          "userNkey": { "type": "string" },
-        },
-        "required": ["origin", "id", "sessionKey", "userNkey"],
-        "type": "object",
-      }],
+      "properties": {
+        "id": { "type": "string" },
+        "origin": { "type": "string" },
+        "sessionKey": { "type": "string" },
+        "userNkey": { "type": "string" },
+      },
+      "required": ["origin", "id", "sessionKey", "userNkey"],
+      "type": "object",
     },
     "AuthConnectionsKickRequest": {
       "properties": { "userNkey": { "type": "string" } },
@@ -1361,29 +1346,14 @@ export const CONTRACT = {
       "type": "object",
     },
     "AuthConnectionsKickedEvent": {
-      "allOf": [{
-        "properties": {
-          "header": {
-            "properties": {
-              "id": { "type": "string" },
-              "time": { "format": "date-time", "type": "string" },
-            },
-            "required": ["id", "time"],
-            "type": "object",
-          },
-        },
-        "required": ["header"],
-        "type": "object",
-      }, {
-        "properties": {
-          "id": { "type": "string" },
-          "kickedBy": { "type": "string" },
-          "origin": { "type": "string" },
-          "userNkey": { "type": "string" },
-        },
-        "required": ["origin", "id", "userNkey", "kickedBy"],
-        "type": "object",
-      }],
+      "properties": {
+        "id": { "type": "string" },
+        "kickedBy": { "type": "string" },
+        "origin": { "type": "string" },
+        "userNkey": { "type": "string" },
+      },
+      "required": ["origin", "id", "userNkey", "kickedBy"],
+      "type": "object",
     },
     "AuthConnectionsListRequest": {
       "properties": {
@@ -1578,29 +1548,14 @@ export const CONTRACT = {
       "type": "object",
     },
     "AuthConnectionsOpenedEvent": {
-      "allOf": [{
-        "properties": {
-          "header": {
-            "properties": {
-              "id": { "type": "string" },
-              "time": { "format": "date-time", "type": "string" },
-            },
-            "required": ["id", "time"],
-            "type": "object",
-          },
-        },
-        "required": ["header"],
-        "type": "object",
-      }, {
-        "properties": {
-          "id": { "type": "string" },
-          "origin": { "type": "string" },
-          "sessionKey": { "type": "string" },
-          "userNkey": { "type": "string" },
-        },
-        "required": ["origin", "id", "sessionKey", "userNkey"],
-        "type": "object",
-      }],
+      "properties": {
+        "id": { "type": "string" },
+        "origin": { "type": "string" },
+        "sessionKey": { "type": "string" },
+        "userNkey": { "type": "string" },
+      },
+      "required": ["origin", "id", "sessionKey", "userNkey"],
+      "type": "object",
     },
     "AuthDeployment": {
       "anyOf": [{
@@ -7659,29 +7614,14 @@ export const CONTRACT = {
       "type": "object",
     },
     "AuthSessionsRevokedEvent": {
-      "allOf": [{
-        "properties": {
-          "header": {
-            "properties": {
-              "id": { "type": "string" },
-              "time": { "format": "date-time", "type": "string" },
-            },
-            "required": ["id", "time"],
-            "type": "object",
-          },
-        },
-        "required": ["header"],
-        "type": "object",
-      }, {
-        "properties": {
-          "id": { "type": "string" },
-          "origin": { "type": "string" },
-          "revokedBy": { "type": "string" },
-          "sessionKey": { "type": "string" },
-        },
-        "required": ["origin", "id", "sessionKey", "revokedBy"],
-        "type": "object",
-      }],
+      "properties": {
+        "id": { "type": "string" },
+        "origin": { "type": "string" },
+        "revokedBy": { "type": "string" },
+        "sessionKey": { "type": "string" },
+      },
+      "required": ["origin", "id", "sessionKey", "revokedBy"],
+      "type": "object",
     },
     "AuthUserIdentitiesListRequest": {
       "properties": {

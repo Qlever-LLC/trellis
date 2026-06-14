@@ -479,24 +479,45 @@ type RequestErrorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
 type HandlerErrorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
   | MethodDeclaredErrorOf<TA, M>
   | TrellisErrorInstance;
-type EventOf<TA extends AnyTrellisAPI, E extends EventsOf<TA>> =
+type EventMessageOf<TA extends AnyTrellisAPI, E extends EventsOf<TA>> =
   TA["events"][E] extends EventDesc<infer TEvent> ? InferSchemaType<TEvent>
     : never;
+type EventOf<TA extends AnyTrellisAPI, E extends EventsOf<TA>> = EventMessageOf<
+  TA,
+  E
+>;
 type EventDescriptorOf<TA extends AnyTrellisAPI, E extends EventsOf<TA>> =
   TA["events"][E] extends EventDesc<infer TEvent>
     ? EventDesc<TEvent> & TA["events"][E]
     : never;
-type EventPayloadOf<TA extends AnyTrellisAPI, E extends EventsOf<TA>> = Omit<
-  EventOf<TA, E>,
-  "header"
->;
+type EventPayloadOf<TA extends AnyTrellisAPI, E extends EventsOf<TA>> =
+  & EventOf<TA, E>
+  & Record<string, unknown>;
+/** Runtime metadata assigned to every Trellis event message. */
+export type TrellisEventHeader = Readonly<{
+  /** Stable event id used for event identity and JetStream de-duplication. */
+  id: string;
+  /** Event creation time in ISO-8601 format. */
+  time: string;
+}>;
+/** Event body plus Trellis runtime event metadata. */
+export type TrellisEventMessage<
+  TBody extends Record<string, unknown> = Record<string, unknown>,
+> = Readonly<{
+  /** User-authored contract event body. */
+  body: Readonly<TBody>;
+  /** Runtime metadata assigned by Trellis. */
+  header: TrellisEventHeader;
+}>;
 /** A fully encoded event whose subject, payload, and headers are stable. */
 export type PreparedTrellisEvent<
   TPayload extends Record<string, unknown> = Record<string, unknown>,
 > = Readonly<{
   event: string;
   subject: string;
-  payload: Readonly<TPayload & { header: { id: string; time: string } }>;
+  /** Runtime event metadata assigned when the event was prepared. */
+  header: TrellisEventHeader;
+  payload: Readonly<TPayload>;
   encodedPayload: string;
   headers: Readonly<Record<string, string>>;
 }>;
@@ -1088,31 +1109,32 @@ export type EventListenerContext = {
 };
 
 function createEventListenerContext(args: {
-  payload: unknown;
   subject: string;
   mode: "durable" | "ephemeral";
   group?: string;
   message: object;
 }): EventListenerContext {
-  const header = typeof args.payload === "object" && args.payload !== null
-    ? Reflect.get(args.payload, "header")
-    : undefined;
-  const id = typeof header === "object" && header !== null
-    ? Reflect.get(header, "id")
-    : undefined;
-  const time = typeof header === "object" && header !== null
-    ? Reflect.get(header, "time")
-    : undefined;
+  const messageId = readMessageHeader(args.message, "Nats-Msg-Id");
+  const messageTime = readMessageHeader(args.message, "Trellis-Event-Time");
   const sequence = Reflect.get(args.message, "seq");
 
   return {
-    id: typeof id === "string" ? id : "",
-    time: new Date(typeof time === "string" ? time : 0),
+    id: messageId ?? "",
+    time: new Date(messageTime ?? 0),
     subject: args.subject,
     mode: args.mode,
     ...(args.group ? { group: args.group } : {}),
     ...(typeof sequence === "number" ? { sequence } : {}),
   };
+}
+
+function readMessageHeader(message: object, key: string): string | undefined {
+  const headers = Reflect.get(message, "headers");
+  if (typeof headers !== "object" || headers === null) return undefined;
+  const get = Reflect.get(headers, "get");
+  if (typeof get !== "function") return undefined;
+  const value = get.call(headers, key);
+  return typeof value === "string" ? value : undefined;
 }
 
 type RuntimeEventConsumers = {
@@ -3954,10 +3976,7 @@ export class Trellis<
         id: ulid(),
         time: new Date().toISOString(),
       };
-      const payload = Object.freeze({
-        ...data,
-        header: Object.freeze(header),
-      });
+      const payload = Object.freeze({ ...data });
       const msg = encodeSchema(ctx.event, payload).take();
       if (isErr(msg)) {
         logger.error({ err: msg.error }, "Failed to encode event.");
@@ -3973,6 +3992,7 @@ export class Trellis<
 
       const headers = natsHeaders();
       headers.set("Nats-Msg-Id", header.id);
+      headers.set("Trellis-Event-Time", header.time);
       injectTraceContext(createNatsHeaderCarrier(headers));
 
       const headerRecord: Record<string, string> = {};
@@ -3983,6 +4003,7 @@ export class Trellis<
       return ok(Object.freeze({
         event: event.toString(),
         subject,
+        header: Object.freeze(header),
         payload,
         encodedPayload: msg,
         headers: Object.freeze(headerRecord),
@@ -4199,7 +4220,6 @@ export class Trellis<
       const result = await Promise.resolve(args.fn(
         args.payload as EventOf<TA, EventsOf<TA>>,
         createEventListenerContext({
-          payload: args.payload,
           subject: args.message.subject,
           mode: args.mode,
           ...(args.group ? { group: args.group } : {}),

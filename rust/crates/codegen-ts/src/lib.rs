@@ -412,15 +412,24 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
         escape_js_string(&source_reference)
     )];
 
+    let mut runtime_type_imports = Vec::new();
     if !loaded.manifest.rpc.is_empty() {
-        lines.extend([
-            format!(
-                "import type {{ RpcHandlerFn }} from {};",
-                js_string(&trellis_import)
-            ),
-            "import type { API } from \"./api.ts\";".to_string(),
-            String::new(),
-        ]);
+        runtime_type_imports.push("RpcHandlerFn");
+    }
+    if !loaded.manifest.events.is_empty() {
+        runtime_type_imports.push("TrellisEventMessage");
+    }
+
+    if !runtime_type_imports.is_empty() {
+        lines.push(format!(
+            "import type {{ {} }} from {};",
+            runtime_type_imports.join(", "),
+            js_string(&trellis_import)
+        ));
+        if !loaded.manifest.rpc.is_empty() {
+            lines.push("import type { API } from \"./api.ts\";".to_string());
+        }
+        lines.push(String::new());
     }
 
     if !loaded.manifest.errors.is_empty() {
@@ -546,6 +555,9 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
                 &schema_type_aliases,
                 None,
             )
+        ));
+        lines.push(format!(
+            "export type {base}EventMessage = TrellisEventMessage<{base}Event>;"
         ));
         lines.push(String::new());
     }
@@ -1559,7 +1571,7 @@ fn render_service_event_surface(loaded: &LoadedManifest, uses: &[ClientUseDepend
         leaves.push(surface_leaf(
             key,
             format!(
-                "{}: {{ publish(event: Omit<Types.{base}Event, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Omit<Types.{base}Event, \"header\">): Result<PreparedTrellisEvent<Omit<Types.{base}Event, \"header\">>, ValidationError | UnexpectedError>; listen(handler: ServiceEventHandler<Types.{base}Event, TDeps>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; }};",
+                "{}: {{ publish(event: Types.{base}Event): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Types.{base}Event): Result<PreparedTrellisEvent<Types.{base}Event>, ValidationError | UnexpectedError>; listen(handler: ServiceEventHandler<Types.{base}Event, TDeps>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; }};",
                 surface_leaf_name(key)
             ),
         ));
@@ -1578,7 +1590,7 @@ fn render_service_event_surface(loaded: &LoadedManifest, uses: &[ClientUseDepend
                 leaves.push(surface_leaf(
                     key,
                     format!(
-                        "{}: {{ publish(event: Omit<{}.{base}Event, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Omit<{}.{base}Event, \"header\">): Result<PreparedTrellisEvent<Omit<{}.{base}Event, \"header\">>, ValidationError | UnexpectedError>; listen(handler: ServiceEventHandler<{}.{base}Event, TDeps>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; }};",
+                        "{}: {{ publish(event: {}.{base}Event): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: {}.{base}Event): Result<PreparedTrellisEvent<{}.{base}Event>, ValidationError | UnexpectedError>; listen(handler: ServiceEventHandler<{}.{base}Event, TDeps>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; }};",
                         surface_leaf_name(key),
                         use_dep.namespace,
                         use_dep.namespace,
@@ -1650,7 +1662,7 @@ fn render_client_event_surface(loaded: &LoadedManifest, uses: &[ClientUseDepende
         leaves.push(surface_leaf(
             key,
             format!(
-                "{}: {{ publish(event: Omit<Types.{base}Event, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Omit<Types.{base}Event, \"header\">): Result<PreparedTrellisEvent<Omit<Types.{base}Event, \"header\">>, ValidationError | UnexpectedError>; listen(handler: EventCallback<Types.{base}Event>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; }};",
+                "{}: {{ publish(event: Types.{base}Event): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Types.{base}Event): Result<PreparedTrellisEvent<Types.{base}Event>, ValidationError | UnexpectedError>; listen(handler: EventCallback<Types.{base}Event>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; }};",
                 surface_leaf_name(key)
             ),
         ));
@@ -1669,7 +1681,7 @@ fn render_client_event_surface(loaded: &LoadedManifest, uses: &[ClientUseDepende
                 leaves.push(surface_leaf(
                     key,
                     format!(
-                        "{}: {{ publish(event: Omit<{}.{base}Event, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Omit<{}.{base}Event, \"header\">): Result<PreparedTrellisEvent<Omit<{}.{base}Event, \"header\">>, ValidationError | UnexpectedError>; listen(handler: EventCallback<{}.{base}Event>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; }};",
+                        "{}: {{ publish(event: {}.{base}Event): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: {}.{base}Event): Result<PreparedTrellisEvent<{}.{base}Event>, ValidationError | UnexpectedError>; listen(handler: EventCallback<{}.{base}Event>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; }};",
                         surface_leaf_name(key),
                         use_dep.namespace,
                         use_dep.namespace,
@@ -2753,7 +2765,9 @@ fn generated_type_names(loaded: &LoadedManifest) -> BTreeSet<String> {
     }
 
     for key in loaded.manifest.events.keys() {
-        names.insert(format!("{}Event", key_to_pascal(key)));
+        let base = key_to_pascal(key);
+        names.insert(format!("{base}Event"));
+        names.insert(format!("{base}EventMessage"));
     }
 
     for key in loaded.manifest.feeds.keys() {
@@ -3500,11 +3514,11 @@ mod tests {
             "input(input: JobsSdk.JobsRunInput): TransferCapableOperationInputBuilder<JobsJobsRunOperationDesc, JobsSdk.JobsRunProgress, JobsSdk.JobsRunOutput>;"
         ));
         assert!(client.contains(
-            "updated: { publish(event: Omit<JobsSdk.JobsUpdatedEvent, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Omit<JobsSdk.JobsUpdatedEvent, \"header\">): Result<PreparedTrellisEvent<Omit<JobsSdk.JobsUpdatedEvent, \"header\">>, ValidationError | UnexpectedError>; listen(handler: EventCallback<JobsSdk.JobsUpdatedEvent>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
+            "updated: { publish(event: JobsSdk.JobsUpdatedEvent): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: JobsSdk.JobsUpdatedEvent): Result<PreparedTrellisEvent<JobsSdk.JobsUpdatedEvent>, ValidationError | UnexpectedError>; listen(handler: EventCallback<JobsSdk.JobsUpdatedEvent>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
         ));
         assert!(client.contains("export interface ServiceEventSurface<TDeps>"));
         assert!(client.contains(
-            "updated: { publish(event: Omit<JobsSdk.JobsUpdatedEvent, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Omit<JobsSdk.JobsUpdatedEvent, \"header\">): Result<PreparedTrellisEvent<Omit<JobsSdk.JobsUpdatedEvent, \"header\">>, ValidationError | UnexpectedError>; listen(handler: ServiceEventHandler<JobsSdk.JobsUpdatedEvent, TDeps>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
+            "updated: { publish(event: JobsSdk.JobsUpdatedEvent): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: JobsSdk.JobsUpdatedEvent): Result<PreparedTrellisEvent<JobsSdk.JobsUpdatedEvent>, ValidationError | UnexpectedError>; listen(handler: ServiceEventHandler<JobsSdk.JobsUpdatedEvent, TDeps>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
         ));
         assert!(client.contains(
             "live(input: JobsSdk.JobsLiveInput, opts?: FeedSubscribeOpts): AsyncResult<FeedSubscription<JobsSdk.JobsLiveEvent>, BaseError>;"
@@ -3652,7 +3666,7 @@ mod tests {
             "input(input: KvDemoSdk.KvRunInput): OperationInputBuilder<KvDemoKvRunOperationDesc, KvDemoSdk.KvRunProgress, KvDemoSdk.KvRunOutput>;"
         ));
         assert!(client.contains(
-            "updated: { publish(event: Omit<KvDemoSdk.KvUpdatedEvent, \"header\">): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Omit<KvDemoSdk.KvUpdatedEvent, \"header\">): Result<PreparedTrellisEvent<Omit<KvDemoSdk.KvUpdatedEvent, \"header\">>, ValidationError | UnexpectedError>; listen(handler: EventCallback<KvDemoSdk.KvUpdatedEvent>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
+            "updated: { publish(event: KvDemoSdk.KvUpdatedEvent): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: KvDemoSdk.KvUpdatedEvent): Result<PreparedTrellisEvent<KvDemoSdk.KvUpdatedEvent>, ValidationError | UnexpectedError>; listen(handler: EventCallback<KvDemoSdk.KvUpdatedEvent>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
         ));
         assert!(api.contains(
             "import { OWNED_API as KvDemoApi } from \"../demo-kv-service/owned_api.ts\";"
@@ -3663,6 +3677,103 @@ mod tests {
         assert!(api.contains("\"Kv.Get\"() { return KvDemoApi.rpc[\"Kv.Get\"]"));
         assert!(api.contains("\"Kv.Run\"() { return KvDemoApi.operations[\"Kv.Run\"]"));
         assert!(api.contains("\"Kv.Updated\"() { return KvDemoApi.events[\"Kv.Updated\"]"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn generated_event_types_use_body_aliases_and_message_aliases() {
+        let root = unique_temp_dir("event-body-message-split");
+        fs::create_dir_all(&root).unwrap();
+        let manifest_path = root.join("contract.json");
+        fs::write(
+            &manifest_path,
+            serde_json::to_string(&json!({
+                "format": "trellis.contract.v1",
+                "id": "example.events@v1",
+                "displayName": "Events",
+                "description": "Event body/message split test.",
+                "kind": "service",
+                "schemas": {
+                    "HeaderObjectBody": {
+                        "type": "object",
+                        "properties": {
+                            "header": {
+                                "type": "object",
+                                "properties": {
+                                    "id": { "type": "string" },
+                                    "time": { "type": "string", "format": "date-time" }
+                                },
+                                "required": ["id", "time"]
+                            },
+                            "message": { "type": "string" }
+                        },
+                        "required": ["header", "message"]
+                    },
+                    "UserHeaderBody": {
+                        "type": "object",
+                        "properties": {
+                            "header": { "type": "string" },
+                            "value": { "type": "string" }
+                        },
+                        "required": ["header", "value"]
+                    }
+                },
+                "rpc": {},
+                "operations": {},
+                "events": {
+                    "Foo.HeaderObject": {
+                        "version": "v1",
+                        "subject": "events.v1.Foo.HeaderObject",
+                        "event": { "schema": "HeaderObjectBody" }
+                    },
+                    "Foo.HeaderName": {
+                        "version": "v1",
+                        "subject": "events.v1.Foo.HeaderName",
+                        "event": { "schema": "UserHeaderBody" }
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let opts = GenerateTsSdkOpts {
+            manifest_path: manifest_path.clone(),
+            out_dir: root.join("out"),
+            package_name: "@qlever-llc/trellis-sdk-events".to_string(),
+            package_version: "0.4.0".to_string(),
+            runtime_deps: TsRuntimeDeps {
+                source: TsRuntimeSource::Registry,
+                version: "0.4.0".to_string(),
+                repo_root: None,
+            },
+        };
+        let loaded = load_manifest(&manifest_path).unwrap();
+
+        let types = render_types_ts(&opts, &loaded);
+        let client = render_client_ts(&opts, &loaded);
+
+        assert!(types.contains("import type { TrellisEventMessage } from \"@qlever-llc/trellis\";"));
+        assert!(types.contains(
+            "export type FooHeaderObjectEvent = { header: { id: string; time: string; }; message: string; };"
+        ));
+        assert!(types.contains(
+            "export type FooHeaderObjectEventMessage = TrellisEventMessage<FooHeaderObjectEvent>;"
+        ));
+        assert!(
+            types.contains("export type FooHeaderNameEvent = { header: string; value: string; };")
+        );
+        assert!(types.contains(
+            "export type FooHeaderNameEventMessage = TrellisEventMessage<FooHeaderNameEvent>;"
+        ));
+        assert!(!client.contains("Omit<Types.FooHeaderObjectEvent"));
+        assert!(!client.contains(", \"header\">"));
+        assert!(client.contains(
+            "headerObject: { publish(event: Types.FooHeaderObjectEvent): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Types.FooHeaderObjectEvent): Result<PreparedTrellisEvent<Types.FooHeaderObjectEvent>, ValidationError | UnexpectedError>; listen(handler: EventCallback<Types.FooHeaderObjectEvent>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
+        ));
+        assert!(client.contains(
+            "headerObject: { publish(event: Types.FooHeaderObjectEvent): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Types.FooHeaderObjectEvent): Result<PreparedTrellisEvent<Types.FooHeaderObjectEvent>, ValidationError | UnexpectedError>; listen(handler: ServiceEventHandler<Types.FooHeaderObjectEvent, TDeps>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
+        ));
 
         fs::remove_dir_all(root).unwrap();
     }

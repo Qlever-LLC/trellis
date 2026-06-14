@@ -168,7 +168,9 @@ while let Some(event) = events.next().await {
 }
 ```
 
-For explicit ack/nak/term control, use `subscribe_messages(...)`.
+For explicit ack/nak/term control or event metadata such as event id/time, use
+`subscribe_messages(...)`. Generated event structs are event bodies only; runtime
+metadata comes from the message headers.
 
 Direct `publish::<Descriptor>(...)` is the normal default. It prepares the event
 payload, assigns event metadata, publishes to JetStream, and returns when the
@@ -226,8 +228,12 @@ inbox is needed.
 use trellis_rs::client::{InboxReceipt, InboxStore, SqliteInboxStore};
 
 let mut inbox = SqliteInboxStore::new(&sqlite);
-match inbox.record_received(event.header.id.as_str()).await? {
-    InboxReceipt::Accepted => apply_non_idempotent_side_effect(&event).await?,
+let Some(event_id) = message.event_id() else {
+    return Err(anyhow::anyhow!("event message missing Nats-Msg-Id"));
+};
+
+match inbox.record_received(event_id).await? {
+    InboxReceipt::Accepted => apply_non_idempotent_side_effect(message.payload()).await?,
     InboxReceipt::Duplicate => return Ok(()),
 }
 ```

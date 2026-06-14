@@ -5,15 +5,16 @@ use futures_util::StreamExt;
 use miette::{miette, IntoDiagnostic, Result};
 use serde_json::json;
 use trellis_rs::auth::{connect_admin_client_async, AdminLoginOutcome};
-use trellis_rs::client::TrellisClient;
+use trellis_rs::client::{
+    EventReplayPolicy, EventSubscribeOptions, EventSubscriptionMode, TrellisClient,
+};
 use trellis_rs::contracts::{
     digest_contract_json, use_contract, ContractKind, ContractManifestBuilder,
 };
 use trellis_rs::sdk::health::client::HealthClient as SdkHealthClient;
 use trellis_rs::sdk::health::events::HealthHeartbeatEventDescriptor;
 use trellis_rs::sdk::health::types::{
-    HealthHeartbeatEvent, HealthHeartbeatEventChecksItem, HealthHeartbeatEventHeader,
-    HealthHeartbeatEventService,
+    HealthHeartbeatEvent, HealthHeartbeatEventChecksItem, HealthHeartbeatEventService,
 };
 
 use crate::app::admin_setup_contract_json;
@@ -63,7 +64,11 @@ pub(crate) async fn run_health_fixture(
 
 async fn assert_generated_health_publish_subscribe(client: &TrellisClient) -> Result<()> {
     let mut events = client
-        .subscribe::<HealthHeartbeatEventDescriptor>()
+        .subscribe_messages::<HealthHeartbeatEventDescriptor>(EventSubscribeOptions {
+            mode: EventSubscriptionMode::Ephemeral,
+            replay: EventReplayPolicy::New,
+            durable_name: None,
+        })
         .await
         .into_diagnostic()?;
     client.flush().await.into_diagnostic()?;
@@ -84,14 +89,27 @@ async fn assert_generated_health_publish_subscribe(client: &TrellisClient) -> Re
         if remaining.is_zero() {
             return Err(miette!("Health.Heartbeat subscription timed out"));
         }
-        let received = tokio::time::timeout(remaining, events.next())
+        let message = tokio::time::timeout(remaining, events.next())
             .await
             .map_err(|_| miette!("Health.Heartbeat subscription timed out"))?
             .ok_or_else(|| miette!("Health.Heartbeat subscription ended before event"))?
             .into_diagnostic()?;
-        if received.header.id == heartbeat.header.id
-            && received.service.name == heartbeat.service.name
-        {
+        let received = message.decode().into_diagnostic()?;
+        if received.service.name == heartbeat.service.name {
+            let event_id = message
+                .event_id()
+                .ok_or_else(|| miette!("Health.Heartbeat message missing Nats-Msg-Id"))?;
+            if event_id.is_empty() {
+                return Err(miette!("Health.Heartbeat message had empty Nats-Msg-Id"));
+            }
+            let event_time = message
+                .event_time()
+                .ok_or_else(|| miette!("Health.Heartbeat message missing Trellis-Event-Time"))?;
+            if event_time.is_empty() {
+                return Err(miette!(
+                    "Health.Heartbeat message had empty Trellis-Event-Time"
+                ));
+            }
             break;
         }
     }
@@ -167,12 +185,8 @@ fn health_subscribe_only_contract_json() -> Result<String> {
 
 fn heartbeat_event(id: &str) -> Result<HealthHeartbeatEvent> {
     Ok(HealthHeartbeatEvent {
-        header: HealthHeartbeatEventHeader {
-            id: id.to_string(),
-            time: "2026-05-12T00:00:00.000Z".to_string(),
-        },
         service: HealthHeartbeatEventService {
-            name: "integration-health-harness".to_string(),
+            name: format!("integration-health-harness-{id}"),
             kind: "service".to_string(),
             instance_id: "integration-health-instance".to_string(),
             contract_id: HEALTH_CALLER_CONTRACT_ID.to_string(),

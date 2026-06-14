@@ -10,9 +10,6 @@ import { Type } from "typebox";
 const schemas = {
   EventPayload: Type.Object({
     message: Type.String(),
-    header: Type.Optional(
-      Type.Object({ id: Type.String(), time: Type.String() }),
-    ),
   }),
 } as const;
 
@@ -83,15 +80,13 @@ const received = new Promise<void>((resolve, reject) => {
     10000,
   );
   void client.event.harness.rustEvent.listen(
-    (event) => {
+    (event, context) => {
       const message = (event as { message?: string }).message;
-      const header =
-        (event as { header?: { id?: unknown; time?: unknown } }).header;
       if (message !== expected) {
         reject(new Error(`unexpected event ${JSON.stringify(event)}`));
       }
-      if (typeof header?.id !== "string" || typeof header.time !== "string") {
-        reject(new Error(`missing event header ${JSON.stringify(event)}`));
+      if (context.id.length === 0 || Number.isNaN(context.time.getTime())) {
+        reject(new Error(`missing event metadata ${JSON.stringify(context)}`));
       }
       clearTimeout(timeout);
       resolve();
