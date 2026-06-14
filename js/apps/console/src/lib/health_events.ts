@@ -1,3 +1,4 @@
+import type { EventListenerContext } from "@qlever-llc/trellis";
 import type { HealthHeartbeat } from "@qlever-llc/trellis/health";
 
 export const HEALTH_EVENT_WINDOW = 200;
@@ -56,12 +57,13 @@ export function heartbeatInstanceKey(heartbeat: HealthHeartbeat): string {
 export function appendHealthEvent(
   events: readonly HealthFeedEvent[],
   heartbeat: HealthHeartbeat,
+  context: Pick<EventListenerContext, "id">,
   receivedAt = Date.now(),
   windowSize = HEALTH_EVENT_WINDOW,
 ): HealthFeedEvent[] {
   return [
     {
-      id: `${heartbeat.header.id}:${receivedAt}`,
+      id: `${context.id}:${receivedAt}`,
       receivedAt,
       heartbeat,
     },

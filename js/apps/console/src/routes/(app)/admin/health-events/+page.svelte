@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { EventListenerContext } from "@qlever-llc/trellis";
   import type { HealthHeartbeat } from "@qlever-llc/trellis/health";
   import { ok } from "@qlever-llc/result";
   import { onMount } from "svelte";
@@ -83,16 +84,16 @@
     return JSON.stringify(value, null, 2);
   }
 
-  function ingestHeartbeat(heartbeat: HealthHeartbeat) {
+  function ingestHeartbeat(heartbeat: HealthHeartbeat, context: EventListenerContext) {
     const receivedAt = Date.now();
     const activeInstances = pruneExpiredHealthInstances(instances, receivedAt);
-    recentEvents = appendHealthEvent(recentEvents, heartbeat, receivedAt);
+    recentEvents = appendHealthEvent(recentEvents, heartbeat, context, receivedAt);
     instances = upsertHealthInstance(activeInstances, heartbeat, receivedAt);
     now = receivedAt;
   }
 
-  function handleHeartbeat(heartbeat: HealthHeartbeat) {
-    ingestHeartbeat(heartbeat);
+  function handleHeartbeat(heartbeat: HealthHeartbeat, context: EventListenerContext) {
+    ingestHeartbeat(heartbeat, context);
     return ok(undefined);
   }
 
