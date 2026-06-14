@@ -39,7 +39,9 @@ const declarationSourceFiles = sourceFiles.filter((sourceFile) =>
 const denoConfig = JSON.parse(await Deno.readTextFile("./deno.json"));
 const name = denoConfig.name as string;
 const version = resolvePackageBuildVersion(denoConfig.version as string);
-const jsrTrellisDependencyVersion = jsrRuntimeDependencyFloorVersion(version);
+const jsrRuntimeDependencyVersion =
+  Deno.env.get("TRELLIS_SVELTE_JSR_RUNTIME_DEPENDENCY_VERSION")?.trim() ||
+  jsrRuntimeDependencyFloorVersion(version);
 const dependencies = resolveInternalNpmDependenciesForBuild(
   {
     "@nats-io/nats-core": "^3.3.1",
@@ -401,17 +403,17 @@ await writeJson(
     },
     imports: {
       "@qlever-llc/result":
-        `jsr:@qlever-llc/result@^${jsrTrellisDependencyVersion}`,
+        `jsr:@qlever-llc/result@^${jsrRuntimeDependencyVersion}`,
       "@qlever-llc/trellis":
-        `jsr:@qlever-llc/trellis@^${jsrTrellisDependencyVersion}`,
+        `jsr:@qlever-llc/trellis@^${jsrRuntimeDependencyVersion}`,
       "@qlever-llc/trellis/auth":
-        `jsr:@qlever-llc/trellis@^${jsrTrellisDependencyVersion}/auth`,
+        `jsr:@qlever-llc/trellis@^${jsrRuntimeDependencyVersion}/auth`,
       "@qlever-llc/trellis/auth/browser":
-        `jsr:@qlever-llc/trellis@^${jsrTrellisDependencyVersion}/auth/browser`,
+        `jsr:@qlever-llc/trellis@^${jsrRuntimeDependencyVersion}/auth/browser`,
       "@qlever-llc/trellis/browser":
-        `jsr:@qlever-llc/trellis@^${jsrTrellisDependencyVersion}/browser`,
+        `jsr:@qlever-llc/trellis@^${jsrRuntimeDependencyVersion}/browser`,
       "@qlever-llc/trellis/contracts":
-        `jsr:@qlever-llc/trellis@^${jsrTrellisDependencyVersion}/contracts`,
+        `jsr:@qlever-llc/trellis@^${jsrRuntimeDependencyVersion}/contracts`,
       "svelte": "npm:svelte@^5.0.0",
       "svelte/internal/client": "npm:svelte@^5.0.0/internal/client",
       "svelte/internal/disclose-version":

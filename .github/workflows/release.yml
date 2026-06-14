@@ -303,6 +303,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ needs.prepare-release.outputs.release-tag }}
+      TRELLIS_SVELTE_JSR_RUNTIME_DEPENDENCY_VERSION: "0.10.18-rc.1"
 
     steps:
       - name: Check out repository
@@ -952,6 +953,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      RELEASE_VERSION: ${{ needs.prepare-release.outputs.release-version }}
 
     steps:
       - name: Check out repository
@@ -1043,6 +1046,9 @@ jobs:
           publish_or_skip js/packages/trellis
           publish_or_skip js/services/trellis
           publish_or_skip js/packages/trellis-test
+
+          TRELLIS_SVELTE_JSR_RUNTIME_DEPENDENCY_VERSION="${RELEASE_VERSION}" \
+            deno task -c js/packages/trellis-svelte/deno.json build:npm
           publish_or_skip js/packages/trellis-svelte/jsr
 
           echo "Published ${#published[@]} JSR package(s)"
