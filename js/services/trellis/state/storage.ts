@@ -1,17 +1,31 @@
 import { AsyncResult, isErr, Result } from "@qlever-llc/result";
 import { KVError, UnexpectedError, ValidationError } from "@qlever-llc/trellis";
+import type { JsonValue } from "@qlever-llc/trellis/contracts";
 import { isJsonValue } from "@qlever-llc/trellis/contracts";
-import { parseUnknownSchema } from "../../../packages/trellis/codec.ts";
-import type { StateDeleteResponse } from "../../../packages/trellis/models/trellis/rpc/StateDelete.ts";
-import type { StateGetResponse } from "../../../packages/trellis/models/trellis/rpc/StateGet.ts";
-import type { StateListResponse } from "../../../packages/trellis/models/trellis/rpc/StateList.ts";
-import type { StatePutResponse } from "../../../packages/trellis/models/trellis/rpc/StatePut.ts";
+import { parseUnknownSchema } from "@qlever-llc/trellis/host/control-plane";
 import type {
-  JsonValue,
-  StateEntry,
-  StateMigrationRequired,
-} from "../../../packages/trellis/models/trellis/State.ts";
+  StateDeleteOutput as StateDeleteResponse,
+  StateGetOutput as StateGetResponse,
+  StateListOutput as StateListResponse,
+  StatePutOutput as StatePutResponse,
+} from "@qlever-llc/trellis/sdk/state";
 import type { ResolvedStateStore, StoredStateEntry } from "./model.ts";
+
+type StateEntry = {
+  key?: string;
+  value: JsonValue;
+  revision: string;
+  updatedAt: string;
+  expiresAt?: string;
+};
+
+type StateMigrationRequired = {
+  migrationRequired: true;
+  entry: StateEntry;
+  stateVersion: string;
+  currentStateVersion: string;
+  writerContractDigest: string;
+};
 
 export const MAX_STATE_KEY_BYTES = 512;
 export const MAX_STATE_VALUE_BYTES = 64 * 1024;

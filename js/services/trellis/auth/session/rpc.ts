@@ -1,8 +1,10 @@
 import { base64urlDecode, verifyProof } from "@qlever-llc/trellis/auth";
 import { AsyncResult, type BaseError, isErr, Result } from "@qlever-llc/result";
-import { AuthError } from "../../../../packages/trellis/errors/AuthError.ts";
-import type { AuthConnectionRow } from "../../../../packages/trellis/models/auth/rpc/ListConnections.ts";
-import type { AuthSessionRow } from "../../../../packages/trellis/models/auth/rpc/ListSessions.ts";
+import { AuthError } from "@qlever-llc/trellis";
+import type {
+  AuthConnectionsListOutput,
+  AuthSessionsListOutput,
+} from "@qlever-llc/trellis/sdk/auth";
 import type { Session } from "../schemas.ts";
 import type { CapabilityGroupLoader } from "../capability_groups.ts";
 import { resolveCapabilities } from "../capability_groups.ts";
@@ -213,8 +215,8 @@ type SessionFilter = {
 };
 type SessionKeyRequest = { sessionKey: string };
 type UserNkeyRequest = { userNkey: string };
-type SessionListRow = AuthSessionRow;
-type ConnectionRow = AuthConnectionRow;
+type SessionListRow = AuthSessionsListOutput["entries"][number];
+type ConnectionRow = AuthConnectionsListOutput["entries"][number];
 
 function subjectMatches(pattern: string, subject: string): boolean {
   const patternParts = pattern.split(".");

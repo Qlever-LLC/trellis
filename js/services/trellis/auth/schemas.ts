@@ -22,7 +22,7 @@ import {
   LoginPortalSummarySchema,
   ServiceDeploymentSchema,
   ServiceInstanceSchema,
-} from "../../../packages/trellis/auth/protocol.ts";
+} from "@qlever-llc/trellis/auth";
 import { IsoDateSchema } from "@qlever-llc/trellis/contracts";
 import type { StaticDecode } from "typebox";
 
@@ -75,7 +75,7 @@ export type {
   LoginPortalRoute,
   LoginPortalSettings,
   LoginPortalSummary,
-} from "../../../packages/trellis/auth/protocol.ts";
+} from "@qlever-llc/trellis/auth";
 
 export const SessionKeySchema = Type.String({
   pattern: "^[A-Za-z0-9_-]{43}$",

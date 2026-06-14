@@ -1,6 +1,6 @@
 import { AuthError } from "@qlever-llc/trellis";
 import { Result } from "@qlever-llc/result";
-import { sha256Base64urlSync } from "../../../../packages/trellis/contract_support/canonical.ts";
+import { sha256Base64urlSync } from "@qlever-llc/trellis/contracts";
 
 export type ServiceDeployment = {
   deploymentId: string;

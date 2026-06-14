@@ -1,15 +1,13 @@
 import Type from "typebox";
-import type { parseUnknownSchema } from "../../../packages/trellis/codec.ts";
-
 import {
+  type ContractStateKind,
+  IsoDateSchema,
   type JsonValue,
-  JsonValueSchema,
-  type StateStoreKind,
-} from "../../../packages/trellis/models/trellis/State.ts";
-import { IsoDateSchema } from "../../../packages/trellis/models/trellis/IsoDate.ts";
+  type SchemaLike,
+} from "@qlever-llc/trellis/contracts";
 
 export const StoredStateEntrySchema = Type.Object({
-  value: JsonValueSchema,
+  value: Type.Unknown(),
   updatedAt: IsoDateSchema,
   expiresAt: Type.Optional(IsoDateSchema),
   stateVersion: Type.String({ minLength: 1 }),
@@ -29,8 +27,8 @@ export type ResolvedStateStore = {
   contractDigest: string;
   ownerKey: string;
   store: string;
-  kind: StateStoreKind;
-  schema: Parameters<typeof parseUnknownSchema>[0];
+  kind: ContractStateKind;
+  schema: SchemaLike;
   stateVersion: string;
-  acceptedVersions: Record<string, Parameters<typeof parseUnknownSchema>[0]>;
+  acceptedVersions: Record<string, SchemaLike>;
 };

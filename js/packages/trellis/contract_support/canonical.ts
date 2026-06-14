@@ -194,10 +194,12 @@ export function sha256Bytes(data: Uint8Array): Uint8Array {
   return out;
 }
 
+/** Computes a synchronous SHA-256 digest encoded as base64url. */
 export function sha256Base64urlSync(text: string): string {
   return base64url(sha256Bytes(new TextEncoder().encode(text)));
 }
 
+/** Computes a SHA-256 digest encoded as base64url. */
 export async function sha256Base64url(text: string): Promise<string> {
   if (typeof crypto !== "undefined" && crypto.subtle) {
     const data = new TextEncoder().encode(text);
@@ -207,6 +209,7 @@ export async function sha256Base64url(text: string): Promise<string> {
   return sha256Base64urlSync(text);
 }
 
+/** Canonicalizes JSON and computes its SHA-256 base64url digest. */
 export async function digestJson(value: JsonValue): Promise<{
   canonical: string;
   digest: string;

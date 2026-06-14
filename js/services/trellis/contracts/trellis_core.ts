@@ -2,19 +2,13 @@ import { defineServiceContract } from "@qlever-llc/trellis/contracts";
 import {
   TrellisBindingsGetRequestSchema,
   TrellisBindingsGetResponseSchema,
-} from "../../../packages/trellis/models/trellis/rpc/TrellisBindingsGet.ts";
-import {
   TrellisCatalogRequestSchema,
   TrellisCatalogResponseSchema,
-} from "../../../packages/trellis/models/trellis/rpc/TrellisCatalog.ts";
-import {
   TrellisContractGetRequestSchema,
   TrellisContractGetResponseSchema,
-} from "../../../packages/trellis/models/trellis/rpc/TrellisContractGet.ts";
-import {
   TrellisSurfaceStatusRequestSchema,
   TrellisSurfaceStatusResponseSchema,
-} from "../../../packages/trellis/models/trellis/rpc/TrellisSurfaceStatus.ts";
+} from "@qlever-llc/trellis/sdk/core";
 
 const schemas = {
   TrellisCatalogRequest: TrellisCatalogRequestSchema,

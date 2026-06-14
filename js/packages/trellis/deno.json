@@ -14,6 +14,7 @@
     "./generate": "./generate.ts",
     "./health": "./health.ts",
     "./host": "./host/mod.ts",
+    "./host/control-plane": "./host/control-plane.ts",
     "./host/node": "./host/node.ts",
     "./jobs": "./jobs.ts",
     "./sdk/auth": "./sdk/auth.ts",

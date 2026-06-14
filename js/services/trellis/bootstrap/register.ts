@@ -13,8 +13,13 @@ import {
   startControlPlaneBackgroundTasks,
 } from "./control_plane.ts";
 import type { RuntimeGlobals } from "./globals.ts";
+import type { AuthLogger } from "../auth/runtime_deps.ts";
 import type { DeploymentAuthoritySurface } from "../auth/schemas.ts";
 import type { SqlDeploymentAuthorityRepository } from "../auth/storage.ts";
+
+type ControlPlaneRegistrationRuntime = Omit<RuntimeGlobals, "logger"> & {
+  logger: AuthLogger;
+};
 
 function createCatalogAuthorityStorage(
   storage: SqlDeploymentAuthorityRepository,
@@ -44,7 +49,7 @@ function createCatalogAuthorityStorage(
 export async function registerControlPlane(deps: {
   app: Hono;
   config: Config;
-  runtime: RuntimeGlobals;
+  runtime: ControlPlaneRegistrationRuntime;
 }): Promise<ReturnType<typeof startControlPlaneBackgroundTasks>> {
   const { app, config, runtime } = deps;
   const {

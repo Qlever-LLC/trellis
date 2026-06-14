@@ -8,10 +8,8 @@ import {
 import Value from "typebox/value";
 import {
   AuthConnectionsListResponseSchema,
-} from "../../../../packages/trellis/models/auth/rpc/ListConnections.ts";
-import {
   AuthSessionsListResponseSchema,
-} from "../../../../packages/trellis/models/auth/rpc/ListSessions.ts";
+} from "@qlever-llc/trellis/sdk/auth";
 import {
   TRELLIS_AUTH_EVENTS,
   TRELLIS_AUTH_OPERATIONS,

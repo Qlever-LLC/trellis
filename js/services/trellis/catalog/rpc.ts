@@ -4,14 +4,16 @@ import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { isErr, Result } from "@qlever-llc/result";
 import type { StaticDecode } from "typebox";
 import { Value } from "typebox/value";
-import type { TrellisCatalog } from "../../../packages/trellis/models/trellis/rpc/TrellisCatalog.ts";
-import { TrellisCatalogSchema } from "../../../packages/trellis/models/trellis/rpc/TrellisCatalog.ts";
-import type { TrellisContractGetResponse } from "../../../packages/trellis/models/trellis/rpc/TrellisContractGet.ts";
 import type {
-  TrellisSurfaceStatusRequest,
-  TrellisSurfaceStatusResponse,
-} from "../../../packages/trellis/models/trellis/rpc/TrellisSurfaceStatus.ts";
-import { TrellisSurfaceStatusRequestSchema } from "../../../packages/trellis/models/trellis/rpc/TrellisSurfaceStatus.ts";
+  TrellisCatalogOutput,
+  TrellisContractGetOutput as TrellisContractGetResponse,
+  TrellisSurfaceStatusInput as TrellisSurfaceStatusRequest,
+  TrellisSurfaceStatusOutput as TrellisSurfaceStatusResponse,
+} from "@qlever-llc/trellis/sdk/core";
+import {
+  TrellisCatalogResponseSchema,
+  TrellisSurfaceStatusRequestSchema,
+} from "@qlever-llc/trellis/sdk/core";
 import type {
   DeploymentAuthority,
   DeploymentAuthorityMaterialization,
@@ -344,7 +346,7 @@ export function createTrellisCatalogHandler(
   logger: CatalogLogger = noopLogger,
 ) {
   return async (): Promise<
-    Result<{ catalog: TrellisCatalog }, UnexpectedError>
+    Result<TrellisCatalogOutput, UnexpectedError>
   > => {
     logger.trace({ rpc: "Trellis.Catalog" }, "RPC request");
     try {
@@ -360,15 +362,17 @@ export function createTrellisCatalogHandler(
           left.id.localeCompare(right.id) ||
           left.digest.localeCompare(right.digest)
         );
-      const catalog = Value.Parse(
-        TrellisCatalogSchema,
+      const response = Value.Parse(
+        TrellisCatalogResponseSchema,
         {
-          format: "trellis.catalog.v1",
-          contracts,
-          issues,
+          catalog: {
+            format: "trellis.catalog.v1",
+            contracts,
+            issues,
+          },
         },
-      ) as TrellisCatalog;
-      return Result.ok({ catalog });
+      ) as TrellisCatalogOutput;
+      return Result.ok(response);
     } catch (error) {
       return Result.err(new UnexpectedError({ cause: error }));
     }
