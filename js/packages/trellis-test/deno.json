@@ -1,0 +1,35 @@
+{
+  "extends": "../../deno.json",
+  "name": "@qlever-llc/trellis-test",
+  "version": "0.10.18",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "imports": {
+    "@qlever-llc/trellis": "../trellis/index.ts",
+    "@qlever-llc/trellis/auth": "../trellis/auth.ts",
+    "@qlever-llc/trellis/health": "../trellis/health.ts",
+    "@qlever-llc/trellis/sdk/auth": "../trellis/sdk/auth.ts",
+    "@qlever-llc/trellis/service/deno": "../trellis/service/deno.ts",
+    "@qlever-llc/trellis/": "../trellis/",
+    "@nats-io/jetstream": "npm:@nats-io/jetstream@^3.3.1",
+    "@nats-io/nats-core": "npm:@nats-io/nats-core@^3.3.1",
+    "@nats-io/transport-deno": "jsr:@nats-io/transport-deno@^3.3.1",
+    "@std/assert": "jsr:@std/assert@^1.0.19",
+    "@std/path": "jsr:@std/path@^1.1.4"
+  },
+  "publish": {
+    "exclude": [
+      "tests/**",
+      "**/*_test.ts",
+      "**/*.test.ts"
+    ]
+  },
+  "tasks": {
+    "test": "deno test -A"
+  },
+  "compilerOptions": {
+    "verbatimModuleSyntax": true
+  }
+}
