@@ -971,3 +971,33 @@ Deno.test("Trellis durable event loop restarts after immediate re-register", asy
   assertEquals(isErr(first.take()), false);
   assertEquals(isErr(second.take()), false);
 });
+
+Deno.test("Trellis durable event listeners stop without restarting during teardown", async () => {
+  const { connection, pullRequests } = createDurablePullTestConnection();
+  const trellis = createTrellisInternal(
+    "durable-stop-no-restart",
+    connection,
+    createMockAuth(),
+    {
+      api: eventConsumerSourceContract.API.owned,
+      eventConsumers: {
+        metadata: eventConsumerMetadata,
+        bindings: { pong: eventConsumerBinding },
+      },
+    },
+  );
+
+  const registered = await trellis.listenEvent(
+    "Test.Pong",
+    {},
+    () => ok(undefined),
+  );
+  await waitFor(() => pullRequests.length === 1);
+
+  trellis.stopEventListeners();
+  await trellis.wait().orThrow();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assertEquals(isErr(registered.take()), false);
+  assertEquals(pullRequests.length, 1);
+});

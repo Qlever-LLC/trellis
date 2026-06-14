@@ -68,9 +68,13 @@ commands.
 - For Deno-first TypeScript integration tests, use
   `@qlever-llc/trellis-test` and `TrellisTestRuntime.start({ trellis: {
   command: ... } })` to start an isolated explicit Trellis control-plane process
-  plus fresh NATS/JetStream container. Do not mock Trellis bootstrap, auth,
-  authority, generated clients, jobs, operations, KV, store, or event consumers
-  in service-boundary tests.
+  plus fresh NATS/JetStream container. Register service participants with
+  `runtime.registerService(...)`, connect app/client participants with
+  `runtime.connectClient(...)`, and opt into migration-plan approval only for
+  isolated mutable-dev tests with `authority.autoAccept` or
+  `runtime.contracts.approve({ allowPlanClassifications: [...] })`. Do not mock
+  Trellis bootstrap, auth, authority, generated clients, jobs, operations, KV,
+  store, or event consumers in service-boundary tests.
 - Wrap Rust Trellis generation in `cargo xtask prepare`.
 - Browser app repos should read the Svelte AI guide before wiring
   `createTrellisApp`, `TrellisProvider`, generated SDK aliases for contract

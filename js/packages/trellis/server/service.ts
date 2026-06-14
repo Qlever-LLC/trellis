@@ -2009,6 +2009,7 @@ export async function createConnectedService<
     prepare: (event, data) => outbound.prepare(event, data),
     publish: (event, data) => outbound.publish(event, data),
     publishPrepared: (event) => outbound.publishPrepared(event),
+    stopEventListeners: () => outbound.stopEventListeners(),
     get kv() {
       return getHandlerResources().kv;
     },
@@ -3496,6 +3497,7 @@ export class TrellisService<
   async stop(): Promise<void> {
     this.#stopPromise ??= (async () => {
       this.connection.stopObserving();
+      this.#handlerTrellis.stopEventListeners();
 
       try {
         await this.#stopHealthPublishing();
