@@ -54,6 +54,8 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
     .schema("Empty", empty_schema())
     .schema("JobState", job_state_schema())
     .schema("JobContext", job_context_schema())
+    .schema("JobConcurrencyMetadata", job_concurrency_metadata_schema())
+    .schema("JobQueuePolicyMetadata", job_queue_policy_metadata_schema())
     .schema("JobLogEntry", job_log_entry_schema())
     .schema("JobProgress", job_progress_schema())
     .schema("Job", job_schema())
@@ -67,6 +69,8 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
     .schema("JobsListResponse", jobs_list_response_schema())
     .schema("JobsGetRequest", job_identity_schema())
     .schema("JobsGetResponse", jobs_get_response_schema())
+    .schema("JobsGetKeyRequest", jobs_get_key_request_schema())
+    .schema("JobsGetKeyResponse", jobs_get_key_response_schema())
     .schema("JobsCancelRequest", job_identity_schema())
     .schema("JobsCancelResponse", job_response_schema())
     .schema("JobsRetryRequest", job_identity_schema())
@@ -127,6 +131,20 @@ pub fn contract_manifest() -> Result<ContractManifest, ContractsError> {
             READ_CAPABILITY,
         )
         .docs_with_summary("Read a job.", "Returns one background job by id.")
+        .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR, NOT_FOUND_ERROR]),
+    )
+    .rpc(
+        "Jobs.GetKey",
+        admin_rpc(
+            "Jobs.GetKey",
+            "JobsGetKeyRequest",
+            "JobsGetKeyResponse",
+            READ_CAPABILITY,
+        )
+        .docs_with_summary(
+            "Read keyed job concurrency state.",
+            "Returns projection-backed keyed concurrency state for one service job key.",
+        )
         .with_error_types([UNEXPECTED_ERROR, VALIDATION_ERROR, NOT_FOUND_ERROR]),
     )
     .rpc(
@@ -284,6 +302,7 @@ fn job_schema() -> Value {
         "properties": {
             "id": { "type": "string", "minLength": 1 },
             "context": job_context_schema(),
+            "concurrency": job_concurrency_metadata_schema(),
             "service": { "type": "string", "minLength": 1 },
             "type": { "type": "string", "minLength": 1 },
             "state": job_state_schema(),
@@ -298,7 +317,35 @@ fn job_schema() -> Value {
             "lastError": { "type": "string" },
             "deadline": { "type": "string", "format": "date-time" },
             "progress": job_progress_schema(),
+            "queuePolicy": job_queue_policy_metadata_schema(),
             "logs": { "type": "array", "items": job_log_entry_schema() }
+        }
+    })
+}
+
+fn job_concurrency_metadata_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["key", "keyHash"],
+        "properties": {
+            "key": { "type": "string", "minLength": 1 },
+            "keyHash": { "type": "string", "minLength": 1 },
+            "heartbeatAt": { "type": "string", "format": "date-time" },
+            "leaseExpiresAt": { "type": "string", "format": "date-time" },
+            "staleTakeoverCount": { "type": "integer", "minimum": 0 }
+        }
+    })
+}
+
+fn job_queue_policy_metadata_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["outcome"],
+        "properties": {
+            "outcome": { "type": "string", "minLength": 1 },
+            "reason": { "type": "string", "minLength": 1 },
+            "existingJobId": { "type": "string", "minLength": 1 },
+            "replacedJobId": { "type": "string", "minLength": 1 }
         }
     })
 }
@@ -325,6 +372,18 @@ fn job_list_request_schema() -> Value {
             "since": { "type": "string", "format": "date-time" },
             "offset": { "type": "integer", "minimum": 0 },
             "limit": { "type": "integer", "minimum": 1 }
+        }
+    })
+}
+
+fn jobs_get_key_request_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["service", "type", "key"],
+        "properties": {
+            "service": { "type": "string", "minLength": 1 },
+            "type": { "type": "string", "minLength": 1 },
+            "key": { "type": "string", "minLength": 1 }
         }
     })
 }
@@ -428,6 +487,57 @@ fn jobs_get_response_schema() -> Value {
         "required": ["job"],
         "properties": {
             "job": job_schema()
+        }
+    })
+}
+
+fn jobs_get_key_response_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": [
+            "service",
+            "type",
+            "key",
+            "keyHash",
+            "active",
+            "queued",
+            "queuedDepth",
+            "staleTakeoverCount"
+        ],
+        "properties": {
+            "service": { "type": "string", "minLength": 1 },
+            "type": { "type": "string", "minLength": 1 },
+            "key": { "type": "string", "minLength": 1 },
+            "keyHash": { "type": "string", "minLength": 1 },
+            "active": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["jobId", "instanceId", "startedAt", "heartbeatAt", "heartbeatAgeMs", "leaseExpiresAt"],
+                    "properties": {
+                        "jobId": { "type": "string", "minLength": 1 },
+                        "instanceId": { "type": "string" },
+                        "startedAt": { "type": "string", "format": "date-time" },
+                        "heartbeatAt": { "type": "string", "format": "date-time" },
+                        "heartbeatAgeMs": { "type": "integer", "minimum": 0 },
+                        "leaseExpiresAt": { "type": "string", "format": "date-time" }
+                    }
+                }
+            },
+            "queued": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["jobId", "createdAt"],
+                    "properties": {
+                        "jobId": { "type": "string", "minLength": 1 },
+                        "createdAt": { "type": "string", "format": "date-time" }
+                    }
+                }
+            },
+            "queuedDepth": { "type": "integer", "minimum": 0 },
+            "staleTakeoverCount": { "type": "integer", "minimum": 0 },
+            "latestPolicyReason": { "type": "string", "minLength": 1 }
         }
     })
 }

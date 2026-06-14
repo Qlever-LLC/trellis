@@ -94,6 +94,8 @@ fn sample_bindings() -> JobsBinding {
                 progress: true,
                 logs: true,
                 concurrency: 1,
+                key_concurrency: None,
+                queue: None,
             },
         )]),
     }
@@ -118,6 +120,8 @@ fn sample_job(tries: u64, max_tries: u64) -> Job {
         deadline: None,
         progress: None,
         logs: None,
+        concurrency: None,
+        queue_policy: None,
     }
 }
 

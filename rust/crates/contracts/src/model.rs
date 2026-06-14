@@ -406,6 +406,49 @@ pub struct ContractStoreResource {
     pub docs: Option<ContractDocs>,
 }
 
+/// Stale active-key policy for keyed jobs queues.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum JobKeyConcurrencyStalePolicy {
+    FailStale,
+    Block,
+}
+
+/// Per-key active job policy for one logical jobs queue.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct JobKeyConcurrencyDescriptor {
+    pub key: Vec<String>,
+    #[serde(rename = "maxActive", skip_serializing_if = "Option::is_none")]
+    pub max_active: Option<i64>,
+    #[serde(
+        rename = "heartbeatIntervalMs",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub heartbeat_interval_ms: Option<i64>,
+    #[serde(rename = "heartbeatTtlMs", skip_serializing_if = "Option::is_none")]
+    pub heartbeat_ttl_ms: Option<i64>,
+    #[serde(rename = "stalePolicy", skip_serializing_if = "Option::is_none")]
+    pub stale_policy: Option<JobKeyConcurrencyStalePolicy>,
+}
+
+/// Queue-depth policy for one keyed jobs queue.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct JobQueueDepthDescriptor {
+    #[serde(rename = "maxQueuedPerKey", skip_serializing_if = "Option::is_none")]
+    pub max_queued_per_key: Option<i64>,
+    #[serde(rename = "whenFull", skip_serializing_if = "Option::is_none")]
+    pub when_full: Option<JobQueueWhenFullPolicy>,
+}
+
+/// Admission behavior when a keyed queue is full for a derived key.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum JobQueueWhenFullPolicy {
+    Reject,
+    Coalesce,
+    ReplaceOldest,
+}
+
 /// One logical jobs queue declaration in a contract manifest.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ContractJobQueueResource {
@@ -428,6 +471,10 @@ pub struct ContractJobQueueResource {
     pub dlq: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency: Option<i64>,
+    #[serde(rename = "keyConcurrency", skip_serializing_if = "Option::is_none")]
+    pub key_concurrency: Option<JobKeyConcurrencyDescriptor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue: Option<JobQueueDepthDescriptor>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub docs: Option<ContractDocs>,
 }

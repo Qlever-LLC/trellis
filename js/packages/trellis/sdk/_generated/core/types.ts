@@ -4,7 +4,7 @@ import type { API } from "./api.ts";
 
 export const CONTRACT_ID = "trellis.core@v1" as const;
 export const CONTRACT_DIGEST =
-  "L4HW6uUIxDhK1Kpa_PUxpumoMberMgiCgJTNN5Qvje0" as const;
+  "1vbZgyhBkgKDSkzqvkwItxObBfaLNdysxFBeTT-Ng2c" as const;
 
 export type TrellisBindingsGetInput = { contractId?: string; digest?: string };
 export type TrellisBindingsGetOutput = {
@@ -35,11 +35,22 @@ export type TrellisBindingsGetOutput = {
             consumerName: string;
             defaultDeadlineMs?: number;
             dlq: boolean;
+            keyConcurrency?: {
+              heartbeatIntervalMs: number;
+              heartbeatTtlMs: number;
+              key: Array<string>;
+              maxActive: number;
+              stalePolicy: "fail-stale" | "block";
+            };
             logs: boolean;
             maxDeliver: number;
             payload: { schema: string };
             progress: boolean;
             publishPrefix: string;
+            queue?: {
+              maxQueuedPerKey: number;
+              whenFull: "reject" | "coalesce" | "replace-oldest";
+            };
             queueType: string;
             result?: { schema: string };
             workSubject: string;
@@ -138,10 +149,21 @@ export type TrellisContractGetOutput = {
         defaultDeadlineMs?: number;
         dlq?: boolean;
         docs?: { markdown: string; summary?: string };
+        keyConcurrency?: {
+          heartbeatIntervalMs?: number;
+          heartbeatTtlMs?: number;
+          key: Array<string>;
+          maxActive?: number;
+          stalePolicy?: "fail-stale" | "block";
+        };
         logs?: boolean;
         maxDeliver?: number;
         payload: { schema: string };
         progress?: boolean;
+        queue?: {
+          maxQueuedPerKey?: number;
+          whenFull?: "reject" | "coalesce" | "replace-oldest";
+        };
         result?: { schema: string };
       };
     };

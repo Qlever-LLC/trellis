@@ -590,6 +590,10 @@ function jobsDefinition(queue: JobsQueueRequest): Record<string, unknown> {
     logs: queue.logs,
     dlq: queue.dlq,
     concurrency: queue.concurrency,
+    ...(queue.keyConcurrency === undefined
+      ? {}
+      : { keyConcurrency: queue.keyConcurrency }),
+    ...(queue.queue === undefined ? {} : { queue: queue.queue }),
   };
 }
 

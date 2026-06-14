@@ -37,6 +37,73 @@ const contract = defineServiceContract({ schemas }, (ref) => ({
       result: ref.schema("JobResult"),
       concurrency: 2,
     },
+    rustKeyedConcurrency: {
+      payload: ref.schema("JobPayload"),
+      result: ref.schema("JobResult"),
+      concurrency: 2,
+      ackWaitMs: 5000,
+      keyConcurrency: {
+        key: ["/documentId"],
+        maxActive: 1,
+        heartbeatIntervalMs: 30000,
+        heartbeatTtlMs: 60000,
+        stalePolicy: "fail-stale",
+      },
+      queue: { maxQueuedPerKey: 2, whenFull: "reject" },
+    },
+    rustKeyedReject: {
+      payload: ref.schema("JobPayload"),
+      result: ref.schema("JobResult"),
+      concurrency: 1,
+      keyConcurrency: {
+        key: ["/documentId"],
+        maxActive: 1,
+        heartbeatIntervalMs: 30000,
+        heartbeatTtlMs: 60000,
+        stalePolicy: "fail-stale",
+      },
+      queue: { maxQueuedPerKey: 0, whenFull: "reject" },
+    },
+    rustKeyedCoalesce: {
+      payload: ref.schema("JobPayload"),
+      result: ref.schema("JobResult"),
+      concurrency: 1,
+      keyConcurrency: {
+        key: ["/documentId"],
+        maxActive: 1,
+        heartbeatIntervalMs: 30000,
+        heartbeatTtlMs: 60000,
+        stalePolicy: "fail-stale",
+      },
+      queue: { maxQueuedPerKey: 0, whenFull: "coalesce" },
+    },
+    rustKeyedReplace: {
+      payload: ref.schema("JobPayload"),
+      result: ref.schema("JobResult"),
+      concurrency: 1,
+      keyConcurrency: {
+        key: ["/documentId"],
+        maxActive: 1,
+        heartbeatIntervalMs: 30000,
+        heartbeatTtlMs: 60000,
+        stalePolicy: "fail-stale",
+      },
+      queue: { maxQueuedPerKey: 1, whenFull: "replace-oldest" },
+    },
+    rustKeyedStale: {
+      payload: ref.schema("JobPayload"),
+      result: ref.schema("JobResult"),
+      concurrency: 1,
+      ackWaitMs: 5000,
+      keyConcurrency: {
+        key: ["/documentId"],
+        maxActive: 1,
+        heartbeatIntervalMs: 30000,
+        heartbeatTtlMs: 60000,
+        stalePolicy: "fail-stale",
+      },
+      queue: { maxQueuedPerKey: 2, whenFull: "reject" },
+    },
     rustNaturalDead: {
       payload: ref.schema("JobPayload"),
       result: ref.schema("JobResult"),
@@ -184,6 +251,16 @@ if (
   );
 }
 console.log(`TS_CREATED_RUST_JOBS_COMPLETED ${rustRef.id}`);
+
+const typedSubmitOutcome = await service.jobs.rustKeyedReject.submit({
+  documentId: "ts-keyed-submit-typing",
+}).orThrow();
+if (typedSubmitOutcome.kind !== "accepted") {
+  throw new Error(
+    `expected TS typed keyed submit to accept, got ${typedSubmitOutcome.kind}`,
+  );
+}
+console.log(`TS_KEYED_SUBMIT_TYPED ${typedSubmitOutcome.ref.id}`);
 
 const cancelRef = await service.jobs.tsProcess.create({
   documentId: "ts-active-cancel",

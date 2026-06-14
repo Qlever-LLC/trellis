@@ -21,6 +21,8 @@ pub enum JobState {
     Failed,
     Cancelled,
     Expired,
+    Skipped,
+    Stale,
     Dead,
     Dismissed,
 }
@@ -37,6 +39,11 @@ pub enum JobEventType {
     Failed,
     Cancelled,
     Expired,
+    Skipped,
+    Stale,
+    Heartbeat,
+    #[serde(rename = "staleCompletionIgnored")]
+    StaleCompletionIgnored,
     Retried,
     Dead,
     Dismissed,
@@ -54,11 +61,57 @@ impl JobEventType {
             Self::Failed => "failed",
             Self::Cancelled => "cancelled",
             Self::Expired => "expired",
+            Self::Skipped => "skipped",
+            Self::Stale => "stale",
+            Self::Heartbeat => "heartbeat",
+            Self::StaleCompletionIgnored => "staleCompletionIgnored",
             Self::Retried => "retried",
             Self::Dead => "dead",
             Self::Dismissed => "dismissed",
         }
     }
+}
+
+/// Keyed-concurrency metadata carried by lifecycle events and projections.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobConcurrency {
+    pub key: String,
+    pub key_hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slot_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heartbeat_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lease_expires_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stale_takeover_count: Option<u64>,
+}
+
+/// Queue-policy outcome recorded on keyed lifecycle events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum JobQueuePolicyOutcome {
+    Accepted,
+    Rejected,
+    Coalesced,
+    Replaced,
+}
+
+/// Queue-policy metadata carried by lifecycle events and projections.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobQueuePolicy {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<JobQueuePolicyOutcome>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub existing_job_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replaced_job_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -116,6 +169,10 @@ pub struct Job {
     pub progress: Option<JobProgress>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logs: Option<Vec<JobLogEntry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency: Option<JobConcurrency>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue_policy: Option<JobQueuePolicy>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -144,6 +201,10 @@ pub struct JobEvent {
     pub result: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deadline: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency: Option<JobConcurrency>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue_policy: Option<JobQueuePolicy>,
     pub timestamp: String,
 }
 

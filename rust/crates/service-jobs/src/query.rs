@@ -14,18 +14,21 @@ use trellis_rs::jobs::{
 
 use trellis_rs::sdk::jobs::types::{
     JobsCancelRequest, JobsCancelResponse, JobsDismissDLQRequest, JobsDismissDLQResponse,
-    JobsGetRequest, JobsGetResponse, JobsListDLQRequest, JobsListDLQResponse,
-    JobsListDLQResponseEntriesItem, JobsListRequest, JobsListResponse, JobsListResponseEntriesItem,
-    JobsListServicesRequest, JobsListServicesResponse, JobsListServicesResponseEntriesItem,
-    JobsListServicesResponseEntriesItemWorkersItem, JobsReplayDLQRequest, JobsReplayDLQResponse,
-    JobsRetryRequest, JobsRetryResponse,
+    JobsGetKeyRequest, JobsGetKeyResponse, JobsGetKeyResponseActiveItem,
+    JobsGetKeyResponseQueuedItem, JobsGetRequest, JobsGetResponse, JobsListDLQRequest,
+    JobsListDLQResponse, JobsListDLQResponseEntriesItem, JobsListRequest, JobsListResponse,
+    JobsListResponseEntriesItem, JobsListServicesRequest, JobsListServicesResponse,
+    JobsListServicesResponseEntriesItem, JobsListServicesResponseEntriesItemWorkersItem,
+    JobsReplayDLQRequest, JobsReplayDLQResponse, JobsRetryRequest, JobsRetryResponse,
 };
 
 mod resources;
 mod state;
 mod wire;
 use crate::paths::jobs_db_path_from_env;
-use crate::storage::{ListJobsFilter, SqliteJobsStore, SqliteJobsStoreError};
+use crate::storage::{
+    JobProjectionMetadata, ListJobsFilter, SqliteJobsStore, SqliteJobsStoreError,
+};
 use crate::worker_presence::WORKER_PRESENCE_FRESH_FOR;
 
 pub use resources::{
@@ -163,7 +166,10 @@ impl JobsQuery {
             entries: page
                 .jobs
                 .iter()
-                .map(job_to_list_item)
+                .map(|job| {
+                    let metadata = self.job_metadata(job)?;
+                    job_to_list_item(job, &metadata)
+                })
                 .collect::<Result<Vec<JobsListResponseEntriesItem>, _>>()?,
             limit: to_wire_integer(page.limit),
             next_offset: page.next_offset.map(to_wire_integer),
@@ -184,7 +190,60 @@ impl JobsQuery {
             })?;
 
         Ok(JobsGetResponse {
-            job: job_to_get_item(&job)?,
+            job: job_to_get_item(&job, &self.job_metadata(&job)?)?,
+        })
+    }
+
+    /// Fetch projection-backed keyed-concurrency state by service, job type, and display key.
+    ///
+    /// This path currently reads SQLite projection state only. The Jobs admin binding does not yet
+    /// expose a `JOBS_KEYS` KV handle here, so very recent runtime coordinator updates may be newer
+    /// than this response until lifecycle events are projected.
+    pub async fn get_key(
+        &self,
+        request: &JobsGetKeyRequest,
+    ) -> Result<JobsGetKeyResponse, JobsQueryError> {
+        let key = self
+            .store
+            .get_projected_key(&request.service, &request.r#type, &request.key)?
+            .ok_or_else(|| JobsQueryError::JobNotFound {
+                key: format!("{}/{}/{}", request.service, request.r#type, request.key),
+            })?;
+        let now = OffsetDateTime::now_utc();
+
+        Ok(JobsGetKeyResponse {
+            active: key
+                .active
+                .iter()
+                .filter_map(|active| {
+                    let started_at = active.started_at.clone()?;
+                    let heartbeat_at = active.heartbeat_at.clone()?;
+                    let lease_expires_at = active.lease_expires_at.clone()?;
+                    Some(JobsGetKeyResponseActiveItem {
+                        heartbeat_age_ms: heartbeat_age_ms(&heartbeat_at, now),
+                        heartbeat_at,
+                        instance_id: active.instance_id.clone().unwrap_or_default(),
+                        job_id: active.job_id.clone(),
+                        lease_expires_at,
+                        started_at,
+                    })
+                })
+                .collect(),
+            key: key.key,
+            key_hash: key.key_hash,
+            latest_policy_reason: key.latest_policy_reason,
+            queued_depth: to_wire_integer(u64::try_from(key.queued.len()).unwrap_or(u64::MAX)),
+            queued: key
+                .queued
+                .iter()
+                .map(|queued| JobsGetKeyResponseQueuedItem {
+                    created_at: queued.created_at.clone(),
+                    job_id: queued.job_id.clone(),
+                })
+                .collect(),
+            service: key.service,
+            stale_takeover_count: to_wire_integer(key.stale_takeover_count),
+            r#type: key.job_type,
         })
     }
 
@@ -213,7 +272,7 @@ impl JobsQuery {
             .await?;
 
         Ok(JobsCancelResponse {
-            job: job_to_cancel_item(&job)?,
+            job: job_to_cancel_item(&job, &self.job_metadata(&job)?)?,
         })
     }
 
@@ -240,7 +299,7 @@ impl JobsQuery {
             .await?;
 
         Ok(JobsRetryResponse {
-            job: job_to_retry_item(&job)?,
+            job: job_to_retry_item(&job, &self.job_metadata(&job)?)?,
         })
     }
 
@@ -264,7 +323,10 @@ impl JobsQuery {
             entries: page
                 .jobs
                 .iter()
-                .map(job_to_dlq_item)
+                .map(|job| {
+                    let metadata = self.job_metadata(job)?;
+                    job_to_dlq_item(job, &metadata)
+                })
                 .collect::<Result<Vec<JobsListDLQResponseEntriesItem>, _>>()?,
             limit: to_wire_integer(page.limit),
             next_offset: page.next_offset.map(to_wire_integer),
@@ -295,7 +357,7 @@ impl JobsQuery {
             .await?;
 
         Ok(JobsReplayDLQResponse {
-            job: job_to_replay_item(&job)?,
+            job: job_to_replay_item(&job, &self.job_metadata(&job)?)?,
         })
     }
 
@@ -321,8 +383,15 @@ impl JobsQuery {
             .await?;
 
         Ok(JobsDismissDLQResponse {
-            job: job_to_dismiss_item(&job)?,
+            job: job_to_dismiss_item(&job, &self.job_metadata(&job)?)?,
         })
+    }
+
+    fn job_metadata(&self, job: &Job) -> Result<JobProjectionMetadata, JobsQueryError> {
+        Ok(self
+            .store
+            .get_job_metadata(&job.service, &job.job_type, &job.id)?
+            .unwrap_or_default())
     }
 
     async fn transition_job<F>(
@@ -431,6 +500,18 @@ fn parse_since_filter(value: Option<&str>) -> Result<Option<OffsetDateTime>, Job
             })
         })
         .transpose()
+}
+
+fn heartbeat_age_ms(heartbeat_at: &str, now: OffsetDateTime) -> i64 {
+    let Some(heartbeat_at) = OffsetDateTime::parse(heartbeat_at, &Rfc3339).ok() else {
+        return 0;
+    };
+    let age = (now - heartbeat_at).whole_milliseconds();
+    if age < 0 {
+        0
+    } else {
+        i64::try_from(age).unwrap_or(i64::MAX)
+    }
 }
 
 fn parse_positive_integer(field: &'static str, value: i64) -> Result<u64, JobsQueryError> {

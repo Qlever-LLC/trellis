@@ -1,9 +1,13 @@
 use futures_util::future::BoxFuture;
 
 use crate::client::TrellisClientError;
+use crate::jobs::bindings::{
+    JobKeyConcurrencyBinding, JobKeyStalePolicy, JobQueueDepthBinding, JobQueueWhenFull,
+};
 use crate::sdk::core::types::{
     TrellisBindingsGetRequest, TrellisBindingsGetResponse, TrellisBindingsGetResponseBinding,
-    TrellisCatalogResponse,
+    TrellisBindingsGetResponseBindingResourcesJobsQueuesValueKeyConcurrency,
+    TrellisBindingsGetResponseBindingResourcesJobsQueuesValueQueue, TrellisCatalogResponse,
 };
 use crate::sdk::core::{rpc::TrellisBindingsGetRpc, CoreClient};
 
@@ -153,6 +157,10 @@ fn resource_bindings_from_core_binding(
                                 logs: queue.logs,
                                 dlq: queue.dlq,
                                 concurrency: queue.concurrency,
+                                key_concurrency: queue
+                                    .key_concurrency
+                                    .map(job_key_concurrency_binding_from_core),
+                                queue: queue.queue.map(job_queue_depth_binding_from_core),
                             },
                         )
                     })
@@ -188,6 +196,34 @@ fn resource_bindings_from_core_binding(
                 )
             })
             .collect(),
+    }
+}
+
+fn job_key_concurrency_binding_from_core(
+    value: TrellisBindingsGetResponseBindingResourcesJobsQueuesValueKeyConcurrency,
+) -> JobKeyConcurrencyBinding {
+    JobKeyConcurrencyBinding {
+        key: value.key,
+        max_active: u32::try_from(value.max_active).unwrap_or(u32::MAX),
+        heartbeat_interval_ms: u64::try_from(value.heartbeat_interval_ms).unwrap_or(0),
+        heartbeat_ttl_ms: u64::try_from(value.heartbeat_ttl_ms).unwrap_or(0),
+        stale_policy: match value.stale_policy.as_str() {
+            "block" => JobKeyStalePolicy::Block,
+            _ => JobKeyStalePolicy::FailStale,
+        },
+    }
+}
+
+fn job_queue_depth_binding_from_core(
+    value: TrellisBindingsGetResponseBindingResourcesJobsQueuesValueQueue,
+) -> JobQueueDepthBinding {
+    JobQueueDepthBinding {
+        max_queued_per_key: u64::try_from(value.max_queued_per_key).unwrap_or(0),
+        when_full: match value.when_full.as_str() {
+            "coalesce" => JobQueueWhenFull::Coalesce,
+            "replace-oldest" => JobQueueWhenFull::ReplaceOldest,
+            _ => JobQueueWhenFull::Reject,
+        },
     }
 }
 

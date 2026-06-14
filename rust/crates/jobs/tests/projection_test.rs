@@ -34,6 +34,8 @@ fn event(
         payload: None,
         result: None,
         deadline: None,
+        concurrency: None,
+        queue_policy: None,
         timestamp: "2026-03-28T12:00:00.000Z".to_string(),
     };
     overrides(&mut value);
@@ -224,6 +226,8 @@ fn reduce_job_event_rejects_started_when_previous_state_does_not_match_current()
         deadline: None,
         progress: None,
         logs: None,
+        concurrency: None,
+        queue_policy: None,
     };
 
     let started = event(JobEventType::Started, JobState::Active, |value| {
@@ -279,6 +283,18 @@ fn reduce_job_event_sets_completed_at_for_terminal_events() {
             JobState::Active,
             JobEventType::Expired,
             JobState::Expired,
+            JobState::Active,
+        ),
+        (
+            JobState::Retry,
+            JobEventType::Skipped,
+            JobState::Skipped,
+            JobState::Retry,
+        ),
+        (
+            JobState::Active,
+            JobEventType::Stale,
+            JobState::Stale,
             JobState::Active,
         ),
         (
@@ -366,6 +382,8 @@ fn reduce_job_event_preserves_terminal_state_for_non_retried_event() {
         deadline: None,
         progress: None,
         logs: None,
+        concurrency: None,
+        queue_policy: None,
     };
 
     let too_late_failed = event(JobEventType::Failed, JobState::Failed, |value| {
@@ -408,6 +426,8 @@ fn reduce_job_event_allows_retried_from_terminal_and_clears_runtime_fields() {
             level: JobLogLevel::Warn,
             message: "retrying".to_string(),
         }]),
+        concurrency: None,
+        queue_policy: None,
     };
 
     let retried = event(JobEventType::Retried, JobState::Pending, |value| {
@@ -531,6 +551,8 @@ fn reduce_job_event_rejects_non_retried_transitions_from_all_terminal_states() {
         JobState::Failed,
         JobState::Cancelled,
         JobState::Expired,
+        JobState::Skipped,
+        JobState::Stale,
         JobState::Dead,
     ] {
         let current = Job {
@@ -551,6 +573,8 @@ fn reduce_job_event_rejects_non_retried_transitions_from_all_terminal_states() {
             deadline: None,
             progress: None,
             logs: None,
+            concurrency: None,
+            queue_policy: None,
         };
 
         let started = event(JobEventType::Started, JobState::Active, |value| {

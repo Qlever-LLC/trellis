@@ -9,6 +9,22 @@ pub struct JobsCancelRequest {
 }
 /// Generated schema type `JobsCancelResponse`.
 /// Generated schema type `JobsCancelResponseJob`.
+/// Generated schema type `JobsCancelResponseJobConcurrency`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobsCancelResponseJobConcurrency {
+    #[serde(rename = "heartbeatAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heartbeat_at: Option<String>,
+    pub key: String,
+    #[serde(rename = "keyHash")]
+    pub key_hash: String,
+    #[serde(rename = "leaseExpiresAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lease_expires_at: Option<String>,
+    #[serde(rename = "staleTakeoverCount")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stale_takeover_count: Option<i64>,
+}
 /// Generated schema type `JobsCancelResponseJobContext`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsCancelResponseJobContext {
@@ -39,11 +55,26 @@ pub struct JobsCancelResponseJobProgress {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<i64>,
 }
+/// Generated schema type `JobsCancelResponseJobQueuePolicy`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobsCancelResponseJobQueuePolicy {
+    #[serde(rename = "existingJobId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub existing_job_id: Option<String>,
+    pub outcome: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(rename = "replacedJobId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replaced_job_id: Option<String>,
+}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsCancelResponseJob {
     #[serde(rename = "completedAt")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency: Option<JobsCancelResponseJobConcurrency>,
     pub context: JobsCancelResponseJobContext,
     #[serde(rename = "createdAt")]
     pub created_at: String,
@@ -60,6 +91,9 @@ pub struct JobsCancelResponseJob {
     pub payload: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub progress: Option<JobsCancelResponseJobProgress>,
+    #[serde(rename = "queuePolicy")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue_policy: Option<JobsCancelResponseJobQueuePolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Value>,
     pub service: String,
@@ -83,6 +117,22 @@ pub struct JobsDismissDLQRequest {
 }
 /// Generated schema type `JobsDismissDLQResponse`.
 /// Generated schema type `JobsDismissDLQResponseJob`.
+/// Generated schema type `JobsDismissDLQResponseJobConcurrency`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobsDismissDLQResponseJobConcurrency {
+    #[serde(rename = "heartbeatAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heartbeat_at: Option<String>,
+    pub key: String,
+    #[serde(rename = "keyHash")]
+    pub key_hash: String,
+    #[serde(rename = "leaseExpiresAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lease_expires_at: Option<String>,
+    #[serde(rename = "staleTakeoverCount")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stale_takeover_count: Option<i64>,
+}
 /// Generated schema type `JobsDismissDLQResponseJobContext`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsDismissDLQResponseJobContext {
@@ -113,11 +163,26 @@ pub struct JobsDismissDLQResponseJobProgress {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<i64>,
 }
+/// Generated schema type `JobsDismissDLQResponseJobQueuePolicy`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobsDismissDLQResponseJobQueuePolicy {
+    #[serde(rename = "existingJobId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub existing_job_id: Option<String>,
+    pub outcome: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(rename = "replacedJobId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replaced_job_id: Option<String>,
+}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsDismissDLQResponseJob {
     #[serde(rename = "completedAt")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency: Option<JobsDismissDLQResponseJobConcurrency>,
     pub context: JobsDismissDLQResponseJobContext,
     #[serde(rename = "createdAt")]
     pub created_at: String,
@@ -134,6 +199,9 @@ pub struct JobsDismissDLQResponseJob {
     pub payload: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub progress: Option<JobsDismissDLQResponseJobProgress>,
+    #[serde(rename = "queuePolicy")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue_policy: Option<JobsDismissDLQResponseJobQueuePolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Value>,
     pub service: String,
@@ -157,6 +225,22 @@ pub struct JobsGetRequest {
 }
 /// Generated schema type `JobsGetResponse`.
 /// Generated schema type `JobsGetResponseJob`.
+/// Generated schema type `JobsGetResponseJobConcurrency`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobsGetResponseJobConcurrency {
+    #[serde(rename = "heartbeatAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heartbeat_at: Option<String>,
+    pub key: String,
+    #[serde(rename = "keyHash")]
+    pub key_hash: String,
+    #[serde(rename = "leaseExpiresAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lease_expires_at: Option<String>,
+    #[serde(rename = "staleTakeoverCount")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stale_takeover_count: Option<i64>,
+}
 /// Generated schema type `JobsGetResponseJobContext`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsGetResponseJobContext {
@@ -187,11 +271,26 @@ pub struct JobsGetResponseJobProgress {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<i64>,
 }
+/// Generated schema type `JobsGetResponseJobQueuePolicy`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobsGetResponseJobQueuePolicy {
+    #[serde(rename = "existingJobId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub existing_job_id: Option<String>,
+    pub outcome: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(rename = "replacedJobId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replaced_job_id: Option<String>,
+}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsGetResponseJob {
     #[serde(rename = "completedAt")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency: Option<JobsGetResponseJobConcurrency>,
     pub context: JobsGetResponseJobContext,
     #[serde(rename = "createdAt")]
     pub created_at: String,
@@ -208,6 +307,9 @@ pub struct JobsGetResponseJob {
     pub payload: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub progress: Option<JobsGetResponseJobProgress>,
+    #[serde(rename = "queuePolicy")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue_policy: Option<JobsGetResponseJobQueuePolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Value>,
     pub service: String,
@@ -223,6 +325,55 @@ pub struct JobsGetResponseJob {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsGetResponse {
     pub job: JobsGetResponseJob,
+}
+/// Generated schema type `JobsGetKeyRequest`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobsGetKeyRequest {
+    pub key: String,
+    pub service: String,
+    pub r#type: String,
+}
+/// Generated schema type `JobsGetKeyResponse`.
+/// Generated schema type `JobsGetKeyResponseActiveItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobsGetKeyResponseActiveItem {
+    #[serde(rename = "heartbeatAgeMs")]
+    pub heartbeat_age_ms: i64,
+    #[serde(rename = "heartbeatAt")]
+    pub heartbeat_at: String,
+    #[serde(rename = "instanceId")]
+    pub instance_id: String,
+    #[serde(rename = "jobId")]
+    pub job_id: String,
+    #[serde(rename = "leaseExpiresAt")]
+    pub lease_expires_at: String,
+    #[serde(rename = "startedAt")]
+    pub started_at: String,
+}
+/// Generated schema type `JobsGetKeyResponseQueuedItem`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobsGetKeyResponseQueuedItem {
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(rename = "jobId")]
+    pub job_id: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobsGetKeyResponse {
+    pub active: Vec<JobsGetKeyResponseActiveItem>,
+    pub key: String,
+    #[serde(rename = "keyHash")]
+    pub key_hash: String,
+    #[serde(rename = "latestPolicyReason")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_policy_reason: Option<String>,
+    pub queued: Vec<JobsGetKeyResponseQueuedItem>,
+    #[serde(rename = "queuedDepth")]
+    pub queued_depth: i64,
+    pub service: String,
+    #[serde(rename = "staleTakeoverCount")]
+    pub stale_takeover_count: i64,
+    pub r#type: String,
 }
 /// Generated schema type `JobsHealthResponse`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -249,6 +400,22 @@ pub struct JobsListRequest {
 }
 /// Generated schema type `JobsListResponse`.
 /// Generated schema type `JobsListResponseEntriesItem`.
+/// Generated schema type `JobsListResponseEntriesItemConcurrency`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobsListResponseEntriesItemConcurrency {
+    #[serde(rename = "heartbeatAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heartbeat_at: Option<String>,
+    pub key: String,
+    #[serde(rename = "keyHash")]
+    pub key_hash: String,
+    #[serde(rename = "leaseExpiresAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lease_expires_at: Option<String>,
+    #[serde(rename = "staleTakeoverCount")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stale_takeover_count: Option<i64>,
+}
 /// Generated schema type `JobsListResponseEntriesItemContext`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsListResponseEntriesItemContext {
@@ -279,11 +446,26 @@ pub struct JobsListResponseEntriesItemProgress {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<i64>,
 }
+/// Generated schema type `JobsListResponseEntriesItemQueuePolicy`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobsListResponseEntriesItemQueuePolicy {
+    #[serde(rename = "existingJobId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub existing_job_id: Option<String>,
+    pub outcome: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(rename = "replacedJobId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replaced_job_id: Option<String>,
+}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsListResponseEntriesItem {
     #[serde(rename = "completedAt")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency: Option<JobsListResponseEntriesItemConcurrency>,
     pub context: JobsListResponseEntriesItemContext,
     #[serde(rename = "createdAt")]
     pub created_at: String,
@@ -300,6 +482,9 @@ pub struct JobsListResponseEntriesItem {
     pub payload: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub progress: Option<JobsListResponseEntriesItemProgress>,
+    #[serde(rename = "queuePolicy")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue_policy: Option<JobsListResponseEntriesItemQueuePolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Value>,
     pub service: String,
@@ -337,6 +522,22 @@ pub struct JobsListDLQRequest {
 }
 /// Generated schema type `JobsListDLQResponse`.
 /// Generated schema type `JobsListDLQResponseEntriesItem`.
+/// Generated schema type `JobsListDLQResponseEntriesItemConcurrency`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobsListDLQResponseEntriesItemConcurrency {
+    #[serde(rename = "heartbeatAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heartbeat_at: Option<String>,
+    pub key: String,
+    #[serde(rename = "keyHash")]
+    pub key_hash: String,
+    #[serde(rename = "leaseExpiresAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lease_expires_at: Option<String>,
+    #[serde(rename = "staleTakeoverCount")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stale_takeover_count: Option<i64>,
+}
 /// Generated schema type `JobsListDLQResponseEntriesItemContext`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsListDLQResponseEntriesItemContext {
@@ -367,11 +568,26 @@ pub struct JobsListDLQResponseEntriesItemProgress {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<i64>,
 }
+/// Generated schema type `JobsListDLQResponseEntriesItemQueuePolicy`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobsListDLQResponseEntriesItemQueuePolicy {
+    #[serde(rename = "existingJobId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub existing_job_id: Option<String>,
+    pub outcome: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(rename = "replacedJobId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replaced_job_id: Option<String>,
+}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsListDLQResponseEntriesItem {
     #[serde(rename = "completedAt")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency: Option<JobsListDLQResponseEntriesItemConcurrency>,
     pub context: JobsListDLQResponseEntriesItemContext,
     #[serde(rename = "createdAt")]
     pub created_at: String,
@@ -388,6 +604,9 @@ pub struct JobsListDLQResponseEntriesItem {
     pub payload: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub progress: Option<JobsListDLQResponseEntriesItemProgress>,
+    #[serde(rename = "queuePolicy")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue_policy: Option<JobsListDLQResponseEntriesItemQueuePolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Value>,
     pub service: String,
@@ -456,6 +675,22 @@ pub struct JobsReplayDLQRequest {
 }
 /// Generated schema type `JobsReplayDLQResponse`.
 /// Generated schema type `JobsReplayDLQResponseJob`.
+/// Generated schema type `JobsReplayDLQResponseJobConcurrency`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobsReplayDLQResponseJobConcurrency {
+    #[serde(rename = "heartbeatAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heartbeat_at: Option<String>,
+    pub key: String,
+    #[serde(rename = "keyHash")]
+    pub key_hash: String,
+    #[serde(rename = "leaseExpiresAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lease_expires_at: Option<String>,
+    #[serde(rename = "staleTakeoverCount")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stale_takeover_count: Option<i64>,
+}
 /// Generated schema type `JobsReplayDLQResponseJobContext`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsReplayDLQResponseJobContext {
@@ -486,11 +721,26 @@ pub struct JobsReplayDLQResponseJobProgress {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<i64>,
 }
+/// Generated schema type `JobsReplayDLQResponseJobQueuePolicy`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobsReplayDLQResponseJobQueuePolicy {
+    #[serde(rename = "existingJobId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub existing_job_id: Option<String>,
+    pub outcome: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(rename = "replacedJobId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replaced_job_id: Option<String>,
+}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsReplayDLQResponseJob {
     #[serde(rename = "completedAt")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency: Option<JobsReplayDLQResponseJobConcurrency>,
     pub context: JobsReplayDLQResponseJobContext,
     #[serde(rename = "createdAt")]
     pub created_at: String,
@@ -507,6 +757,9 @@ pub struct JobsReplayDLQResponseJob {
     pub payload: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub progress: Option<JobsReplayDLQResponseJobProgress>,
+    #[serde(rename = "queuePolicy")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue_policy: Option<JobsReplayDLQResponseJobQueuePolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Value>,
     pub service: String,
@@ -530,6 +783,22 @@ pub struct JobsRetryRequest {
 }
 /// Generated schema type `JobsRetryResponse`.
 /// Generated schema type `JobsRetryResponseJob`.
+/// Generated schema type `JobsRetryResponseJobConcurrency`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobsRetryResponseJobConcurrency {
+    #[serde(rename = "heartbeatAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heartbeat_at: Option<String>,
+    pub key: String,
+    #[serde(rename = "keyHash")]
+    pub key_hash: String,
+    #[serde(rename = "leaseExpiresAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lease_expires_at: Option<String>,
+    #[serde(rename = "staleTakeoverCount")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stale_takeover_count: Option<i64>,
+}
 /// Generated schema type `JobsRetryResponseJobContext`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsRetryResponseJobContext {
@@ -560,11 +829,26 @@ pub struct JobsRetryResponseJobProgress {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<i64>,
 }
+/// Generated schema type `JobsRetryResponseJobQueuePolicy`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobsRetryResponseJobQueuePolicy {
+    #[serde(rename = "existingJobId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub existing_job_id: Option<String>,
+    pub outcome: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(rename = "replacedJobId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replaced_job_id: Option<String>,
+}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobsRetryResponseJob {
     #[serde(rename = "completedAt")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency: Option<JobsRetryResponseJobConcurrency>,
     pub context: JobsRetryResponseJobContext,
     #[serde(rename = "createdAt")]
     pub created_at: String,
@@ -581,6 +865,9 @@ pub struct JobsRetryResponseJob {
     pub payload: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub progress: Option<JobsRetryResponseJobProgress>,
+    #[serde(rename = "queuePolicy")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue_policy: Option<JobsRetryResponseJobQueuePolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Value>,
     pub service: String,

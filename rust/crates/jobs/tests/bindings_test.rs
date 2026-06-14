@@ -1,13 +1,16 @@
 use std::collections::BTreeMap;
 
 use serde_json::json;
-use trellis_jobs::bindings::{parse_jobs_binding, JobsBindingError, JobsRuntimeBinding};
-use trellis_rs::sdk::core::types::{
+use trellis_jobs::bindings::{
+    parse_jobs_binding, JobKeyStalePolicy, JobQueueWhenFull, JobsBindingError, JobsRuntimeBinding,
+};
+use trellis_sdk_core::types::{
     TrellisBindingsGetResponseBinding, TrellisBindingsGetResponseBindingResources,
     TrellisBindingsGetResponseBindingResourcesJobs,
     TrellisBindingsGetResponseBindingResourcesJobsQueuesValue,
     TrellisBindingsGetResponseBindingResourcesJobsQueuesValuePayload,
     TrellisBindingsGetResponseBindingResourcesJobsQueuesValueResult,
+    TrellisBindingsGetResponseBindingResourcesKvValue,
 };
 
 #[test]
@@ -56,6 +59,53 @@ fn parse_jobs_binding_maps_queue_values() {
 }
 
 #[test]
+fn parse_jobs_binding_maps_keyed_queue_policy() {
+    let binding = parse_jobs_binding(
+        "documents",
+        &BTreeMap::from([(
+            "sync-tickets".to_string(),
+            json!({
+                "publishPrefix": "trellis.jobs.documents.sync-tickets",
+                "workSubject": "trellis.work.documents.sync-tickets",
+                "consumerName": "documents-sync-tickets",
+                "maxDeliver": 5,
+                "backoffMs": [5000, 30000],
+                "ackWaitMs": 90000,
+                "progress": true,
+                "logs": true,
+                "concurrency": 8,
+                "keyConcurrency": {
+                    "key": ["zendesk", "/origin", "tickets"],
+                    "maxActive": 1,
+                    "heartbeatIntervalMs": 30000,
+                    "heartbeatTtlMs": 90000,
+                    "stalePolicy": "fail-stale"
+                },
+                "queue": {
+                    "maxQueuedPerKey": 0,
+                    "whenFull": "reject"
+                }
+            }),
+        )]),
+    )
+    .expect("binding should parse");
+
+    let queue = binding.queues.get("sync-tickets").expect("queue binding");
+    let key_concurrency = queue
+        .key_concurrency
+        .as_ref()
+        .expect("keyed concurrency policy");
+    assert_eq!(key_concurrency.key, vec!["zendesk", "/origin", "tickets"]);
+    assert_eq!(key_concurrency.max_active, 1);
+    assert_eq!(key_concurrency.heartbeat_interval_ms, 30_000);
+    assert_eq!(key_concurrency.heartbeat_ttl_ms, 90_000);
+    assert_eq!(key_concurrency.stale_policy, JobKeyStalePolicy::FailStale);
+    let queue_depth = queue.queue.as_ref().expect("queue depth policy");
+    assert_eq!(queue_depth.max_queued_per_key, 0);
+    assert_eq!(queue_depth.when_full, JobQueueWhenFull::Reject);
+}
+
+#[test]
 fn parse_jobs_binding_rejects_invalid_queue_shape() {
     let error = parse_jobs_binding(
         "documents",
@@ -90,6 +140,7 @@ fn sample_core_binding() -> TrellisBindingsGetResponseBinding {
                         consumer_name: "documents-document-process".to_string(),
                         default_deadline_ms: Some(120_000),
                         dlq: true,
+                        key_concurrency: None,
                         logs: true,
                         max_deliver: 5,
                         payload: TrellisBindingsGetResponseBindingResourcesJobsQueuesValuePayload {
@@ -103,13 +154,14 @@ fn sample_core_binding() -> TrellisBindingsGetResponseBinding {
                                 schema: "DocumentResult".to_string(),
                             },
                         ),
+                        queue: None,
                         work_subject: "trellis.work.documents.document-process".to_string(),
                     },
                 )]),
             }),
             kv: Some(BTreeMap::from([(
                 "unrelated".to_string(),
-                trellis_rs::sdk::core::types::TrellisBindingsGetResponseBindingResourcesKvValue {
+                TrellisBindingsGetResponseBindingResourcesKvValue {
                     bucket: "unrelated_bucket".to_string(),
                     history: 1,
                     max_value_bytes: None,

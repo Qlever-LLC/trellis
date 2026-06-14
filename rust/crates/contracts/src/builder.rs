@@ -629,6 +629,8 @@ pub fn job_queue(
         logs: None,
         dlq: None,
         concurrency: None,
+        key_concurrency: None,
+        queue: None,
         docs: None,
     }
 }

@@ -752,6 +752,7 @@ fn validate_schema_refs(manifest: &ContractManifest) -> Result<(), ContractsErro
                 &format!("jobs queue '{queue_type}' result"),
             )?;
         }
+        validate_job_key_concurrency(queue_type, &queue.key_concurrency)?;
     }
 
     validate_event_consumers(manifest)?;
@@ -764,6 +765,71 @@ fn validate_schema_refs(manifest: &ContractManifest) -> Result<(), ContractsErro
         )?;
     }
 
+    Ok(())
+}
+
+fn validate_job_key_concurrency(
+    queue_type: &str,
+    key_concurrency: &Option<crate::JobKeyConcurrencyDescriptor>,
+) -> Result<(), ContractsError> {
+    let Some(key_concurrency) = key_concurrency else {
+        return Ok(());
+    };
+    if key_concurrency.key.is_empty() {
+        return Err(ContractsError::SchemaValidation {
+            kind: "contract",
+            details: format!(
+                "jobs queue '{queue_type}' keyConcurrency.key must contain at least one segment"
+            ),
+        });
+    }
+    for segment in &key_concurrency.key {
+        if segment.is_empty() {
+            return Err(ContractsError::SchemaValidation {
+                kind: "contract",
+                details: format!(
+                    "jobs queue '{queue_type}' keyConcurrency.key segments must be non-empty strings"
+                ),
+            });
+        }
+        if segment.starts_with('/') {
+            validate_json_pointer_syntax(queue_type, segment)?;
+        }
+    }
+    if let (Some(interval), Some(ttl)) = (
+        key_concurrency.heartbeat_interval_ms,
+        key_concurrency.heartbeat_ttl_ms,
+    ) {
+        if ttl <= interval {
+            return Err(ContractsError::SchemaValidation {
+                kind: "contract",
+                details: format!(
+                    "jobs queue '{queue_type}' keyConcurrency.heartbeatTtlMs must exceed heartbeatIntervalMs"
+                ),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_json_pointer_syntax(queue_type: &str, pointer: &str) -> Result<(), ContractsError> {
+    let bytes = pointer.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'~' {
+            let escaped = bytes.get(index + 1).copied();
+            if !matches!(escaped, Some(b'0' | b'1')) {
+                return Err(ContractsError::SchemaValidation {
+                    kind: "contract",
+                    details: format!(
+                        "jobs queue '{queue_type}' keyConcurrency.key pointer segment '{pointer}' has invalid JSON Pointer escape at offset {index}; use '~0' for '~' and '~1' for '/'"
+                    ),
+                });
+            }
+            index += 1;
+        }
+        index += 1;
+    }
     Ok(())
 }
 

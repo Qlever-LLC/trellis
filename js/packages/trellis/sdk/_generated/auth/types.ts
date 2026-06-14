@@ -4,7 +4,7 @@ import type { API } from "./api.ts";
 
 export const CONTRACT_ID = "trellis.auth@v1" as const;
 export const CONTRACT_DIGEST =
-  "x-9_MjfSThvbn1yc9jAWbaraniKLZ74oUeUqqtZijXQ" as const;
+  "66nHnmmxUMmm2hZhW6bLyPlyCxaTgbWPKi2nYPQf-y8" as const;
 
 export type AuthCapabilitiesListInput = { limit: number; offset?: number };
 export type AuthCapabilitiesListOutput = {
@@ -1768,11 +1768,22 @@ export type AuthServiceInstancesDisableOutput = {
             consumerName: string;
             defaultDeadlineMs?: number;
             dlq: boolean;
+            keyConcurrency?: {
+              heartbeatIntervalMs: number;
+              heartbeatTtlMs: number;
+              key: Array<string>;
+              maxActive: number;
+              stalePolicy: "fail-stale" | "block";
+            };
             logs: boolean;
             maxDeliver: number;
             payload: { schema: string };
             progress: boolean;
             publishPrefix: string;
+            queue?: {
+              maxQueuedPerKey: number;
+              whenFull: "reject" | "coalesce" | "replace-oldest";
+            };
             queueType: string;
             result?: { schema: string };
             workSubject: string;
@@ -1833,11 +1844,22 @@ export type AuthServiceInstancesEnableOutput = {
             consumerName: string;
             defaultDeadlineMs?: number;
             dlq: boolean;
+            keyConcurrency?: {
+              heartbeatIntervalMs: number;
+              heartbeatTtlMs: number;
+              key: Array<string>;
+              maxActive: number;
+              stalePolicy: "fail-stale" | "block";
+            };
             logs: boolean;
             maxDeliver: number;
             payload: { schema: string };
             progress: boolean;
             publishPrefix: string;
+            queue?: {
+              maxQueuedPerKey: number;
+              whenFull: "reject" | "coalesce" | "replace-oldest";
+            };
             queueType: string;
             result?: { schema: string };
             workSubject: string;
@@ -1905,11 +1927,22 @@ export type AuthServiceInstancesListOutput = {
               consumerName: string;
               defaultDeadlineMs?: number;
               dlq: boolean;
+              keyConcurrency?: {
+                heartbeatIntervalMs: number;
+                heartbeatTtlMs: number;
+                key: Array<string>;
+                maxActive: number;
+                stalePolicy: "fail-stale" | "block";
+              };
               logs: boolean;
               maxDeliver: number;
               payload: { schema: string };
               progress: boolean;
               publishPrefix: string;
+              queue?: {
+                maxQueuedPerKey: number;
+                whenFull: "reject" | "coalesce" | "replace-oldest";
+              };
               queueType: string;
               result?: { schema: string };
               workSubject: string;
@@ -1977,11 +2010,22 @@ export type AuthServiceInstancesProvisionOutput = {
             consumerName: string;
             defaultDeadlineMs?: number;
             dlq: boolean;
+            keyConcurrency?: {
+              heartbeatIntervalMs: number;
+              heartbeatTtlMs: number;
+              key: Array<string>;
+              maxActive: number;
+              stalePolicy: "fail-stale" | "block";
+            };
             logs: boolean;
             maxDeliver: number;
             payload: { schema: string };
             progress: boolean;
             publishPrefix: string;
+            queue?: {
+              maxQueuedPerKey: number;
+              whenFull: "reject" | "coalesce" | "replace-oldest";
+            };
             queueType: string;
             result?: { schema: string };
             workSubject: string;

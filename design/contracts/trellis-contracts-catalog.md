@@ -1137,6 +1137,20 @@ Example:
       "logs": true,
       "dlq": true,
       "concurrency": 1
+    },
+    "syncTickets": {
+      "payload": { "schema": "SyncTicketsPayload" },
+      "result": { "schema": "SyncTicketsResult" },
+      "concurrency": 4,
+      "keyConcurrency": {
+        "key": ["zendesk", "/origin", "tickets"],
+        "maxActive": 1,
+        "stalePolicy": "fail-stale"
+      },
+      "queue": {
+        "maxQueuedPerKey": 1,
+        "whenFull": "reject"
+      }
     }
   }
 }
@@ -1157,7 +1171,27 @@ Rules:
 - each queue entry may include `progress`; default `true`
 - each queue entry may include `logs`; default `true`
 - each queue entry may include `dlq`; default `true`
-- each queue entry may include `concurrency`; default `1`
+- each queue entry may include `concurrency`; default `1`. This is the existing
+  per-queue worker-count setting.
+- each queue entry may include `keyConcurrency.key` to enable opt-in keyed
+  concurrency. `keyConcurrency.key` is an ordered array of string constants and
+  JSON Pointers into the payload. Pointer segments must resolve to scalar values
+  after payload validation.
+- keyed queues may include `keyConcurrency.maxActive`; default `1`
+- keyed queues may include `keyConcurrency.heartbeatIntervalMs` and
+  `keyConcurrency.heartbeatTtlMs`; the TTL must exceed the heartbeat interval
+- keyed queues may include `keyConcurrency.stalePolicy`; default `"fail-stale"`.
+  `"fail-stale"` records an expired active job as stale before allowing another
+  job to acquire the key; `"block"` keeps later jobs waiting until manual or
+  normal release.
+- keyed queues may include `queue.maxQueuedPerKey`; default `0` when
+  `keyConcurrency.key` is present
+- keyed queues may include `queue.whenFull`; default `"reject"`. `"coalesce"`
+  and `"replace-oldest"` are explicit opt-ins and must not be inferred from
+  `maxQueuedPerKey` alone.
+- adding keyed concurrency to an existing queue or tightening a keyed queue
+  policy can reject or skip work that previously ran and is an authority
+  migration
 - Trellis owns the shared jobs infrastructure and resolves any internal
   work-stream or projected-state bindings needed by the runtime; ordinary
   service-author APIs should use `service.jobs` rather than raw stream bindings

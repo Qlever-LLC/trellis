@@ -25,15 +25,16 @@ pub mod types;
 
 pub use active_job::ActiveJob as WorkerActiveJob;
 pub use api::{
-    ActiveJob, JobFilter, JobIdentity, JobQueue, JobRef, JobSnapshot, JobWorkerHost, JobsError,
-    JobsFacade, JobsService, TerminalJob,
+    ActiveJob, JobFilter, JobIdentity, JobNotEnqueued, JobNotEnqueuedReason, JobQueue, JobRef,
+    JobSnapshot, JobSubmitOutcome, JobWorkerHost, JobsError, JobsFacade, JobsService, TerminalJob,
 };
 pub use bindings::{JobsBinding, JobsQueueBinding, JobsRuntimeBinding};
 pub use events::{
     cancelled_event, completed_event, created_event, dead_event, dismissed_event, expired_event,
-    failed_event, retried_event, started_event,
+    failed_event, heartbeat_event, logged_event, progress_event, retried_event, retry_event,
+    skipped_event, stale_completion_ignored_event, stale_event, started_event,
 };
-pub use keys::{job_key, worker_presence_key};
+pub use keys::{derive_key, job_key, key_hash, worker_presence_key, KeyDerivationError};
 pub use manager::{
     JobManager, JobManagerError, JobMetaSource, JobProcessError, JobProcessOutcome,
     TrellisJobMetaSource,
@@ -44,11 +45,13 @@ pub use registry::{
     new_worker_heartbeat, publish_worker_heartbeat, start_worker_heartbeat_loop,
     ActiveJobCancellationRegistry, WorkerHeartbeatHandle,
 };
-pub use runtime_worker::{JobCancellationToken, WorkerHostHandle, WorkerHostOptions};
+pub use runtime_worker::{
+    JobCancellationToken, NatsJobEventPublisher, WorkerHostHandle, WorkerHostOptions,
+};
 pub use subjects::{job_event_subject, worker_heartbeat_subject, WORKER_HEARTBEATS_WILDCARD};
 pub use types::{
-    Job, JobContext, JobEvent, JobEventType, JobLogEntry, JobLogLevel, JobProgress, JobState,
-    WorkerHeartbeat,
+    Job, JobConcurrency, JobContext, JobEvent, JobEventType, JobLogEntry, JobLogLevel, JobProgress,
+    JobQueuePolicy, JobQueuePolicyOutcome, JobState, WorkerHeartbeat,
 };
 
 #[doc(hidden)]

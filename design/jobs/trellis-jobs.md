@@ -82,6 +82,11 @@ step just to create or process jobs.
 5. **Stream-driven observability** — Job state changes and worker heartbeats
    publish messages to the jobs subsystem stream space (these are not
    `events.v1.*` domain events).
+6. **Opt-in keyed coordination** — Job queues without a declared concurrency key
+   keep the historical work-queue behavior. Queues with a declared key use
+   Trellis-owned coordination state to enforce per-key active limits,
+   queue-depth policy, and heartbeat-based stale-job handling across service
+   instances.
 
 ### Job States
 
@@ -94,6 +99,8 @@ step just to create or process jobs.
 | `failed`    | Processing failed, can be manually retried           |
 | `cancelled` | Cancelled before completion (terminal)               |
 | `expired`   | Exceeded business deadline (terminal)                |
+| `skipped`   | Accepted work was skipped by runtime queue policy    |
+| `stale`     | Active work lost its key lease and was superseded    |
 | `dead`      | Moved to DLQ, awaiting admin replay or dismissal     |
 | `dismissed` | Explicitly dismissed from DLQ by an admin (terminal) |
 
@@ -106,11 +113,13 @@ stateDiagram-v2
     pending --> active: processing starts
     pending --> cancelled: cancel() called
     pending --> expired: business deadline exceeded
+    pending --> skipped: queue policy replaced queued work
 
     active --> completed: success
     active --> retry: NAK with backoff
     active --> failed: non-retryable error
     active --> cancelled: cancel() + worker honors cooperative cancellation
+    active --> stale: heartbeat lease expires for keyed job
 
     retry --> active: JetStream redelivery
     retry --> dead: exhausted retries (MaxDeliver advisory)
@@ -125,6 +134,8 @@ stateDiagram-v2
     completed --> [*]
     cancelled --> [*]
     expired --> [*]
+    skipped --> [*]
+    stale --> [*]
     dismissed --> [*]
 ```
 
@@ -139,8 +150,9 @@ stateDiagram-v2
   interrupt processing and requeue work rather than publishing a normal
   `cancelled` outcome.
 - Execution-terminal states (`completed`, `failed`, `cancelled`, `expired`,
-  `dead`, `dismissed`): No-op for worker processing and cancellation. Explicit
-  admin DLQ operations move only `dead` jobs into `pending` or `dismissed`.
+  `skipped`, `stale`, `dead`, `dismissed`): No-op for worker processing and
+  cancellation. Explicit admin DLQ operations move only `dead` jobs into
+  `pending` or `dismissed`.
 
 ### Storage Architecture
 
@@ -161,6 +173,10 @@ stateDiagram-v2
   - `trellis.jobs.<service>.<job-type>.<job-id>.failed`
   - `trellis.jobs.<service>.<job-type>.<job-id>.cancelled`
   - `trellis.jobs.<service>.<job-type>.<job-id>.expired`
+  - `trellis.jobs.<service>.<job-type>.<job-id>.skipped`
+  - `trellis.jobs.<service>.<job-type>.<job-id>.stale`
+  - `trellis.jobs.<service>.<job-type>.<job-id>.heartbeat`
+  - `trellis.jobs.<service>.<job-type>.<job-id>.staleCompletionIgnored`
   - `trellis.jobs.<service>.<job-type>.<job-id>.retried`
   - `trellis.jobs.<service>.<job-type>.<job-id>.dead`
   - `trellis.jobs.<service>.<job-type>.<job-id>.dismissed`
@@ -298,6 +314,13 @@ Queue change classification:
 - adding a queue is an authority update
 - increasing `maxDeliver`, increasing `ackWaitMs`, extending backoff, enabling
   progress/logs/DLQ, or increasing `concurrency` is usually an authority update
+- adding `keyConcurrency.key` to a previously unkeyed queue, reducing
+  `keyConcurrency.maxActive`, reducing `queue.maxQueuedPerKey`, or changing
+  `queue.whenFull` to a stricter policy is an authority migration because it can
+  reject work that would previously enqueue or run
+- increasing `keyConcurrency.maxActive`, increasing `queue.maxQueuedPerKey`, or
+  relaxing `queue.whenFull` from `reject` to `coalesce` or `replace-oldest` is
+  usually an authority update
 - removing or renaming a queue, changing payload or result schema in a way that
   may reject existing jobs, reducing `maxDeliver` or `ackWaitMs`, shortening
   backoff, disabling DLQ for a queue with outstanding failures, or changing
@@ -331,6 +354,12 @@ For each bound queue, the connected service runtime MUST:
 - before processing a work item, read the latest lifecycle event from `JOBS`
   with JetStream direct get by fully qualified lifecycle subject
 - ack without processing when the latest lifecycle event is terminal
+- for keyed queues, derive the key from the payload and acquire an active slot
+  in `JOBS_KEYS` before publishing `started`; if the key is at its active limit,
+  the worker MUST leave the message unprocessed and request redelivery rather
+  than running duplicate active work
+- for keyed queues, run automatic heartbeat renewal while the handler is active
+  and release the active slot only when the job still owns the slot token
 - subscribe to the queue cancellation subject for live cooperative cancellation
 
 This canonical path is intentionally language-neutral. TypeScript, Rust, and any
@@ -403,6 +432,56 @@ events from `JOBS` into `JOBS_WORK` with a subject transform:
 `trellis.jobs.<service>.<job-type>.<job-id>.<event>` →
 `trellis.work.<service>.<job-type>`.
 
+**Key Coordination Bucket (`JOBS_KEYS`)**
+
+- Bucket: `JOBS_KEYS`
+- Key pattern: `<service>/<job-type>/<key-hash>`
+- Purpose: opt-in keyed concurrency, per-key queue-depth policy, and active-job
+  heartbeat leases
+- Writes: service-local jobs runtime only, using compare-and-set revisions
+- Reads: service-local jobs runtime and Jobs admin runtime projection/query
+  paths
+
+`JOBS_KEYS` is Trellis-owned runtime infrastructure. It is not service-owned
+domain state and is not a replacement for service-local idempotency, checkpoint
+commits, or database ownership checks. Services whose database is the durable
+correctness boundary SHOULD keep idempotent commits and MAY keep local ownership
+guards even when Trellis prevents duplicate active work.
+
+One key-state value has this logical shape:
+
+```typescript
+type JobKeyState = {
+  version: 1;
+  service: string;
+  jobType: string;
+  key: string;
+  keyHash: string;
+  maxActive: number;
+  maxQueuedPerKey?: number;
+  active: Array<{
+    jobId: string;
+    slotToken: string;
+    instanceId: string;
+    startedAt: string;
+    heartbeatAt: string;
+    leaseExpiresAt: string;
+    tries: number;
+  }>;
+  queued: Array<{
+    jobId: string;
+    createdAt: string;
+    requestId: string;
+  }>;
+  staleTakeoverCount: number;
+  updatedAt: string;
+};
+```
+
+The stored key value is derived from the job contract's `keyConcurrency.key`
+template. Human-readable keys are carried in lifecycle events and admin
+projections; high-cardinality runtime storage uses a stable hash segment.
+
 **Stream: `JOBS_ADVISORIES`**
 
 ```json
@@ -415,6 +494,21 @@ events from `JOBS` into `JOBS_WORK` with a subject transform:
   "num_replicas": 1
 }
 ```
+
+**KV Bucket: `JOBS_KEYS`**
+
+```json
+{
+  "bucket": "JOBS_KEYS",
+  "history": 1,
+  "storage": "file",
+  "num_replicas": 3
+}
+```
+
+Trellis reconciles this bucket only when jobs infrastructure is enabled. Keyed
+queues depend on this bucket for correctness; unkeyed queues do not read or
+write it.
 
 **Consumer: Per job-type (created dynamically)**
 
@@ -458,6 +552,9 @@ independently. The `jobs` service adds:
    deliveries to `.dead`
 5. **Global RPCs** — ListServices, ListJobs, GetJob, Cancel, Retry, DLQ
    management
+6. **Keyed concurrency observability** — Projects active key, queued depth by
+   key, heartbeat age, lease expiry, stale takeover count, and queue-policy
+   rejection/coalescing/replacement reasons for keyed queues
 
 The jobs admin runtime is stateless with respect to source-of-truth job state.
 If it's unavailable, job processing continues normally; only UI visibility and
@@ -514,6 +611,22 @@ type JobWire = {
 
   deadline?: string;
 
+  concurrency?: {
+    key: string;
+    keyHash: string;
+    slotToken?: string;
+    heartbeatAt?: string;
+    leaseExpiresAt?: string;
+    staleTakeoverCount?: number;
+  };
+
+  queuePolicy?: {
+    outcome?: "accepted" | "rejected" | "coalesced" | "replaced";
+    reason?: string;
+    existingJobId?: string;
+    replacedJobId?: string;
+  };
+
   progress?: {
     step?: string;
     message?: string;
@@ -538,6 +651,8 @@ type JobState =
   | "failed"
   | "cancelled"
   | "expired"
+  | "skipped"
+  | "stale"
   | "dead"
   | "dismissed";
 ```
@@ -566,6 +681,16 @@ Job state changes are published to the `JOBS` stream:
 - `failed` — Non-retryable failure
 - `cancelled` — Job was cancelled
 - `expired` — Business deadline exceeded
+- `skipped` — Queued work was skipped because a queue policy replaced it before
+  execution
+- `stale` — Active keyed work lost its heartbeat lease and no longer owns the
+  key slot
+- `heartbeat` — Active keyed work renewed its heartbeat lease (runtimes MAY
+  throttle or omit this lifecycle event when the KV lease remains the freshness
+  source of truth)
+- `staleCompletionIgnored` — A stale worker attempted to complete, fail, or
+  retry after losing the key slot; the normal terminal event was intentionally
+  ignored
 - `retried` — Manual retry triggered
 - `dead` — Marked dead after exhausted deliveries via advisory handling
 - `dismissed` — Explicitly dismissed from DLQ by an admin
@@ -597,6 +722,21 @@ type JobEventWire = {
   logs?: JobLogEntry[];
   payload?: unknown;
   result?: unknown;
+  deadline?: string;
+  concurrency?: {
+    key: string;
+    keyHash: string;
+    slotToken?: string;
+    heartbeatAt?: string;
+    leaseExpiresAt?: string;
+    staleTakeoverCount?: number;
+  };
+  queuePolicy?: {
+    outcome?: "accepted" | "rejected" | "coalesced" | "replaced";
+    reason?: string;
+    existingJobId?: string;
+    replacedJobId?: string;
+  };
   timestamp: string;
 };
 ```
@@ -634,6 +774,104 @@ const defaultRetryConfig: RetryConfig = {
 call `job.heartbeat()` to extend the ack deadline (sends `inProgress()` to
 NATS).
 
+For keyed queues, heartbeat also renews the active key lease in `JOBS_KEYS`.
+Runtimes SHOULD start an automatic heartbeat loop while a keyed handler is
+running. Explicit handler heartbeats remain useful around long blocking phases
+and MUST renew both the JetStream ack deadline and the key lease.
+
+### Keyed Concurrency And Queue Depth
+
+Top-level job queues MAY declare an opt-in keyed concurrency policy. Unkeyed
+jobs keep the current behavior and do not consult `JOBS_KEYS`.
+
+```typescript
+type JobKeyConcurrencyDescriptor = {
+  key: string[];
+  maxActive?: number;
+  heartbeatIntervalMs?: number;
+  heartbeatTtlMs?: number;
+  stalePolicy?: "fail-stale" | "block";
+};
+
+type JobQueueDepthDescriptor = {
+  maxQueuedPerKey?: number;
+  whenFull?: "reject" | "coalesce" | "replace-oldest";
+};
+```
+
+Example:
+
+```typescript
+syncTickets: {
+  payload: SyncJobPayload,
+  concurrency: 4,
+  keyConcurrency: {
+    key: ["zendesk", "/origin", "tickets"],
+    maxActive: 1,
+  },
+  queue: {
+    maxQueuedPerKey: 1,
+    whenFull: "reject",
+  },
+}
+```
+
+Rules:
+
+- `concurrency` remains the existing per-queue worker-count setting. Keyed
+  active-job limits use the separate `keyConcurrency` object so adding keyed
+  concurrency is not a breaking change to the existing manifest field.
+- `keyConcurrency.key` is an ordered template of string constants and JSON
+  Pointers into the job payload. Pointers MUST resolve to scalar
+  string/number/boolean values after payload validation. The runtime joins
+  template segments into the human-readable key and stores a stable hash for
+  runtime coordination.
+- `keyConcurrency.maxActive` defaults to `1`. The runtime enforces this limit
+  across all service instances for the same service/job-type/key.
+- `keyConcurrency.heartbeatTtlMs` defaults to a conservative value derived from
+  the queue ack settings. It MUST exceed `heartbeatIntervalMs` and SHOULD be
+  long enough to tolerate expected scheduling jitter.
+- `keyConcurrency.stalePolicy` defaults to `"fail-stale"`. When a heartbeat
+  lease expires, the runtime records the old active job as `stale` before
+  another job may acquire the slot. `"block"` keeps later jobs waiting until an
+  admin or the original worker releases the key.
+- `queue.maxQueuedPerKey` defaults to `0` when `keyConcurrency` is present. This
+  means a duplicate create while the key is active fails by default instead of
+  building an implicit backlog.
+- `queue.whenFull` defaults to `"reject"`. `"coalesce"` and `"replace-oldest"`
+  are explicit opt-ins for scheduler or SyncNow-style work where callers want
+  compression or supersession.
+
+Create semantics:
+
+- `create(payload)` remains the strict API: it returns a new `JobRef` when a new
+  job is accepted, or a typed runtime error when active or queued limits reject
+  the request.
+- `submit(payload)` is the richer policy-aware API for services that want to
+  inspect queue policy outcomes. It returns one of `accepted`, `rejected`,
+  `coalesced`, or `replaced`.
+- `coalesce` MUST NOT create a new job. It returns the existing active or queued
+  job identity and publishes no `created` event for the new request.
+- `replace-oldest` MAY only replace queued jobs for the same key. It MUST NOT
+  replace an active job. The runtime emits `skipped` for the replaced queued job
+  and `created` for the replacement.
+
+Operation compatibility:
+
+- Operations may create internal jobs and follow only the jobs they created.
+- If `create` rejects due to keyed queue policy, the operation should translate
+  the typed rejection into caller-visible progress or a terminal operation
+  error.
+- If an operation intentionally uses `submit` and receives `coalesced`, it
+  should normally report that work is already queued or running rather than
+  attaching to another caller's internal job. A service may implement shared
+  progress only through its own operation-state model.
+
+Safety invariant: keyed concurrency prevents duplicate active work in Trellis,
+but it is not the durable domain correctness boundary. Services with checkpoint
+or service-owned database state SHOULD still perform idempotent commits and MAY
+retain DB-local ownership checks.
+
 ### Server Library API
 
 The server-side jobs runtime should provide:
@@ -661,6 +899,11 @@ Public runtime rules:
   properties for declared jobs, derived from the contract's top-level jobs map
   rather than from raw resources
 - `create(...)` SHOULD return a typed `JobRef`, not a projected job snapshot
+- for keyed queues, `create(...)` remains the strict create API and returns a
+  typed expected failure when runtime queue policy prevents a new job from being
+  accepted; `submit(...)` SHOULD be available as an additive API for callers
+  that want to inspect `accepted` / `rejected` / `coalesced` / `replaced`
+  outcomes
 - `JobRef.wait()` is valid as an internal service primitive, but jobs are still
   service-private and are not the public async API for ordinary callers
 - public TypeScript jobs APIs MUST use `Result` / `AsyncResult` for expected
@@ -681,6 +924,9 @@ Public runtime rules:
 - active job handles expose immutable job context so handlers can include
   `requestId` and trace identifiers in logs, child work, and domain outputs when
   appropriate
+- active job handles for keyed queues expose the active key and heartbeat status
+  for observability, but handlers MUST NOT mutate Trellis key coordination state
+  directly
 - duplicate handler registration for the same service-local job type is a
   bootstrap-time programming error; runtimes SHOULD fail fast rather than racing
   multiple handlers on one queue
@@ -761,6 +1007,7 @@ mutate projected job state directly.
 | `Jobs.ListServices` | `{ offset?: number; limit: number }`                                 | `PageResponse<ServiceInfo>` | List services and observed worker presence |
 | `Jobs.List`         | `JobFilter & { state?: JobState[]; offset?: number; limit: number }` | `PageResponse<Job>`         | List jobs (filterable)                     |
 | `Jobs.Get`          | `{ id }`                                                             | `{ job: Job }`              | Get single globally addressable job        |
+| `Jobs.GetKey`       | `{ service, type, key }`                                             | key status payload          | Inspect keyed concurrency state            |
 | `Jobs.Retry`        | `{ id }`                                                             | `{ job: Job }`              | Manually retry an eligible job             |
 | `Jobs.Cancel`       | `{ id }`                                                             | `{ job: Job }`              | Cancel an eligible job                     |
 | `Jobs.ListDLQ`      | `Omit<JobFilter, "state"> & { offset?: number; limit: number }`      | `PageResponse<Job>`         | List dead letter jobs (`dead` only)        |
@@ -811,6 +1058,28 @@ When a work message exceeds `MaxDeliver`, NATS emits an advisory captured in
 This approach is durable—if the `jobs` service is temporarily unavailable,
 advisories accumulate in the stream and are processed on recovery.
 
+**Keyed heartbeat expiry:**
+
+For keyed queues, active-job liveness is based on the per-key active slot in
+`JOBS_KEYS`, not worker-presence heartbeats. The active slot carries a
+`slotToken`, `heartbeatAt`, and `leaseExpiresAt`.
+
+1. The worker that owns the slot renews the lease automatically while the
+   handler is running and when the handler calls `job.heartbeat()`.
+2. A later worker that sees an expired lease applies the queue's `stalePolicy`.
+3. With `fail-stale` (the default), the runtime publishes a `stale` lifecycle
+   event for the old active job, increments the key's stale takeover count, and
+   allows the next eligible job for the same key to acquire the slot.
+4. With `block`, the runtime leaves the stale active slot in place and reports
+   the key as blocked until admin action or the original worker releases it.
+5. If the old worker later attempts to complete, fail, retry, or cancel the job,
+   the runtime compares the stored `slotToken`. A mismatch MUST NOT publish a
+   normal terminal lifecycle event; it emits `staleCompletionIgnored` for
+   observability and acknowledges the stale worker message.
+
+Worker-presence heartbeats remain passive observability and MUST NOT be used as
+the correctness source for keyed active ownership.
+
 **DLQ administration:**
 
 - `ReplayDLQ` emits a real event that re-enqueues the same job identity from
@@ -832,12 +1101,12 @@ authority for the presented contract, not from contract metadata alone. The
 `<service>` subject segment used by Jobs must therefore be bound to the service
 identity used for routing and permission derivation.
 
-| Capability / rule                         | Permissions                                                                                                                                        |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `admin.read`                              | Call read RPCs such as list, get, and list-services                                                                                                |
-| `admin.mutate`                            | Call mutating Jobs RPCs such as cancel, retry, replay, dismiss                                                                                     |
-| `admin.stream`                            | Subscribe `trellis.jobs.>` for operator observability                                                                                              |
-| service identity + jobs runtime ownership | Publish `trellis.jobs.<service>.>` and `trellis.jobs.workers.<service>.>` and consume `trellis.work.<service>.>` for the caller's own service only |
+| Capability / rule                         | Permissions                                                                                                                                                                         |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `admin.read`                              | Call read RPCs such as list, get, and list-services                                                                                                                                 |
+| `admin.mutate`                            | Call mutating Jobs RPCs such as cancel, retry, replay, dismiss                                                                                                                      |
+| `admin.stream`                            | Subscribe `trellis.jobs.>` for operator observability                                                                                                                               |
+| service identity + jobs runtime ownership | Publish `trellis.jobs.<service>.>` and `trellis.jobs.workers.<service>.>`, consume `trellis.work.<service>.>`, and read/write `JOBS_KEYS` entries for the caller's own service only |
 
 **Scope assignments:**
 
@@ -921,3 +1190,7 @@ to `active`.
 `expired` while worker is finishing), terminal states take precedence. The
 projector should reject state transitions from execution-terminal states except
 explicit DLQ administration on `dead` jobs such as replay and dismiss.
+
+For keyed queues, slot-token ownership is checked before publishing terminal
+worker outcomes. A stale worker that no longer owns the active key slot does not
+win terminal precedence; the runtime records `staleCompletionIgnored` instead.

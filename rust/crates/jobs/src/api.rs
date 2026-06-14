@@ -27,6 +27,29 @@ pub enum JobsError {
     EncodePayload(serde_json::Error),
     #[error("failed to encode job result: {0}")]
     EncodeResult(serde_json::Error),
+    #[error(transparent)]
+    NotEnqueued(#[from] JobNotEnqueued),
+}
+
+/// Reason a keyed job submission did not enqueue new work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum JobNotEnqueuedReason {
+    ActiveLimit,
+    QueueDepth,
+    StaleBlocked,
+    Coalesced,
+}
+
+/// Typed expected failure returned by strict keyed job creation.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("job was not enqueued: {reason:?}")]
+pub struct JobNotEnqueued {
+    pub reason: JobNotEnqueuedReason,
+    pub key: String,
+    pub active: usize,
+    pub queued: usize,
+    pub limit: usize,
+    pub existing_job_id: Option<String>,
 }
 
 /// Service-local jobs API entrypoint.
@@ -50,10 +73,35 @@ pub trait JobQueue<TPayload, TResult> {
         payload: TPayload,
     ) -> impl Future<Output = Result<JobRef<TPayload, TResult>, JobsError>> + Send;
 
+    fn submit(
+        &self,
+        payload: TPayload,
+    ) -> impl Future<Output = Result<JobSubmitOutcome<TPayload, TResult>, JobsError>> + Send;
+
     fn handle<H, Fut>(&self, handler: H) -> impl Future<Output = Result<(), JobsError>> + Send
     where
         H: Fn(ActiveJob<TPayload, TResult>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<TResult, JobsError>> + Send;
+}
+
+/// Policy-aware keyed job submission outcome.
+#[derive(Debug)]
+pub enum JobSubmitOutcome<TPayload, TResult> {
+    Accepted {
+        job_ref: JobRef<TPayload, TResult>,
+        key: Option<String>,
+    },
+    Rejected(JobNotEnqueued),
+    Coalesced {
+        key: String,
+        existing: JobIdentity,
+        reason: String,
+    },
+    Replaced {
+        key: String,
+        replaced: JobIdentity,
+        job_ref: JobRef<TPayload, TResult>,
+    },
 }
 
 /// Handle for a created job.
@@ -74,6 +122,15 @@ pub struct JobRef<TPayload, TResult> {
             + Send
             + Sync,
     >,
+}
+
+impl<TPayload, TResult> std::fmt::Debug for JobRef<TPayload, TResult> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("JobRef")
+            .field("identity", &self.identity)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<TPayload, TResult> Clone for JobRef<TPayload, TResult> {
@@ -202,6 +259,17 @@ pub struct ActiveJob<TPayload, TResult> {
     progress: ProgressFn,
     log: LogFn,
     _result: PhantomData<TResult>,
+}
+
+impl<TPayload, TResult> std::fmt::Debug for ActiveJob<TPayload, TResult> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ActiveJob")
+            .field("context", &self.context)
+            .field("state", &self.state)
+            .field("tries", &self.tries)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<TPayload, TResult> ActiveJob<TPayload, TResult>

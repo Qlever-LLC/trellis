@@ -3785,10 +3785,17 @@ dependencies = [
 name = "trellis-jobs"
 version = "0.10.21"
 dependencies = [
+ "async-nats",
+ "bytes",
  "futures-util",
+ "serde",
  "serde_json",
+ "sha2 0.11.0",
+ "thiserror 2.0.18",
+ "time",
  "tokio",
- "trellis-rs",
+ "trellis-sdk-core",
+ "ulid",
 ]
 
 [[package]]
@@ -3829,6 +3836,16 @@ dependencies = [
  "trellis-contracts",
  "ulid",
  "url",
+]
+
+[[package]]
+name = "trellis-sdk-core"
+version = "0.10.18"
+dependencies = [
+ "serde",
+ "serde_json",
+ "trellis-contracts",
+ "trellis-rs",
 ]
 
 [[package]]

@@ -1937,10 +1937,32 @@ pub struct AuthServiceInstancesDisableResponseInstanceResourceBindingsEventConsu
 }
 /// Generated schema type `AuthServiceInstancesDisableResponseInstanceResourceBindingsJobs`.
 /// Generated schema type `AuthServiceInstancesDisableResponseInstanceResourceBindingsJobsQueuesValue`.
+/// Generated schema type `AuthServiceInstancesDisableResponseInstanceResourceBindingsJobsQueuesValueKeyConcurrency`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthServiceInstancesDisableResponseInstanceResourceBindingsJobsQueuesValueKeyConcurrency
+{
+    #[serde(rename = "heartbeatIntervalMs")]
+    pub heartbeat_interval_ms: i64,
+    #[serde(rename = "heartbeatTtlMs")]
+    pub heartbeat_ttl_ms: i64,
+    pub key: Vec<String>,
+    #[serde(rename = "maxActive")]
+    pub max_active: i64,
+    #[serde(rename = "stalePolicy")]
+    pub stale_policy: String,
+}
 /// Generated schema type `AuthServiceInstancesDisableResponseInstanceResourceBindingsJobsQueuesValuePayload`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthServiceInstancesDisableResponseInstanceResourceBindingsJobsQueuesValuePayload {
     pub schema: String,
+}
+/// Generated schema type `AuthServiceInstancesDisableResponseInstanceResourceBindingsJobsQueuesValueQueue`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthServiceInstancesDisableResponseInstanceResourceBindingsJobsQueuesValueQueue {
+    #[serde(rename = "maxQueuedPerKey")]
+    pub max_queued_per_key: i64,
+    #[serde(rename = "whenFull")]
+    pub when_full: String,
 }
 /// Generated schema type `AuthServiceInstancesDisableResponseInstanceResourceBindingsJobsQueuesValueResult`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1960,6 +1982,11 @@ pub struct AuthServiceInstancesDisableResponseInstanceResourceBindingsJobsQueues
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_deadline_ms: Option<i64>,
     pub dlq: bool,
+    #[serde(rename = "keyConcurrency")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_concurrency: Option<
+        AuthServiceInstancesDisableResponseInstanceResourceBindingsJobsQueuesValueKeyConcurrency,
+    >,
     pub logs: bool,
     #[serde(rename = "maxDeliver")]
     pub max_deliver: i64,
@@ -1967,6 +1994,9 @@ pub struct AuthServiceInstancesDisableResponseInstanceResourceBindingsJobsQueues
     pub progress: bool,
     #[serde(rename = "publishPrefix")]
     pub publish_prefix: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue:
+        Option<AuthServiceInstancesDisableResponseInstanceResourceBindingsJobsQueuesValueQueue>,
     #[serde(rename = "queueType")]
     pub queue_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2080,10 +2110,31 @@ pub struct AuthServiceInstancesEnableResponseInstanceResourceBindingsEventConsum
 }
 /// Generated schema type `AuthServiceInstancesEnableResponseInstanceResourceBindingsJobs`.
 /// Generated schema type `AuthServiceInstancesEnableResponseInstanceResourceBindingsJobsQueuesValue`.
+/// Generated schema type `AuthServiceInstancesEnableResponseInstanceResourceBindingsJobsQueuesValueKeyConcurrency`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthServiceInstancesEnableResponseInstanceResourceBindingsJobsQueuesValueKeyConcurrency {
+    #[serde(rename = "heartbeatIntervalMs")]
+    pub heartbeat_interval_ms: i64,
+    #[serde(rename = "heartbeatTtlMs")]
+    pub heartbeat_ttl_ms: i64,
+    pub key: Vec<String>,
+    #[serde(rename = "maxActive")]
+    pub max_active: i64,
+    #[serde(rename = "stalePolicy")]
+    pub stale_policy: String,
+}
 /// Generated schema type `AuthServiceInstancesEnableResponseInstanceResourceBindingsJobsQueuesValuePayload`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthServiceInstancesEnableResponseInstanceResourceBindingsJobsQueuesValuePayload {
     pub schema: String,
+}
+/// Generated schema type `AuthServiceInstancesEnableResponseInstanceResourceBindingsJobsQueuesValueQueue`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthServiceInstancesEnableResponseInstanceResourceBindingsJobsQueuesValueQueue {
+    #[serde(rename = "maxQueuedPerKey")]
+    pub max_queued_per_key: i64,
+    #[serde(rename = "whenFull")]
+    pub when_full: String,
 }
 /// Generated schema type `AuthServiceInstancesEnableResponseInstanceResourceBindingsJobsQueuesValueResult`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -2103,6 +2154,11 @@ pub struct AuthServiceInstancesEnableResponseInstanceResourceBindingsJobsQueuesV
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_deadline_ms: Option<i64>,
     pub dlq: bool,
+    #[serde(rename = "keyConcurrency")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_concurrency: Option<
+        AuthServiceInstancesEnableResponseInstanceResourceBindingsJobsQueuesValueKeyConcurrency,
+    >,
     pub logs: bool,
     #[serde(rename = "maxDeliver")]
     pub max_deliver: i64,
@@ -2110,6 +2166,9 @@ pub struct AuthServiceInstancesEnableResponseInstanceResourceBindingsJobsQueuesV
     pub progress: bool,
     #[serde(rename = "publishPrefix")]
     pub publish_prefix: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue:
+        Option<AuthServiceInstancesEnableResponseInstanceResourceBindingsJobsQueuesValueQueue>,
     #[serde(rename = "queueType")]
     pub queue_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2226,10 +2285,32 @@ pub struct AuthServiceInstancesListResponseEntriesItemResourceBindingsEventConsu
 }
 /// Generated schema type `AuthServiceInstancesListResponseEntriesItemResourceBindingsJobs`.
 /// Generated schema type `AuthServiceInstancesListResponseEntriesItemResourceBindingsJobsQueuesValue`.
+/// Generated schema type `AuthServiceInstancesListResponseEntriesItemResourceBindingsJobsQueuesValueKeyConcurrency`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthServiceInstancesListResponseEntriesItemResourceBindingsJobsQueuesValueKeyConcurrency
+{
+    #[serde(rename = "heartbeatIntervalMs")]
+    pub heartbeat_interval_ms: i64,
+    #[serde(rename = "heartbeatTtlMs")]
+    pub heartbeat_ttl_ms: i64,
+    pub key: Vec<String>,
+    #[serde(rename = "maxActive")]
+    pub max_active: i64,
+    #[serde(rename = "stalePolicy")]
+    pub stale_policy: String,
+}
 /// Generated schema type `AuthServiceInstancesListResponseEntriesItemResourceBindingsJobsQueuesValuePayload`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthServiceInstancesListResponseEntriesItemResourceBindingsJobsQueuesValuePayload {
     pub schema: String,
+}
+/// Generated schema type `AuthServiceInstancesListResponseEntriesItemResourceBindingsJobsQueuesValueQueue`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthServiceInstancesListResponseEntriesItemResourceBindingsJobsQueuesValueQueue {
+    #[serde(rename = "maxQueuedPerKey")]
+    pub max_queued_per_key: i64,
+    #[serde(rename = "whenFull")]
+    pub when_full: String,
 }
 /// Generated schema type `AuthServiceInstancesListResponseEntriesItemResourceBindingsJobsQueuesValueResult`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -2249,6 +2330,11 @@ pub struct AuthServiceInstancesListResponseEntriesItemResourceBindingsJobsQueues
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_deadline_ms: Option<i64>,
     pub dlq: bool,
+    #[serde(rename = "keyConcurrency")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_concurrency: Option<
+        AuthServiceInstancesListResponseEntriesItemResourceBindingsJobsQueuesValueKeyConcurrency,
+    >,
     pub logs: bool,
     #[serde(rename = "maxDeliver")]
     pub max_deliver: i64,
@@ -2256,6 +2342,9 @@ pub struct AuthServiceInstancesListResponseEntriesItemResourceBindingsJobsQueues
     pub progress: bool,
     #[serde(rename = "publishPrefix")]
     pub publish_prefix: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue:
+        Option<AuthServiceInstancesListResponseEntriesItemResourceBindingsJobsQueuesValueQueue>,
     #[serde(rename = "queueType")]
     pub queue_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2377,10 +2466,32 @@ pub struct AuthServiceInstancesProvisionResponseInstanceResourceBindingsEventCon
 }
 /// Generated schema type `AuthServiceInstancesProvisionResponseInstanceResourceBindingsJobs`.
 /// Generated schema type `AuthServiceInstancesProvisionResponseInstanceResourceBindingsJobsQueuesValue`.
+/// Generated schema type `AuthServiceInstancesProvisionResponseInstanceResourceBindingsJobsQueuesValueKeyConcurrency`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthServiceInstancesProvisionResponseInstanceResourceBindingsJobsQueuesValueKeyConcurrency
+{
+    #[serde(rename = "heartbeatIntervalMs")]
+    pub heartbeat_interval_ms: i64,
+    #[serde(rename = "heartbeatTtlMs")]
+    pub heartbeat_ttl_ms: i64,
+    pub key: Vec<String>,
+    #[serde(rename = "maxActive")]
+    pub max_active: i64,
+    #[serde(rename = "stalePolicy")]
+    pub stale_policy: String,
+}
 /// Generated schema type `AuthServiceInstancesProvisionResponseInstanceResourceBindingsJobsQueuesValuePayload`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthServiceInstancesProvisionResponseInstanceResourceBindingsJobsQueuesValuePayload {
     pub schema: String,
+}
+/// Generated schema type `AuthServiceInstancesProvisionResponseInstanceResourceBindingsJobsQueuesValueQueue`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthServiceInstancesProvisionResponseInstanceResourceBindingsJobsQueuesValueQueue {
+    #[serde(rename = "maxQueuedPerKey")]
+    pub max_queued_per_key: i64,
+    #[serde(rename = "whenFull")]
+    pub when_full: String,
 }
 /// Generated schema type `AuthServiceInstancesProvisionResponseInstanceResourceBindingsJobsQueuesValueResult`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -2400,6 +2511,11 @@ pub struct AuthServiceInstancesProvisionResponseInstanceResourceBindingsJobsQueu
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_deadline_ms: Option<i64>,
     pub dlq: bool,
+    #[serde(rename = "keyConcurrency")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_concurrency: Option<
+        AuthServiceInstancesProvisionResponseInstanceResourceBindingsJobsQueuesValueKeyConcurrency,
+    >,
     pub logs: bool,
     #[serde(rename = "maxDeliver")]
     pub max_deliver: i64,
@@ -2408,6 +2524,9 @@ pub struct AuthServiceInstancesProvisionResponseInstanceResourceBindingsJobsQueu
     pub progress: bool,
     #[serde(rename = "publishPrefix")]
     pub publish_prefix: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue:
+        Option<AuthServiceInstancesProvisionResponseInstanceResourceBindingsJobsQueuesValueQueue>,
     #[serde(rename = "queueType")]
     pub queue_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]

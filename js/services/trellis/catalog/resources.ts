@@ -23,6 +23,25 @@ type StreamDiscardPolicy = "old" | "new";
 const TRELLIS_JOBS_CONTRACT_ID = "trellis.jobs@v1";
 const TRELLIS_EVENT_STREAM = "trellis";
 const DEFAULT_REDELIVERY_BACKOFF_MS = [5000, 30000, 120000, 600000, 1800000];
+const DEFAULT_KEY_HEARTBEAT_INTERVAL_MS = 30_000;
+const JOBS_KEYS_BUCKET = "JOBS_KEYS";
+
+function jobsKeysBucketName(namespace: string): string {
+  return `${JOBS_KEYS_BUCKET}_${namespace}`;
+}
+
+type JobKeyConcurrencyPolicy = {
+  key: string[];
+  maxActive: number;
+  heartbeatIntervalMs: number;
+  heartbeatTtlMs: number;
+  stalePolicy: "fail-stale" | "block";
+};
+
+type JobQueueDepthPolicy = {
+  maxQueuedPerKey: number;
+  whenFull: "reject" | "coalesce" | "replace-oldest";
+};
 
 type ContractEventConsumerGroup = {
   uses?: Record<string, string[]>;
@@ -80,6 +99,8 @@ export type JobsQueueRequest = {
   logs: boolean;
   dlq: boolean;
   concurrency: number;
+  keyConcurrency?: JobKeyConcurrencyPolicy;
+  queue?: JobQueueDepthPolicy;
 };
 
 export type EventConsumerGroupRequest = {
@@ -219,6 +240,8 @@ export type ContractResourceBindings = {
       logs: boolean;
       dlq: boolean;
       concurrency: number;
+      keyConcurrency?: JobKeyConcurrencyPolicy;
+      queue?: JobQueueDepthPolicy;
     }>;
   };
   eventConsumers?: Record<string, {
@@ -433,6 +456,26 @@ export function getKvPermissionGrants(
       `$JS.API.CONSUMER.MSG.NEXT.${stream}.>`,
       `$JS.API.$KV.${bucket}.>`,
       `$JS.ACK.${stream}.>`,
+    ],
+    subscribe: [],
+  };
+}
+
+function getJobsKeysPermissionGrants(namespace: string): {
+  publish: string[];
+  subscribe: string[];
+} {
+  const bucket = jobsKeysBucketName(namespace);
+  const stream = `KV_${bucket}`;
+  const subjectPrefix = `$KV.${bucket}`;
+  return {
+    publish: [
+      "$JS.API.INFO",
+      `${subjectPrefix}.>`,
+      `$JS.API.STREAM.INFO.${stream}`,
+      `$JS.API.DIRECT.GET.${stream}.>`,
+      `$JS.API.STREAM.MSG.GET.${stream}`,
+      `$JS.API.$KV.${bucket}.>`,
     ],
     subscribe: [],
   };
@@ -1116,6 +1159,49 @@ function optionalPositiveInteger(
   return value;
 }
 
+function optionalStrictPositiveInteger(
+  definition: Record<string, unknown>,
+  key: string,
+): number | undefined {
+  const value = optionalPositiveInteger(definition, key);
+  if (value === 0) {
+    throw new Error(
+      `resource definition '${key}' must be a positive integer`,
+    );
+  }
+  return value;
+}
+
+function optionalRecord(
+  definition: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> | undefined {
+  const value = definition[key];
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    throw new Error(`resource definition '${key}' must be an object`);
+  }
+  return value;
+}
+
+function optionalStringUnion<T extends string>(
+  definition: Record<string, unknown>,
+  key: string,
+  values: readonly T[],
+): T | undefined {
+  const value = definition[key];
+  if (value === undefined) return undefined;
+  const matched = typeof value === "string"
+    ? values.find((candidate) => candidate === value)
+    : undefined;
+  if (matched === undefined) {
+    throw new Error(
+      `resource definition '${key}' must be one of ${values.join(", ")}`,
+    );
+  }
+  return matched;
+}
+
 function optionalBoolean(
   definition: Record<string, unknown>,
   key: string,
@@ -1182,6 +1268,120 @@ function optionalStringArray(
   return [...value];
 }
 
+function assertValidJsonPointerSyntax(
+  queueType: string,
+  pointer: string,
+): void {
+  if (!pointer.startsWith("/")) {
+    throw new Error(
+      `jobs queue '${queueType}' keyConcurrency.key pointer segment '${pointer}' must start with '/'`,
+    );
+  }
+  for (let index = 0; index < pointer.length; index += 1) {
+    if (pointer[index] !== "~") continue;
+    const escaped = pointer[index + 1];
+    if (escaped !== "0" && escaped !== "1") {
+      throw new Error(
+        `jobs queue '${queueType}' keyConcurrency.key pointer segment '${pointer}' has invalid JSON Pointer escape at offset ${index}; use '~0' for '~' and '~1' for '/'`,
+      );
+    }
+    index += 1;
+  }
+}
+
+function validateKeyTemplate(queueType: string, key: readonly string[]): void {
+  if (key.length === 0) {
+    throw new Error(
+      `jobs queue '${queueType}' keyConcurrency.key must contain at least one segment`,
+    );
+  }
+  for (const segment of key) {
+    if (segment.length === 0) {
+      throw new Error(
+        `jobs queue '${queueType}' keyConcurrency.key segments must be non-empty strings`,
+      );
+    }
+    if (segment.startsWith("/")) {
+      assertValidJsonPointerSyntax(queueType, segment);
+    }
+  }
+}
+
+function keyHeartbeatIntervalMs(ackWaitMs: number): number {
+  return Math.max(
+    1,
+    Math.min(DEFAULT_KEY_HEARTBEAT_INTERVAL_MS, Math.floor(ackWaitMs / 3)),
+  );
+}
+
+function defaultKeyHeartbeatTtlMs(ackWaitMs: number): number {
+  const interval = keyHeartbeatIntervalMs(ackWaitMs);
+  return Math.max(ackWaitMs, interval * 3);
+}
+
+function normalizeKeyConcurrency(
+  queueType: string,
+  definition: Record<string, unknown>,
+  ackWaitMs: number,
+): JobKeyConcurrencyPolicy | undefined {
+  const keyConcurrency = optionalRecord(definition, "keyConcurrency");
+  if (!keyConcurrency) return undefined;
+  const key = optionalStringArray(keyConcurrency, "key");
+  if (!key) {
+    throw new Error(
+      `jobs queue '${queueType}' keyConcurrency.key must be a non-empty string array`,
+    );
+  }
+  validateKeyTemplate(queueType, key);
+  const heartbeatIntervalMs = optionalStrictPositiveInteger(
+    keyConcurrency,
+    "heartbeatIntervalMs",
+  ) ?? keyHeartbeatIntervalMs(ackWaitMs);
+  const heartbeatTtlMs = optionalStrictPositiveInteger(
+    keyConcurrency,
+    "heartbeatTtlMs",
+  ) ?? defaultKeyHeartbeatTtlMs(ackWaitMs);
+  if (heartbeatTtlMs <= heartbeatIntervalMs) {
+    throw new Error(
+      `jobs queue '${queueType}' keyConcurrency.heartbeatTtlMs must exceed heartbeatIntervalMs`,
+    );
+  }
+  return {
+    key,
+    maxActive: optionalStrictPositiveInteger(keyConcurrency, "maxActive") ?? 1,
+    heartbeatIntervalMs,
+    heartbeatTtlMs,
+    stalePolicy: optionalStringUnion(
+      keyConcurrency,
+      "stalePolicy",
+      [
+        "fail-stale",
+        "block",
+      ] as const,
+    ) ?? "fail-stale",
+  };
+}
+
+function normalizeQueueDepthPolicy(
+  definition: Record<string, unknown>,
+  keyConcurrency: JobKeyConcurrencyPolicy | undefined,
+): JobQueueDepthPolicy | undefined {
+  if (!keyConcurrency) return undefined;
+  const queue = optionalRecord(definition, "queue") ?? {};
+  return {
+    maxQueuedPerKey: optionalPositiveInteger(queue, "maxQueuedPerKey") ?? 0,
+    whenFull: optionalStringUnion(
+      queue,
+      "whenFull",
+      [
+        "reject",
+        "coalesce",
+        "replace-oldest",
+      ] as const,
+    ) ?? "reject",
+  };
+}
+
 function resourceDefinition(
   resource: DeploymentAuthorityResource,
 ): Record<string, unknown> {
@@ -1233,11 +1433,19 @@ function toJobsQueueRequest(
 ): JobsQueueRequest {
   const definition = resourceDefinition(resource);
   const maxDeliver = optionalPositiveInteger(definition, "maxDeliver") ?? 5;
+  const ackWaitMs = optionalPositiveInteger(definition, "ackWaitMs") ?? 300000;
+  const queueType = typeof definition.queueType === "string" &&
+      definition.queueType.length > 0
+    ? definition.queueType
+    : resource.alias;
+  const keyConcurrency = normalizeKeyConcurrency(
+    queueType,
+    definition,
+    ackWaitMs,
+  );
+  const queue = normalizeQueueDepthPolicy(definition, keyConcurrency);
   return {
-    queueType: typeof definition.queueType === "string" &&
-        definition.queueType.length > 0
-      ? definition.queueType
-      : resource.alias,
+    queueType,
     payload: requiredSchema(definition, "payload"),
     ...(optionalSchema(definition, "result") !== undefined
       ? { result: optionalSchema(definition, "result") }
@@ -1245,7 +1453,7 @@ function toJobsQueueRequest(
     maxDeliver,
     backoffMs: optionalNumberArray(definition, "backoffMs") ??
       DEFAULT_REDELIVERY_BACKOFF_MS.slice(0, Math.max(maxDeliver - 1, 0)),
-    ackWaitMs: optionalPositiveInteger(definition, "ackWaitMs") ?? 300000,
+    ackWaitMs,
     ...(optionalPositiveInteger(definition, "defaultDeadlineMs") !== undefined
       ? {
         defaultDeadlineMs: optionalPositiveInteger(
@@ -1258,6 +1466,8 @@ function toJobsQueueRequest(
     logs: optionalBoolean(definition, "logs") ?? true,
     dlq: optionalBoolean(definition, "dlq") ?? true,
     concurrency: optionalPositiveInteger(definition, "concurrency") ?? 1,
+    ...(keyConcurrency ? { keyConcurrency } : {}),
+    ...(queue ? { queue } : {}),
   };
 }
 
@@ -1396,6 +1606,11 @@ export async function materializeAuthorityResourceBindings(
         await options.manager.ensureJobsInfrastructure(options.provisioning);
         const namespace = names.jobs?.namespace ??
           newResourceName("jobsNamespace").slice(0, 32);
+        await options.manager.ensureKvBucket(
+          jobsKeysBucketName(namespace),
+          { history: 1, ttlMs: 0 },
+          options.provisioning,
+        );
         const existingQueue = names.jobs?.queues?.[resource.alias];
         const queueToken = newResourceName("jobsQueue").slice(0, 48);
         const queue: JobsQueueBinding = {
@@ -1499,22 +1714,45 @@ export function getJobsQueueRequests(
     logs?: boolean;
     dlq?: boolean;
     concurrency?: number;
+    keyConcurrency?: {
+      key: string[];
+      maxActive?: number;
+      heartbeatIntervalMs?: number;
+      heartbeatTtlMs?: number;
+      stalePolicy?: "fail-stale" | "block";
+    };
+    queue?: {
+      maxQueuedPerKey?: number;
+      whenFull?: "reject" | "coalesce" | "replace-oldest";
+    };
   }]>)
-    .map(([queueType, queue]) => ({
-      queueType,
-      payload: queue.payload,
-      ...(queue.result ? { result: queue.result } : {}),
-      maxDeliver: queue.maxDeliver ?? 5,
-      backoffMs: queue.backoffMs ?? [5000, 30000, 120000, 600000, 1800000],
-      ackWaitMs: queue.ackWaitMs ?? 300000,
-      ...(queue.defaultDeadlineMs
-        ? { defaultDeadlineMs: queue.defaultDeadlineMs }
-        : {}),
-      progress: queue.progress ?? true,
-      logs: queue.logs ?? true,
-      dlq: queue.dlq ?? true,
-      concurrency: queue.concurrency ?? 1,
-    }))
+    .map(([queueType, queue]) => {
+      const ackWaitMs = queue.ackWaitMs ?? 300000;
+      const definition: Record<string, unknown> = { ...queue };
+      const keyConcurrency = normalizeKeyConcurrency(
+        queueType,
+        definition,
+        ackWaitMs,
+      );
+      const queueDepth = normalizeQueueDepthPolicy(definition, keyConcurrency);
+      return {
+        queueType,
+        payload: queue.payload,
+        ...(queue.result ? { result: queue.result } : {}),
+        maxDeliver: queue.maxDeliver ?? 5,
+        backoffMs: queue.backoffMs ?? [5000, 30000, 120000, 600000, 1800000],
+        ackWaitMs,
+        ...(queue.defaultDeadlineMs
+          ? { defaultDeadlineMs: queue.defaultDeadlineMs }
+          : {}),
+        progress: queue.progress ?? true,
+        logs: queue.logs ?? true,
+        dlq: queue.dlq ?? true,
+        concurrency: queue.concurrency ?? 1,
+        ...(keyConcurrency ? { keyConcurrency } : {}),
+        ...(queueDepth ? { queue: queueDepth } : {}),
+      };
+    })
     .sort((left, right) => left.queueType.localeCompare(right.queueType));
 }
 
@@ -1852,6 +2090,15 @@ export async function provisionContractResources(
       }
       const namespace = options.existingResourceNames?.jobs?.namespace ??
         newResourceName("jobsNamespace").slice(0, 32);
+      await ensureKvResource(
+        nats,
+        jobsKeysBucketName(namespace),
+        { history: 1, ttlMs: 0 },
+        {
+          ...options,
+          jetstreamReplicas: options.jetstreamReplicas ?? 3,
+        },
+      );
       const jobBindings: NonNullable<ContractResourceBindings["jobs"]> = {
         namespace,
         workStream: "JOBS_WORK",
@@ -1883,6 +2130,10 @@ export async function provisionContractResources(
           logs: queue.logs,
           dlq: queue.dlq,
           concurrency: queue.concurrency,
+          ...(queue.keyConcurrency
+            ? { keyConcurrency: queue.keyConcurrency }
+            : {}),
+          ...(queue.queue ? { queue: queue.queue } : {}),
         };
         const action = await ensureJobsQueueConsumer(
           nats,
@@ -1982,18 +2233,19 @@ export function getResourcePermissionGrants(
   if (bindings?.jobs) {
     const namespace = bindings.jobs.namespace;
     const workStream = bindings.jobs.workStream;
+    const jobsKeysGrants = getJobsKeysPermissionGrants(namespace);
     publish.add(`trellis.jobs.${namespace}.>`);
     publish.add(`trellis.jobs.workers.${namespace}.>`);
-    publish.add(`trellis.work.${namespace}.>`);
     publish.add("$JS.API.DIRECT.GET.JOBS");
     publish.add("$JS.API.DIRECT.GET.JOBS.>");
     publish.add("$JS.API.STREAM.MSG.GET.JOBS");
     publish.add(`$JS.API.CONSUMER.INFO.${workStream}.>`);
     publish.add(`$JS.API.CONSUMER.MSG.NEXT.${workStream}.>`);
     publish.add(`$JS.ACK.${workStream}.>`);
+    for (const subject of jobsKeysGrants.publish) publish.add(subject);
+    for (const subject of jobsKeysGrants.subscribe) subscribe.add(subject);
     for (const queue of Object.values(bindings.jobs.queues)) {
       publish.add(queue.publishPrefix + ".>");
-      publish.add(queue.workSubject);
       subscribe.add(`${queue.publishPrefix}.*.*`);
       subscribe.add(`${queue.publishPrefix}.*.cancelled`);
     }

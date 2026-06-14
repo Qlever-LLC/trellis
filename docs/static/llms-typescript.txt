@@ -97,6 +97,15 @@ Do not call `Auth.Sessions.Logout` from the active app connection for normal
 browser logout, and let Trellis validate `returnTo` and build provider logout
 URLs instead of hard-coding IdP endpoints.
 
+For service-private jobs that must be singleton per logical key, declare
+`keyConcurrency` on the job queue. Keep the existing numeric `concurrency`
+field for worker-count concurrency. Keyed queues default to clear failure
+(`stalePolicy: "fail-stale"`, `whenFull: "reject"`); only use
+`whenFull: "coalesce"` or `"replace-oldest"` when the service explicitly wants
+scheduler-style compression or supersession. `create(...)` means “create a new
+job or return a typed failure”; use the additive `submit(...)` helper when code
+needs to inspect accepted/rejected/coalesced/replaced outcomes.
+
 ## Register handlers with `service.handle`
 
 Register providers through the generated `service.handle` tree. Handler code

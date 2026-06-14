@@ -1517,6 +1517,87 @@ fn manifest_parses_top_level_jobs() {
 }
 
 #[test]
+fn manifest_parses_keyed_job_concurrency_policy() {
+    let manifest = parse_manifest(json!({
+        "format": "trellis.contract.v1",
+        "id": "example.keyed-jobs@v1",
+        "displayName": "Example Keyed Jobs",
+        "description": "Expose keyed job queues.",
+        "kind": "service",
+        "schemas": {
+            "JobPayload": {"type": "object", "properties": {}}
+        },
+        "jobs": {
+            "sync-tickets": {
+                "payload": {"schema": "JobPayload"},
+                "concurrency": 8,
+                "keyConcurrency": {
+                    "key": ["zendesk", "/origin", "tickets"],
+                    "maxActive": 1,
+                    "heartbeatIntervalMs": 30000,
+                    "heartbeatTtlMs": 120000,
+                    "stalePolicy": "fail-stale"
+                },
+                "queue": {
+                    "maxQueuedPerKey": 0,
+                    "whenFull": "reject"
+                }
+            }
+        }
+    }))
+    .expect("manifest with keyed top-level jobs should parse");
+
+    let queue = manifest
+        .jobs
+        .get("sync-tickets")
+        .expect("sync-tickets queue");
+    let key_concurrency = queue
+        .key_concurrency
+        .as_ref()
+        .expect("keyed concurrency policy");
+    assert_eq!(key_concurrency.key, vec!["zendesk", "/origin", "tickets"]);
+    assert_eq!(key_concurrency.max_active, Some(1));
+    assert_eq!(key_concurrency.heartbeat_interval_ms, Some(30_000));
+    assert_eq!(key_concurrency.heartbeat_ttl_ms, Some(120_000));
+    assert_eq!(
+        key_concurrency.stale_policy,
+        Some(JobKeyConcurrencyStalePolicy::FailStale)
+    );
+    let queue_depth = queue.queue.as_ref().expect("queue depth policy");
+    assert_eq!(queue_depth.max_queued_per_key, Some(0));
+    assert_eq!(queue_depth.when_full, Some(JobQueueWhenFullPolicy::Reject));
+}
+
+#[test]
+fn manifest_validation_rejects_invalid_keyed_job_pointer_syntax() {
+    let error = parse_manifest(json!({
+        "format": "trellis.contract.v1",
+        "id": "example.invalid-keyed-jobs@v1",
+        "displayName": "Example Invalid Keyed Jobs",
+        "description": "Expose invalid keyed job queues.",
+        "kind": "service",
+        "schemas": {
+            "JobPayload": {"type": "object", "properties": {}}
+        },
+        "jobs": {
+            "sync-tickets": {
+                "payload": {"schema": "JobPayload"},
+                "keyConcurrency": {
+                    "key": ["zendesk", "/origin~bad"]
+                }
+            }
+        }
+    }))
+    .expect_err("manifest with invalid key pointer should fail");
+
+    let ContractsError::SchemaValidation { details, .. } = error else {
+        panic!("expected schema validation error");
+    };
+    assert!(details.contains("keyConcurrency.key"));
+    assert!(details.contains("invalid JSON Pointer escape"));
+}
+
+#[test]
 fn manifest_validation_rejects_legacy_resource_jobs() {
     let error = parse_manifest(json!({
         "format": "trellis.contract.v1",

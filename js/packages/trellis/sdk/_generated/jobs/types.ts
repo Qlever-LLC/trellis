@@ -8,12 +8,19 @@ import { NotFoundErrorDataSchema } from "./schemas.ts";
 
 export const CONTRACT_ID = "trellis.jobs@v1" as const;
 export const CONTRACT_DIGEST =
-  "jSB8nKGOQqIxdFDdUqO-gOTt3Dijg--SOXJtJ1ChpoY" as const;
+  "xDigtrlrF3n3ZNgHVdwDJFcwi0PEJBiDyBG6FnzFzM8" as const;
 
 export type JobsCancelInput = { id: string };
 export type JobsCancelOutput = {
   job: {
     completedAt?: string;
+    concurrency?: {
+      heartbeatAt?: string;
+      key: string;
+      keyHash: string;
+      leaseExpiresAt?: string;
+      staleTakeoverCount?: number;
+    };
     context: {
       requestId: string;
       traceId: string;
@@ -34,6 +41,12 @@ export type JobsCancelOutput = {
       message?: string;
       step?: string;
       total?: number;
+    };
+    queuePolicy?: {
+      existingJobId?: string;
+      outcome: string;
+      reason?: string;
+      replacedJobId?: string;
     };
     result?: unknown;
     service: string;
@@ -58,6 +71,13 @@ export type JobsDismissDLQInput = { id: string };
 export type JobsDismissDLQOutput = {
   job: {
     completedAt?: string;
+    concurrency?: {
+      heartbeatAt?: string;
+      key: string;
+      keyHash: string;
+      leaseExpiresAt?: string;
+      staleTakeoverCount?: number;
+    };
     context: {
       requestId: string;
       traceId: string;
@@ -78,6 +98,12 @@ export type JobsDismissDLQOutput = {
       message?: string;
       step?: string;
       total?: number;
+    };
+    queuePolicy?: {
+      existingJobId?: string;
+      outcome: string;
+      reason?: string;
+      replacedJobId?: string;
     };
     result?: unknown;
     service: string;
@@ -102,6 +128,13 @@ export type JobsGetInput = { id: string };
 export type JobsGetOutput = {
   job: {
     completedAt?: string;
+    concurrency?: {
+      heartbeatAt?: string;
+      key: string;
+      keyHash: string;
+      leaseExpiresAt?: string;
+      staleTakeoverCount?: number;
+    };
     context: {
       requestId: string;
       traceId: string;
@@ -123,6 +156,12 @@ export type JobsGetOutput = {
       step?: string;
       total?: number;
     };
+    queuePolicy?: {
+      existingJobId?: string;
+      outcome: string;
+      reason?: string;
+      replacedJobId?: string;
+    };
     result?: unknown;
     service: string;
     startedAt?: string;
@@ -140,6 +179,28 @@ export type JobsGetOutput = {
     type: string;
     updatedAt: string;
   };
+};
+
+export type JobsGetKeyInput = { key: string; service: string; type: string };
+export type JobsGetKeyOutput = {
+  active: Array<
+    {
+      heartbeatAgeMs: number;
+      heartbeatAt: string;
+      instanceId: string;
+      jobId: string;
+      leaseExpiresAt: string;
+      startedAt: string;
+    }
+  >;
+  key: string;
+  keyHash: string;
+  latestPolicyReason?: string;
+  queued: Array<{ createdAt: string; jobId: string }>;
+  queuedDepth: number;
+  service: string;
+  staleTakeoverCount: number;
+  type: string;
 };
 
 export type JobsHealthInput = {};
@@ -175,6 +236,13 @@ export type JobsListOutput = {
   entries: Array<
     {
       completedAt?: string;
+      concurrency?: {
+        heartbeatAt?: string;
+        key: string;
+        keyHash: string;
+        leaseExpiresAt?: string;
+        staleTakeoverCount?: number;
+      };
       context: {
         requestId: string;
         traceId: string;
@@ -195,6 +263,12 @@ export type JobsListOutput = {
         message?: string;
         step?: string;
         total?: number;
+      };
+      queuePolicy?: {
+        existingJobId?: string;
+        outcome: string;
+        reason?: string;
+        replacedJobId?: string;
       };
       result?: unknown;
       service: string;
@@ -231,6 +305,13 @@ export type JobsListDLQOutput = {
   entries: Array<
     {
       completedAt?: string;
+      concurrency?: {
+        heartbeatAt?: string;
+        key: string;
+        keyHash: string;
+        leaseExpiresAt?: string;
+        staleTakeoverCount?: number;
+      };
       context: {
         requestId: string;
         traceId: string;
@@ -251,6 +332,12 @@ export type JobsListDLQOutput = {
         message?: string;
         step?: string;
         total?: number;
+      };
+      queuePolicy?: {
+        existingJobId?: string;
+        outcome: string;
+        reason?: string;
+        replacedJobId?: string;
       };
       result?: unknown;
       service: string;
@@ -303,6 +390,13 @@ export type JobsReplayDLQInput = { id: string };
 export type JobsReplayDLQOutput = {
   job: {
     completedAt?: string;
+    concurrency?: {
+      heartbeatAt?: string;
+      key: string;
+      keyHash: string;
+      leaseExpiresAt?: string;
+      staleTakeoverCount?: number;
+    };
     context: {
       requestId: string;
       traceId: string;
@@ -323,6 +417,12 @@ export type JobsReplayDLQOutput = {
       message?: string;
       step?: string;
       total?: number;
+    };
+    queuePolicy?: {
+      existingJobId?: string;
+      outcome: string;
+      reason?: string;
+      replacedJobId?: string;
     };
     result?: unknown;
     service: string;
@@ -347,6 +447,13 @@ export type JobsRetryInput = { id: string };
 export type JobsRetryOutput = {
   job: {
     completedAt?: string;
+    concurrency?: {
+      heartbeatAt?: string;
+      key: string;
+      keyHash: string;
+      leaseExpiresAt?: string;
+      staleTakeoverCount?: number;
+    };
     context: {
       requestId: string;
       traceId: string;
@@ -367,6 +474,12 @@ export type JobsRetryOutput = {
       message?: string;
       step?: string;
       total?: number;
+    };
+    queuePolicy?: {
+      existingJobId?: string;
+      outcome: string;
+      reason?: string;
+      replacedJobId?: string;
     };
     result?: unknown;
     service: string;
@@ -425,6 +538,7 @@ export interface RpcMap {
     output: JobsDismissDLQOutput;
   };
   "Jobs.Get": { input: JobsGetInput; output: JobsGetOutput };
+  "Jobs.GetKey": { input: JobsGetKeyInput; output: JobsGetKeyOutput };
   "Jobs.Health": { input: JobsHealthInput; output: JobsHealthOutput };
   "Jobs.List": { input: JobsListInput; output: JobsListOutput };
   "Jobs.ListDLQ": { input: JobsListDLQInput; output: JobsListDLQOutput };
@@ -442,6 +556,7 @@ export type JobsDismissDLQHandler = RpcHandlerFn<
   "Jobs.DismissDLQ"
 >;
 export type JobsGetHandler = RpcHandlerFn<typeof API.owned, "Jobs.Get">;
+export type JobsGetKeyHandler = RpcHandlerFn<typeof API.owned, "Jobs.GetKey">;
 export type JobsHealthHandler = RpcHandlerFn<typeof API.owned, "Jobs.Health">;
 export type JobsListHandler = RpcHandlerFn<typeof API.owned, "Jobs.List">;
 export type JobsListDLQHandler = RpcHandlerFn<typeof API.owned, "Jobs.ListDLQ">;
