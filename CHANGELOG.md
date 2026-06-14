@@ -8,8 +8,18 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.19.0-rc.1] - 2026-06-14
+
 ### Added
 
+- Added keyed Jobs concurrency and queue-depth policy support for contract job
+  queues, including TypeScript and Rust runtime APIs, generated SDK metadata,
+  and the `Jobs.GetKey` admin RPC for key-specific job projection lookup.
+- Added public TypeScript event metadata types, including `TrellisEventHeader`
+  and `TrellisEventMessage`, for metadata-aware event handling after event
+  bodies stopped carrying runtime headers.
+- Added the TypeScript `@qlever-llc/trellis/service/drizzle` helper for Drizzle
+  SQL-backed outbox/inbox tables.
 - Added the Deno-first `@qlever-llc/trellis-test` JSR package for service
   boundary integration tests that need an isolated NATS/JetStream environment
   and a spawned Trellis control-plane process.
@@ -19,6 +29,25 @@ and this project adheres to
 
 ### Changed
 
+- **Breaking:** Split Trellis event runtime metadata from event bodies. Prepared
+  events now carry body-only payloads plus metadata headers, generated SDK event
+  body aliases no longer include embedded `header` data, TypeScript handlers
+  must read event id/time from listener context or `TrellisEventMessage`, and
+  Rust prepared events use `headers`, `event_id`, and `event_time` instead of
+  the old `message_id`, `header_id`, and `header_time` helpers.
+- **Breaking:** Changed caller-owned SQL outbox/inbox storage schemas for the
+  event metadata split. Outbox tables now store `headers`, `event_id`, and
+  `event_time`, and inbox storage tracks `trellis_inbox_events(event_id)`
+  instead of `trellis_inbox_messages(message_id)`.
+- **Breaking:** Changed Jobs runtime and generated SDK APIs for keyed
+  concurrency. `JobQueue` implementations now need `submit(...)`, job results
+  can report not-enqueued outcomes, job states and event/process enums include
+  keyed-concurrency terminal states, and job/job-binding records include
+  concurrency and queue-policy metadata.
+- **Breaking:** Changed the Rust `trellis-jobs` crate from a thin
+  `trellis-rs::jobs::*` re-export into an owning jobs crate, so downstream code
+  that mixed nominal `trellis_jobs::*` and `trellis_rs::jobs::*` types may need
+  to standardize on one import path.
 - **Breaking:** Renamed the runnable Trellis control-plane service JSR package
   from `@qlever-llc/trellis-service-trellis` to
   `@qlever-llc/trellis-control-plane` and publish it directly from
@@ -1045,7 +1074,12 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.10.14...HEAD
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.19.0-rc.1...HEAD
+[0.19.0-rc.1]: https://github.com/Qlever-LLC/trellis/compare/v0.10.18-rc.1...v0.19.0-rc.1
+[0.10.18-rc.1]: https://github.com/Qlever-LLC/trellis/compare/v0.10.17...v0.10.18-rc.1
+[0.10.17]: https://github.com/Qlever-LLC/trellis/compare/v0.10.16...v0.10.17
+[0.10.16]: https://github.com/Qlever-LLC/trellis/compare/v0.10.15...v0.10.16
+[0.10.15]: https://github.com/Qlever-LLC/trellis/compare/v0.10.14...v0.10.15
 [0.10.14]: https://github.com/Qlever-LLC/trellis/compare/v0.10.13...v0.10.14
 [0.10.13]: https://github.com/Qlever-LLC/trellis/compare/v0.10.12...v0.10.13
 [0.10.12]: https://github.com/Qlever-LLC/trellis/compare/v0.10.11...v0.10.12
