@@ -2,7 +2,7 @@ import {
   digestContractManifest,
   type TrellisContractV1,
 } from "@qlever-llc/trellis/contracts";
-import { CONTRACT as trellisJobsContract } from "#trellis-generated-sdk/jobs";
+import { CONTRACT as trellisJobsContract } from "@qlever-llc/trellis/sdk/jobs";
 
 import {
   startAuthCallout,
