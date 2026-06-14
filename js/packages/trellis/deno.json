@@ -22,6 +22,7 @@
     "./sdk/jobs": "./sdk/jobs.ts",
     "./sdk/state": "./sdk/state.ts",
     "./service": "./service/mod.ts",
+    "./service/drizzle": "./service/drizzle.ts",
     "./service/deno": "./service/deno.ts",
     "./service/node": "./service/node.ts",
     "./telemetry": "./telemetry.ts",
@@ -39,6 +40,9 @@
       "**/*.test.ts",
       "**/*.api_check.ts"
     ]
+  },
+  "imports": {
+    "drizzle-orm": "npm:drizzle-orm@0.44.7"
   },
   "tasks": {
     "build:npm": "deno run -A ./scripts/build_npm.ts",

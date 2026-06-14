@@ -70,6 +70,11 @@ Deno.test("trellis npm artifact only depends on allowed published Trellis packag
     Object.keys(packageJson.dependencies).includes("@qlever-llc/result"),
     true,
   );
+  assertEquals(packageJson.dependencies["drizzle-orm"], undefined);
+  assertEquals(packageJson.peerDependencies["drizzle-orm"], "^0.44.7");
+  assertEquals(packageJson.peerDependenciesMeta["drizzle-orm"], {
+    optional: true,
+  });
   assertEquals(
     Object.keys(packageJson.dependencies).some((name: string) =>
       name.startsWith("@qlever-llc/trellis-")
@@ -150,6 +155,10 @@ Deno.test("trellis npm SDK exports resolve through public wrapper modules", asyn
   assertEquals(packageJson.exports["./sdk/state"], {
     import: "./esm/sdk/state.js",
     require: "./script/sdk/state.js",
+  });
+  assertEquals(packageJson.exports["./service/drizzle"], {
+    import: "./esm/service/drizzle.js",
+    require: "./script/service/drizzle.js",
   });
 
   const authWrapper = await Deno.readTextFile(

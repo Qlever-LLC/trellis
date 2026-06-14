@@ -2344,6 +2344,7 @@
       "npm:cookie@^1.1.1",
       "npm:daisyui@5.5.19",
       "npm:devalue@^5.7.1",
+      "npm:drizzle-orm@0.44.7",
       "npm:esm-env@^1.2.2",
       "npm:graphology-layout-forceatlas2@~0.10.1",
       "npm:graphology@0.26",
@@ -2382,6 +2383,11 @@
         "dependencies": [
           "npm:typebox@^1.1.33",
           "npm:ulid@^3.0.2"
+        ]
+      },
+      "packages/trellis": {
+        "dependencies": [
+          "npm:drizzle-orm@0.44.7"
         ]
       },
       "portals/login": {

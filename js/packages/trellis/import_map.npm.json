@@ -5,6 +5,7 @@
     "#trellis-generated-sdk/health": "./.build/generated-sdk/health/mod.ts",
     "#trellis-generated-sdk/jobs": "./.build/generated-sdk/jobs/mod.ts",
     "#trellis-generated-sdk/state": "./.build/generated-sdk/state/mod.ts",
+    "drizzle-orm": "npm:drizzle-orm@0.44.7",
     "@qlever-llc/trellis/sdk/auth": "./sdk/auth.ts",
     "@qlever-llc/trellis/sdk/core": "./sdk/core.ts",
     "@qlever-llc/trellis/sdk/health": "./sdk/health.ts",

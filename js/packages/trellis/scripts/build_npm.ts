@@ -532,6 +532,11 @@ async function normalizePackageJsonExports() {
   packageJson.bin = {
     "trellis-generate": "./bin/trellis-generate.js",
   };
+  delete packageJson.dependencies?.["drizzle-orm"];
+  packageJson.peerDependenciesMeta = {
+    ...(packageJson.peerDependenciesMeta ?? {}),
+    "drizzle-orm": { optional: true },
+  };
   if (typeof packageJson.main === "string") {
     packageJson.main = rewriteCjsPath(packageJson.main);
   }
@@ -714,6 +719,7 @@ await buildDntPackage({
     "./js/packages/trellis/host/mod.ts",
     "./js/packages/trellis/host/node.ts",
     "./js/packages/trellis/service/mod.ts",
+    "./js/packages/trellis/service/drizzle.ts",
     "./js/packages/trellis/service/deno.ts",
     "./js/packages/trellis/service/node.ts",
     "./js/packages/trellis/telemetry.ts",
@@ -756,12 +762,16 @@ await buildDntPackage({
     "@nats-io/obj": "^3.3.1",
     "@nats-io/nats-core": "^3.3.1",
     "@nats-io/transport-node": "^3.3.1",
+    "drizzle-orm": "^0.44.7",
     "js-sha256": "^0.11.1",
     pino: "^9.11.0",
     tweetnacl: "^1.0.3",
     "ts-deepmerge": "^7.0.3",
     typebox: "^1.0.15",
     ulid: "^3.0.1",
+  },
+  peerDependencies: {
+    "drizzle-orm": "^0.44.7",
   },
   externalizePackageDirs: {
     result: "@qlever-llc/result",
