@@ -39,6 +39,11 @@ Rules:
   default-export the `defineServiceContract(...)`, `defineAppContract(...)`,
   `defineAgentContract(...)`, or `defineDeviceContract(...)` result
 - `deno.json` should expose Trellis generation through `deno task prepare`
+- service-boundary integration tests can use `@qlever-llc/trellis-test`:
+  start it with an explicit `trellis.command` for the control-plane process, then
+  call `runtime.registerService(...)`, service `TrellisService.connect(...)`, and
+  generated clients to exercise real bootstrap, auth, authority, resources,
+  events, jobs, and operations
 - the `prepare` task value should call the Trellis generator, for example
   `deno run -A @qlever-llc/trellis/generate prepare .`
 - generated SDKs, manifests, and package outputs belong under the service repo's
@@ -86,6 +91,12 @@ handles. Use generated `rpc`, `event`, `feed`, `operation`, `state`, and
 `transfer` surfaces for communication, `service.kv` / `service.store` /
 `service.jobs` for service-owned resources, and `connection` for lifecycle status
 or shutdown.
+
+For integration tests, prefer `@qlever-llc/trellis-test` over raw NATS subjects
+or hand-built bootstrap responses. The test runtime requires an explicit
+`trellis.command`, creates an isolated NATS/JetStream environment, and starts the
+real Trellis control plane as a spawned process; services under test still
+connect through public `TrellisService.connect(...)`.
 
 For service-private jobs that must be singleton per logical key, declare
 `keyConcurrency` on the job queue. Keep the existing numeric `concurrency`

@@ -46,6 +46,7 @@ utils/arangodb/data/
 generated/
 docs/static/api/typescript/
 **/npm/
+js/services/trellis/jsr/
 js/packages/result/**/*.d.ts
 js/packages/trellis/**/*.d.ts
 *.tgz
