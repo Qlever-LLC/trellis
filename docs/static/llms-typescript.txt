@@ -174,11 +174,14 @@ enqueue must commit or roll back together:
 import {
   dispatchOutbox,
   SqlOutboxRepository,
-  type SqlExecutor,
 } from "@qlever-llc/trellis/service";
+import { createDrizzleSqlExecutor } from "@qlever-llc/trellis/service/drizzle";
 import { Result } from "@qlever-llc/trellis";
 
-const outboxRepository = new SqlOutboxRepository(dbExecutor, "postgres");
+const outboxRepository = new SqlOutboxRepository(
+  createDrizzleSqlExecutor(db),
+  "sqlite",
+);
 
 await service.handle.rpc.orders.ship(async ({ input, client }) => {
   const prepared = client.event.orders.shipped.prepare({
@@ -190,8 +193,8 @@ await service.handle.rpc.orders.ship(async ({ input, client }) => {
   await db.transaction(async (tx) => {
     await markOrderShipped(tx, input.orderId);
 
-    const executor: SqlExecutor = drizzleTransactionExecutor(tx);
-    const outbox = new SqlOutboxRepository(executor, "postgres");
+    const executor = createDrizzleSqlExecutor(tx);
+    const outbox = new SqlOutboxRepository(executor, "sqlite");
     await outbox.enqueue(prepared);
   });
 
@@ -203,6 +206,9 @@ await service.handle.rpc.orders.ship(async ({ input, client }) => {
 
 For a long-running process-local dispatcher, use `OutboxDispatcher` over the same
 repository and a connected Trellis publisher that exposes `publishPrepared`.
+Drizzle services can use the optional `@qlever-llc/trellis/service/drizzle`
+subpath to adapt caller-owned Drizzle SQLite databases or transactions; services
+still own migrations and transaction boundaries.
 
 Use `SqlInboxRepository` only when replaying a message would repeat a
 non-idempotent side effect. Register the listener during service startup, not

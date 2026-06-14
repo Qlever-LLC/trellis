@@ -42,6 +42,10 @@ commands.
   should fail clearly (`stalePolicy: "fail-stale"`, `whenFull: "reject"`);
   coalescing or replacing queued work must be explicit.
 - Model expected public failures with declared errors or `Result`-style values.
+- When coupling a TypeScript service-local SQL transaction to prepared event
+  enqueue, Drizzle services can use `@qlever-llc/trellis/service/drizzle` to
+  adapt caller-owned SQLite databases or transactions; services still own
+  migrations and transaction boundaries.
 - Event subject `params` must point at string, number, or integer-compatible
   payload fields. For `anyOf` or `oneOf` event payload schemas, every variant must
   contain each routed pointer.

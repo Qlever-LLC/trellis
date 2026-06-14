@@ -144,7 +144,9 @@ expected by that repo.
   database side effects should still be idempotent.
 - Publishing an event before a local transaction commits when downstream systems
   require the local state and event to be atomic. Use prepared events and an
-  outbox in that case.
+  outbox in that case. Drizzle services can adapt caller-owned SQLite databases
+  or transactions with `@qlever-llc/trellis/service/drizzle`; services still own
+  migrations and transaction boundaries.
 - Adding an inbox around every subscription. Prefer idempotent handlers; use an
   inbox only for non-idempotent side effects.
 - Using NATS KV outbox/inbox helpers as if they were atomic with unrelated SQL or

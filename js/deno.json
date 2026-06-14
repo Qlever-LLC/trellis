@@ -76,6 +76,7 @@
     "cookie": "npm:cookie@^1.1.1",
     "daisyui": "npm:daisyui@5.5.19/index.js",
     "devalue": "npm:devalue@^5.7.1",
+    "drizzle-orm": "npm:drizzle-orm@0.44.7",
     "esm-env": "npm:esm-env@^1.2.2",
     "json-schema-library": "npm:json-schema-library@^11.4.0",
     "js-sha256": "npm:js-sha256@^0.11.1",
