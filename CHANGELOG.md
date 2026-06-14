@@ -8,6 +8,33 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- Added the Deno-first `@qlever-llc/trellis-test` JSR package for service
+  boundary integration tests that need an isolated NATS/JetStream environment
+  and a spawned Trellis control-plane process.
+- Added the internal `@qlever-llc/trellis/host/control-plane` export used by the
+  Trellis control-plane service package to access runtime host primitives
+  without repo-relative package imports.
+
+### Changed
+
+- **Breaking:** Renamed the runnable Trellis control-plane service JSR package
+  from `@qlever-llc/trellis-service-trellis` to
+  `@qlever-llc/trellis-control-plane` and publish it directly from
+  `js/services/trellis` instead of a generated staged package tree.
+- **Breaking:** Changed `TrellisTestRuntime.start(...)` so callers must provide
+  an explicit `trellis.command`; removed the default Trellis runtime package
+  resolution and the `trellis.binary` option.
+- Changed release verification and publishing so the Trellis control-plane
+  service and `@qlever-llc/trellis-test` run JSR dry-runs and publish through
+  the normal package set.
+
+### Removed
+
+- Removed the generated `js/services/trellis/jsr` service-package staging path
+  and its `prepare:jsr` workflow.
+
 ## [0.10.22] - 2026-06-25
 
 ### Changed
