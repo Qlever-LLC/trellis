@@ -147,27 +147,46 @@ class StartedTrellisProcess implements TrellisProcessHandle {
   }
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function timeoutValue<T>(ms: number, value: T): {
+  promise: Promise<T>;
+  cancel(): void;
+} {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const promise = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => {
+      timeoutId = undefined;
+      resolve(value);
+    }, ms);
+  });
+  return {
+    promise,
+    cancel() {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    },
+  };
 }
 
 async function settledStatus(
   status: Promise<CommandStatus>,
 ): Promise<CommandStatus | undefined> {
-  return await Promise.race([
-    status,
-    delay(0).then(() => undefined),
-  ]);
+  const timeout = timeoutValue(0, undefined);
+  try {
+    return await Promise.race([status, timeout.promise]);
+  } finally {
+    timeout.cancel();
+  }
 }
 
 async function waitForStatus(
   status: Promise<CommandStatus>,
   timeoutMs: number,
 ): Promise<CommandStatus | undefined> {
-  return await Promise.race([
-    status,
-    delay(timeoutMs).then(() => undefined),
-  ]);
+  const timeout = timeoutValue(timeoutMs, undefined);
+  try {
+    return await Promise.race([status, timeout.promise]);
+  } finally {
+    timeout.cancel();
+  }
 }
 
 function killProcess(child: Deno.ChildProcess, signal: Deno.Signal): void {
@@ -296,10 +315,11 @@ async function waitForTrellisReady(args: {
       READINESS_POLL_INTERVAL_MS,
       Math.max(0, args.startupTimeoutMs - (Date.now() - startedAt)),
     );
+    const timeout = timeoutValue(pollDelayMs, undefined);
     const exitDuringDelay = await Promise.race([
       args.status.then((status) => ({ status })),
-      delay(pollDelayMs).then(() => undefined),
-    ]);
+      timeout.promise,
+    ]).finally(() => timeout.cancel());
     if (exitDuringDelay !== undefined) {
       await Promise.allSettled(args.readers);
       throw new Error(

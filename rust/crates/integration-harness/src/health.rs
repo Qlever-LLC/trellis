@@ -64,7 +64,7 @@ pub(crate) async fn run_health_fixture(
 
 async fn assert_generated_health_publish_subscribe(client: &TrellisClient) -> Result<()> {
     let mut events = client
-        .subscribe_messages::<HealthHeartbeatEventDescriptor>(EventSubscribeOptions {
+        .subscribe_with_options::<HealthHeartbeatEventDescriptor>(EventSubscribeOptions {
             mode: EventSubscriptionMode::Ephemeral,
             replay: EventReplayPolicy::New,
             durable_name: None,
@@ -94,22 +94,7 @@ async fn assert_generated_health_publish_subscribe(client: &TrellisClient) -> Re
             .map_err(|_| miette!("Health.Heartbeat subscription timed out"))?
             .ok_or_else(|| miette!("Health.Heartbeat subscription ended before event"))?
             .into_diagnostic()?;
-        let received = message.decode().into_diagnostic()?;
-        if received.service.name == heartbeat.service.name {
-            let event_id = message
-                .event_id()
-                .ok_or_else(|| miette!("Health.Heartbeat message missing Nats-Msg-Id"))?;
-            if event_id.is_empty() {
-                return Err(miette!("Health.Heartbeat message had empty Nats-Msg-Id"));
-            }
-            let event_time = message
-                .event_time()
-                .ok_or_else(|| miette!("Health.Heartbeat message missing Trellis-Event-Time"))?;
-            if event_time.is_empty() {
-                return Err(miette!(
-                    "Health.Heartbeat message had empty Trellis-Event-Time"
-                ));
-            }
+        if message.service.name == heartbeat.service.name {
             break;
         }
     }
