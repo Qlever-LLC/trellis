@@ -8,7 +8,7 @@ description = "Bootstrap adapters for the generated Trellis core SDK."
 publish = false
 
 [dependencies]
-trellis-rs = { path = "../trellis", version = "0.10.22" }
+trellis-rs = { path = "../trellis", version = "0.19.0" }
 
 [dev-dependencies]
 futures-util.workspace = true
