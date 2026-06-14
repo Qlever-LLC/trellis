@@ -294,10 +294,14 @@ Deno.test("publishable trellis service sources do not import package internals b
   const packageRoot = new URL("../../../services/trellis/", import.meta.url);
   const relativePackageImportPattern =
     /\.\.\/\.\.\/\.\.\/packages\/trellis|\.\.\/\.\.\/\.\.\/\.\.\/packages\/trellis|\.\.\/\.\.\/packages\/trellis/;
+  const generatedSdkAliasPattern = /#trellis-generated-sdk/;
 
   for await (const sourceUrl of walkPublishableSources(packageRoot)) {
     const source = await Deno.readTextFile(sourceUrl);
-    if (relativePackageImportPattern.test(source)) {
+    if (
+      relativePackageImportPattern.test(source) ||
+      generatedSdkAliasPattern.test(source)
+    ) {
       offenders.push(sourceUrl.pathname.replace(packageRoot.pathname, ""));
     }
   }
