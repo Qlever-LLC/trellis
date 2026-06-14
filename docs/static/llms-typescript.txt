@@ -43,6 +43,11 @@ Rules:
   browser-auth, telemetry, generated SDK, and advanced contract tooling imports on
   their explicit subpaths.
 - `deno.json` should expose Trellis generation through `deno task prepare`
+- service-boundary integration tests can use `@qlever-llc/trellis-test`:
+  start it with an explicit `trellis.command` for the control-plane process, then
+  call `runtime.registerService(...)`, service `TrellisService.connect(...)`, and
+  generated clients to exercise real bootstrap, auth, authority, resources,
+  events, jobs, and operations
 - the `prepare` task value should call the Trellis generator, for example
   `deno run -A @qlever-llc/trellis/generate prepare .`
 - generated SDKs, manifests, and package outputs belong under the service repo's
@@ -96,6 +101,12 @@ POSTs the logout request over HTTP before navigating to any returned redirect.
 Do not call `Auth.Sessions.Logout` from the active app connection for normal
 browser logout, and let Trellis validate `returnTo` and build provider logout
 URLs instead of hard-coding IdP endpoints.
+
+For integration tests, prefer `@qlever-llc/trellis-test` over raw NATS subjects
+or hand-built bootstrap responses. The test runtime requires an explicit
+`trellis.command`, creates an isolated NATS/JetStream environment, and starts the
+real Trellis control plane as a spawned process; services under test still
+connect through public `TrellisService.connect(...)`.
 
 For service-private jobs that must be singleton per logical key, declare
 `keyConcurrency` on the job queue. Keep the existing numeric `concurrency`

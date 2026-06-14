@@ -94,7 +94,7 @@ That single tag drives:
 - Rust crate publication
 - OCI image publication
 
-JSR publication is enabled for the staged package set.
+JSR publication is enabled for the publishable package set.
 
 Release-managed JS packages and Rust crates use one checked-in base version. Stable releases usually bump that checked-in base version. Prerelease tags use a suffix such as `-rc.1`; they normally keep the checked-in base version unchanged.
 
@@ -110,14 +110,17 @@ Release CI intentionally keeps both the pre-`release prepare` generator bootstra
 
 The `Deploy Site to GitHub Pages` workflow is separate from release publishing. It builds the released and current guide/console sites, prefers a cached or published `trellis-generate` binary for speed, and falls back to building `trellis-generate` from source when the matching release asset is not available yet. This avoids races while a new release tag is still building its CLI assets.
 
-The staged JSR publish set is:
+The JSR publish set is:
 
 - `@qlever-llc/result`
 - `@qlever-llc/trellis`
+- `@qlever-llc/trellis-control-plane` from `js/services/trellis`
+- `@qlever-llc/trellis-test`
+- `@qlever-llc/trellis-svelte` from `js/packages/trellis-svelte/jsr`
 
 The workflow runs JSR dry-runs for those packages so package shape issues are caught early, then publishes them after the release gate passes.
 
-`@qlever-llc/trellis-svelte` is published to npm, but is not staged for JSR because the current source package exports `.svelte` components that `deno publish` cannot analyze directly.
+The `@qlever-llc/trellis-control-plane` service package is published directly from `js/services/trellis`. The source `@qlever-llc/trellis-svelte` package is still published from its staged JSR package directory because that package shape needs generated or copied publish artifacts.
 
 ## 1. Pick the release
 
@@ -242,7 +245,7 @@ deno fmt -c js/deno.json --check
 cargo fmt --manifest-path rust/Cargo.toml --all --check
 cargo fmt --manifest-path rust/tools/generate/Cargo.toml --check
 cargo fmt --manifest-path rust/xtask/Cargo.toml --check
-deno check -c js/deno.json js/packages/trellis/index.ts js/packages/trellis-svelte/src/index.ts js/packages/trellis-svelte/src/context.svelte.ts js/services/trellis/main.ts
+deno check -c js/deno.json js/packages/trellis/index.ts js/packages/trellis-svelte/src/index.ts js/packages/trellis-svelte/src/context.svelte.ts js/packages/trellis-test/index.ts js/services/trellis/main.ts
 deno test -c js/deno.json -A
 cargo test --manifest-path rust/Cargo.toml --workspace
 cargo test --manifest-path rust/tools/generate/Cargo.toml
@@ -284,6 +287,9 @@ cargo run --manifest-path xtask/Cargo.toml -- build --workspace --release
 deno task -c js/deno.json build:npm
 (cd js/packages/result && deno publish --dry-run --allow-slow-types --allow-dirty)
 (cd js/packages/trellis && deno publish --dry-run --allow-slow-types --allow-dirty)
+(cd js/services/trellis && deno publish --dry-run --allow-slow-types --allow-dirty)
+(cd js/packages/trellis-test && deno publish --dry-run --allow-slow-types --allow-dirty)
+(cd js/packages/trellis-svelte/jsr && deno publish --dry-run --allow-slow-types --allow-dirty)
 docker build -f js/services/trellis/Containerfile .
 docker build -f js/apps/console/Containerfile .
 ```
@@ -328,7 +334,7 @@ After the release gate passes, GitHub Actions creates an unsigned lightweight ta
 - npm packages
 - crates.io crates
 - GHCR images
-- staged JSR packages
+- JSR packages
 
 The unified `Release` workflow publishes in gated stages:
 
@@ -338,7 +344,7 @@ The unified `Release` workflow publishes in gated stages:
 - `create-release-tag` creates the release tag after the release gate passes
 - `github-release` publishes CLI archives and checksums first
 - `publish-crates`, `publish-npm`, and `publish-images` publish downstream artifacts after the GitHub release exists
-- `publish-jsr` publishes the staged JSR package set after the GitHub release exists
+- `publish-jsr` publishes the JSR package set after the GitHub release exists
 
 The workflow is idempotent where practical: npm and crates.io publish steps skip versions that already exist. A registry publish is still not an atomic transaction across registries, so if a late publish step fails, inspect the workflow logs and rerun the workflow after fixing the underlying registry or workflow issue.
 

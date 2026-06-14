@@ -92,13 +92,28 @@ Deno.test("release workflows use generated package-manager targets", async () =>
   assertStringIncludes(releaseWorkflow, "publish_or_skip js/packages/trellis");
   assertStringIncludes(
     releaseWorkflow,
+    "publish_or_skip js/services/trellis",
+  );
+  assertStringIncludes(
+    releaseWorkflow,
+    "publish_or_skip js/packages/trellis-test",
+  );
+  assertStringIncludes(
+    releaseWorkflow,
     "publish_or_skip js/packages/trellis-svelte/jsr",
   );
   assertStringIncludes(
     releaseWorkflow,
-    `js/packages/trellis-svelte/jsr
+    `js/packages/trellis-test \\
+            js/packages/trellis-svelte/jsr
           do
             (cd "$pkg" && time deno publish --dry-run --allow-slow-types --allow-dirty)`,
+  );
+  assertStringIncludes(
+    releaseWorkflow,
+    `js/packages/trellis \\
+            js/services/trellis \\
+            js/packages/trellis-test`,
   );
   assertStringIncludes(releaseWorkflow, "trellis-svelte-jsr-package");
   assertStringIncludes(
@@ -108,6 +123,15 @@ Deno.test("release workflows use generated package-manager targets", async () =>
   assertStringIncludes(
     releaseWorkflow,
     "Download trellis-svelte JSR package artifact",
+  );
+  assertEquals(
+    releaseWorkflow.includes(["services/trellis", "jsr"].join("/")),
+    false,
+  );
+  assertEquals(releaseWorkflow.includes(["prepare", "jsr"].join(":")), false);
+  assertEquals(
+    releaseWorkflow.includes(["trellis-service", "trellis"].join("-")),
+    false,
   );
   assertStringIncludes(
     releaseWorkflow,
@@ -256,6 +280,32 @@ Deno.test("published trellis sources do not self-import package subpaths", async
   assertEquals(offenders, []);
 });
 
+Deno.test("publishable trellis service sources do not import package internals by repo path", async () => {
+  const offenders: string[] = [];
+  const packageRoot = new URL("../../../services/trellis/", import.meta.url);
+  const relativePackageImportPattern =
+    /\.\.\/\.\.\/\.\.\/packages\/trellis|\.\.\/\.\.\/\.\.\/\.\.\/packages\/trellis|\.\.\/\.\.\/packages\/trellis/;
+
+  for await (const sourceUrl of walkPublishableSources(packageRoot)) {
+    const source = await Deno.readTextFile(sourceUrl);
+    if (relativePackageImportPattern.test(source)) {
+      offenders.push(sourceUrl.pathname.replace(packageRoot.pathname, ""));
+    }
+  }
+
+  assertEquals(offenders, []);
+});
+
+Deno.test("trellis control-plane service package publishes from source", async () => {
+  const source = await Deno.readTextFile(
+    new URL("../../../services/trellis/deno.json", import.meta.url),
+  );
+  const config = parse(source) as { name?: string; exports?: unknown };
+
+  assertEquals(config.name, "@qlever-llc/trellis-control-plane");
+  assertEquals(config.exports, "./main.ts");
+});
+
 Deno.test("workspace config does not shadow publishable package members", async () => {
   const source = await Deno.readTextFile(
     new URL("../../../deno.json", import.meta.url),
@@ -263,6 +313,7 @@ Deno.test("workspace config does not shadow publishable package members", async 
 
   assertEquals(source.includes('"@qlever-llc/result":'), false);
   assertEquals(source.includes('"@qlever-llc/trellis":'), false);
+  assertEquals(source.includes('"@qlever-llc/trellis-test":'), false);
   assertEquals(source.includes('"@qlever-llc/trellis/sdk/jobs":'), false);
   assertEquals(source.includes('"@qlever-llc/trellis-svelte":'), false);
 });
