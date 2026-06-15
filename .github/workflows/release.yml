@@ -70,21 +70,20 @@ jobs:
           should_publish=false
           should_create_tag=false
 
-          case "${GITHUB_REF}" in
-            refs/heads/release/v*)
-              release_tag="${GITHUB_REF_NAME#release/}"
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ] && [ -n "${INPUT_TAG}" ]; then
+            release_tag="${INPUT_TAG}"
+            if [ "${INPUT_PUBLISH}" = "true" ]; then
               should_publish=true
-              should_create_tag=true
-              ;;
-            *)
-              if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
-                release_tag="${INPUT_TAG}"
-                if [ "${INPUT_PUBLISH}" = "true" ] && [ -n "${release_tag}" ]; then
-                  should_publish=true
-                fi
-              fi
-              ;;
-          esac
+            fi
+          else
+            case "${GITHUB_REF}" in
+              refs/heads/release/v*)
+                release_tag="${GITHUB_REF_NAME#release/}"
+                should_publish=true
+                should_create_tag=true
+                ;;
+            esac
+          fi
 
           if [ -n "${release_tag}" ] && [[ ! "${release_tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$ ]]; then
             echo "::error::Invalid release tag '${release_tag}'; expected vX.Y.Z or vX.Y.Z-rc.1"
