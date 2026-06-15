@@ -8,6 +8,18 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.19.0-rc.4] - 2026-06-15
+
+### Added
+
+- Added live decoded event capture to `@qlever-llc/trellis-test` through
+  `TrellisTestRuntime.captureEvents(...)` and `TrellisTestEventCapture`, so
+  integration tests can subscribe to selected contract events with normal
+  Trellis authority and generated event facades.
+- Added `@qlever-llc/trellis-test` assertion helpers for RPC results, eventual
+  RPC success, captured event presence and context, no-event windows, and
+  terminal job and operation completion.
+
 ## [0.19.0-rc.3] - 2026-06-14
 
 ### Public Breaking Changes
