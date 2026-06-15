@@ -77,6 +77,7 @@ import {
   assertJobCompleted,
   assertNoEventCaptured,
   assertOperationCompleted,
+  assertRpcEventuallyOk,
   assertRpcOk,
 } from "@qlever-llc/trellis-test";
 
@@ -94,6 +95,12 @@ const rpcValue = await assertRpcOk(client.rpc.entity.get({ id: "entity-1" }), {
   id: "entity-1",
 });
 
+const projected = await assertRpcEventuallyOk(
+  runtime,
+  () => client.rpc.entity.get({ id: "entity-1" }),
+  { id: "entity-1", indexed: true },
+);
+
 const jobRef = await service.jobs.entitySync.create({ id: rpcValue.id })
   .orThrow();
 const job = await assertJobCompleted(jobRef, {
@@ -107,7 +114,7 @@ const operation = await client.operation.entity.rebuild.start({
 await assertOperationCompleted(operation, {
   indexed: true,
 });
-console.log(job.id);
+console.log(projected.id, job.id);
 ```
 
 For lower-level `TrellisClient.connect(...)` tests, create client key material

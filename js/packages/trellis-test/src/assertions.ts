@@ -56,7 +56,7 @@ export type TrellisTestAssertionEventCapture<
   /** Returns events captured so far in capture order. */
   all(): ReadonlyArray<TEvent>;
   /** Waits for a captured event matching the name and optional predicate. */
-  waitFor<TEventName extends TEvent["event"]>(
+  waitFor?<TEventName extends TEvent["event"]>(
     name: TEventName,
     predicate?: TrellisTestAssertionEventPredicate<
       TrellisTestEventByName<TEvent, TEventName>
@@ -100,6 +100,25 @@ export type TrellisTestAssertNoEventDuringOptions = {
   readonly intervalMs?: number;
 };
 
+/** Wait polling function accepted by eventual Trellis test assertion helpers. */
+export type TrellisTestWaitForFunction = <T>(
+  fn: () =>
+    | T
+    | null
+    | undefined
+    | false
+    | Promise<T | null | undefined | false>,
+  opts?: WaitForOptions,
+) => Promise<T>;
+
+/** Runtime-like object accepted by eventual Trellis test assertion helpers. */
+export type TrellisTestWaitForSource =
+  | TrellisTestWaitForFunction
+  | { readonly waitFor: TrellisTestWaitForFunction };
+
+/** Options for `assertRpcEventuallyOk`. */
+export type TrellisTestAssertRpcEventuallyOkOptions = WaitForOptions;
+
 /** Expected captured event context fields for `assertCapturedEventContext`. */
 export type TrellisTestCapturedEventContextExpectation = {
   /** Expected Trellis event id. */
@@ -115,7 +134,7 @@ export type TrellisTestCapturedEventContextExpectation = {
 /** Structural Trellis job reference accepted by `assertJobCompleted`. */
 export type TrellisTestWaitableJob<TPayload = unknown, TResult = unknown> = {
   /** Waits for the job to reach a terminal state. */
-  wait(): MaybeAsync<TerminalJob<TPayload, TResult>, BaseError>;
+  wait(): TrellisTestTerminalWaitResult<TerminalJob<TPayload, TResult>>;
 };
 
 /** Structural Trellis operation reference accepted by `assertOperationCompleted`. */
@@ -124,8 +143,26 @@ export type TrellisTestWaitableOperation<
   TOutput = unknown,
 > = {
   /** Waits for the operation to reach a terminal state. */
-  wait(): MaybeAsync<TerminalOperation<TProgress, TOutput>, BaseError>;
+  wait(): TrellisTestTerminalWaitResult<
+    TerminalOperation<TProgress, TOutput>
+  >;
 };
+
+/** Generated-style wait result exposing an `orThrow()` terminal unwrap. */
+export type TrellisTestOrThrowWaitResult<TTerminal> = {
+  /** Returns the terminal snapshot or throws the underlying failure. */
+  orThrow(): MaybePromise<TTerminal>;
+};
+
+/** Wait result shape accepted by terminal job and operation assertions. */
+export type TrellisTestTerminalWaitResult<
+  TTerminal,
+  E extends BaseError = BaseError,
+> =
+  | MaybeAsync<TTerminal, E>
+  | TrellisTestOrThrowWaitResult<TTerminal>
+  | Promise<TrellisTestOrThrowWaitResult<TTerminal> | TTerminal>
+  | TTerminal;
 
 /** Error constructor or class object accepted by `assertRpcErr`. */
 export type TrellisTestErrorConstructor<TError extends Error = Error> =
@@ -142,6 +179,12 @@ function isDate(value: unknown): value is Date {
 
 function hasFunctionProperty(value: unknown, key: string): boolean {
   return isRecord(value) && typeof value[key] === "function";
+}
+
+function isOrThrowWaitResult<TTerminal>(
+  value: unknown,
+): value is TrellisTestOrThrowWaitResult<TTerminal> {
+  return hasFunctionProperty(value, "orThrow");
 }
 
 function isNoEventDuringOptions(
@@ -337,11 +380,35 @@ async function resolveResultLike<T, E extends BaseError>(
   return await resultLike;
 }
 
+async function resolveTerminalWaitResult<TTerminal, E extends BaseError>(
+  waitResult: TrellisTestTerminalWaitResult<TTerminal, E>,
+): Promise<TTerminal> {
+  if (waitResult instanceof Result || waitResult instanceof AsyncResult) {
+    return await assertRpcOk(waitResult);
+  }
+
+  const resolved = await waitResult;
+  if (resolved instanceof Result) {
+    return await assertRpcOk(resolved);
+  }
+  if (isOrThrowWaitResult<TTerminal>(resolved)) {
+    return await resolved.orThrow();
+  }
+  return resolved;
+}
+
+function waitForFromSource(
+  source: TrellisTestWaitForSource,
+): TrellisTestWaitForFunction {
+  if (typeof source === "function") return source;
+  return (fn, opts) => source.waitFor(fn, opts);
+}
+
 /**
  * Waits for a captured event and fails with captured-event context when it is absent.
  *
- * The helper delegates waiting to `capture.waitFor(...)`, then wraps failures with a
- * compact list of events captured so far.
+ * The helper polls `capture.all()` so generated multi-event captures can be passed
+ * directly, then wraps failures with a compact list of events captured so far.
  */
 export async function assertEventCaptured<
   TEvent extends TrellisTestAssertionCapturedEvent,
@@ -355,7 +422,16 @@ export async function assertEventCaptured<
   options?: WaitForOptions,
 ): Promise<TrellisTestEventByName<TEvent, TEventName>> {
   try {
-    return await capture.waitFor(eventName, predicate, options);
+    if (capture.waitFor !== undefined) {
+      return await capture.waitFor(eventName, predicate, options);
+    }
+    return await waitFor(async () => {
+      for (const event of capture.all()) {
+        if (!eventMatchesName(event, eventName)) continue;
+        if (predicate === undefined || await predicate(event)) return event;
+      }
+      return false;
+    }, options);
   } catch (error) {
     fail(
       `Expected captured event ${eventName}; ${describeCause(error)}\n` +
@@ -557,7 +633,7 @@ export async function assertJobCompleted<TPayload, TResult>(
   expectedResult?: TrellisTestDeepPartial<TResult>,
 ): Promise<TerminalJob<TPayload, TResult>> {
   const terminal = isWaitableJob(jobOrTerminal)
-    ? await assertRpcOk(jobOrTerminal.wait())
+    ? await resolveTerminalWaitResult(jobOrTerminal.wait())
     : jobOrTerminal;
 
   if (terminal.state !== "completed") {
@@ -582,7 +658,7 @@ export async function assertOperationCompleted<TProgress, TOutput>(
   expectedOutput?: TrellisTestDeepPartial<TOutput>,
 ): Promise<TerminalOperation<TProgress, TOutput> & { state: "completed" }> {
   const terminal = isWaitableOperation(opOrTerminal)
-    ? await assertRpcOk(opOrTerminal.wait())
+    ? await resolveTerminalWaitResult(opOrTerminal.wait())
     : opOrTerminal;
 
   if (terminal.state !== "completed") {
@@ -618,6 +694,61 @@ export async function assertRpcOk<T, E extends BaseError>(
     assertDeepPartial(value, expected, "result.value");
   }
   return value;
+}
+
+/**
+ * Polls a Trellis RPC-style call until it returns Ok and optional expected output matches.
+ *
+ * This helper is for eventual-consistency assertions such as projections that may
+ * briefly return Err or stale Ok data. It does not change `assertRpcOk(...)`,
+ * which remains an immediate assertion on one RPC result.
+ */
+export async function assertRpcEventuallyOk<T, E extends BaseError>(
+  runtimeOrWaitFor: TrellisTestWaitForSource,
+  rpcCallFn: () => MaybeAsync<T, E>,
+  expected?: TrellisTestDeepPartial<T>,
+  options?: TrellisTestAssertRpcEventuallyOkOptions,
+): Promise<T> {
+  const runWaitFor = waitForFromSource(runtimeOrWaitFor);
+  let lastObservation: string | undefined;
+
+  try {
+    const matched = await runWaitFor(async () => {
+      try {
+        const result = await resolveResultLike(rpcCallFn());
+        if (result.isErr()) {
+          lastObservation =
+            `last Err ${result.error.name}: ${result.error.message}`;
+          return false;
+        }
+
+        const value = result.orThrow();
+        if (expected !== undefined) {
+          try {
+            assertDeepPartial(value, expected, "result.value");
+          } catch (error) {
+            lastObservation = `last expected mismatch: ${describeCause(error)}`;
+            return false;
+          }
+        }
+
+        return { value };
+      } catch (error) {
+        lastObservation = `last exception: ${describeCause(error)}`;
+        return false;
+      }
+    }, options);
+
+    return matched.value;
+  } catch (error) {
+    fail(
+      `Expected RPC Result eventually Ok${
+        expected === undefined ? "" : " matching expected value"
+      }; ${describeCause(error)}${
+        lastObservation === undefined ? "" : `\n${lastObservation}`
+      }`,
+    );
+  }
 }
 
 /**

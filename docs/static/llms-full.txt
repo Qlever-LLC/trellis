@@ -102,7 +102,8 @@ Rules:
   `TrellisService.connect(...)`, connect app/client participants with
   `runtime.connectClient(...)`, capture live generated events with
   `runtime.captureEvents(...)`, assert captured events/jobs/operations/RPC Results
-  with the exported `assert*` helpers, and let the runtime start the explicit
+  with the exported `assert*` helpers, use `assertRpcEventuallyOk(...)` for
+  projection/eventual-consistency polling, and let the runtime start the explicit
   Trellis control-plane command as a spawned process. Allow migration authority
   plans only in isolated mutable-dev tests through `authority.autoAccept` or
   per-approval `allowPlanClassifications`.
@@ -141,7 +142,8 @@ contracts remain the input.
    Trellis bootstrap, auth validation, deployment authority, generated clients,
    app/client auth, live event capture, jobs, operations, KV, store, state, or
    durable event consumers. Prefer its assertion helpers for captured events,
-   terminal jobs and operations, and `Result` RPC values.
+   terminal jobs and operations, immediate `Result` RPC values, and eventual RPC
+   projection checks.
 8. Run formatting, type checks, generation checks, and tests before reporting
    completion.
 

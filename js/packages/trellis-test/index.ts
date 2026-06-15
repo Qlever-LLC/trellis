@@ -9,6 +9,7 @@ export {
   assertNoEventDuring,
   assertOperationCompleted,
   assertRpcErr,
+  assertRpcEventuallyOk,
   assertRpcOk,
 } from "./src/assertions.ts";
 export { sqliteMemoryUrl, tempSqlitePath } from "./src/temp.ts";
@@ -19,14 +20,19 @@ export type {
   TrellisTestAssertionEventCapture,
   TrellisTestAssertionEventPredicate,
   TrellisTestAssertNoEventDuringOptions,
+  TrellisTestAssertRpcEventuallyOkOptions,
   TrellisTestCapturedEventContextExpectation,
   TrellisTestDeepPartial,
   TrellisTestErrorConstructor,
   TrellisTestEventByName,
   TrellisTestEventExpectation,
   TrellisTestEventExpectationObject,
+  TrellisTestOrThrowWaitResult,
+  TrellisTestTerminalWaitResult,
   TrellisTestWaitableJob,
   TrellisTestWaitableOperation,
+  TrellisTestWaitForFunction,
+  TrellisTestWaitForSource,
 } from "./src/assertions.ts";
 export type {
   TrellisTestCapturedEvent,
