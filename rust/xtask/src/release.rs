@@ -345,7 +345,8 @@ fn bump_versions(repo_root: &Path, from: &str, to: &str) -> Result<Vec<PathBuf>>
             .into_diagnostic()
             .wrap_err_with(|| format!("failed to read {}", path.display()))?;
         let updated = if is_json_manifest(&path) {
-            rewrite_json_manifest_version(&original, from, to, &path)?
+            let updated = rewrite_json_manifest_version(&original, from, to, &path)?;
+            rewrite_json_manifest_internal_jsr_dependency_versions(&updated, from, to, &path)?
         } else if path.file_name().is_some_and(|name| name == "Cargo.toml") {
             rewrite_cargo_manifest_versions(&original, from, to, &path)?
         } else if is_release_js_internal_npm_version_file(repo_root, &path) {
@@ -370,10 +371,16 @@ fn prepare_release(repo_root: &Path, release: &ReleaseVersion) -> Result<Vec<Pat
             .into_diagnostic()
             .wrap_err_with(|| format!("failed to read {}", path.display()))?;
         let updated = if is_json_manifest(&path) {
-            rewrite_json_manifest_version_for_release(
+            let updated = rewrite_json_manifest_version_for_release(
                 &original,
                 &release.version,
                 &release.base_version,
+                &path,
+            )?;
+            rewrite_json_manifest_internal_jsr_dependency_versions(
+                &updated,
+                &release.base_version,
+                &release.version,
                 &path,
             )?
         } else if path.file_name().is_some_and(|name| name == "Cargo.toml") {
@@ -418,6 +425,12 @@ fn collect_versions(repo_root: &Path) -> Result<Vec<VersionEntry>> {
                     ));
                 }
             }
+            collect_json_internal_jsr_dependency_versions(
+                repo_root,
+                &path,
+                &contents,
+                &mut versions,
+            );
             continue;
         }
 
@@ -628,6 +641,106 @@ fn rewrite_js_internal_npm_dependency_versions(
         updated.push('\n');
     }
     Ok(updated)
+}
+
+fn collect_json_internal_jsr_dependency_versions(
+    repo_root: &Path,
+    path: &Path,
+    contents: &str,
+    versions: &mut Vec<VersionEntry>,
+) {
+    for line in contents.lines() {
+        let Some((_, spec)) = json_like_string_property(line.trim()) else {
+            continue;
+        };
+        let Some(dependency) = internal_jsr_dependency_spec(&spec) else {
+            continue;
+        };
+        versions.push(VersionEntry::new(
+            format!(
+                "{} dependency {}",
+                display_repo_path(repo_root, path),
+                dependency.name
+            ),
+            dependency.version,
+        ));
+    }
+}
+
+fn rewrite_json_manifest_internal_jsr_dependency_versions(
+    contents: &str,
+    from: &str,
+    to: &str,
+    path: &Path,
+) -> Result<String> {
+    let mut lines = Vec::new();
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        let Some((_, spec)) = json_like_string_property(trimmed) else {
+            lines.push(line.to_string());
+            continue;
+        };
+        let Some(dependency) = internal_jsr_dependency_spec(&spec) else {
+            lines.push(line.to_string());
+            continue;
+        };
+
+        if dependency.version != from {
+            if dependency.version == to {
+                lines.push(line.to_string());
+                continue;
+            }
+            return Err(miette!(
+                "{} dependency {} uses version {}, expected {from} or {to}",
+                path.display(),
+                dependency.name,
+                dependency.version
+            ));
+        }
+
+        let replacement = replace_npm_dependency_spec_version(&dependency.version_spec, to);
+        lines.push(line.replacen(&dependency.version_spec, &replacement, 1));
+    }
+    let mut updated = lines.join("\n");
+    if contents.ends_with('\n') {
+        updated.push('\n');
+    }
+    Ok(updated)
+}
+
+fn internal_jsr_dependency_spec(spec: &str) -> Option<InternalJsrDependency> {
+    let spec = spec.strip_prefix("jsr:")?;
+    internal_js_package_names().iter().find_map(|name| {
+        let rest = spec.strip_prefix(name)?;
+        let version_and_path = rest.strip_prefix('@')?;
+        let version_spec = version_and_path
+            .split_once('/')
+            .map(|(version, _)| version)
+            .unwrap_or(version_and_path);
+        let version = npm_dependency_spec_version(version_spec)?;
+        Some(InternalJsrDependency {
+            name: (*name).to_string(),
+            version,
+            version_spec: version_spec.to_string(),
+        })
+    })
+}
+
+fn internal_js_package_names() -> &'static [&'static str] {
+    &[
+        "@qlever-llc/result",
+        "@qlever-llc/trellis",
+        "@qlever-llc/trellis-control-plane",
+        "@qlever-llc/trellis-svelte",
+        "@qlever-llc/trellis-test",
+    ]
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct InternalJsrDependency {
+    name: String,
+    version: String,
+    version_spec: String,
 }
 
 fn json_like_string_property(trimmed: &str) -> Option<(String, String)> {
@@ -1499,7 +1612,8 @@ mod tests {
         collect_versions, command_text, extract_changelog_section, parse_release_command,
         prepare_release, pretag_dispatch_command, pretag_list_command, pretag_watch_command,
         rewrite_cargo_manifest_versions, rewrite_cargo_manifest_versions_for_release,
-        rewrite_js_internal_npm_dependency_versions, rewrite_json_manifest_version,
+        rewrite_js_internal_npm_dependency_versions,
+        rewrite_json_manifest_internal_jsr_dependency_versions, rewrite_json_manifest_version,
         rewrite_json_manifest_version_for_release, verify_command_specs, version_base,
         ReleaseCommand, ReleaseVersion,
     };
@@ -1772,6 +1886,51 @@ mod tests {
             updated,
             "{\n  \"name\": \"@qlever-llc/trellis\",\n  \"version\": \"0.8.2-rc.1\"\n}\n"
         );
+    }
+
+    #[test]
+    fn rewrite_json_manifest_updates_internal_jsr_dependencies() {
+        let original = "{\n  \"imports\": {\n    \"@qlever-llc/trellis\": \"jsr:@qlever-llc/trellis@^0.8.2\",\n    \"@qlever-llc/trellis/sdk/auth\": \"jsr:@qlever-llc/trellis@^0.8.2/sdk/auth\",\n    \"@std/path\": \"jsr:@std/path@^1.1.4\"\n  }\n}\n";
+        let updated = rewrite_json_manifest_internal_jsr_dependency_versions(
+            original,
+            "0.8.2",
+            "0.8.2-rc.1",
+            std::path::Path::new("deno.json"),
+        )
+        .expect("rewrite jsr dependencies");
+        assert_eq!(
+            updated,
+            "{\n  \"imports\": {\n    \"@qlever-llc/trellis\": \"jsr:@qlever-llc/trellis@^0.8.2-rc.1\",\n    \"@qlever-llc/trellis/sdk/auth\": \"jsr:@qlever-llc/trellis@^0.8.2-rc.1/sdk/auth\",\n    \"@std/path\": \"jsr:@std/path@^1.1.4\"\n  }\n}\n"
+        );
+    }
+
+    #[test]
+    fn prepare_release_updates_internal_jsr_dependency_versions() {
+        let root = temp_repo_root();
+        let manifest = root.join("js/packages/trellis-test/deno.json");
+        fs::create_dir_all(manifest.parent().expect("manifest parent"))
+            .expect("mkdir manifest parent");
+        fs::write(
+            &manifest,
+            "{\n  \"name\": \"@qlever-llc/trellis-test\",\n  \"version\": \"0.8.2\",\n  \"imports\": {\n    \"@qlever-llc/trellis\": \"jsr:@qlever-llc/trellis@^0.8.2\",\n    \"@qlever-llc/trellis/sdk/auth\": \"jsr:@qlever-llc/trellis@^0.8.2/sdk/auth\"\n  }\n}\n",
+        )
+        .expect("write manifest");
+
+        prepare_release(
+            &root,
+            &ReleaseVersion {
+                version: "0.8.2-rc.1".to_string(),
+                base_version: "0.8.2".to_string(),
+            },
+        )
+        .expect("prepare release");
+
+        let updated = fs::read_to_string(&manifest).expect("read updated manifest");
+        assert_eq!(
+            updated,
+            "{\n  \"name\": \"@qlever-llc/trellis-test\",\n  \"version\": \"0.8.2-rc.1\",\n  \"imports\": {\n    \"@qlever-llc/trellis\": \"jsr:@qlever-llc/trellis@^0.8.2-rc.1\",\n    \"@qlever-llc/trellis/sdk/auth\": \"jsr:@qlever-llc/trellis@^0.8.2-rc.1/sdk/auth\"\n  }\n}\n"
+        );
+        fs::remove_dir_all(root).expect("remove temp repo");
     }
 
     #[test]
