@@ -3,6 +3,7 @@ import {
   type ClientOpts,
   type ContractModule,
   createAuth,
+  type EventName,
   type TrellisAPI,
   type TrellisApiLike,
   TrellisClient,
@@ -14,6 +15,12 @@ import {
   reserveLocalPort,
   writeTrellisConfig,
 } from "./control_plane_config.ts";
+import {
+  startTrellisTestEventCapture,
+  TrellisTestEventCapture,
+  type TrellisTestEventCaptureOptions,
+  type TrellisTestEventSourceContract,
+} from "./event_capture.ts";
 import { NatsTestContainer } from "./nats_container.ts";
 import { sqliteMemoryUrl as sqliteMemoryUrlHelper } from "./temp.ts";
 import {
@@ -34,6 +41,7 @@ import type {
 import { waitFor as waitForHelper } from "./wait.ts";
 
 type ConnectedClient = { connection: { close(): Promise<void> } };
+type EventCapture = { stop(): Promise<void> };
 type RuntimeContract = ContractModule<
   string,
   TrellisApiLike,
@@ -83,6 +91,7 @@ export class TrellisTestRuntime implements AsyncDisposable {
   #deployment: string;
   #timeouts: RuntimeTimeouts;
   #clients = new Set<ConnectedClient>();
+  #captures = new Set<EventCapture>();
   #stopped = false;
 
   private constructor(args: {
@@ -266,6 +275,31 @@ export class TrellisTestRuntime implements AsyncDisposable {
     return client as TrellisTestConnectedClient<TContract>;
   }
 
+  /**
+   * Captures live decoded contract events through a synthetic app participant.
+   *
+   * The capture subscribes with generated event facade listeners in ephemeral mode
+   * and uses normal `uses.events.subscribe` authority for the selected source
+   * contract events.
+   */
+  async captureEvents<
+    TContract extends TrellisTestEventSourceContract,
+    const TEvents extends readonly EventName<TContract>[],
+  >(
+    args: TrellisTestEventCaptureOptions<TContract, TEvents>,
+  ): Promise<TrellisTestEventCapture<TContract, TEvents[number]>> {
+    const capture = await startTrellisTestEventCapture({
+      runtime: this,
+      options: args,
+      onStop: (client, stoppedCapture) => {
+        this.#clients.delete(client);
+        this.#captures.delete(stoppedCapture);
+      },
+    });
+    this.#captures.add(capture);
+    return capture;
+  }
+
   /** Polls until `fn` returns a truthy value. */
   waitFor<T>(
     fn: () =>
@@ -309,6 +343,13 @@ export class TrellisTestRuntime implements AsyncDisposable {
     if (this.#stopped) return;
     this.#stopped = true;
     const failures: unknown[] = [];
+    for (const capture of [...this.#captures]) {
+      try {
+        await capture.stop();
+      } catch (error) {
+        failures.push(error);
+      }
+    }
     for (const client of this.#clients) {
       try {
         await client.connection.close();

@@ -267,6 +267,33 @@ metadata such as the generated event id and timestamp is available on
 `PreparedTrellisEvent.header` after `prepare(...)` and through the listener
 context when consuming events.
 
+For Deno-first integration tests that need to assert a live event was published,
+use `@qlever-llc/trellis-test` and start `runtime.captureEvents(...)` before the
+publish. The capture subscribes through generated contract event surfaces and
+returns decoded payloads plus metadata, so tests should not hand-build NATS
+subjects or JSON envelopes:
+
+```ts
+await using capture = await runtime.captureEvents({
+  name: "orders-event-capture",
+  contract: ordersContract,
+  events: ["Orders.Shipped"],
+});
+
+await client.event.orders.shipped.publish({
+  orderId: "ord_123",
+  customerId: "cust_456",
+  shippedAt: new Date().toISOString(),
+}).orThrow();
+
+const shipped = await capture.waitFor(
+  "Orders.Shipped",
+  (record) => record.payload.orderId === "ord_123",
+);
+
+console.log(shipped.payload, shipped.context.id, shipped.receivedAt);
+```
+
 Use `prepare(...)` plus an outbox only when the event must be committed together
 with service-local database state. The prepared form freezes the subject,
 encoded body, runtime event metadata, and publish headers so a worker can publish

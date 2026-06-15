@@ -1,6 +1,6 @@
 # Trellis AI guidance for services and browser apps
 
-Last verified against Trellis main (2026-06-13).
+Last verified against Trellis main (2026-06-15).
 
 This file is for AI coding agents working in a service or browser app repository
 that consumes Trellis. The canonical URL is:
@@ -59,9 +59,12 @@ https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt
    For events with subject `params`, route only string, number, or
    integer-compatible payload fields. If the event payload is an `anyOf` or
    `oneOf` union, every branch must expose each routed pointer.
-   Generated TypeScript SDK event aliases model event bodies; Trellis runtime
-   event metadata is exposed through prepared-event metadata, NATS headers, and
-   listener context.
+    Generated TypeScript SDK event aliases model event bodies; Trellis runtime
+    event metadata is exposed through prepared-event metadata and listener
+    context. In Deno-first TypeScript integration tests, use
+    `runtime.captureEvents(...)` for live event assertions instead of raw NATS
+    subscriptions or outbox-only checks when the test must observe a published
+    event through Trellis runtime authority.
 3. Declare cross-contract dependencies under `uses` with the smallest required
    surface selection.
 4. Regenerate SDKs and contract artifacts with the repository's Trellis tooling.
@@ -111,7 +114,8 @@ Rules:
   `TrellisTestRuntime.start({ trellis: { command: ... } })`, register services
   through `runtime.registerService(...)`, connect services with public
   `TrellisService.connect(...)`, connect app/client participants with
-  `runtime.connectClient(...)`, and let the runtime start the explicit Trellis
+  `runtime.connectClient(...)`, capture live generated events with
+  `runtime.captureEvents(...)`, and let the runtime start the explicit Trellis
   control-plane command as a spawned process. Allow migration authority plans only
   in isolated mutable-dev tests through `authority.autoAccept` or per-approval
   `allowPlanClassifications`.
@@ -145,11 +149,11 @@ contracts remain the input.
 6. Use scoped handler `client` values for outbound calls and register long-lived
    event listeners during startup.
 7. Add or update tests at the service boundary. For event-driven code, test the
-    local handler logic and the outbox/inbox behavior separately when possible.
+   local handler logic and the outbox/inbox behavior separately when possible.
    Use `@qlever-llc/trellis-test` when the boundary test must exercise real
    Trellis bootstrap, auth validation, deployment authority, generated clients,
-   app/client auth, events, jobs, operations, KV, store, state, or durable event
-   consumers.
+   app/client auth, live event capture, jobs, operations, KV, store, state, or
+   durable event consumers.
 8. Run formatting, type checks, generation checks, and tests before reporting
    completion.
 

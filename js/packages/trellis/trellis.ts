@@ -4106,7 +4106,7 @@ export class Trellis<
         if (isErr(subject)) return subject;
 
         if (opts?.mode === "ephemeral") {
-          return this.#startEphemeralEvent(
+          return await this.#startEphemeralEvent(
             eventName,
             ctx,
             subject,
@@ -4150,20 +4150,36 @@ export class Trellis<
     })());
   }
 
-  #startEphemeralEvent(
+  async #startEphemeralEvent(
     event: EventsOf<TA>,
     ctx: EventDescriptorOf<TA, EventsOf<TA>>,
     subject: string,
     fn: EventCallback<EventOf<TA, EventsOf<TA>>>,
     signal?: AbortSignal,
-  ): Result<void, ValidationError | UnexpectedError> {
-    const sub = this.nats.subscribe(subject);
-    if (signal) {
-      if (signal.aborted) {
-        sub.unsubscribe();
-        return ok(undefined);
+  ): Promise<Result<void, ValidationError | UnexpectedError>> {
+    let sub: ReturnType<NatsConnection["subscribe"]> | undefined;
+    try {
+      sub = this.nats.subscribe(subject);
+      if (signal) {
+        if (signal.aborted) {
+          sub.unsubscribe();
+          return ok(undefined);
+        }
+        signal.addEventListener("abort", () => sub?.unsubscribe(), {
+          once: true,
+        });
       }
-      signal.addEventListener("abort", () => sub.unsubscribe(), { once: true });
+      await this.nats.flush();
+    } catch (cause) {
+      if (sub) {
+        sub.unsubscribe();
+      }
+      return err(
+        new UnexpectedError({
+          cause,
+          context: { event: String(event), subject },
+        }),
+      );
     }
 
     const task = AsyncResult.try(async () => {

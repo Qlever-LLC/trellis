@@ -1,6 +1,6 @@
 # Trellis AI guidance for Rust services
 
-Last verified against Trellis main (2026-06-13).
+Last verified against Trellis main (2026-06-15).
 
 Use this file for AI coding agents working in a Rust service repository that
 consumes Trellis. The language-neutral guide is:
@@ -36,6 +36,10 @@ Rules:
   alias, and `eventConsumers.<group>.self` selects events owned by the same
   contract. Dependency durable consumption remains authority-backed by top-level
   `uses`; runtime durable consumers are Trellis-provisioned only.
+- Deno-first service-boundary tests that use `@qlever-llc/trellis-test` can use
+  `runtime.captureEvents(...)` for live decoded event assertions without raw
+  NATS subjects or production-only event consumer groups; Rust-native code should
+  still use generated descriptors/facades.
 - service-private jobs that must be singleton per logical key should declare
   `keyConcurrency`. Keep the existing numeric `concurrency` field for
   worker-count concurrency. Keyed queues default to clear failure

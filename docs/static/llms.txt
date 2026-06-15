@@ -1,6 +1,6 @@
 # Trellis AI guide
 
-Last verified against Trellis main (2026-06-13).
+Last verified against Trellis main (2026-06-15).
 
 Canonical full guide:
 https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt
@@ -52,6 +52,11 @@ commands.
   migrations and transaction boundaries.
 - Generated TypeScript SDK event aliases are event bodies. Runtime event metadata
   is available through `PreparedTrellisEvent.header` and listener context.
+- For live event assertions in Deno-first TypeScript integration tests, start
+  `runtime.captureEvents(...)` before publishing and assert the decoded
+  `{ event, payload, context, receivedAt }` records. Prefer this over raw NATS
+  subscriptions or outbox-only assertions when the test must observe a published
+  event through Trellis runtime authority.
 - Event subject `params` must point at string, number, or integer-compatible
   payload fields. For `anyOf` or `oneOf` event payload schemas, every variant must
   contain each routed pointer.
@@ -70,7 +75,8 @@ commands.
   command: ... } })` to start an isolated explicit Trellis control-plane process
   plus fresh NATS/JetStream container. Register service participants with
   `runtime.registerService(...)`, connect app/client participants with
-  `runtime.connectClient(...)`, and opt into migration-plan approval only for
+  `runtime.connectClient(...)`, capture live generated events with
+  `runtime.captureEvents(...)`, and opt into migration-plan approval only for
   isolated mutable-dev tests with `authority.autoAccept` or
   `runtime.contracts.approve({ allowPlanClassifications: [...] })`. Do not mock
   Trellis bootstrap, auth, authority, generated clients, jobs, operations, KV,

@@ -39,6 +39,30 @@ const client = await runtime.connectClient({
 });
 ```
 
+Live event assertions should use generated event surfaces and
+`runtime.captureEvents(...)`. Start the capture before publishing the event:
+
+```ts
+await using capture = await runtime.captureEvents({
+  name: "entity-event-capture",
+  contract: entityContract,
+  events: ["Entity.Changed"],
+});
+
+await client.event.entity.changed.publish({
+  id: "entity-1",
+  value: "updated",
+}).orThrow();
+
+const changed = await capture.waitFor(
+  "Entity.Changed",
+  (record) => record.payload.id === "entity-1",
+);
+
+assertEquals(changed.payload.value, "updated");
+console.log(changed.event, changed.context.id, changed.receivedAt);
+```
+
 For lower-level `TrellisClient.connect(...)` tests, create client key material
 and spread the returned auth continuation options:
 
