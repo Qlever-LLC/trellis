@@ -47,9 +47,13 @@ Rules:
   start it with an explicit `trellis.command` for the control-plane process, then
   call `runtime.registerService(...)`, service `TrellisService.connect(...)`, and
   `runtime.connectClient(...)` for app/client participants. Use
-  `runtime.captureEvents(...)` for live generated event assertions. These helpers
-  exercise real bootstrap, auth, authority, resources, events, jobs, and
-  operations through generated client surfaces
+  `runtime.captureEvents(...)` with `assertEventCaptured`,
+  `assertEventsCaptured`, `assertNoEventCaptured`, or `assertNoEventDuring` for
+  live generated event assertions. Use `assertJobCompleted`,
+  `assertOperationCompleted`, `assertRpcOk`, and `assertRpcErr` for terminal job,
+  operation, and Result-style RPC assertions. These helpers exercise real
+  bootstrap, auth, authority, resources, events, jobs, and operations through
+  generated client surfaces
 - the `prepare` task value should call the Trellis generator, for example
   `deno run -A @qlever-llc/trellis/generate prepare .`
 - generated SDKs, manifests, and package outputs belong under the service repo's
@@ -108,13 +112,14 @@ For integration tests, prefer `@qlever-llc/trellis-test` over raw NATS subjects
 or hand-built bootstrap responses. The test runtime requires an explicit
 `trellis.command`, creates an isolated NATS/JetStream environment, and starts the
 real Trellis control plane as a spawned process; services under test still
-connect through public `TrellisService.connect(...)`. Use
-`runtime.connectClient(...)` or `runtime.registerClient(...)` plus
-`runtime.clientAuth(...)` for app/client participants, use
-`runtime.captureEvents(...)` for live event assertions with decoded
-`{ event, payload, context, receivedAt }` records, and allow migration plans only
-in explicit isolated mutable-dev tests with `authority.autoAccept` or per-approval
-`allowPlanClassifications`.
+  connect through public `TrellisService.connect(...)`. Use
+  `runtime.connectClient(...)` or `runtime.registerClient(...)` plus
+  `runtime.clientAuth(...)` for app/client participants, use
+  `runtime.captureEvents(...)` for live event assertions with decoded
+  `{ event, payload, context, receivedAt }` records, and prefer the exported
+  assertion helpers for captured events, terminal jobs and operations, and
+  `Result` RPC values. Allow migration plans only in explicit isolated mutable-dev
+  tests with `authority.autoAccept` or per-approval `allowPlanClassifications`.
 
 For service-private jobs that must be singleton per logical key, declare
 `keyConcurrency` on the job queue. Keep the existing numeric `concurrency`

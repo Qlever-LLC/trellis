@@ -37,9 +37,10 @@ Rules:
   contract. Dependency durable consumption remains authority-backed by top-level
   `uses`; runtime durable consumers are Trellis-provisioned only.
 - Deno-first service-boundary tests that use `@qlever-llc/trellis-test` can use
-  `runtime.captureEvents(...)` for live decoded event assertions without raw
-  NATS subjects or production-only event consumer groups; Rust-native code should
-  still use generated descriptors/facades.
+  `runtime.captureEvents(...)` and the exported captured-event, job, operation,
+  and Result assertion helpers without raw NATS subjects or production-only event
+  consumer groups; Rust-native code should still use generated
+  descriptors/facades.
 - service-private jobs that must be singleton per logical key should declare
   `keyConcurrency`. Keep the existing numeric `concurrency` field for
   worker-count concurrency. Keyed queues default to clear failure
