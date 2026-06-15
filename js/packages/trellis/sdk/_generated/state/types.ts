@@ -1,6 +1,6 @@
 // Generated from ./generated/contracts/manifests/trellis.state@v1.json
-import type { RpcHandlerFn } from "../../../index.ts";
-import type { API } from "./api.ts";
+import type { RpcHandler } from "@qlever-llc/trellis/service";
+import type { sdk } from "./contract.ts";
 
 export const CONTRACT_ID = "trellis.state@v1" as const;
 export const CONTRACT_DIGEST =
@@ -231,22 +231,41 @@ export interface RpcMap {
   "State.Put": { input: StatePutInput; output: StatePutOutput };
 }
 
-export type StateAdminDeleteHandler = RpcHandlerFn<
-  typeof API.owned,
-  "State.Admin.Delete"
+export type StateAdminDeleteHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "State.Admin.Delete",
+  TDeps
 >;
-export type StateAdminGetHandler = RpcHandlerFn<
-  typeof API.owned,
-  "State.Admin.Get"
+export type StateAdminGetHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "State.Admin.Get",
+  TDeps
 >;
-export type StateAdminListHandler = RpcHandlerFn<
-  typeof API.owned,
-  "State.Admin.List"
+export type StateAdminListHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "State.Admin.List",
+  TDeps
 >;
-export type StateDeleteHandler = RpcHandlerFn<typeof API.owned, "State.Delete">;
-export type StateGetHandler = RpcHandlerFn<typeof API.owned, "State.Get">;
-export type StateListHandler = RpcHandlerFn<typeof API.owned, "State.List">;
-export type StatePutHandler = RpcHandlerFn<typeof API.owned, "State.Put">;
+export type StateDeleteHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "State.Delete",
+  TDeps
+>;
+export type StateGetHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "State.Get",
+  TDeps
+>;
+export type StateListHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "State.List",
+  TDeps
+>;
+export type StatePutHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "State.Put",
+  TDeps
+>;
 
 export interface EventMap {
 }

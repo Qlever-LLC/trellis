@@ -1,6 +1,12 @@
 // Generated from ./generated/contracts/manifests/trellis.auth@v1.json
-import type { RpcHandlerFn, TrellisEventMessage } from "../../../index.ts";
-import type { API } from "./api.ts";
+import type { TrellisEventMessage } from "../../../index.ts";
+
+import type {
+  OperationHandler,
+  RpcHandler,
+  ServiceEventHandler,
+} from "@qlever-llc/trellis/service";
+import type { sdk } from "./contract.ts";
 
 export const CONTRACT_ID = "trellis.auth@v1" as const;
 export const CONTRACT_DIGEST =
@@ -2328,6 +2334,10 @@ export type AuthDeviceUserAuthoritiesResolveOutput = {
   status: "activated";
 } | { reason?: string; status: "rejected" };
 
+export type AuthDeviceUserAuthoritiesResolveOperationHandler<
+  TDeps = undefined,
+> = OperationHandler<typeof sdk, "Auth.DeviceUserAuthorities.Resolve", TDeps>;
+
 export type AuthConnectionsClosedEvent = {
   id: string;
   origin: string;
@@ -2337,6 +2347,8 @@ export type AuthConnectionsClosedEvent = {
 export type AuthConnectionsClosedEventMessage = TrellisEventMessage<
   AuthConnectionsClosedEvent
 >;
+export type AuthConnectionsClosedEventHandler<TDeps = undefined> =
+  ServiceEventHandler<typeof sdk, "Auth.Connections.Closed", TDeps>;
 
 export type AuthConnectionsKickedEvent = {
   id: string;
@@ -2347,6 +2359,8 @@ export type AuthConnectionsKickedEvent = {
 export type AuthConnectionsKickedEventMessage = TrellisEventMessage<
   AuthConnectionsKickedEvent
 >;
+export type AuthConnectionsKickedEventHandler<TDeps = undefined> =
+  ServiceEventHandler<typeof sdk, "Auth.Connections.Kicked", TDeps>;
 
 export type AuthConnectionsOpenedEvent = {
   id: string;
@@ -2357,6 +2371,8 @@ export type AuthConnectionsOpenedEvent = {
 export type AuthConnectionsOpenedEventMessage = TrellisEventMessage<
   AuthConnectionsOpenedEvent
 >;
+export type AuthConnectionsOpenedEventHandler<TDeps = undefined> =
+  ServiceEventHandler<typeof sdk, "Auth.Connections.Opened", TDeps>;
 
 export type AuthDeviceUserAuthoritiesApprovedEvent = {
   approvedAt: string;
@@ -2380,6 +2396,8 @@ export type AuthDeviceUserAuthoritiesApprovedEvent = {
 export type AuthDeviceUserAuthoritiesApprovedEventMessage = TrellisEventMessage<
   AuthDeviceUserAuthoritiesApprovedEvent
 >;
+export type AuthDeviceUserAuthoritiesApprovedEventHandler<TDeps = undefined> =
+  ServiceEventHandler<typeof sdk, "Auth.DeviceUserAuthorities.Approved", TDeps>;
 
 export type AuthDeviceUserAuthoritiesRequestedEvent = {
   deploymentId: string;
@@ -2395,6 +2413,12 @@ export type AuthDeviceUserAuthoritiesRequestedEvent = {
 };
 export type AuthDeviceUserAuthoritiesRequestedEventMessage =
   TrellisEventMessage<AuthDeviceUserAuthoritiesRequestedEvent>;
+export type AuthDeviceUserAuthoritiesRequestedEventHandler<TDeps = undefined> =
+  ServiceEventHandler<
+    typeof sdk,
+    "Auth.DeviceUserAuthorities.Requested",
+    TDeps
+  >;
 
 export type AuthDeviceUserAuthoritiesResolvedEvent = {
   deploymentId: string;
@@ -2412,6 +2436,8 @@ export type AuthDeviceUserAuthoritiesResolvedEvent = {
 export type AuthDeviceUserAuthoritiesResolvedEventMessage = TrellisEventMessage<
   AuthDeviceUserAuthoritiesResolvedEvent
 >;
+export type AuthDeviceUserAuthoritiesResolvedEventHandler<TDeps = undefined> =
+  ServiceEventHandler<typeof sdk, "Auth.DeviceUserAuthorities.Resolved", TDeps>;
 
 export type AuthDeviceUserAuthoritiesReviewRequestedEvent = {
   deploymentId: string;
@@ -2428,6 +2454,13 @@ export type AuthDeviceUserAuthoritiesReviewRequestedEvent = {
 };
 export type AuthDeviceUserAuthoritiesReviewRequestedEventMessage =
   TrellisEventMessage<AuthDeviceUserAuthoritiesReviewRequestedEvent>;
+export type AuthDeviceUserAuthoritiesReviewRequestedEventHandler<
+  TDeps = undefined,
+> = ServiceEventHandler<
+  typeof sdk,
+  "Auth.DeviceUserAuthorities.ReviewRequested",
+  TDeps
+>;
 
 export type AuthSessionsRevokedEvent = {
   id: string;
@@ -2438,6 +2471,8 @@ export type AuthSessionsRevokedEvent = {
 export type AuthSessionsRevokedEventMessage = TrellisEventMessage<
   AuthSessionsRevokedEvent
 >;
+export type AuthSessionsRevokedEventHandler<TDeps = undefined> =
+  ServiceEventHandler<typeof sdk, "Auth.Sessions.Revoked", TDeps>;
 
 export interface RpcMap {
   "Auth.Capabilities.List": {
@@ -2697,266 +2732,300 @@ export interface RpcMap {
   };
 }
 
-export type AuthCapabilitiesListHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Capabilities.List"
->;
-export type AuthCapabilityGroupsDeleteHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.CapabilityGroups.Delete"
->;
-export type AuthCapabilityGroupsGetHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.CapabilityGroups.Get"
->;
-export type AuthCapabilityGroupsListHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.CapabilityGroups.List"
->;
-export type AuthCapabilityGroupsPutHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.CapabilityGroups.Put"
->;
-export type AuthCatalogIssuesResolveHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.CatalogIssues.Resolve"
->;
-export type AuthConnectionsKickHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Connections.Kick"
->;
-export type AuthConnectionsListHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Connections.List"
->;
-export type AuthDeploymentAuthorityAcceptMigrationHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.DeploymentAuthority.AcceptMigration"
->;
-export type AuthDeploymentAuthorityAcceptUpdateHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.DeploymentAuthority.AcceptUpdate"
->;
-export type AuthDeploymentAuthorityGetHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.DeploymentAuthority.Get"
->;
-export type AuthDeploymentAuthorityGrantOverridesListHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.DeploymentAuthority.GrantOverrides.List"
->;
-export type AuthDeploymentAuthorityGrantOverridesPutHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.DeploymentAuthority.GrantOverrides.Put"
->;
-export type AuthDeploymentAuthorityGrantOverridesRemoveHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.DeploymentAuthority.GrantOverrides.Remove"
->;
-export type AuthDeploymentAuthorityListHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.DeploymentAuthority.List"
->;
-export type AuthDeploymentAuthorityPlanHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.DeploymentAuthority.Plan"
->;
-export type AuthDeploymentAuthorityPlansGetHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.DeploymentAuthority.Plans.Get"
->;
-export type AuthDeploymentAuthorityPlansListHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.DeploymentAuthority.Plans.List"
->;
-export type AuthDeploymentAuthorityReconcileHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.DeploymentAuthority.Reconcile"
->;
-export type AuthDeploymentAuthorityRejectHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.DeploymentAuthority.Reject"
->;
-export type AuthDeploymentsCreateHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Deployments.Create"
->;
-export type AuthDeploymentsDisableHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Deployments.Disable"
->;
-export type AuthDeploymentsEnableHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Deployments.Enable"
->;
-export type AuthDeploymentsListHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Deployments.List"
->;
-export type AuthDeploymentsRemoveHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Deployments.Remove"
->;
-export type AuthDeviceUserAuthoritiesListHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.DeviceUserAuthorities.List"
->;
-export type AuthDeviceUserAuthoritiesReviewsDecideHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.DeviceUserAuthorities.Reviews.Decide"
->;
-export type AuthDeviceUserAuthoritiesReviewsListHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.DeviceUserAuthorities.Reviews.List"
->;
-export type AuthDeviceUserAuthoritiesRevokeHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.DeviceUserAuthorities.Revoke"
->;
-export type AuthDevicesConnectInfoGetHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Devices.ConnectInfo.Get"
->;
-export type AuthDevicesDisableHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Devices.Disable"
->;
-export type AuthDevicesEnableHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Devices.Enable"
->;
-export type AuthDevicesListHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Devices.List"
->;
-export type AuthDevicesProvisionHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Devices.Provision"
->;
-export type AuthDevicesRemoveHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Devices.Remove"
->;
-export type AuthHealthHandler = RpcHandlerFn<typeof API.owned, "Auth.Health">;
-export type AuthIdentitiesListHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Identities.List"
->;
-export type AuthIdentityGrantsListHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.IdentityGrants.List"
->;
-export type AuthIdentityGrantsRevokeHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.IdentityGrants.Revoke"
->;
-export type AuthPortalsGetHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Portals.Get"
->;
-export type AuthPortalsListHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Portals.List"
->;
-export type AuthPortalsLoginSettingsGetHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Portals.LoginSettings.Get"
->;
-export type AuthPortalsLoginSettingsUpdateHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Portals.LoginSettings.Update"
->;
-export type AuthPortalsPutHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Portals.Put"
->;
-export type AuthPortalsRemoveHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Portals.Remove"
->;
-export type AuthPortalsRoutesPutHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Portals.Routes.Put"
->;
-export type AuthPortalsRoutesRemoveHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Portals.Routes.Remove"
->;
-export type AuthRequestsValidateHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Requests.Validate"
->;
-export type AuthServiceInstancesDisableHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.ServiceInstances.Disable"
->;
-export type AuthServiceInstancesEnableHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.ServiceInstances.Enable"
->;
-export type AuthServiceInstancesListHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.ServiceInstances.List"
->;
-export type AuthServiceInstancesProvisionHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.ServiceInstances.Provision"
->;
-export type AuthServiceInstancesRemoveHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.ServiceInstances.Remove"
->;
-export type AuthSessionsListHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Sessions.List"
->;
-export type AuthSessionsLogoutHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Sessions.Logout"
->;
-export type AuthSessionsMeHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Sessions.Me"
->;
-export type AuthSessionsRevokeHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Sessions.Revoke"
->;
-export type AuthUserIdentitiesListHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.UserIdentities.List"
->;
-export type AuthUserIdentitiesUnlinkHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.UserIdentities.Unlink"
->;
-export type AuthUsersCreateHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Users.Create"
->;
-export type AuthUsersGetHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Users.Get"
->;
-export type AuthUsersIdentityLinkCreateHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Users.IdentityLink.Create"
->;
-export type AuthUsersListHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Users.List"
->;
-export type AuthUsersPasswordChangeHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Users.Password.Change"
->;
-export type AuthUsersPasswordResetCreateHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Users.PasswordReset.Create"
->;
-export type AuthUsersUpdateHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Auth.Users.Update"
+export type AuthCapabilitiesListHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Capabilities.List",
+  TDeps
+>;
+export type AuthCapabilityGroupsDeleteHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.CapabilityGroups.Delete",
+  TDeps
+>;
+export type AuthCapabilityGroupsGetHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.CapabilityGroups.Get",
+  TDeps
+>;
+export type AuthCapabilityGroupsListHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.CapabilityGroups.List",
+  TDeps
+>;
+export type AuthCapabilityGroupsPutHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.CapabilityGroups.Put",
+  TDeps
+>;
+export type AuthCatalogIssuesResolveHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.CatalogIssues.Resolve",
+  TDeps
+>;
+export type AuthConnectionsKickHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Connections.Kick",
+  TDeps
+>;
+export type AuthConnectionsListHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Connections.List",
+  TDeps
+>;
+export type AuthDeploymentAuthorityAcceptMigrationHandler<TDeps = undefined> =
+  RpcHandler<typeof sdk, "Auth.DeploymentAuthority.AcceptMigration", TDeps>;
+export type AuthDeploymentAuthorityAcceptUpdateHandler<TDeps = undefined> =
+  RpcHandler<typeof sdk, "Auth.DeploymentAuthority.AcceptUpdate", TDeps>;
+export type AuthDeploymentAuthorityGetHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.DeploymentAuthority.Get",
+  TDeps
+>;
+export type AuthDeploymentAuthorityGrantOverridesListHandler<
+  TDeps = undefined,
+> = RpcHandler<
+  typeof sdk,
+  "Auth.DeploymentAuthority.GrantOverrides.List",
+  TDeps
+>;
+export type AuthDeploymentAuthorityGrantOverridesPutHandler<TDeps = undefined> =
+  RpcHandler<typeof sdk, "Auth.DeploymentAuthority.GrantOverrides.Put", TDeps>;
+export type AuthDeploymentAuthorityGrantOverridesRemoveHandler<
+  TDeps = undefined,
+> = RpcHandler<
+  typeof sdk,
+  "Auth.DeploymentAuthority.GrantOverrides.Remove",
+  TDeps
+>;
+export type AuthDeploymentAuthorityListHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.DeploymentAuthority.List",
+  TDeps
+>;
+export type AuthDeploymentAuthorityPlanHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.DeploymentAuthority.Plan",
+  TDeps
+>;
+export type AuthDeploymentAuthorityPlansGetHandler<TDeps = undefined> =
+  RpcHandler<typeof sdk, "Auth.DeploymentAuthority.Plans.Get", TDeps>;
+export type AuthDeploymentAuthorityPlansListHandler<TDeps = undefined> =
+  RpcHandler<typeof sdk, "Auth.DeploymentAuthority.Plans.List", TDeps>;
+export type AuthDeploymentAuthorityReconcileHandler<TDeps = undefined> =
+  RpcHandler<typeof sdk, "Auth.DeploymentAuthority.Reconcile", TDeps>;
+export type AuthDeploymentAuthorityRejectHandler<TDeps = undefined> =
+  RpcHandler<typeof sdk, "Auth.DeploymentAuthority.Reject", TDeps>;
+export type AuthDeploymentsCreateHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Deployments.Create",
+  TDeps
+>;
+export type AuthDeploymentsDisableHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Deployments.Disable",
+  TDeps
+>;
+export type AuthDeploymentsEnableHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Deployments.Enable",
+  TDeps
+>;
+export type AuthDeploymentsListHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Deployments.List",
+  TDeps
+>;
+export type AuthDeploymentsRemoveHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Deployments.Remove",
+  TDeps
+>;
+export type AuthDeviceUserAuthoritiesListHandler<TDeps = undefined> =
+  RpcHandler<typeof sdk, "Auth.DeviceUserAuthorities.List", TDeps>;
+export type AuthDeviceUserAuthoritiesReviewsDecideHandler<TDeps = undefined> =
+  RpcHandler<typeof sdk, "Auth.DeviceUserAuthorities.Reviews.Decide", TDeps>;
+export type AuthDeviceUserAuthoritiesReviewsListHandler<TDeps = undefined> =
+  RpcHandler<typeof sdk, "Auth.DeviceUserAuthorities.Reviews.List", TDeps>;
+export type AuthDeviceUserAuthoritiesRevokeHandler<TDeps = undefined> =
+  RpcHandler<typeof sdk, "Auth.DeviceUserAuthorities.Revoke", TDeps>;
+export type AuthDevicesConnectInfoGetHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Devices.ConnectInfo.Get",
+  TDeps
+>;
+export type AuthDevicesDisableHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Devices.Disable",
+  TDeps
+>;
+export type AuthDevicesEnableHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Devices.Enable",
+  TDeps
+>;
+export type AuthDevicesListHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Devices.List",
+  TDeps
+>;
+export type AuthDevicesProvisionHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Devices.Provision",
+  TDeps
+>;
+export type AuthDevicesRemoveHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Devices.Remove",
+  TDeps
+>;
+export type AuthHealthHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Health",
+  TDeps
+>;
+export type AuthIdentitiesListHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Identities.List",
+  TDeps
+>;
+export type AuthIdentityGrantsListHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.IdentityGrants.List",
+  TDeps
+>;
+export type AuthIdentityGrantsRevokeHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.IdentityGrants.Revoke",
+  TDeps
+>;
+export type AuthPortalsGetHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Portals.Get",
+  TDeps
+>;
+export type AuthPortalsListHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Portals.List",
+  TDeps
+>;
+export type AuthPortalsLoginSettingsGetHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Portals.LoginSettings.Get",
+  TDeps
+>;
+export type AuthPortalsLoginSettingsUpdateHandler<TDeps = undefined> =
+  RpcHandler<typeof sdk, "Auth.Portals.LoginSettings.Update", TDeps>;
+export type AuthPortalsPutHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Portals.Put",
+  TDeps
+>;
+export type AuthPortalsRemoveHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Portals.Remove",
+  TDeps
+>;
+export type AuthPortalsRoutesPutHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Portals.Routes.Put",
+  TDeps
+>;
+export type AuthPortalsRoutesRemoveHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Portals.Routes.Remove",
+  TDeps
+>;
+export type AuthRequestsValidateHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Requests.Validate",
+  TDeps
+>;
+export type AuthServiceInstancesDisableHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.ServiceInstances.Disable",
+  TDeps
+>;
+export type AuthServiceInstancesEnableHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.ServiceInstances.Enable",
+  TDeps
+>;
+export type AuthServiceInstancesListHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.ServiceInstances.List",
+  TDeps
+>;
+export type AuthServiceInstancesProvisionHandler<TDeps = undefined> =
+  RpcHandler<typeof sdk, "Auth.ServiceInstances.Provision", TDeps>;
+export type AuthServiceInstancesRemoveHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.ServiceInstances.Remove",
+  TDeps
+>;
+export type AuthSessionsListHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Sessions.List",
+  TDeps
+>;
+export type AuthSessionsLogoutHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Sessions.Logout",
+  TDeps
+>;
+export type AuthSessionsMeHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Sessions.Me",
+  TDeps
+>;
+export type AuthSessionsRevokeHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Sessions.Revoke",
+  TDeps
+>;
+export type AuthUserIdentitiesListHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.UserIdentities.List",
+  TDeps
+>;
+export type AuthUserIdentitiesUnlinkHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.UserIdentities.Unlink",
+  TDeps
+>;
+export type AuthUsersCreateHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Users.Create",
+  TDeps
+>;
+export type AuthUsersGetHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Users.Get",
+  TDeps
+>;
+export type AuthUsersIdentityLinkCreateHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Users.IdentityLink.Create",
+  TDeps
+>;
+export type AuthUsersListHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Users.List",
+  TDeps
+>;
+export type AuthUsersPasswordChangeHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Users.Password.Change",
+  TDeps
+>;
+export type AuthUsersPasswordResetCreateHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Users.PasswordReset.Create",
+  TDeps
+>;
+export type AuthUsersUpdateHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Auth.Users.Update",
+  TDeps
 >;
 
 export interface EventMap {

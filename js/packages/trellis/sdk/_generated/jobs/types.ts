@@ -1,6 +1,6 @@
 // Generated from ./generated/contracts/manifests/trellis.jobs@v1.json
-import type { RpcHandlerFn } from "../../../index.ts";
-import type { API } from "./api.ts";
+import type { RpcHandler } from "@qlever-llc/trellis/service";
+import type { sdk } from "./contract.ts";
 
 import { type SerializableErrorData, TrellisError } from "../../../index.ts";
 
@@ -550,25 +550,56 @@ export interface RpcMap {
   "Jobs.Retry": { input: JobsRetryInput; output: JobsRetryOutput };
 }
 
-export type JobsCancelHandler = RpcHandlerFn<typeof API.owned, "Jobs.Cancel">;
-export type JobsDismissDLQHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Jobs.DismissDLQ"
+export type JobsCancelHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Jobs.Cancel",
+  TDeps
 >;
-export type JobsGetHandler = RpcHandlerFn<typeof API.owned, "Jobs.Get">;
-export type JobsGetKeyHandler = RpcHandlerFn<typeof API.owned, "Jobs.GetKey">;
-export type JobsHealthHandler = RpcHandlerFn<typeof API.owned, "Jobs.Health">;
-export type JobsListHandler = RpcHandlerFn<typeof API.owned, "Jobs.List">;
-export type JobsListDLQHandler = RpcHandlerFn<typeof API.owned, "Jobs.ListDLQ">;
-export type JobsListServicesHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Jobs.ListServices"
+export type JobsDismissDLQHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Jobs.DismissDLQ",
+  TDeps
 >;
-export type JobsReplayDLQHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Jobs.ReplayDLQ"
+export type JobsGetHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Jobs.Get",
+  TDeps
 >;
-export type JobsRetryHandler = RpcHandlerFn<typeof API.owned, "Jobs.Retry">;
+export type JobsGetKeyHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Jobs.GetKey",
+  TDeps
+>;
+export type JobsHealthHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Jobs.Health",
+  TDeps
+>;
+export type JobsListHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Jobs.List",
+  TDeps
+>;
+export type JobsListDLQHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Jobs.ListDLQ",
+  TDeps
+>;
+export type JobsListServicesHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Jobs.ListServices",
+  TDeps
+>;
+export type JobsReplayDLQHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Jobs.ReplayDLQ",
+  TDeps
+>;
+export type JobsRetryHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Jobs.Retry",
+  TDeps
+>;
 
 export interface EventMap {
 }

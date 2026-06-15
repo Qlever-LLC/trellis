@@ -15,13 +15,11 @@ import type {
   OperationRef,
   OperationRefData,
   OperationRuntimeHandle,
-  OperationTransferHandle,
   PreparedTrellisEvent,
   ReceiveTransferGrant,
   ReceiveTransferHandle,
   RequestOpts,
   Result,
-  RpcHandlerContext,
   SendTransferGrant,
   SendTransferHandle,
   TerminalOperation,
@@ -33,6 +31,8 @@ import type {
 } from "../../../index.ts";
 import type { API, Api } from "./api.ts";
 import type * as Types from "./types.ts";
+import type { RpcHandler as ServiceRpcHandler } from "@qlever-llc/trellis/service";
+import type { sdk } from "./contract.ts";
 import type * as HealthSdk from "../health/mod.ts";
 
 type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
@@ -44,45 +44,11 @@ type EventCallback<TMessage> = {
   ): MaybeAsync<void, BaseError>;
 }["bivarianceHack"];
 
-type ServiceEventHandler<TEvent, TDeps = undefined> = (
+type DependencyServiceEventHandler<TEvent, TDeps = undefined> = (
   args:
     & { event: TEvent; context: EventListenerContext; client: HandlerClient }
     & WithDeps<TDeps>,
 ) => MaybeAsync<void, BaseError>;
-
-type RpcHandler<TInput, TOutput, TDeps = undefined> = (
-  args:
-    & { input: TInput; context: RpcHandlerContext; client: HandlerClient }
-    & WithDeps<TDeps>,
-) => MaybeAsync<TOutput, BaseError>;
-
-type FeedHandler<TInput, TEvent, TDeps = undefined> = (
-  context: {
-    input: TInput;
-    caller: unknown;
-    signal: AbortSignal;
-    emit(event: TEvent): AsyncResult<void, ValidationError | UnexpectedError>;
-    client: HandlerClient;
-  } & WithDeps<TDeps>,
-) => unknown | Promise<unknown>;
-
-type OperationHandler<
-  TInput,
-  TProgress,
-  TOutput,
-  TTransfer,
-  TDeps = undefined,
-> = (
-  context:
-    & {
-      input: TInput;
-      op: OperationRuntimeHandle<TProgress, TOutput>;
-      caller: unknown;
-      client: HandlerClient;
-    }
-    & TTransfer
-    & WithDeps<TDeps>,
-) => unknown | Promise<unknown>;
 
 export type TrellisCoreState = {};
 
@@ -160,7 +126,10 @@ export interface ServiceEventSurface<TDeps> {
         ValidationError | UnexpectedError
       >;
       listen(
-        handler: ServiceEventHandler<HealthSdk.HealthHeartbeatEvent, TDeps>,
+        handler: DependencyServiceEventHandler<
+          HealthSdk.HealthHeartbeatEvent,
+          TDeps
+        >,
         subjectData?: Record<string, unknown>,
         opts?: EventOpts,
       ): AsyncResult<void, ValidationError | UnexpectedError>;
@@ -172,25 +141,13 @@ export interface ServiceHandle<TDeps = undefined> {
   readonly rpc: {
     readonly trellis: {
       catalog(
-        handler: RpcHandler<
-          Types.TrellisCatalogInput,
-          Types.TrellisCatalogOutput,
-          TDeps
-        >,
+        handler: ServiceRpcHandler<typeof sdk, "Trellis.Catalog", TDeps>,
       ): Promise<void>;
       contractGet(
-        handler: RpcHandler<
-          Types.TrellisContractGetInput,
-          Types.TrellisContractGetOutput,
-          TDeps
-        >,
+        handler: ServiceRpcHandler<typeof sdk, "Trellis.Contract.Get", TDeps>,
       ): Promise<void>;
       surfaceStatus(
-        handler: RpcHandler<
-          Types.TrellisSurfaceStatusInput,
-          Types.TrellisSurfaceStatusOutput,
-          TDeps
-        >,
+        handler: ServiceRpcHandler<typeof sdk, "Trellis.Surface.Status", TDeps>,
       ): Promise<void>;
     };
   };

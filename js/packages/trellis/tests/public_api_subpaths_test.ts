@@ -6,7 +6,10 @@ import { defineServiceContract } from "@qlever-llc/trellis";
 import * as authSdk from "@qlever-llc/trellis/sdk/auth";
 import * as authSurface from "@qlever-llc/trellis/auth";
 import * as authBrowserSurface from "@qlever-llc/trellis/auth/browser";
-import type { TrellisCatalogHandler } from "@qlever-llc/trellis/sdk/core";
+import type {
+  ServiceWithDeps as CoreServiceWithDeps,
+  TrellisCatalogHandler,
+} from "@qlever-llc/trellis/sdk/core";
 import * as healthSdk from "@qlever-llc/trellis/sdk/health";
 import * as contracts from "@qlever-llc/trellis/contracts";
 import * as coreSdk from "@qlever-llc/trellis/sdk/core";
@@ -166,4 +169,28 @@ Deno.test("generated SDK exports handler aliases for extracted handlers", () => 
   };
 
   assertEquals(typeof handler, "function");
+});
+
+Deno.test("generated handler aliases support bound service registration", () => {
+  type Deps = { readonly prefix: string };
+  const handler: TrellisCatalogHandler<Deps> = ({ input, context, deps }) => {
+    const sessionKey: string = context.sessionKey;
+    const prefix: string = deps.prefix;
+    assertEquals(Object.keys(input).length, 0);
+    assertEquals(typeof sessionKey, "string");
+    assertEquals(typeof prefix, "string");
+    return Result.ok({
+      catalog: {
+        format: "trellis.catalog.v1",
+        contracts: [],
+      },
+    });
+  };
+
+  const register = (service: CoreServiceWithDeps<Deps>) => {
+    return service.handle.rpc.trellis.catalog(handler);
+  };
+
+  assertEquals(typeof handler, "function");
+  assertEquals(typeof register, "function");
 });

@@ -1,6 +1,9 @@
 // Generated from ./generated/contracts/manifests/trellis.health@v1.json
 import type { TrellisEventMessage } from "../../../index.ts";
 
+import type { ServiceEventHandler } from "@qlever-llc/trellis/service";
+import type { sdk } from "./contract.ts";
+
 export const CONTRACT_ID = "trellis.health@v1" as const;
 export const CONTRACT_DIGEST =
   "z9RdJVXAI4q-hSkpvUX_xMYEJaKslMsayevlW4UlSeQ" as const;
@@ -35,6 +38,8 @@ export type HealthHeartbeatEvent = {
 export type HealthHeartbeatEventMessage = TrellisEventMessage<
   HealthHeartbeatEvent
 >;
+export type HealthHeartbeatEventHandler<TDeps = undefined> =
+  ServiceEventHandler<typeof sdk, "Health.Heartbeat", TDeps>;
 
 export interface RpcMap {
 }

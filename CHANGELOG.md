@@ -8,6 +8,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** Changed generated TypeScript service handler aliases to use the
+  stable `@qlever-llc/trellis/service` handler types and optional `TDeps`
+  generic. Existing RPC alias names are preserved, but type-level consumers that
+  relied on the previous root `RpcHandlerFn` alias shape or generated
+  `HandlerClient` argument shape may need to update. Generated SDKs also emit
+  service-author aliases for owned events, feeds, operations, and jobs.
+
 ## [0.19.0-rc.5] - 2026-06-15
 
 ### Fixed

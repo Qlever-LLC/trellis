@@ -1,6 +1,6 @@
 // Generated from ./generated/contracts/manifests/trellis.core@v1.json
-import type { RpcHandlerFn } from "../../../index.ts";
-import type { API } from "./api.ts";
+import type { RpcHandler } from "@qlever-llc/trellis/service";
+import type { sdk } from "./contract.ts";
 
 export const CONTRACT_ID = "trellis.core@v1" as const;
 export const CONTRACT_DIGEST =
@@ -250,21 +250,25 @@ export interface RpcMap {
   };
 }
 
-export type TrellisBindingsGetHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Trellis.Bindings.Get"
+export type TrellisBindingsGetHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Trellis.Bindings.Get",
+  TDeps
 >;
-export type TrellisCatalogHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Trellis.Catalog"
+export type TrellisCatalogHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Trellis.Catalog",
+  TDeps
 >;
-export type TrellisContractGetHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Trellis.Contract.Get"
+export type TrellisContractGetHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Trellis.Contract.Get",
+  TDeps
 >;
-export type TrellisSurfaceStatusHandler = RpcHandlerFn<
-  typeof API.owned,
-  "Trellis.Surface.Status"
+export type TrellisSurfaceStatusHandler<TDeps = undefined> = RpcHandler<
+  typeof sdk,
+  "Trellis.Surface.Status",
+  TDeps
 >;
 
 export interface EventMap {
