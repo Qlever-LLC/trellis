@@ -20,6 +20,11 @@ and this project adheres to
   RPC success, captured event presence and context, no-event windows, and
   terminal job and operation completion.
 
+### Fixed
+
+- Updated release CI and image builds to Deno 2.8.2 so the Trellis image release
+  gate uses the current runtime for Vite/Tailwind portal builds.
+
 ## [0.19.0-rc.3] - 2026-06-14
 
 ### Public Breaking Changes
