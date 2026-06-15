@@ -10,6 +10,7 @@ import {
 } from "@qlever-llc/trellis";
 import {
   fetchPortalFlowState,
+  type PortalFlowInsufficientCapabilitiesState,
   submitPortalApproval,
 } from "@qlever-llc/trellis/auth";
 import { sdk as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
@@ -36,7 +37,9 @@ const ADMIN_RPC_CALLS = [
   "Auth.DeploymentAuthority.Plan",
   "Auth.DeploymentAuthority.Reconcile",
   "Auth.Deployments.Create",
+  "Auth.Sessions.Me",
   "Auth.ServiceInstances.Provision",
+  "Auth.Users.Update",
 ] as const;
 
 const adminContract = defineAppContract(() => ({
@@ -99,9 +102,16 @@ async function performLocalLogin(args: {
 async function approveLocalFlowIfNeeded(args: {
   trellisUrl: string;
   flowId: string;
+  grantMissingCapabilities?: (
+    state: PortalFlowInsufficientCapabilitiesState,
+  ) => Promise<void>;
 }): Promise<void> {
   const config = { authUrl: args.trellisUrl };
-  const state = await fetchPortalFlowState(config, args.flowId);
+  let state = await fetchPortalFlowState(config, args.flowId);
+  if (state.status === "insufficient_capabilities") {
+    await args.grantMissingCapabilities?.(state);
+    state = await fetchPortalFlowState(config, args.flowId);
+  }
   if (state.status === "redirect") return;
   if (state.status === "approval_required") {
     const approved = await submitPortalApproval(
@@ -254,11 +264,45 @@ export class TrellisTestAdminAutomation {
     ctx: ClientAuthRequiredContext,
   ): Promise<ClientAuthContinuation> {
     await this.#completeBootstrap();
-    return await completeLocalAuthFlow({
+    const flowId = flowIdFromUrl(ctx.loginUrl);
+    await performLocalLogin({
       trellisUrl: this.#trellisUrl,
-      loginUrl: ctx.loginUrl,
+      flowId,
       password: this.#adminPassword,
     });
+    await approveLocalFlowIfNeeded({
+      trellisUrl: this.#trellisUrl,
+      flowId,
+      grantMissingCapabilities: (state) =>
+        this.#grantClientCapabilities({
+          state,
+          deployment: this.#defaultDeployment,
+        }),
+    });
+    return { status: "bound", flowId };
+  }
+
+  async #grantClientCapabilities(args: {
+    state: PortalFlowInsufficientCapabilitiesState;
+    deployment: string;
+  }): Promise<void> {
+    await this.createDeployment({ deployment: args.deployment });
+    const client = await this.#client();
+    const missingCapabilities = [...new Set(args.state.missingCapabilities)]
+      .sort();
+    const me = await client.rpc.auth.sessionsMe({}).orThrow();
+    if (!me.user) {
+      throw new Error("Trellis test admin session did not resolve to a user");
+    }
+    const adminCapabilities = [
+      ...new Set([...me.user.capabilities, ...missingCapabilities]),
+    ].sort();
+    if (adminCapabilities.length !== me.user.capabilities.length) {
+      await client.rpc.auth.usersUpdate({
+        userId: me.user.userId,
+        capabilities: adminCapabilities,
+      }).orThrow();
+    }
   }
 
   /** Plans, accepts, reconciles, and waits for a contract authority change. */
