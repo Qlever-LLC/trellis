@@ -27,6 +27,7 @@ export type {
   TrellisTestEventByName,
   TrellisTestEventExpectation,
   TrellisTestEventExpectationObject,
+  TrellisTestJobTerminal,
   TrellisTestOrThrowWaitResult,
   TrellisTestTerminalWaitResult,
   TrellisTestWaitableJob,

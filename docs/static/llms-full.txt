@@ -103,10 +103,11 @@ Rules:
   `runtime.connectClient(...)`, capture live generated events with
   `runtime.captureEvents(...)`, assert captured events/jobs/operations/RPC Results
   with the exported `assert*` helpers, use `assertRpcEventuallyOk(...)` for
-  projection/eventual-consistency polling, and let the runtime start the explicit
-  Trellis control-plane command as a spawned process. Allow migration authority
-  plans only in isolated mutable-dev tests through `authority.autoAccept` or
-  per-approval `allowPlanClassifications`.
+  projection/eventual-consistency polling, pass generated event captures and
+  service job refs directly to the assertion helpers, and let the runtime start
+  the explicit Trellis control-plane command as a spawned process. Allow
+  migration authority plans only in isolated mutable-dev tests through
+  `authority.autoAccept` or per-approval `allowPlanClassifications`.
 - the local `AGENTS.md` should record the contract source path, generated artifact
   command, format command, typecheck/clippy command, test command, run command,
   and migration command
@@ -139,11 +140,12 @@ contracts remain the input.
 7. Add or update tests at the service boundary. For event-driven code, test the
    local handler logic and the outbox/inbox behavior separately when possible.
    Use `@qlever-llc/trellis-test` when the boundary test must exercise real
-   Trellis bootstrap, auth validation, deployment authority, generated clients,
-   app/client auth, live event capture, jobs, operations, KV, store, state, or
-   durable event consumers. Prefer its assertion helpers for captured events,
-   terminal jobs and operations, immediate `Result` RPC values, and eventual RPC
-   projection checks.
+    Trellis bootstrap, auth validation, deployment authority, generated clients,
+    app/client auth, live event capture, jobs, operations, KV, store, state, or
+    durable event consumers. Prefer its assertion helpers for captured events,
+    terminal jobs and operations, immediate `Result` RPC values, and eventual RPC
+    projection checks; generated captures and service job refs can be passed
+    directly.
 8. Run formatting, type checks, generation checks, and tests before reporting
    completion.
 

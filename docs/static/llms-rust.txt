@@ -39,8 +39,9 @@ Rules:
 - Deno-first service-boundary tests that use `@qlever-llc/trellis-test` can use
   `runtime.captureEvents(...)` and the exported captured-event, job, operation,
   and Result assertion helpers without raw NATS subjects or production-only event
-  consumer groups; Rust-native code should still use generated
-  descriptors/facades.
+  consumer groups. Generated TypeScript event captures and service job refs can
+  be passed directly to those helpers; Rust-native code should still use
+  generated descriptors/facades.
 - service-private jobs that must be singleton per logical key should declare
   `keyConcurrency`. Keep the existing numeric `concurrency` field for
   worker-count concurrency. Keyed queues default to clear failure
