@@ -304,6 +304,37 @@ function createDurablePullTestConnection(): {
   };
 }
 
+function createDurableInfoRetryTestConnection(): {
+  connection: NatsConnection;
+  pullRequests: string[];
+  requestCalls: string[];
+  infoAttempts(): number;
+} {
+  const base = createDurablePullTestConnection();
+  const connection = base.connection as NatsConnection & {
+    request: NatsConnection["request"];
+  };
+  const originalRequest = connection.request.bind(connection);
+  let infoAttempts = 0;
+
+  connection.request = async (subject, payload, opts) => {
+    if (subject.includes("CONSUMER.INFO.EVENTS.bound-consumer")) {
+      infoAttempts += 1;
+      if (infoAttempts === 1) {
+        throw new Error("consumer not found");
+      }
+    }
+    return await originalRequest(subject, payload, opts);
+  };
+
+  return {
+    connection,
+    pullRequests: base.pullRequests,
+    requestCalls: base.requestCalls,
+    infoAttempts: () => infoAttempts,
+  };
+}
+
 async function waitFor(assertion: () => boolean): Promise<void> {
   const deadline = Date.now() + 1_000;
   while (!assertion()) {
@@ -1000,4 +1031,33 @@ Deno.test("Trellis durable event listeners stop without restarting during teardo
 
   assertEquals(isErr(registered.take()), false);
   assertEquals(pullRequests.length, 1);
+});
+
+Deno.test("Trellis durable event loop retries transient missing consumers", async () => {
+  const { connection, pullRequests, infoAttempts } =
+    createDurableInfoRetryTestConnection();
+  const trellis = createTrellisInternal(
+    "durable-consumer-not-found-retry",
+    connection,
+    createMockAuth(),
+    {
+      api: eventConsumerSourceContract.API.owned,
+      eventConsumers: {
+        metadata: eventConsumerMetadata,
+        bindings: { pong: eventConsumerBinding },
+      },
+    },
+  );
+
+  const registered = await trellis.listenEvent(
+    "Test.Pong",
+    {},
+    () => ok(undefined),
+  );
+  await waitFor(() => infoAttempts() === 2 && pullRequests.length === 1);
+
+  trellis.stopEventListeners();
+  await trellis.wait().orThrow();
+
+  assertEquals(isErr(registered.take()), false);
 });

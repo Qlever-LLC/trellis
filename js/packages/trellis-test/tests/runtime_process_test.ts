@@ -65,11 +65,22 @@ const entityContract = defineServiceContract(
     id: "trellis.test.entity-live@v1",
     displayName: "Trellis Test Entity Live Service",
     description: "Service-repo style entity contract for live runtime tests.",
+    capabilities: {
+      read: {
+        displayName: "Read entities",
+        description: "Read entity records in live integration tests.",
+      },
+      publishRecords: {
+        displayName: "Publish entity records",
+        description: "Publish entity change records in live integration tests.",
+      },
+    },
     rpc: {
       "Entity.Get": {
         version: "v1",
         input: ref.schema("EntityGetInput"),
         output: ref.schema("EntityGetOutput"),
+        capabilities: { call: ["read"] },
         errors: [],
       },
     },
@@ -77,6 +88,7 @@ const entityContract = defineServiceContract(
       "Entity.Changed": {
         version: "v1",
         event: ref.schema("EntityChanged"),
+        capabilities: { publish: ["publishRecords"], subscribe: ["read"] },
       },
     },
   }),

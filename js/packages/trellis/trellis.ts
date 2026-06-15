@@ -1160,6 +1160,13 @@ function eventConsumerGroupEvents(group: RuntimeEventConsumerGroup): string[] {
   return [...events].sort();
 }
 
+function isConsumerNotFoundError(error: unknown): boolean {
+  return error instanceof Error && (
+    error.name === "ConsumerNotFoundError" ||
+    error.message.includes("consumer not found")
+  );
+}
+
 type TrellisInternalOpts<TA extends AnyTrellisAPI> = TrellisOpts<TA> & {
   eventConsumers?: RuntimeEventConsumers;
 };
@@ -4405,7 +4412,23 @@ export class Trellis<
           return await jsm.consumers.info(binding.stream, binding.consumerName);
         });
         const info = infoResult.take();
-        if (isErr(info)) return info;
+        if (isErr(info)) {
+          if (
+            this.#durableEventListenersStopped ||
+            !this.#durableEventConsumerGroupReady(group, loop)
+          ) {
+            return ok(undefined);
+          }
+          if (isConsumerNotFoundError(info.error.cause)) {
+            this.#log.debug(
+              { group, stream: binding.stream, consumer: binding.consumerName },
+              "Durable event consumer is not available yet; retrying",
+            );
+            await sleep(25);
+            return ok(undefined);
+          }
+          return info;
+        }
 
         const consumer = this.js.consumers.getConsumerFromInfo(info);
         while (
@@ -4429,6 +4452,14 @@ export class Trellis<
           this.#durableEventListenersStopped ||
           !this.#durableEventConsumerGroupReady(group, loop)
         ) {
+          return ok(undefined);
+        }
+        if (isConsumerNotFoundError(cause)) {
+          this.#log.debug(
+            { group, stream: binding.stream, consumer: binding.consumerName },
+            "Durable event consumer is not available yet; retrying",
+          );
+          await sleep(25);
           return ok(undefined);
         }
         return err(new UnexpectedError({ cause, context: { group } }));
