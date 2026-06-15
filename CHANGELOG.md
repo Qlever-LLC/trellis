@@ -8,6 +8,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.19.0-rc.3] - 2026-06-14
+
+### Fixed
+
+- Fixed `@qlever-llc/trellis-test` live integration helpers so service approval
+  and generated-client connection flows can run against the release candidate.
+
 ## [0.19.0-rc.2] - 2026-06-14
 
 ### Fixed
@@ -1082,7 +1089,8 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.19.0-rc.2...HEAD
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.19.0-rc.3...HEAD
+[0.19.0-rc.3]: https://github.com/Qlever-LLC/trellis/compare/v0.19.0-rc.2...v0.19.0-rc.3
 [0.19.0-rc.2]: https://github.com/Qlever-LLC/trellis/compare/v0.19.0-rc.1...v0.19.0-rc.2
 [0.19.0-rc.1]: https://github.com/Qlever-LLC/trellis/compare/v0.10.18-rc.1...v0.19.0-rc.1
 [0.10.18-rc.1]: https://github.com/Qlever-LLC/trellis/compare/v0.10.17...v0.10.18-rc.1

@@ -34,6 +34,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  CARGO_HTTP_MULTIPLEXING: false
   CARGO_TERM_COLOR: always
   DENO_VERSION: 2.7.14
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
