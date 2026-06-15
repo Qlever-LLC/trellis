@@ -8,6 +8,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.19.0-rc.5] - 2026-06-15
+
+### Fixed
+
+- Fixed `@qlever-llc/trellis-test` assertion helpers so generated event captures
+  from `TrellisTestRuntime.captureEvents(...)` and generated service job refs
+  can be passed directly to `assertEventCaptured`, `assertEventsCaptured`, and
+  `assertJobCompleted` without downstream casts, wrappers, or local adapters.
+
 ## [0.19.0-rc.4] - 2026-06-15
 
 ### Added
