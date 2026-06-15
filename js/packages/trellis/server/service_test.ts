@@ -13,7 +13,7 @@ import {
   PermissionViolationError,
   type Subscription,
 } from "@nats-io/nats-core";
-import { type BaseError, Result } from "@qlever-llc/result";
+import { type BaseError, isErr, Result } from "@qlever-llc/result";
 import { sdk as core } from "@qlever-llc/trellis/sdk/core";
 import { Type } from "typebox";
 
@@ -25,10 +25,12 @@ import { HealthResponseSchema, HealthRpcSchema } from "./health_schemas.ts";
 import { connectTrellisServiceInternal } from "./internal_connect.ts";
 import {
   connectTrellisServiceWithRuntimeDeps,
+  type HandlerSqlOutbox,
   StoreHandle,
   TrellisService,
   type TrellisServiceConnectArgs,
 } from "./service.ts";
+import type { SqlExecutor, SqlRow } from "../service/outbox_inbox.ts";
 
 const TEST_SEED = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
@@ -86,6 +88,7 @@ const handlerSurfaceTestContract = defineServiceContract(
 const jobsHandlerTestSchemas = {
   RefreshPayload: Type.Object({ siteId: Type.String() }),
   RefreshResult: Type.Object({ refreshId: Type.String() }),
+  RefreshEvent: Type.Object({ siteId: Type.String(), label: Type.String() }),
 } as const;
 
 const jobsHandlerTestContract = defineServiceContract(
@@ -98,6 +101,12 @@ const jobsHandlerTestContract = defineServiceContract(
       refreshSummaries: {
         payload: ref.schema("RefreshPayload"),
         result: ref.schema("RefreshResult"),
+      },
+    },
+    events: {
+      "Jobs.Refreshed": {
+        version: "v1",
+        event: ref.schema("RefreshEvent"),
       },
     },
   }),
@@ -143,6 +152,31 @@ type PublishedNatsMessage = {
   headers?: MsgHdrs;
 };
 
+type TestSqlTx = {
+  readonly id: string;
+  readonly writes: string[];
+};
+
+type TestNatsStatus = {
+  type: string;
+  data?: string;
+  error?: Error;
+};
+
+type TestOutboxRow = {
+  id: string;
+  event: string;
+  subject: string;
+  payload: string;
+  headers: string;
+  state: string;
+  attempts: number;
+  created_at: string;
+  updated_at: string;
+  next_attempt_at: string | null;
+  last_error: string | null;
+};
+
 function hasServiceWait(value: object): value is WaitableService {
   return Reflect.has(value, "wait") &&
     typeof Reflect.get(value, "wait") === "function";
@@ -160,6 +194,7 @@ async function connectJobsHandlerTestService(opts?: {
   includeWorkStream?: boolean;
   deferClosed?: boolean;
   published?: PublishedNatsMessage[];
+  jetstreamJobs?: boolean;
 }) {
   const originalFetch = globalThis.fetch;
   const includeWorkStream = opts?.includeWorkStream ?? true;
@@ -230,6 +265,7 @@ async function connectJobsHandlerTestService(opts?: {
     const connection = createFakeNatsConnection({
       deferClosed: opts?.deferClosed,
       published: opts?.published,
+      jetstreamJobs: opts?.jetstreamJobs,
     });
     const service = await connectTrellisServiceWithRuntimeDeps({
       trellisUrl: "https://trellis.example.com",
@@ -254,7 +290,9 @@ async function connectJobsHandlerTestService(opts?: {
   }
 }
 
-async function connectHandlerSurfaceTestService() {
+async function connectHandlerSurfaceTestService(opts?: {
+  published?: PublishedNatsMessage[];
+}) {
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = (() =>
@@ -297,7 +335,7 @@ async function connectHandlerSurfaceTestService() {
     )) as typeof fetch;
 
   try {
-    const connection = createFakeNatsConnection();
+    const connection = createFakeNatsConnection({ published: opts?.published });
     const service = await connectTrellisServiceWithRuntimeDeps({
       trellisUrl: "https://trellis.example.com",
       contract: handlerSurfaceTestContract,
@@ -429,22 +467,36 @@ function createTestLogger() {
 }
 
 function createFakeNatsConnection(args: {
-  statuses?: unknown[];
+  statuses?: TestNatsStatus[];
   closedResult?: Error | void;
   deferClosed?: boolean;
   requestJson?: (subject: string) => unknown;
   published?: PublishedNatsMessage[];
+  jetstreamJobs?: boolean;
 } = {}): NatsConnection {
   type TestNatsConnection = NatsConnection & {
     options: { inboxPrefix: string };
+    features: {
+      get(feature: unknown): { min: string; ok: boolean };
+    };
+    addCloseListener(listener: unknown): void;
+    removeCloseListener(listener: unknown): void;
   };
 
-  const status = (() =>
-    (async function* () {
+  const status = () => {
+    const iterator = (async function* () {
       for (const entry of args.statuses ?? []) {
-        yield entry;
+        yield entry as ReturnType<NatsConnection["status"]> extends
+          AsyncIterable<infer T> ? T : never;
       }
-    })()) as NatsConnection["status"];
+    })();
+    return Object.assign(iterator, { stop: () => {} });
+  };
+
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  const queuedWork: Uint8Array[] = [];
+  const lifecycleBySubject = new Map<string, Uint8Array>();
 
   const createMessage = (
     subject: string,
@@ -457,7 +509,7 @@ function createFakeNatsConnection(args: {
     },
   ): Msg => {
     const messageData = data ?? new TextEncoder().encode(JSON.stringify(value));
-    return {
+    const message: Msg = {
       subject,
       sid: 1,
       data: messageData,
@@ -470,6 +522,7 @@ function createFakeNatsConnection(args: {
       json: <T>() => value as T,
       string: () => new TextDecoder().decode(messageData),
     };
+    return Object.assign(message, { size: () => messageData.byteLength });
   };
 
   type BufferedSubscription = Subscription & {
@@ -497,7 +550,10 @@ function createFakeNatsConnection(args: {
     }
     return payload;
   };
-  const createSubscription = (subject: string): BufferedSubscription => {
+  const createSubscription = (
+    subject: string,
+    opts?: { callback?: (err: Error | null, msg: Msg) => void },
+  ): BufferedSubscription => {
     const queue: Msg[] = [];
     let closed = false;
     let received = 0;
@@ -530,6 +586,7 @@ function createFakeNatsConnection(args: {
         if (closed) {
           return;
         }
+        opts?.callback?.(null, message);
         queue.push(message);
         received += 1;
         notify();
@@ -559,6 +616,91 @@ function createFakeNatsConnection(args: {
     })
     : Promise.resolve(args.closedResult);
 
+  const createJetStreamResponse = (subject: string): unknown => {
+    if (subject === "$JS.API.INFO") {
+      return {
+        type: "io.nats.jetstream.api.v1.account_info_response",
+        memory: 0,
+        storage: 0,
+        streams: 1,
+        consumers: 1,
+      };
+    }
+    if (subject.startsWith("$JS.API.CONSUMER.INFO.")) {
+      return {
+        type: "io.nats.jetstream.api.v1.consumer_info_response",
+        stream_name: "JOBS_WORK",
+        name: "jobs_handler_test-refreshSummaries",
+        created: "2024-01-01T00:00:00.000Z",
+        config: {
+          durable_name: "jobs_handler_test-refreshSummaries",
+          ack_policy: "explicit",
+        },
+      };
+    }
+    return {};
+  };
+
+  const publishQueuedWork = (reply: string): void => {
+    const payload = queuedWork.shift();
+    if (!payload) return;
+    const subject =
+      "trellis.jobs.jobs_handler_test.refreshSummaries.job.created";
+    const replySubject =
+      "$JS.ACK._.account.JOBS_WORK.jobs_handler_test-refreshSummaries.1.1.1.1700000000000000000.0.test";
+    const message = createMessage(
+      subject,
+      JSON.parse(decoder.decode(payload)),
+      payload,
+      { reply: replySubject },
+    );
+    for (const subscription of subscriptions) {
+      if (subjectMatches(subscription.getSubject(), reply)) {
+        subscription.push(message);
+      }
+    }
+  };
+
+  const recordJobLifecycle = (subject: string, data: Uint8Array): void => {
+    if (!args.jetstreamJobs) return;
+    if (
+      !subject.startsWith("trellis.jobs.jobs_handler_test.refreshSummaries.")
+    ) {
+      return;
+    }
+    lifecycleBySubject.set(subject, data);
+    let event: { eventType?: unknown };
+    try {
+      event = JSON.parse(decoder.decode(data)) as { eventType?: unknown };
+    } catch {
+      return;
+    }
+    if (event.eventType === "created" || event.eventType === "retried") {
+      queuedWork.push(data);
+    }
+  };
+
+  const deliverToSubscriptions = (
+    subject: string,
+    data: Uint8Array,
+    headers?: MsgHdrs,
+  ): void => {
+    let value: unknown = {};
+    try {
+      value = JSON.parse(decoder.decode(data));
+    } catch {
+      value = {};
+    }
+    for (const subscription of subscriptions) {
+      if (subjectMatches(subscription.getSubject(), subject)) {
+        subscription.push(createMessage(subject, value, data, { headers }));
+      }
+    }
+  };
+
+  const isJetStreamPublishSubject = (subject: string): boolean =>
+    subject.startsWith("events.v1.") || subject.startsWith("trellis.jobs.");
+
   const connection: TestNatsConnection = {
     info: undefined,
     closed: async () => await closedPromise,
@@ -576,30 +718,46 @@ function createFakeNatsConnection(args: {
     ) => {
       const bytes = payloadBytes(data);
       args.published?.push({ subject, data: bytes, headers: opts?.headers });
-      for (const subscription of subscriptions) {
-        if (subjectMatches(subscription.getSubject(), subject)) {
-          let value: unknown = {};
-          try {
-            value = JSON.parse(new TextDecoder().decode(bytes));
-          } catch {
-            value = {};
-          }
-          subscription.push(createMessage(subject, value, bytes, {
-            headers: opts?.headers,
-          }));
-        }
+      recordJobLifecycle(subject, bytes);
+      if (
+        args.jetstreamJobs && subject.startsWith("$JS.API.CONSUMER.MSG.NEXT.")
+      ) {
+        const reply = (opts as { reply?: string } | undefined)?.reply;
+        if (reply) publishQueuedWork(reply);
       }
+      deliverToSubscriptions(subject, bytes, opts?.headers);
     },
     publishMessage: () => {},
     respondMessage: () => true,
-    subscribe: (subject: string) => createSubscription(subject),
+    subscribe: (
+      subject: string,
+      opts?: { callback?: (err: Error | null, msg: Msg) => void },
+    ) => createSubscription(subject, opts),
     request: async (
       subject: string,
       payload?: Payload,
       opts?: { headers?: MsgHdrs },
     ) => {
+      if (
+        args.jetstreamJobs && subject.startsWith("$JS.API.DIRECT.GET.JOBS.")
+      ) {
+        const data = [...lifecycleBySubject]
+          .reverse()
+          .find(([key]) =>
+            key.startsWith("trellis.jobs.jobs_handler_test.refreshSummaries.")
+          )
+          ?.[1] ?? encoder.encode("{}");
+        return createMessage(subject, {}, data, { headers: natsHeaders(0) });
+      }
+      if (args.jetstreamJobs && subject.startsWith("$JS.API.")) {
+        return createMessage(subject, createJetStreamResponse(subject));
+      }
       if (args.requestJson) {
         return createMessage(subject, args.requestJson(subject));
+      }
+      const bytes = payloadBytes(payload);
+      if (isJetStreamPublishSubject(subject)) {
+        return createMessage(subject, { stream: "EVENTS", seq: 1 });
       }
       const subscription = subscriptions.find((candidate) =>
         subjectMatches(candidate.getSubject(), subject)
@@ -608,7 +766,6 @@ function createFakeNatsConnection(args: {
         return createMessage(subject, {});
       }
 
-      const bytes = payloadBytes(payload);
       let value: unknown = {};
       try {
         value = JSON.parse(new TextDecoder().decode(bytes));
@@ -647,6 +804,11 @@ function createFakeNatsConnection(args: {
     stats: () => ({ inBytes: 0, outBytes: 0, inMsgs: 0, outMsgs: 0 }),
     rtt: async () => 0,
     reconnect: async () => {},
+    features: {
+      get: () => ({ min: "0.0.0", ok: true }),
+    },
+    addCloseListener: () => {},
+    removeCloseListener: () => {},
   };
 
   return connection;
@@ -654,6 +816,124 @@ function createFakeNatsConnection(args: {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function createTestSqlOutboxStore(): SqlExecutor & {
+  readonly claimDueQueries: number;
+  snapshot(): readonly TestOutboxRow[];
+  restore(rows: readonly TestOutboxRow[]): void;
+} {
+  let rows: TestOutboxRow[] = [];
+  let claimDueQueries = 0;
+  const copyRows = () => rows.map((row) => ({ ...row }));
+  return {
+    get claimDueQueries() {
+      return claimDueQueries;
+    },
+    async query(sql: string, params: readonly unknown[]): Promise<SqlRow[]> {
+      if (sql.startsWith("SELECT id, event, subject, payload")) {
+        claimDueQueries += 1;
+        const dueAt = String(params[1]);
+        const limit = Number(params[2]);
+        return rows
+          .filter((row) =>
+            row.state !== "dispatched" &&
+            (row.next_attempt_at === null || row.next_attempt_at <= dueAt)
+          )
+          .slice(0, limit)
+          .map((row) => ({ ...row }));
+      }
+      return [];
+    },
+    async execute(sql: string, params: readonly unknown[]): Promise<void> {
+      if (sql.startsWith("INSERT INTO trellis_outbox")) {
+        const id = String(params[0]);
+        if (rows.some((row) => row.id === id)) return;
+        rows.push({
+          id,
+          event: String(params[1]),
+          subject: String(params[2]),
+          payload: String(params[3]),
+          headers: String(params[4]),
+          state: String(params[5]),
+          attempts: Number(params[6]),
+          created_at: String(params[7]),
+          updated_at: String(params[8]),
+          next_attempt_at: null,
+          last_error: null,
+        });
+        return;
+      }
+      if (sql.startsWith("UPDATE trellis_outbox SET state =")) {
+        if (params[0] === "dispatched") {
+          const id = String(params[2]);
+          rows = rows.map((row) =>
+            row.id === id
+              ? {
+                ...row,
+                state: "dispatched",
+                updated_at: String(params[1]),
+                next_attempt_at: null,
+                last_error: null,
+              }
+              : row
+          );
+          return;
+        }
+        if (params[0] === "failed") {
+          const id = String(params[4]);
+          rows = rows.map((row) =>
+            row.id === id
+              ? {
+                ...row,
+                state: "failed",
+                attempts: row.attempts + 1,
+                updated_at: String(params[1]),
+                next_attempt_at: String(params[2]),
+                last_error: String(params[3]),
+              }
+              : row
+          );
+        }
+      }
+    },
+    snapshot: copyRows,
+    restore(nextRows: readonly TestOutboxRow[]): void {
+      rows = nextRows.map((row) => ({ ...row }));
+    },
+  };
+}
+
+function createSqlOutboxTestOptions(
+  store: ReturnType<typeof createTestSqlOutboxStore>,
+) {
+  let transactionCalls = 0;
+  return {
+    options: {
+      dialect: "sqlite" as const,
+      executor: store,
+      dispatcher: { debounceMs: 0, idleRetryMs: 60_000 },
+      transaction: async <TResult>(
+        work: (context: {
+          tx: TestSqlTx;
+          executor: SqlExecutor;
+        }) => Promise<TResult> | TResult,
+      ): Promise<TResult> => {
+        transactionCalls += 1;
+        const before = store.snapshot();
+        const tx: TestSqlTx = { id: `tx-${transactionCalls}`, writes: [] };
+        try {
+          return await work({ tx, executor: store });
+        } catch (error) {
+          store.restore(before);
+          throw error;
+        }
+      },
+    },
+    get transactionCalls() {
+      return transactionCalls;
+    },
+  };
 }
 
 function authenticatorsFromValue(
@@ -2115,6 +2395,235 @@ Deno.test("bound service RPC handlers receive isolated deps", async () => {
     assertEquals(unbound.json(), { ok: true });
     assertEquals(observed, ["one:a", "two:b"]);
     assertEquals(unboundHadDeps, false);
+  } finally {
+    await service.stop();
+    restore();
+  }
+});
+
+Deno.test("SQL outbox wrapper injects RPC handler outbox and drains enqueued events", async () => {
+  const published: PublishedNatsMessage[] = [];
+  const { connection, service, restore } =
+    await connectHandlerSurfaceTestService({ published });
+  const store = createTestSqlOutboxStore();
+  const outbox = createSqlOutboxTestOptions(store);
+  let observedTx: TestSqlTx | undefined;
+  let normalEventHasEnqueue = true;
+
+  try {
+    normalEventHasEnqueue = Reflect.has(service.event.test.pinged, "enqueue");
+    await service.withSqlOutbox(outbox.options).with({ prefix: "dep" })
+      .handle.rpc.test.ping(async ({ input, deps, outbox }) => {
+        const result = await outbox.transaction(async ({ tx, event }) => {
+          tx.writes.push(`domain:${input.value}`, `audit:${deps.prefix}`);
+          observedTx = tx;
+          await event.test.pinged.enqueue({ value: input.value }).orThrow();
+          await event.test.pinged.enqueue({ value: deps.prefix }).orThrow();
+          return tx.writes.length;
+        }).orThrow();
+
+        return Result.ok({ ok: result === 2 });
+      });
+
+    const response = await connection.request(
+      "rpc.v1.Test.Ping",
+      JSON.stringify({ value: "one" }),
+    );
+    await delay(20);
+
+    assertEquals(response.json(), { ok: true });
+    assertEquals(observedTx?.writes, ["domain:one", "audit:dep"]);
+    assertEquals(outbox.transactionCalls, 1);
+    assertEquals(store.snapshot().map((row) => row.state), [
+      "dispatched",
+      "dispatched",
+    ]);
+    assertEquals(store.snapshot().map((row) => row.event), [
+      "Test.Pinged",
+      "Test.Pinged",
+    ]);
+    assertEquals(normalEventHasEnqueue, false);
+  } finally {
+    await service.stop();
+    restore();
+  }
+});
+
+Deno.test("SQL outbox wrapper injects event listener outbox and drains enqueued events", async () => {
+  const published: PublishedNatsMessage[] = [];
+  const { connection, service, restore } =
+    await connectHandlerSurfaceTestService({
+      published,
+    });
+  const store = createTestSqlOutboxStore();
+  const outbox = createSqlOutboxTestOptions(store);
+  const observed: string[] = [];
+  let wrapperEventHasEnqueue = true;
+
+  try {
+    const wrapper = service.withSqlOutbox(outbox.options).with({
+      prefix: "dep",
+    });
+    wrapperEventHasEnqueue = Reflect.has(wrapper.event.test.pinged, "enqueue");
+    await wrapper.event.test.pinged.listen(
+      async ({ event, context, client, deps, outbox }) => {
+        const result = await outbox.transaction(async ({ tx, event: out }) => {
+          tx.writes.push(`event:${event.value}`, `subject:${context.subject}`);
+          observed.push(
+            deps.prefix,
+            typeof client.rpc.test.ping === "function" ? "client" : "missing",
+            ...tx.writes,
+          );
+          await out.test.pinged.enqueue({ value: deps.prefix }).orThrow();
+          return tx.writes.length;
+        }).orThrow();
+        assertEquals(result, 2);
+        return Result.ok(undefined);
+      },
+      {},
+      { mode: "ephemeral" },
+    ).orThrow();
+
+    const prepared = service.event.test.pinged.prepare({ value: "incoming" })
+      .orThrow();
+    const headers = natsHeaders();
+    for (const [key, value] of Object.entries(prepared.headers)) {
+      headers.set(key, value);
+    }
+    connection.publish(prepared.subject, prepared.encodedPayload, { headers });
+    await delay(20);
+
+    assertEquals(wrapperEventHasEnqueue, false);
+    assertEquals(observed, [
+      "dep",
+      "client",
+      "event:incoming",
+      "subject:events.v1.Test.Pinged",
+    ]);
+    assertEquals(outbox.transactionCalls, 1);
+    assertEquals(store.snapshot().map((row) => row.state), ["dispatched"]);
+    assertEquals(store.snapshot().map((row) => row.event), ["Test.Pinged"]);
+  } finally {
+    await service.stop();
+    restore();
+  }
+});
+
+Deno.test("SQL outbox wrapper does not dispatch rolled back transaction events", async () => {
+  const published: PublishedNatsMessage[] = [];
+  const { connection, service, restore } =
+    await connectHandlerSurfaceTestService({ published });
+  const store = createTestSqlOutboxStore();
+  const outbox = createSqlOutboxTestOptions(store);
+
+  try {
+    await service.withSqlOutbox(outbox.options).handle.rpc.test.ping(
+      async ({ outbox }) => {
+        const result = await outbox.transaction(async ({ event }) => {
+          await event.test.pinged.enqueue({ value: "rolled-back" }).orThrow();
+          throw new Error("rollback");
+        }).take();
+
+        assertEquals(isErr(result), true);
+        return Result.ok({ ok: true });
+      },
+    );
+
+    const response = await connection.request(
+      "rpc.v1.Test.Ping",
+      JSON.stringify({ value: "one" }),
+    );
+    await delay(20);
+
+    assertEquals(response.json(), { ok: true });
+    assertEquals(store.snapshot(), []);
+    assertEquals(published, []);
+  } finally {
+    await service.stop();
+    restore();
+  }
+});
+
+Deno.test("SQL outbox wrapper injects job handler outbox and drains enqueued events", async () => {
+  const published: PublishedNatsMessage[] = [];
+  const { service, restore } = await connectJobsHandlerTestService({
+    deferClosed: true,
+    jetstreamJobs: true,
+    published,
+  });
+  const store = createTestSqlOutboxStore();
+  const outbox = createSqlOutboxTestOptions(store);
+  const observed: string[] = [];
+
+  try {
+    service.withSqlOutbox(outbox.options).with({ label: "dep" }).jobs
+      .refreshSummaries.handle(async ({ job, deps, client, outbox }) => {
+        await outbox.transaction(async ({ tx, event }) => {
+          tx.writes.push(`job:${job.payload.siteId}`);
+          observed.push(
+            deps.label,
+            typeof client.event.jobs.refreshed.prepare === "function"
+              ? "client"
+              : "missing",
+            ...tx.writes,
+          );
+          await event.jobs.refreshed.enqueue({
+            siteId: job.payload.siteId,
+            label: deps.label,
+          }).orThrow();
+        }).orThrow();
+        return Result.ok({ refreshId: `refresh-${job.payload.siteId}` });
+      });
+
+    await service.jobs.refreshSummaries.create({ siteId: "site-1" }).orThrow();
+    const waiting = service.wait();
+    await delay(50);
+
+    assertEquals(observed, ["dep", "client", "job:site-1"]);
+    assertEquals(outbox.transactionCalls, 1);
+    assertEquals(store.snapshot().map((row) => row.state), ["dispatched"]);
+    assertEquals(store.snapshot().map((row) => row.event), ["Jobs.Refreshed"]);
+
+    await service.stop();
+    await waiting;
+  } finally {
+    await service.stop();
+    restore();
+  }
+});
+
+Deno.test("service stop stops owned SQL outbox dispatcher", async () => {
+  const published: PublishedNatsMessage[] = [];
+  const { connection, service, restore } =
+    await connectHandlerSurfaceTestService({
+      published,
+    });
+  const store = createTestSqlOutboxStore();
+  const outboxOptions = createSqlOutboxTestOptions(store);
+  let injectedOutbox:
+    | HandlerSqlOutbox<TestSqlTx, typeof handlerSurfaceTestContract.API.owned>
+    | undefined;
+
+  try {
+    await service.withSqlOutbox(outboxOptions.options).handle.rpc.test.ping(
+      ({ outbox }) => {
+        injectedOutbox = outbox;
+        return Result.ok({ ok: true });
+      },
+    );
+    await connection.request(
+      "rpc.v1.Test.Ping",
+      JSON.stringify({ value: "capture" }),
+    );
+    await service.stop();
+
+    await injectedOutbox?.transaction(async ({ event }) => {
+      await event.test.pinged.enqueue({ value: "after-stop" }).orThrow();
+    }).orThrow();
+    await delay(20);
+
+    assertEquals(store.snapshot().map((row) => row.state), ["pending"]);
+    assertEquals(published, []);
   } finally {
     await service.stop();
     restore();

@@ -47,6 +47,13 @@ operation, job, and event listener handlers. It does not replace Trellis runtime
 resources or contract `uses` dependencies; keep `service` for lifecycle and
 resolved resource handles.
 
+If a TypeScript service needs SQL transactional event enqueue, configure
+`service.withSqlOutbox(...)` during startup and register handlers through that
+wrapper. SQL-outbox-bound handlers receive `args.outbox`; when combined with
+`service.with(deps)`, handlers receive both `args.deps` and `args.outbox`.
+Use `outbox.transaction(...)` around the local database work and event enqueues
+that must commit together.
+
 When you need to export or pass the bound wrapper type, use
 `BoundServiceOf<typeof contract, ServiceDeps>` from `@qlever-llc/trellis/service`
 instead of spelling the lower-level service generics by hand.

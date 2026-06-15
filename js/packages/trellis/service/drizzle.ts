@@ -2,8 +2,8 @@ import { type SQL, sql } from "drizzle-orm";
 import type { SqlExecutor, SqlRow } from "./outbox_inbox.ts";
 
 /**
- * Structural Drizzle SQLite database or transaction shape accepted by Trellis
- * SQL outbox helpers.
+ * Structural Drizzle database or transaction shape accepted by Trellis SQL
+ * outbox helpers.
  */
 export type DrizzleSqlDatabase = {
   /** Runs a SQL statement that returns rows. */
@@ -13,8 +13,36 @@ export type DrizzleSqlDatabase = {
 };
 
 /**
- * Adapts a caller-owned Drizzle SQLite database or transaction to Trellis'
+ * Structural transaction runner used by Drizzle-backed Trellis SQL outbox
+ * integrations.
+ */
+export type DrizzleSqlTransactionRunner<
+  TDb extends DrizzleSqlDatabase,
+  TTx extends DrizzleSqlDatabase,
+> = (
+  database: TDb,
+  work: (transaction: TTx) => Promise<unknown>,
+) => Promise<unknown>;
+
+/** Options for Drizzle-backed Trellis SQL outbox integration. */
+export type DrizzleSqlOutboxOptions<
+  TDb extends DrizzleSqlDatabase,
+  TTx extends DrizzleSqlDatabase,
+> = {
+  /** Caller-owned base Drizzle database used for non-transactional outbox work. */
+  readonly db: TDb;
+  /** Caller-owned transaction runner used to scope service work and enqueues. */
+  readonly transaction: DrizzleSqlTransactionRunner<TDb, TTx>;
+};
+
+/**
+ * Adapts a caller-owned Drizzle database or transaction to Trellis'
  * generic `SqlExecutor` interface.
+ *
+ * This helper is cheap: it creates a small closure object only. It does not open
+ * connections, prepare statements, or inspect schema. Service authors can use it
+ * when adapting Drizzle databases or transactions to the generic
+ * `withSqlOutbox(...)` SQL executor options.
  */
 export function createDrizzleSqlExecutor(
   database: DrizzleSqlDatabase,
@@ -27,6 +55,37 @@ export function createDrizzleSqlExecutor(
       await database.run(bindDrizzleSqlStatement(statement, params));
     },
   };
+}
+
+/**
+ * Runs work inside a caller-owned Drizzle transaction and provides the
+ * transaction plus a Trellis SQL executor bound to that transaction.
+ */
+export async function runDrizzleSqlTransaction<
+  TDb extends DrizzleSqlDatabase,
+  TTx extends DrizzleSqlDatabase,
+  TResult,
+>(
+  options: DrizzleSqlOutboxOptions<TDb, TTx>,
+  work: (
+    context: { tx: TTx; executor: SqlExecutor },
+  ) => Promise<TResult> | TResult,
+): Promise<TResult> {
+  let result: { value: TResult } | undefined;
+  await options.transaction(options.db, async (tx) => {
+    const value = await work({
+      tx,
+      executor: createDrizzleSqlExecutor(tx),
+    });
+    result = { value };
+    return value;
+  });
+
+  if (result === undefined) {
+    throw new Error("Drizzle SQL transaction runner did not invoke work");
+  }
+
+  return result.value;
 }
 
 /**

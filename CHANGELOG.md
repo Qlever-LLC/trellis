@@ -8,6 +8,36 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Public Breaking Changes
+
+- Changed TypeScript SQL outbox service APIs from manual repository/dispatcher
+  wiring to `service.withSqlOutbox(...)` and handler-injected
+  `outbox.transaction(...)`.
+- Moved durable SQL event enqueue from direct
+  `SqlOutboxRepository.enqueue(prepared)` service-author usage to
+  transaction-scoped typed `event.*.*.enqueue(...)` inside
+  `outbox.transaction(...)`.
+- Changed Trellis SQL outbox/inbox helper-table schema ownership. Trellis now
+  owns versioned migration artifacts; services own migration execution, database
+  lifecycle, table names, and transaction boundaries.
+- Changed Drizzle outbox guidance. `createDrizzleSqlExecutor(...)` remains an
+  advanced helper, but the main service-author flow is generic
+  `withSqlOutbox(...)`; direct `withSqlOutbox({ drizzle })` sugar is deferred
+  and not exposed.
+
+### Added
+
+- Added `service.withSqlOutbox(...)` for SQL outbox-backed service wrappers.
+- Added handler-injected `outbox` for RPC, feed, operation, event-listener, and
+  job handlers.
+- Added transaction-scoped typed `event.*.*.enqueue(...)` for durable SQL event
+  enqueue.
+- Added `getSqlOutboxMigrations(...)` for Trellis-owned SQL outbox/inbox
+  migration artifacts.
+- Added Drizzle SQL transaction helper types and functions:
+  `DrizzleSqlTransactionRunner`, `DrizzleSqlOutboxOptions`, and
+  `runDrizzleSqlTransaction(...)`.
+
 ### Changed
 
 - **Breaking:** Changed generated TypeScript service handler aliases to use the

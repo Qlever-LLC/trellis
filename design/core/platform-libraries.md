@@ -29,19 +29,20 @@ connection walkthroughs, and exact public signatures belong in:
 
 ## Core Libraries
 
-| Library                            | Purpose                                                                                                                         | Use when                                               |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `@qlever-llc/trellis`              | Canonical core Trellis runtime package: client/device helpers, Result helpers, transfer helpers, and everyday contract builders | Frontend apps, services, CLI tools                     |
-| `@qlever-llc/trellis/health`       | Health schemas, helper functions, and health-check result types                                                                 | Contracts, devices, services, lightweight clients      |
-| `@qlever-llc/trellis/service`      | Service-side runtime facade, extracted handler types, and service-only helpers                                                  | Backend services                                       |
-| `@qlever-llc/trellis/service/node` | Node service adapter                                                                                                            | External Node services                                 |
-| `@qlever-llc/trellis/service/deno` | Deno service adapter                                                                                                            | In-repo Deno services                                  |
-| `@qlever-llc/trellis/auth`         | Full auth helper and auth protocol surface, including browser bind helpers                                                      | Apps, services, docs, tests                            |
-| `@qlever-llc/trellis/auth/browser` | Browser-only auth and portal-flow helper facade                                                                                 | Browser apps, custom portals                           |
-| `@qlever-llc/trellis/contracts`    | Advanced contract-model, canonicalization, and low-level contract authoring surface                                             | SDK generation, docs, advanced tooling                 |
-| `@qlever-llc/trellis/sdk/*`        | First-party generated SDK modules for Trellis-owned contracts                                                                   | Apps and services that consume Trellis-owned contracts |
-| `@qlever-llc/trellis/telemetry`    | Specialized Trellis telemetry facade for tracing, propagation, and metrics                                                      | Runtime libraries and services                         |
-| `@qlever-llc/trellis-svelte`       | Svelte-specific Trellis browser integration with a Trellis-only public surface                                                  | Svelte applications                                    |
+| Library                               | Purpose                                                                                                                         | Use when                                               |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `@qlever-llc/trellis`                 | Canonical core Trellis runtime package: client/device helpers, Result helpers, transfer helpers, and everyday contract builders | Frontend apps, services, CLI tools                     |
+| `@qlever-llc/trellis/health`          | Health schemas, helper functions, and health-check result types                                                                 | Contracts, devices, services, lightweight clients      |
+| `@qlever-llc/trellis/service`         | Service-side runtime facade, extracted handler types, and service-only helpers                                                  | Backend services                                       |
+| `@qlever-llc/trellis/service/drizzle` | Optional Drizzle adapters for service-side SQL helpers                                                                          | Services that use Drizzle                              |
+| `@qlever-llc/trellis/service/node`    | Node service adapter                                                                                                            | External Node services                                 |
+| `@qlever-llc/trellis/service/deno`    | Deno service adapter                                                                                                            | In-repo Deno services                                  |
+| `@qlever-llc/trellis/auth`            | Full auth helper and auth protocol surface, including browser bind helpers                                                      | Apps, services, docs, tests                            |
+| `@qlever-llc/trellis/auth/browser`    | Browser-only auth and portal-flow helper facade                                                                                 | Browser apps, custom portals                           |
+| `@qlever-llc/trellis/contracts`       | Advanced contract-model, canonicalization, and low-level contract authoring surface                                             | SDK generation, docs, advanced tooling                 |
+| `@qlever-llc/trellis/sdk/*`           | First-party generated SDK modules for Trellis-owned contracts                                                                   | Apps and services that consume Trellis-owned contracts |
+| `@qlever-llc/trellis/telemetry`       | Specialized Trellis telemetry facade for tracing, propagation, and metrics                                                      | Runtime libraries and services                         |
+| `@qlever-llc/trellis-svelte`          | Svelte-specific Trellis browser integration with a Trellis-only public surface                                                  | Svelte applications                                    |
 
 ## Library Rules
 
@@ -69,6 +70,10 @@ connection walkthroughs, and exact public signatures belong in:
   `@qlever-llc/trellis/service*`
 - `@qlever-llc/trellis/service` is a service-author surface and must not
   re-export low-level runtime/server internals
+- generic SQL outbox helpers, including `service.withSqlOutbox(...)` and
+  Trellis-owned helper-table migration artifacts, belong on
+  `@qlever-llc/trellis/service*`; Drizzle-specific adapters stay isolated on
+  `@qlever-llc/trellis/service/drizzle`
 - public TypeScript jobs helpers belong on `@qlever-llc/trellis` and
   `@qlever-llc/trellis/service*`, not on a standalone jobs package
 
@@ -115,6 +120,10 @@ Rules:
   raw worker-runtime helpers or stream bindings
 - transfer-aware operation contexts belong on the server runtime surface for
   transfer-capable operations
+- SQL outbox handler injection belongs on the service runtime surface:
+  TypeScript services configure it with `service.withSqlOutbox(...)`, and
+  handlers mounted through that wrapper receive `outbox` without importing
+  low-level repository or dispatcher internals
 - extracted service RPC handler aliases that need service-only helpers belong on
   `@qlever-llc/trellis/service*`, not the browser-safe root package, so handler
   types expose the canonical object argument shape and narrow injected `trellis`

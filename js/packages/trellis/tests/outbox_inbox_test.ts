@@ -1,10 +1,13 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertThrows } from "@std/assert";
 import { AsyncResult, err, ok } from "@qlever-llc/result";
 import { KVError, UnexpectedError } from "../errors/index.ts";
 import type { PreparedTrellisEvent, Trellis } from "../trellis.ts";
 import {
+  createPostgresOutboxSchema,
+  createSqliteOutboxSchema,
   createSqlOutboxAdapter,
   dispatchOutbox,
+  getSqlOutboxMigrations,
   type KvOutboxRecord,
   MemoryInboxRepository,
   MemoryOutboxRepository,
@@ -15,6 +18,9 @@ import {
   type OutboxMessage,
   type OutboxRepository,
   type SqlExecutor,
+  SqlInboxRepository,
+  type SqlOutboxMigration,
+  SqlOutboxRepository,
   type SqlRow,
 } from "../service/outbox_inbox.ts";
 
@@ -48,6 +54,14 @@ function delay(ms: number): Promise<void> {
 
 function flushTimers(): Promise<void> {
   return delay(0);
+}
+
+function onlyMigration(
+  migrations: readonly SqlOutboxMigration[],
+): SqlOutboxMigration {
+  const migration = migrations[0];
+  if (migration === undefined) throw new Error("missing migration");
+  return migration;
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {
@@ -122,6 +136,112 @@ Deno.test("inbox repository suppresses duplicates", async () => {
   assertEquals(await inbox.record("evt_1"), true);
   assertEquals(await inbox.record("evt_1"), false);
   assertEquals(await inbox.record("evt_2"), true);
+});
+
+Deno.test("SQL outbox migrations expose stable dialect artifacts", () => {
+  const sqlite = onlyMigration(getSqlOutboxMigrations({ dialect: "sqlite" }));
+  const postgres = onlyMigration(
+    getSqlOutboxMigrations({ dialect: "postgres" }),
+  );
+
+  assertEquals(sqlite.id, "trellis_sql_outbox_inbox_sqlite_v1");
+  assertEquals(sqlite.version, 1);
+  assertEquals(sqlite.dialect, "sqlite");
+  assertEquals(sqlite.checksum, "fnv1a64:efd7049d6681fcd4");
+  assertEquals(sqlite.up.length > 0, true);
+  assertEquals(sqlite.down !== undefined && sqlite.down.length > 0, true);
+
+  assertEquals(postgres.id, "trellis_sql_outbox_inbox_postgres_v1");
+  assertEquals(postgres.version, 1);
+  assertEquals(postgres.dialect, "postgres");
+  assertEquals(postgres.checksum, "fnv1a64:848b2626e1783d8b");
+  assertEquals(postgres.up.length > 0, true);
+  assertEquals(postgres.down !== undefined && postgres.down.length > 0, true);
+});
+
+Deno.test("SQL outbox migrations include table names and key columns", () => {
+  const sqlite = onlyMigration(
+    getSqlOutboxMigrations({
+      dialect: "sqlite",
+      tables: { outbox: "service_outbox", inbox: "service_inbox" },
+    }),
+  );
+  const postgres = onlyMigration(
+    getSqlOutboxMigrations({ dialect: "postgres" }),
+  );
+
+  assertEquals(
+    sqlite.up.some((sql) =>
+      sql.includes("CREATE TABLE IF NOT EXISTS service_outbox") &&
+      sql.includes("id TEXT PRIMARY KEY") &&
+      sql.includes("event TEXT NOT NULL") &&
+      sql.includes("subject TEXT NOT NULL") &&
+      sql.includes("payload TEXT NOT NULL") &&
+      sql.includes("headers TEXT NOT NULL")
+    ),
+    true,
+  );
+  assertEquals(
+    sqlite.up.some((sql) =>
+      sql.includes("CREATE TABLE IF NOT EXISTS service_inbox") &&
+      sql.includes("message_id TEXT PRIMARY KEY")
+    ),
+    true,
+  );
+  assertEquals(
+    postgres.up.some((sql) =>
+      sql.includes("CREATE TABLE IF NOT EXISTS trellis_outbox") &&
+      sql.includes("id text PRIMARY KEY") &&
+      sql.includes("headers jsonb NOT NULL") &&
+      sql.includes("created_at timestamptz NOT NULL")
+    ),
+    true,
+  );
+  assertEquals(
+    postgres.up.some((sql) =>
+      sql.includes("CREATE TABLE IF NOT EXISTS trellis_inbox") &&
+      sql.includes("message_id text PRIMARY KEY")
+    ),
+    true,
+  );
+});
+
+Deno.test("SQL outbox helpers reject unsafe table names", () => {
+  const dotted = { outbox: "tenant.trellis_outbox", inbox: "trellis_inbox" };
+  const unsafeInbox = { outbox: "trellis_outbox", inbox: "trellis-inbox" };
+  const executor = new RecordingSqlExecutor();
+
+  assertThrows(
+    () => getSqlOutboxMigrations({ dialect: "sqlite", tables: dotted }),
+    Error,
+    "Invalid SQL outbox table name",
+  );
+  assertThrows(
+    () => createSqliteOutboxSchema(dotted),
+    Error,
+    "Invalid SQL outbox table name",
+  );
+  assertThrows(
+    () => createPostgresOutboxSchema(unsafeInbox),
+    Error,
+    "Invalid SQL inbox table name",
+  );
+  assertThrows(
+    () => createSqlOutboxAdapter(executor, "sqlite", dotted),
+    Error,
+    "Invalid SQL outbox table name",
+  );
+  assertThrows(
+    () => new SqlOutboxRepository(executor, "postgres", dotted),
+    Error,
+    "Invalid SQL outbox table name",
+  );
+  assertThrows(
+    () => new SqlInboxRepository(executor, "postgres", unsafeInbox),
+    Error,
+    "Invalid SQL inbox table name",
+  );
+  assertEquals(executor.statements, []);
 });
 
 Deno.test("NatsKvOutboxRepository dispatches through typed KV adapter", async () => {

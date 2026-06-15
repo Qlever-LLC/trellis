@@ -46,10 +46,21 @@ commands.
   should fail clearly (`stalePolicy: "fail-stale"`, `whenFull: "reject"`);
   coalescing or replacing queued work must be explicit.
 - Model expected public failures with declared errors or `Result`-style values.
-- When coupling a TypeScript service-local SQL transaction to prepared event
-  enqueue, Drizzle services can use `@qlever-llc/trellis/service/drizzle` to
-  adapt caller-owned SQLite databases or transactions; services still own
-  migrations and transaction boundaries.
+- TypeScript services use `service.withSqlOutbox(...)` for SQL transactional
+  event enqueue. Register handlers through that wrapper, use handler-injected
+  `outbox.transaction(...)` around all DB work and `event.*.*.enqueue(...)` calls
+  that must commit atomically, and do not create local outbox wrappers or manual
+  `SqlOutboxRepository` handler wiring. Normal event facades expose `prepare`,
+  `publish`, and `listen`, not `enqueue`.
+- Configure TypeScript SQL outbox with generic `executor` and `transaction`
+  options. Drizzle remains optional through `@qlever-llc/trellis/service/drizzle`
+  adapter helpers, but do not generate direct `withSqlOutbox({ drizzle })` sugar
+  or per-handler Drizzle wrapping. Trellis owns helper-table migration artifacts
+  from `getSqlOutboxMigrations(...)`; services run them with their normal
+  migration tool.
+- NATS KV outbox/inbox helpers remain non-transactional with arbitrary SQL or
+  external side effects; do not use them to claim a database write and event
+  enqueue committed atomically.
 - Generated TypeScript SDK event aliases are event bodies. Runtime event metadata
   is available through `PreparedTrellisEvent.header` and listener context.
 - For live event assertions in Deno-first TypeScript integration tests, start

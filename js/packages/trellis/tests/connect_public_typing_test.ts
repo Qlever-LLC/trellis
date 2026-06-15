@@ -20,6 +20,10 @@ import type {
 } from "../../../../generated/packages/jsr/health/client.ts";
 import { sdk as jobs } from "../sdk/jobs.ts";
 import { TrellisService } from "../service/deno.ts";
+import type {
+  SqlExecutor,
+  TrellisServiceSqlOutboxOptions,
+} from "../service/mod.ts";
 import { StoreHandle } from "../server/mod.ts";
 import { Trellis, type TrellisAuth, type TrellisOpts } from "../trellis.ts";
 
@@ -96,6 +100,8 @@ const serviceSchemas = {
     id: Type.String(),
     value: Type.String(),
   }),
+  SyncPayload: Type.Object({ id: Type.String() }),
+  SyncResult: Type.Object({ ok: Type.Boolean() }),
 } as const;
 
 const serviceContract = defineServiceContract(
@@ -119,12 +125,19 @@ const serviceContract = defineServiceContract(
         event: ref.schema("ServiceChanged"),
       },
     },
+    jobs: {
+      sync: {
+        payload: ref.schema("SyncPayload"),
+        result: ref.schema("SyncResult"),
+      },
+    },
   }),
 );
 
 declare const connectedAppClient: ConnectedTrellisClient<typeof appContract>;
 declare const coreClient: CoreClient;
 declare const natsConnection: NatsConnection;
+declare const sqlExecutor: SqlExecutor;
 declare const trellisAuth: TrellisAuth;
 
 async function typecheckClientConnectRequestSurface() {
@@ -367,6 +380,76 @@ async function typecheckServiceConnectSurface() {
   return { boundRawNats, rawNats, serviceName: service.name };
 }
 
+async function typecheckServiceSqlOutboxSurface() {
+  const service = await TrellisService.connect({
+    trellisUrl: "https://trellis.example",
+    contract: serviceContract,
+    name: "svc",
+    sessionKeySeed: "test-session-seed",
+    server: {},
+  }).orThrow();
+  const sqlOutbox: TrellisServiceSqlOutboxOptions<{ writes: string[] }> = {
+    dialect: "sqlite",
+    executor: sqlExecutor,
+    transaction: async (work) =>
+      await work({ tx: { writes: [] }, executor: sqlExecutor }),
+  };
+
+  await service.withSqlOutbox(sqlOutbox).with({ label: "bound" })
+    .handle.rpc.service.ping(async ({ input, deps, outbox }) => {
+      await outbox.transaction(async ({ tx, event }) => {
+        tx.writes.push(input.value);
+        await event.service.changed.enqueue({
+          id: "one",
+          value: deps.label,
+        }).orThrow();
+        // @ts-expect-error transaction-scoped enqueue must validate payload shape
+        await event.service.changed.enqueue({ id: "missing-value" }).orThrow();
+      }).orThrow();
+      return Result.ok({ ok: true });
+    });
+
+  await service.withSqlOutbox(sqlOutbox).with({ label: "bound" })
+    .event.service.changed.listen(async ({ event, context, deps, outbox }) => {
+      const id: string = event.id;
+      const subject: string = context.subject;
+      await outbox.transaction(async ({ tx, event }) => {
+        tx.writes.push(`${id}:${subject}`);
+        await event.service.changed.enqueue({
+          id,
+          value: deps.label,
+        }).orThrow();
+      }).orThrow();
+      return Result.ok(undefined);
+    });
+
+  service.withSqlOutbox(sqlOutbox).jobs.sync.handle(async ({ job, outbox }) => {
+    const id: string = job.payload.id;
+    await outbox.transaction(async ({ tx, event }) => {
+      tx.writes.push(id);
+      await event.service.changed.enqueue({ id, value: "job" }).orThrow();
+    }).orThrow();
+    return Result.ok({ ok: true });
+  });
+
+  service.withSqlOutbox({
+    dialect: "sqlite",
+    // @ts-expect-error direct Drizzle config sugar is deferred for this packet
+    drizzle: { db: sqlExecutor },
+  });
+
+  // @ts-expect-error wrapper event facade must not expose durable enqueue
+  await service.withSqlOutbox(sqlOutbox).event.service.changed.enqueue({
+    id: "one",
+    value: "two",
+  });
+
+  // @ts-expect-error global event facade must not expose durable enqueue
+  await service.event.service.changed.enqueue({ id: "one", value: "two" });
+
+  return service.name;
+}
+
 function typecheckGeneratedServiceHandlerClientSurface(
   client: HealthClient,
   handlerClient: HealthHandlerClient,
@@ -445,6 +528,7 @@ void typecheckTrellisClientConnectRequestSurface;
 void typecheckDeviceConnectRequestSurface;
 void typecheckDeviceActivationSurface;
 void typecheckServiceConnectSurface;
+void typecheckServiceSqlOutboxSurface;
 void typecheckGeneratedServiceWithDepsSurface;
 void typecheckResolvedRuntimeBindingsAreNotPublicAuthoringSurface;
 void typecheckGeneratedCoreInternalRpcSurface;

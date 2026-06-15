@@ -340,6 +340,56 @@ Deno.test("trellis npm build depends on the standalone result package name", asy
   assertStringIncludes(source, '"@qlever-llc/result": "^0.19.0"');
 });
 
+Deno.test("trellis service export keeps SQL outbox generic and Drizzle isolated", async () => {
+  const serviceSource = await Deno.readTextFile(
+    new URL("../service/mod.ts", import.meta.url),
+  );
+  const buildSource = await Deno.readTextFile(
+    new URL("../scripts/build_npm.ts", import.meta.url),
+  );
+
+  for (
+    const publicName of [
+      "HandlerSqlOutbox",
+      "SqlOutboxEventEnqueueFacade",
+      "SqlOutboxTransactionContext",
+      "SqlOutboxTransactionRunner",
+      "SqlOutboxTrellisService",
+      "TrellisServiceSqlOutboxCommonOptions",
+      "TrellisServiceSqlOutboxExecutorOptions",
+      "TrellisServiceSqlOutboxOptions",
+      "getSqlOutboxMigrations",
+      "SqlOutboxMigration",
+      "SqlOutboxMigrationOptions",
+    ]
+  ) {
+    assertStringIncludes(serviceSource, publicName);
+  }
+
+  for (
+    const drizzleName of [
+      "bindDrizzleSqlStatement",
+      "createDrizzleSqlExecutor",
+      "DrizzleSqlDatabase",
+      "DrizzleSqlOutboxOptions",
+      "DrizzleSqlTransactionRunner",
+      "runDrizzleSqlTransaction",
+      "drizzle-orm",
+    ]
+  ) {
+    assertEquals(serviceSource.includes(drizzleName), false, drizzleName);
+  }
+
+  assertStringIncludes(
+    buildSource,
+    '"./js/packages/trellis/service/mod.ts"',
+  );
+  assertStringIncludes(
+    buildSource,
+    '"./js/packages/trellis/service/drizzle.ts"',
+  );
+});
+
 Deno.test("trellis-svelte npm build uses current Trellis package bases", async () => {
   const source = await Deno.readTextFile(
     new URL("../../trellis-svelte/scripts/build_npm.ts", import.meta.url),
@@ -358,6 +408,7 @@ Deno.test("trellis package exports the errors and health subpaths", async () => 
   assertStringIncludes(source, '"./health": "./health.ts"');
   assertStringIncludes(source, '"./host": "./host/mod.ts"');
   assertStringIncludes(source, '"./jobs": "./jobs.ts"');
+  assertStringIncludes(source, '"./service": "./service/mod.ts"');
   assertStringIncludes(source, '"./service/drizzle": "./service/drizzle.ts"');
   assertStringIncludes(source, '"./telemetry": "./telemetry.ts"');
   assertEquals(source.includes('"./tracing":'), false);

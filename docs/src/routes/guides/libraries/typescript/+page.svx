@@ -294,66 +294,129 @@ const shipped = await capture.waitFor(
 console.log(shipped.payload, shipped.context.id, shipped.receivedAt);
 ```
 
-Use `prepare(...)` plus an outbox only when the event must be committed together
-with service-local database state. The prepared form freezes the subject,
-encoded body, runtime event metadata, and publish headers so a worker can publish
-the same event later. `PreparedTrellisEvent` intentionally has no contract id or
-contract digest; persisted outbox rows should not be coupled to the publisher's
-current deployment metadata.
+Use `service.withSqlOutbox(...)` when an event enqueue must commit atomically with
+service-local SQL state. The wrapper injects an `outbox` helper into handlers
+registered through it. Put every database write and every event enqueue that must
+share the commit inside `outbox.transaction(...)`.
+
+Configure the wrapper once at service startup with a generic SQL executor for
+dispatcher work and a transaction runner that supplies both your service-owned
+transaction object and a transaction-scoped Trellis `SqlExecutor`.
 
 ```ts
 import {
-  OutboxDispatcher,
-  SqlOutboxRepository,
+  type SqlExecutor,
+  type TrellisServiceSqlOutboxOptions,
 } from "@qlever-llc/trellis/service";
-import { createDrizzleSqlExecutor } from "@qlever-llc/trellis/service/drizzle";
 import { Result } from "@qlever-llc/trellis";
 
-// Create one dispatcher for the service process. Use a non-transactional
-// repository here; `outboundClient` is the publisher used by the dispatch
-// worker, and transactional handlers still create repositories over `tx`.
-const outboxRepository = new SqlOutboxRepository(
-  createDrizzleSqlExecutor(db),
-  "sqlite",
-);
-const outboxDispatcher = new OutboxDispatcher(outboxRepository, outboundClient, {
-  idleRetryMs: 30_000,
-});
+const sqlOutbox: TrellisServiceSqlOutboxOptions<AppTransaction> = {
+  dialect: "postgres",
+  executor: poolExecutor,
+  transaction: async (work) =>
+    pool.transaction(async (tx) =>
+      work({ tx, executor: createTransactionExecutor(tx) })
+    ),
+  dispatcher: { idleRetryMs: 30_000 },
+};
 
-await service.handle.rpc.orders.ship(async ({ input, client }) => {
-  const prepared = client.event.orders.shipped.prepare({
-    orderId: input.orderId,
-    customerId: input.customerId,
-    shippedAt: new Date().toISOString(),
+function createTransactionExecutor(tx: AppTransaction): SqlExecutor {
+  return {
+    query: (statement, params) => tx.query(statement, params),
+    execute: async (statement, params) => {
+      await tx.execute(statement, params);
+    },
+  };
+}
+
+const app = service.withSqlOutbox(sqlOutbox).with({ ordersRepo, auditRepo });
+
+await app.handle.rpc.orders.ship(async ({ input, deps, outbox }) => {
+  await outbox.transaction(async ({ tx, event }) => {
+    await deps.ordersRepo.markShipped(tx, input.orderId);
+    await deps.auditRepo.insert(tx, {
+      entityId: input.orderId,
+      action: "order.shipped",
+    });
+
+    await event.orders.shipped.enqueue({
+      orderId: input.orderId,
+      customerId: input.customerId,
+      shippedAt: new Date().toISOString(),
+    }).orThrow();
+    await event.audit.recorded.enqueue({
+      entityId: input.orderId,
+      action: "order.shipped",
+    }).orThrow();
   }).orThrow();
-
-  await db.transaction(async (tx) => {
-    await tx.update(orders).set({ status: "shipped" });
-
-    // Wrap the same transaction executor so the local DB write and outbox row
-    // commit or roll back together.
-    const executor = createDrizzleSqlExecutor(tx);
-    const outbox = new SqlOutboxRepository(executor, "sqlite");
-    await outbox.enqueue(prepared);
-  });
-
-  // Signal after the transaction commits so rolled-back rows are never
-  // dispatched. Signals are debounced and only one drain loop runs at a time.
-  outboxDispatcher.notify();
 
   return Result.ok({ accepted: true });
 });
 ```
 
-SQL and Drizzle-based services own their schema migrations and transaction
-boundaries. Trellis provides SQL repository adapters, DDL helpers, and the
-optional `@qlever-llc/trellis/service/drizzle` executor helper for caller-owned
-Drizzle SQLite databases or transactions. Your service should put the
-outbox/inbox tables into its normal migration flow and use the same database
-transaction when coupling an outbox row to local state. The dispatcher is
-process-local coordination; `idleRetryMs` is optional, but useful as a
-low-frequency recovery scan for missed signals or rows left behind after a
-restart.
+The transaction-scoped `event.*.*.enqueue(...)` methods prepare and validate the
+event body, then insert the prepared event into the SQL outbox table through the
+transaction executor. The normal event facade still exposes only `prepare`,
+`publish`, and `listen`; `enqueue` is available only inside the
+`outbox.transaction(...)` callback. Multiple service database writes and multiple
+event enqueues in one transaction are supported. Trellis notifies the
+process-local dispatcher after the transaction runner resolves successfully.
+
+Handlers registered through the SQL outbox wrapper receive `outbox` for RPC,
+feed, operation, event listener, and job handlers. Register the handler through
+the wrapper (`service.withSqlOutbox(...)` or a wrapper returned from `.with(...)`)
+instead of creating local outbox wrappers in each handler.
+
+Trellis owns the SQL outbox/inbox helper-table schema as versioned migration
+artifacts. Services choose table names and run those artifacts with their normal
+database migration tool; `TrellisService.connect(...)` and `withSqlOutbox(...)` do
+not run service migrations.
+
+```ts
+import { getSqlOutboxMigrations } from "@qlever-llc/trellis/service";
+
+const migrations = getSqlOutboxMigrations({
+  dialect: "postgres",
+  tables: {
+    outbox: "trellis_outbox",
+    inbox: "trellis_inbox",
+  },
+});
+
+for (const migration of migrations) {
+  await migrationRunner.register({
+    id: migration.id,
+    checksum: migration.checksum,
+    up: migration.up,
+    down: migration.down ?? [],
+  });
+}
+```
+
+Drizzle remains optional. The `@qlever-llc/trellis/service/drizzle` subpath
+provides adapter helpers for advanced startup integration, but there is no direct
+`withSqlOutbox({ drizzle })` option. If you use Drizzle, adapt it into the same
+generic `executor` and `transaction` options at startup; do not wrap Drizzle
+transactions by hand inside each handler. The low-level
+`createDrizzleSqlExecutor(...)` helper is for adapter code, not the normal
+per-handler pattern.
+
+```ts
+import {
+  createDrizzleSqlExecutor,
+  runDrizzleSqlTransaction,
+} from "@qlever-llc/trellis/service/drizzle";
+
+const app = service.withSqlOutbox({
+  dialect: "sqlite",
+  executor: createDrizzleSqlExecutor(db),
+  transaction: (work) =>
+    runDrizzleSqlTransaction({
+      db,
+      transaction: (database, txWork) => database.transaction(txWork),
+    }, work),
+}).with({ ordersRepo });
+```
 
 Use an inbox only for handlers that are not naturally idempotent. If replaying a
 message would be harmless because the handler writes idempotently by business

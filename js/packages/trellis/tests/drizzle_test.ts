@@ -7,6 +7,8 @@ import {
   bindDrizzleSqlStatement,
   createDrizzleSqlExecutor,
   type DrizzleSqlDatabase,
+  type DrizzleSqlOutboxOptions,
+  runDrizzleSqlTransaction,
 } from "../service/drizzle.ts";
 
 const casing = new CasingCache();
@@ -96,6 +98,60 @@ Deno.test("createDrizzleSqlExecutor delegates query and execute", async () => {
     toSqliteQuery(single(database.runQueries)).params,
     ["row_2"],
   );
+});
+
+Deno.test("createDrizzleSqlExecutor creates no DB calls by itself", () => {
+  const database = new RecordingDrizzleDatabase();
+  const executor = createDrizzleSqlExecutor(database);
+
+  assertEquals(typeof executor.query, "function");
+  assertEquals(typeof executor.execute, "function");
+  assertEquals(database.allQueries, []);
+  assertEquals(database.runQueries, []);
+});
+
+Deno.test("runDrizzleSqlTransaction adapts transaction executors", async () => {
+  const database = new RecordingDrizzleDatabase();
+  const transaction = new RecordingDrizzleDatabase([{ id: "tx_row" }]);
+  const calls: string[] = [];
+  const options: DrizzleSqlOutboxOptions<
+    RecordingDrizzleDatabase,
+    RecordingDrizzleDatabase
+  > = {
+    db: database,
+    transaction: async (db, work) => {
+      if (db !== database) {
+        throw new Error("transaction runner received unexpected database");
+      }
+      calls.push("begin");
+      const result = await work(transaction);
+      calls.push("commit");
+      return result;
+    },
+  };
+
+  const result = await runDrizzleSqlTransaction(options, async ({
+    tx,
+    executor,
+  }) => {
+    if (tx !== transaction) {
+      throw new Error("work received unexpected transaction");
+    }
+    const rows = await executor.query("select ? as id", ["tx_row"]);
+    await executor.execute("insert into test (id) values (?)", ["tx_write"]);
+    return rows;
+  });
+
+  assertEquals(result, [{ id: "tx_row" }]);
+  assertEquals(calls, ["begin", "commit"]);
+  assertEquals(database.allQueries, []);
+  assertEquals(database.runQueries, []);
+  assertEquals(toSqliteQuery(single(transaction.allQueries)).params, [
+    "tx_row",
+  ]);
+  assertEquals(toSqliteQuery(single(transaction.runQueries)).params, [
+    "tx_write",
+  ]);
 });
 
 Deno.test("Drizzle SQL executor works with sqlite outbox adapter", async () => {

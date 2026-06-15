@@ -82,17 +82,22 @@ Rules:
   cardinality is bounded and stable
 - token order matters; put the most-filtered tokens first
 - event handlers must be idempotent because delivery is at-least-once
-- direct event publish is the default; use a prepared event and service-owned
-  outbox only when event publication must be coupled to service-local durable
-  state
+- direct event publish is the default; use a SQL outbox only when event
+  publication must be coupled to service-local SQL state
+- TypeScript services configure SQL outbox behavior through
+  `service.withSqlOutbox(...)`; handlers mounted through that wrapper receive an
+  `outbox` helper and enqueue events only through its transaction-scoped event
+  facade
 - outbox dispatch MAY use a process-local wakeup helper to reduce latency, but
-  the wakeup MUST happen after the outbox write commits; enqueueing a row inside
-  a transaction must not directly publish work that can later roll back
+  the wakeup MUST happen after the outbox transaction commits; enqueueing a row
+  inside a transaction must not directly publish work that can later roll back
 - consumers should use an inbox only for handlers that are not naturally
   idempotent
-- SQL services own migrations and transactions for local state, outbox rows, and
-  inbox rows; NATS KV inbox/outbox helpers provide durable dedupe/queue storage
-  but are not transactional with unrelated database side effects
+- Trellis owns SQL outbox/inbox helper-table schema and versioned migration
+  artifacts; services own database lifecycle, migration execution, table names,
+  and transaction boundaries
+- NATS KV inbox/outbox helpers provide durable dedupe/queue storage but are not
+  transactional with unrelated database side effects
 - process-local outbox wakeups are latency optimizations only; durable retry and
   recovery still depend on persisted outbox state and an explicit dispatch or
   recovery scan

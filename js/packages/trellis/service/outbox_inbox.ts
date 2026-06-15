@@ -53,24 +53,53 @@ export type InboxRepository = {
   record(messageId: string, now?: Date): Promise<boolean>;
 };
 
+/** SQL dialects supported by Trellis SQL outbox helpers. */
 export type SqlDialect = "sqlite" | "postgres";
 
+/** Table names used by Trellis SQL outbox and inbox helper tables. */
 export type SqlOutboxTables = {
   outbox: string;
   inbox: string;
 };
 
+/** Minimal SQL execution surface used by Trellis SQL outbox repositories. */
 export type SqlExecutor = {
   query(sql: string, params: readonly unknown[]): Promise<readonly SqlRow[]>;
   execute(sql: string, params: readonly unknown[]): Promise<void>;
 };
 
+/** Row shape returned by a {@link SqlExecutor}. */
 export type SqlRow = Record<string, unknown>;
 
+/** SQL outbox adapter bundle over caller-owned SQL execution. */
 export type SqlOutboxAdapter = {
   outbox: SqlOutboxRepository;
   inbox: SqlInboxRepository;
   ddl: readonly string[];
+};
+
+/** Versioned Trellis-owned SQL outbox/inbox migration artifact. */
+export type SqlOutboxMigration = {
+  /** Stable migration identifier for the dialect and schema version. */
+  readonly id: string;
+  /** Monotonic Trellis helper-table schema version. */
+  readonly version: number;
+  /** SQL dialect targeted by this migration artifact. */
+  readonly dialect: SqlDialect;
+  /** SQL statements that apply this migration. */
+  readonly up: readonly string[];
+  /** SQL statements that revert this migration when supported by the runner. */
+  readonly down?: readonly string[];
+  /** Deterministic checksum over the canonical migration SQL. */
+  readonly checksum: string;
+};
+
+/** Options for generating Trellis SQL outbox/inbox migration artifacts. */
+export type SqlOutboxMigrationOptions = {
+  /** SQL dialect targeted by the generated migration artifacts. */
+  readonly dialect: SqlDialect;
+  /** Optional helper-table names; omitted names use Trellis defaults. */
+  readonly tables?: Partial<SqlOutboxTables>;
 };
 
 type KvAsyncResult<T> = Pick<AsyncResult<T, BaseError>, "take">;
@@ -88,41 +117,70 @@ export type OutboxKvStore = {
   keys(filter?: string | string[]): KvAsyncResult<AsyncIterable<string>>;
 };
 
+/** Default Trellis helper-table names for SQL outbox and inbox storage. */
 export const defaultSqlOutboxTables: SqlOutboxTables = Object.freeze({
   outbox: "trellis_outbox",
   inbox: "trellis_inbox",
 });
 
+const sqlIdentifierPattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
 /**
- * Creates SQL outbox/inbox repositories plus DDL for caller-owned migrations.
+ * Creates SQL outbox/inbox repositories plus current helper-table DDL.
  *
- * Trellis does not import Drizzle here to avoid making every service depend on a
- * specific migration library. Services should include the returned DDL, or an
- * equivalent Drizzle table definition using these table and column names, in
- * their own Drizzle-managed migration flow.
+ * Use {@link getSqlOutboxMigrations} when services need versioned Trellis-owned
+ * migration artifacts for their normal database migration tooling.
  */
 export function createSqlOutboxAdapter(
   executor: SqlExecutor,
   dialect: SqlDialect,
   tables: SqlOutboxTables = defaultSqlOutboxTables,
 ): SqlOutboxAdapter {
+  const sqlTables = validateSqlOutboxTables(tables);
   return {
-    outbox: new SqlOutboxRepository(executor, dialect, tables),
-    inbox: new SqlInboxRepository(executor, dialect, tables),
+    outbox: new SqlOutboxRepository(executor, dialect, sqlTables),
+    inbox: new SqlInboxRepository(executor, dialect, sqlTables),
     ddl: dialect === "postgres"
-      ? createPostgresOutboxSchema(tables)
-      : createSqliteOutboxSchema(tables),
+      ? createPostgresOutboxSchema(sqlTables)
+      : createSqliteOutboxSchema(sqlTables),
   };
+}
+
+/**
+ * Returns Trellis-owned SQL outbox/inbox migration artifacts for a dialect.
+ *
+ * Trellis generates the helper-table SQL, but services remain responsible for
+ * running these artifacts through their normal database migration tooling.
+ */
+export function getSqlOutboxMigrations(
+  options: SqlOutboxMigrationOptions,
+): readonly SqlOutboxMigration[] {
+  const tables = resolveSqlOutboxTables(options.tables);
+  const up = options.dialect === "postgres"
+    ? createPostgresOutboxSchema(tables)
+    : createSqliteOutboxSchema(tables);
+  const down = createSqlOutboxDownSchema(tables);
+  return Object.freeze([
+    Object.freeze({
+      id: `trellis_sql_outbox_inbox_${options.dialect}_v1`,
+      version: 1,
+      dialect: options.dialect,
+      up,
+      down,
+      checksum: checksumMigrationSql(up, down),
+    }),
+  ]);
 }
 
 /** Returns SQLite DDL for Trellis outbox and inbox tables. */
 export function createSqliteOutboxSchema(
   tables: SqlOutboxTables = defaultSqlOutboxTables,
 ): readonly string[] {
+  const sqlTables = validateSqlOutboxTables(tables);
   return [
-    `CREATE TABLE IF NOT EXISTS ${tables.outbox} (id TEXT PRIMARY KEY, event TEXT NOT NULL, subject TEXT NOT NULL, payload TEXT NOT NULL, headers TEXT NOT NULL, state TEXT NOT NULL, attempts INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, next_attempt_at TEXT, last_error TEXT)`,
-    `CREATE INDEX IF NOT EXISTS ${tables.outbox}_due_idx ON ${tables.outbox} (state, next_attempt_at)`,
-    `CREATE TABLE IF NOT EXISTS ${tables.inbox} (message_id TEXT PRIMARY KEY, received_at TEXT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS ${sqlTables.outbox} (id TEXT PRIMARY KEY, event TEXT NOT NULL, subject TEXT NOT NULL, payload TEXT NOT NULL, headers TEXT NOT NULL, state TEXT NOT NULL, attempts INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, next_attempt_at TEXT, last_error TEXT)`,
+    `CREATE INDEX IF NOT EXISTS ${sqlTables.outbox}_due_idx ON ${sqlTables.outbox} (state, next_attempt_at)`,
+    `CREATE TABLE IF NOT EXISTS ${sqlTables.inbox} (message_id TEXT PRIMARY KEY, received_at TEXT NOT NULL)`,
   ];
 }
 
@@ -130,11 +188,73 @@ export function createSqliteOutboxSchema(
 export function createPostgresOutboxSchema(
   tables: SqlOutboxTables = defaultSqlOutboxTables,
 ): readonly string[] {
+  const sqlTables = validateSqlOutboxTables(tables);
   return [
-    `CREATE TABLE IF NOT EXISTS ${tables.outbox} (id text PRIMARY KEY, event text NOT NULL, subject text NOT NULL, payload text NOT NULL, headers jsonb NOT NULL, state text NOT NULL, attempts integer NOT NULL, created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL, next_attempt_at timestamptz, last_error text)`,
-    `CREATE INDEX IF NOT EXISTS ${tables.outbox}_due_idx ON ${tables.outbox} (state, next_attempt_at)`,
-    `CREATE TABLE IF NOT EXISTS ${tables.inbox} (message_id text PRIMARY KEY, received_at timestamptz NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS ${sqlTables.outbox} (id text PRIMARY KEY, event text NOT NULL, subject text NOT NULL, payload text NOT NULL, headers jsonb NOT NULL, state text NOT NULL, attempts integer NOT NULL, created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL, next_attempt_at timestamptz, last_error text)`,
+    `CREATE INDEX IF NOT EXISTS ${sqlTables.outbox}_due_idx ON ${sqlTables.outbox} (state, next_attempt_at)`,
+    `CREATE TABLE IF NOT EXISTS ${sqlTables.inbox} (message_id text PRIMARY KEY, received_at timestamptz NOT NULL)`,
   ];
+}
+
+function createSqlOutboxDownSchema(
+  tables: SqlOutboxTables,
+): readonly string[] {
+  const sqlTables = validateSqlOutboxTables(tables);
+  return [
+    `DROP INDEX IF EXISTS ${sqlTables.outbox}_due_idx`,
+    `DROP TABLE IF EXISTS ${sqlTables.inbox}`,
+    `DROP TABLE IF EXISTS ${sqlTables.outbox}`,
+  ];
+}
+
+function resolveSqlOutboxTables(
+  tables: Partial<SqlOutboxTables> | undefined,
+): SqlOutboxTables {
+  return validateSqlOutboxTables({
+    outbox: tables?.outbox ?? defaultSqlOutboxTables.outbox,
+    inbox: tables?.inbox ?? defaultSqlOutboxTables.inbox,
+  });
+}
+
+function validateSqlOutboxTables(tables: SqlOutboxTables): SqlOutboxTables {
+  validateSqlIdentifier("outbox", tables.outbox);
+  validateSqlIdentifier("inbox", tables.inbox);
+  return Object.freeze({ outbox: tables.outbox, inbox: tables.inbox });
+}
+
+function validateSqlIdentifier(
+  kind: keyof SqlOutboxTables,
+  name: string,
+): void {
+  if (!sqlIdentifierPattern.test(name)) {
+    throw new Error(
+      `Invalid SQL ${kind} table name "${name}". Use a simple identifier matching ${sqlIdentifierPattern.source}.`,
+    );
+  }
+}
+
+function checksumMigrationSql(
+  up: readonly string[],
+  down: readonly string[],
+): string {
+  return `fnv1a64:${
+    fnv1a64Hex([
+      "-- up",
+      ...up,
+      "-- down",
+      ...down,
+    ].join("\n"))
+  }`;
+}
+
+function fnv1a64Hex(input: string): string {
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  for (const character of input) {
+    hash ^= BigInt(character.codePointAt(0) ?? 0);
+    hash = BigInt.asUintN(64, hash * prime);
+  }
+  return hash.toString(16).padStart(16, "0");
 }
 
 /** In-memory outbox repository intended for tests and local process adapters. */
@@ -226,11 +346,15 @@ export class MemoryInboxRepository implements InboxRepository {
 
 /** SQL-backed outbox repository over a caller-owned executor. */
 export class SqlOutboxRepository implements OutboxRepository {
+  readonly tables: SqlOutboxTables;
+
   constructor(
     readonly executor: SqlExecutor,
     readonly dialect: SqlDialect,
-    readonly tables: SqlOutboxTables = defaultSqlOutboxTables,
-  ) {}
+    tables: SqlOutboxTables = defaultSqlOutboxTables,
+  ) {
+    this.tables = validateSqlOutboxTables(tables);
+  }
 
   async enqueue(event: PreparedTrellisEvent): Promise<OutboxMessage> {
     const now = new Date().toISOString();
@@ -320,11 +444,15 @@ export class SqlOutboxRepository implements OutboxRepository {
 
 /** SQL-backed inbox repository over a caller-owned executor. */
 export class SqlInboxRepository implements InboxRepository {
+  readonly tables: SqlOutboxTables;
+
   constructor(
     readonly executor: SqlExecutor,
     readonly dialect: SqlDialect,
-    readonly tables: SqlOutboxTables = defaultSqlOutboxTables,
-  ) {}
+    tables: SqlOutboxTables = defaultSqlOutboxTables,
+  ) {
+    this.tables = validateSqlOutboxTables(tables);
+  }
 
   async record(messageId: string, now: Date = new Date()): Promise<boolean> {
     try {

@@ -187,10 +187,16 @@ expected by that repo.
   It prevents duplicate active work; service-owned checkpoint commits and
   database side effects should still be idempotent.
 - Publishing an event before a local transaction commits when downstream systems
-  require the local state and event to be atomic. Use prepared events and an
-  outbox in that case. Drizzle services can adapt caller-owned SQLite databases
-  or transactions with `@qlever-llc/trellis/service/drizzle`; services still own
-  migrations and transaction boundaries.
+  require the local state and event to be atomic. In TypeScript services, use
+  `service.withSqlOutbox(...)`, register handlers through that wrapper, and put
+  all DB work plus transaction-scoped `event.*.*.enqueue(...)` calls inside
+  handler-injected `outbox.transaction(...)`. Do not generate local outbox
+  wrappers, manual `SqlOutboxRepository` handler wiring, direct
+  `withSqlOutbox({ drizzle })` sugar, or per-handler Drizzle adapters. Configure
+  the wrapper with generic `executor` and `transaction` options; use
+  `@qlever-llc/trellis/service/drizzle` only for optional startup/adapter code.
+  Trellis owns helper-table migrations via `getSqlOutboxMigrations(...)`, and
+  services run those migrations with their normal migration tool.
 - Adding an inbox around every subscription. Prefer idempotent handlers; use an
   inbox only for non-idempotent side effects.
 - Using NATS KV outbox/inbox helpers as if they were atomic with unrelated SQL or

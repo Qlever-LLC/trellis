@@ -187,12 +187,70 @@ Rules:
   than generic repository abstractions
 - app-generated ULID row primary keys are used for SQL table identity; public
   and domain identifiers remain separate columns
-- when a service uses an outbox to couple event publication to local durable
-  state, commit the local state and outbox row in the same transaction, then
-  signal any process-local dispatcher only after the transaction commits
+- direct event publish remains the default; use SQL outbox only when event
+  publication must be coupled to service-local SQL state
+- TypeScript services configure SQL outbox behavior with
+  `service.withSqlOutbox(...)` using generic SQL executor and transaction-runner
+  options; Trellis delegates transaction creation to that service-owned runner
+- handlers mounted through the SQL outbox wrapper receive `outbox` in RPC, feed,
+  operation, event-listener, and job handler args
+- `outbox.transaction(...)` is the boundary for application SQL writes and all
+  event enqueues that must commit atomically; service code owns the database
+  lifecycle and transaction boundaries
+- transaction-scoped `event.*.*.enqueue(...)` prepares and validates events,
+  then writes prepared event rows into Trellis helper tables through the
+  transaction-scoped executor
+- Trellis owns the SQL outbox/inbox helper-table schema and versioned migration
+  artifacts exposed by `getSqlOutboxMigrations(...)`; services own table names
+  and run the migrations with their normal migration tooling
+- after a successful transaction commit, Trellis notifies the dispatcher only
+  when at least one row was enqueued; no dispatcher notification happens for a
+  rolled-back or rejected transaction
 - outbox dispatcher wakeups should be debounced and single-flight, but they are
-  not the source of durability; services should retain explicit dispatch or
-  recovery scans for missed signals and restarts
+  latency optimizations only; durable retry and recovery depend on persisted
+  outbox state plus explicit dispatch or recovery scans
+- Drizzle is optional. The direct `withSqlOutbox({ drizzle })` convenience is
+  deferred; Drizzle services can adapt their connection and transaction objects
+  through `@qlever-llc/trellis/service/drizzle` helpers while the core outbox
+  surface remains generic SQL
+- NATS KV outbox/inbox helpers remain non-SQL durable helpers for dedupe and
+  queue storage, but they are not transactional with unrelated database side
+  effects
+
+Example:
+
+```ts
+const app = service.withSqlOutbox({
+  dialect: "postgres",
+  executor,
+  transaction: (work) =>
+    pool.transaction((tx) =>
+      work({
+        tx,
+        executor: createExecutorForTransaction(tx),
+      })
+    ),
+  tables: {
+    outbox: "trellis_outbox",
+    inbox: "trellis_inbox",
+  },
+});
+
+await app.handle.rpc.partner.update(async ({ input, outbox }) => {
+  const updated = await outbox.transaction(async ({ tx, event }) => {
+    await partnerRepo.update(tx, input.partner);
+    await auditRepo.insert(tx, { entityId: input.partner.id });
+
+    await event.partner.changed.enqueue({ id: input.partner.id }).orThrow();
+    await event.audit.recorded.enqueue({ entityId: input.partner.id })
+      .orThrow();
+
+    return true;
+  }).orThrow();
+
+  return Result.ok({ updated });
+});
+```
 
 ### Minimal installable service example
 
@@ -265,6 +323,9 @@ Rules:
 - the optional `server` block configures service-runtime concerns such as
   logging, default request timeout, event-consumer stream selection,
   no-responder retry behavior, and extra health checks
+- `TrellisService.connect(...)` does not run service-owned database migrations,
+  including Trellis SQL outbox helper-table migrations; services run those with
+  their normal migration tooling before handlers depend on the tables
 - `server.log` defaults to the package server logger; set it to `false` to
   disable runtime logging or provide a pino-compatible logger to use your own
 - service runtime NATS lifecycle logging is explicit rather than generic;
