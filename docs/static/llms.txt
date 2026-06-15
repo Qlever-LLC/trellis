@@ -61,7 +61,9 @@ commands.
   `assertEventCaptured`, `assertEventsCaptured`, `assertNoEventCaptured`,
   `assertNoEventDuring`, `assertJobCompleted`, `assertOperationCompleted`,
   `assertRpcOk`, `assertRpcEventuallyOk`, and `assertRpcErr` for Deno-first
-  TypeScript tests.
+  TypeScript tests. The captured-event helpers accept generated
+  `runtime.captureEvents(...)` captures directly, and `assertJobCompleted`
+  accepts generated service job refs directly.
 - Event subject `params` must point at string, number, or integer-compatible
   payload fields. For `anyOf` or `oneOf` event payload schemas, every variant must
   contain each routed pointer.

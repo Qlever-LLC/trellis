@@ -24,6 +24,7 @@ import {
   assertRpcOk,
   type TrellisTestAssertionEventCapture,
   type TrellisTestEventByName,
+  type TrellisTestJobTerminal,
   waitFor,
   type WaitForOptions,
 } from "../index.ts";
@@ -165,6 +166,48 @@ class DirectMultiEventCaptureLike {
   }
 }
 
+class GeneratedStyleEventCaptureLike {
+  readonly #events: TestEvent[] = [];
+
+  constructor(events: readonly TestEvent[] = []) {
+    this.#events.push(...events);
+  }
+
+  all(): ReadonlyArray<TestEvent>;
+  all<TEventName extends TestEvent["event"]>(
+    name: TEventName,
+  ): ReadonlyArray<TrellisTestEventByName<TestEvent, TEventName>>;
+  all<TEventName extends TestEvent["event"]>(
+    name?: TEventName,
+  ):
+    | ReadonlyArray<TestEvent>
+    | ReadonlyArray<TrellisTestEventByName<TestEvent, TEventName>> {
+    if (name === undefined) return [...this.#events];
+    return this.#events.filter((event): event is TrellisTestEventByName<
+      TestEvent,
+      TEventName
+    > => isTestEvent(event, name));
+  }
+
+  async waitFor<TEventName extends TestEvent["event"]>(
+    name: TEventName,
+    predicate?: (
+      event: {
+        readonly event: TestEvent["event"];
+        readonly payload: TestEvent["payload"];
+      },
+    ) => boolean | Promise<boolean>,
+    opts?: WaitForOptions,
+  ): Promise<TrellisTestEventByName<TestEvent, TEventName>> {
+    return await waitFor(async () => {
+      for (const event of this.all(name)) {
+        if (predicate === undefined || await predicate(event)) return event;
+      }
+      return false;
+    }, opts);
+  }
+}
+
 function changed(
   id: string,
   value = "updated",
@@ -259,9 +302,14 @@ Deno.test("assertEventCaptured narrows selected event predicate and return", asy
 Deno.test("assertEventCaptured uses capture-specific waitFor when available", async () => {
   const expected = changed("entity-1");
   let usedCaptureWaitFor = false;
-  const capture: TrellisTestAssertionEventCapture<TestEvent> = {
-    all: () => [],
-    waitFor: async (name, predicate) => {
+  const capture = {
+    all: (): ReadonlyArray<TestEvent> => [],
+    waitFor: async <TEventName extends TestEvent["event"]>(
+      name: TEventName,
+      predicate?: (
+        event: TrellisTestEventByName<TestEvent, TEventName>,
+      ) => boolean | Promise<boolean>,
+    ): Promise<TrellisTestEventByName<TestEvent, TEventName>> => {
       usedCaptureWaitFor = true;
       if (!isTestEvent(expected, name)) {
         throw new Error(`unexpected event ${name}`);
@@ -391,6 +439,42 @@ Deno.test("event assertions accept direct multi-event capture-like shape", async
 
   assertEquals(changedValue, "direct");
   assertEquals(events, [deletedEvent, changedEvent]);
+});
+
+Deno.test("event assertions accept generated-style capture-like shape", async () => {
+  const changedEvent = changed("entity-1", "generated");
+  const deletedEvent = deleted("entity-2");
+  const capture = new GeneratedStyleEventCaptureLike([
+    changedEvent,
+    deletedEvent,
+  ]);
+
+  const event = await assertEventCaptured(
+    capture,
+    "Entity.Changed",
+    (record) => {
+      const value: string = record.payload.value;
+      return value === "generated";
+    },
+  );
+  const changedValue: string = event.payload.value;
+
+  const events = await assertEventsCaptured(
+    capture,
+    [
+      {
+        event: "Entity.Deleted",
+        predicate: (record) => {
+          const id: string = record.payload.id;
+          return id === "entity-2";
+        },
+      },
+    ],
+    { ordered: true },
+  );
+
+  assertEquals(changedValue, "generated");
+  assertEquals(events, [deletedEvent]);
 });
 
 Deno.test("assertEventsCaptured supports ordered matching", async () => {
@@ -555,6 +639,41 @@ Deno.test("assertJobCompleted accepts generated orThrow wait result", async () =
   };
 
   assertEquals(await assertJobCompleted(waitable, { ok: true }), terminal);
+});
+
+Deno.test("assertJobCompleted accepts generated-style minimal job refs", async () => {
+  type SyncUsersResult = {
+    readonly stream: "users";
+    readonly status: "ran";
+    readonly recordsSeen: number;
+  };
+  type SyncUsersTerminal = {
+    readonly state: "completed";
+    readonly result: SyncUsersResult;
+  };
+
+  const terminal: SyncUsersTerminal = {
+    state: "completed",
+    result: {
+      stream: "users",
+      status: "ran",
+      recordsSeen: 1,
+    },
+  };
+  const job = {
+    id: "job-generated-1",
+    wait: () => ({ orThrow: () => Promise.resolve(terminal) }),
+  };
+
+  const completed: TrellisTestJobTerminal<SyncUsersResult> =
+    await assertJobCompleted(job, {
+      stream: "users",
+      status: "ran",
+      recordsSeen: 1,
+    });
+
+  assertEquals(completed, terminal);
+  assertEquals(completed.result?.stream, "users");
 });
 
 Deno.test("assertJobCompleted fails for non-completed job and result mismatch", async () => {

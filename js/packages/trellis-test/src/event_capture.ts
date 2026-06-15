@@ -82,15 +82,17 @@ export type TrellisTestCapturedEvent<
   TContract extends TrellisTestEventSourceContract,
   E extends EventName<TContract>,
 > = {
-  /** Contract event name that matched this captured event. */
-  readonly event: E;
-  /** Decoded event payload from the generated Trellis event facade. */
-  readonly payload: EventType<TContract, E>;
-  /** Listener metadata without transport subjects or envelopes. */
-  readonly context: TrellisTestCapturedEventContext;
-  /** Wall-clock time when the test capture observed this event. */
-  readonly receivedAt: Date;
-};
+  [K in E]: {
+    /** Contract event name that matched this captured event. */
+    readonly event: K;
+    /** Decoded event payload from the generated Trellis event facade. */
+    readonly payload: EventType<TContract, K>;
+    /** Listener metadata without transport subjects or envelopes. */
+    readonly context: TrellisTestCapturedEventContext;
+    /** Wall-clock time when the test capture observed this event. */
+    readonly receivedAt: Date;
+  };
+}[E];
 
 /** Predicate used by `TrellisTestEventCapture.waitFor`. */
 export type TrellisTestCapturedEventPredicate<
@@ -390,28 +392,35 @@ export async function startTrellisTestEventCapture<
     onStop: args.onStop,
   });
 
+  async function startListener<E extends TEvents[number]>(
+    event: E,
+  ): Promise<void> {
+    const listener = getEventListener<TContract, E>(
+      client,
+      event,
+    );
+    await listener.listen(
+      (decoded, context) => {
+        const captured: TrellisTestCapturedEvent<TContract, E> = {
+          event,
+          payload: decoded,
+          context: {
+            id: context.id,
+            time: context.time,
+            mode: "ephemeral",
+          },
+          receivedAt: new Date(),
+        };
+        capture.recordCaptured(captured);
+      },
+      {},
+      { mode: "ephemeral", signal: capture.signal },
+    ).orThrow();
+  }
+
   try {
     for (const event of events) {
-      const listener = getEventListener<TContract, TEvents[number]>(
-        client,
-        event,
-      );
-      await listener.listen(
-        (decoded, context) => {
-          capture.recordCaptured({
-            event,
-            payload: decoded,
-            context: {
-              id: context.id,
-              time: context.time,
-              mode: "ephemeral",
-            },
-            receivedAt: new Date(),
-          });
-        },
-        {},
-        { mode: "ephemeral", signal: capture.signal },
-      ).orThrow();
+      await startListener(event);
     }
   } catch (error) {
     await capture.stop().catch(() => undefined);

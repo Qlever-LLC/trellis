@@ -4,7 +4,6 @@ import {
   type BaseError,
   type MaybeAsync,
   Result,
-  type TerminalJob,
   type TerminalOperation,
 } from "@qlever-llc/trellis";
 import type { WaitForOptions } from "./types.ts";
@@ -42,6 +41,46 @@ export type TrellisTestEventByName<
   : never
   : never;
 
+type TrellisTestEventCaptureEvent<TCapture> = TCapture extends {
+  all(): ReadonlyArray<infer TEvent>;
+} ? Extract<TEvent, TrellisTestAssertionCapturedEvent>
+  : never;
+
+type TrellisTestEventCaptureEventName<TCapture> = TrellisTestEventCaptureEvent<
+  TCapture
+>["event"];
+
+type TrellisTestEventCaptureEventByName<
+  TCapture,
+  TEventName extends TrellisTestEventCaptureEventName<TCapture>,
+> = TCapture extends {
+  waitFor(name: TEventName, ...args: infer _Args): Promise<
+    infer TSelectedEvent
+  >;
+} ? Extract<TSelectedEvent, TrellisTestAssertionCapturedEvent> & {
+    readonly event: TEventName;
+  }
+  : TCapture extends {
+    all(name: TEventName): ReadonlyArray<infer TSelectedEvent>;
+  } ? Extract<TSelectedEvent, TrellisTestAssertionCapturedEvent> & {
+      readonly event: TEventName;
+    }
+  : TrellisTestEventByName<
+    TrellisTestEventCaptureEvent<TCapture>,
+    TEventName
+  >;
+
+type TrellisTestEventExpectationForCapture<TCapture> = {
+  [TEventName in TrellisTestEventCaptureEventName<TCapture>]:
+    | TEventName
+    | {
+      readonly event: TEventName;
+      readonly predicate?: TrellisTestAssertionEventPredicate<
+        TrellisTestEventCaptureEventByName<TCapture, TEventName>
+      >;
+    };
+}[TrellisTestEventCaptureEventName<TCapture>];
+
 /** Predicate used by event assertion helpers to select a captured event. */
 export type TrellisTestAssertionEventPredicate<
   TEvent extends TrellisTestAssertionCapturedEvent =
@@ -55,14 +94,6 @@ export type TrellisTestAssertionEventCapture<
 > = {
   /** Returns events captured so far in capture order. */
   all(): ReadonlyArray<TEvent>;
-  /** Waits for a captured event matching the name and optional predicate. */
-  waitFor?<TEventName extends TEvent["event"]>(
-    name: TEventName,
-    predicate?: TrellisTestAssertionEventPredicate<
-      TrellisTestEventByName<TEvent, TEventName>
-    >,
-    opts?: WaitForOptions,
-  ): Promise<TrellisTestEventByName<TEvent, TEventName>>;
 };
 
 /** Event expectation object accepted by `assertEventsCaptured`. */
@@ -131,10 +162,22 @@ export type TrellisTestCapturedEventContextExpectation = {
   readonly receivedAt?: Date;
 };
 
+/** Minimal terminal job snapshot accepted by `assertJobCompleted`. */
+export type TrellisTestJobTerminal<TResult = unknown> = {
+  /** Trellis job id, when available from the source snapshot. */
+  readonly id?: string;
+  /** Terminal job state. */
+  readonly state: string;
+  /** Job result payload, present for completed jobs that produce a result. */
+  readonly result?: TResult;
+};
+
 /** Structural Trellis job reference accepted by `assertJobCompleted`. */
 export type TrellisTestWaitableJob<TPayload = unknown, TResult = unknown> = {
+  /** Trellis job id, when available from the source reference. */
+  readonly id?: string;
   /** Waits for the job to reach a terminal state. */
-  wait(): TrellisTestTerminalWaitResult<TerminalJob<TPayload, TResult>>;
+  wait(): TrellisTestTerminalWaitResult<TrellisTestJobTerminal<TResult>>;
 };
 
 /** Structural Trellis operation reference accepted by `assertOperationCompleted`. */
@@ -163,6 +206,9 @@ export type TrellisTestTerminalWaitResult<
   | TrellisTestOrThrowWaitResult<TTerminal>
   | Promise<TrellisTestOrThrowWaitResult<TTerminal> | TTerminal>
   | TTerminal;
+
+type TrellisTestJobTerminalResult<TTerminal extends TrellisTestJobTerminal> =
+  TTerminal extends { readonly result?: infer TResult } ? TResult : never;
 
 /** Error constructor or class object accepted by `assertRpcErr`. */
 export type TrellisTestErrorConstructor<TError extends Error = Error> =
@@ -193,11 +239,37 @@ function isNoEventDuringOptions(
   return isRecord(value) && typeof value["durationMs"] === "number";
 }
 
-function isWaitableJob<TPayload, TResult>(
+type TrellisTestLooseEventWaitFor = {
+  waitFor(
+    name: string,
+    predicate?: (event: never) => MaybePromise<boolean>,
+    opts?: WaitForOptions,
+  ): Promise<TrellisTestAssertionCapturedEvent>;
+};
+
+function hasLooseEventWaitFor(
+  value: TrellisTestAssertionEventCapture,
+): value is TrellisTestAssertionEventCapture & TrellisTestLooseEventWaitFor {
+  return hasFunctionProperty(value, "waitFor");
+}
+
+function isEventPredicate(
+  value: unknown,
+): value is TrellisTestAssertionEventPredicate {
+  return typeof value === "function";
+}
+
+function isWaitableJob<TTerminal extends TrellisTestJobTerminal>(
   value:
-    | TerminalJob<TPayload, TResult>
-    | TrellisTestWaitableJob<TPayload, TResult>,
-): value is TrellisTestWaitableJob<TPayload, TResult> {
+    | TTerminal
+    | {
+      readonly id?: string;
+      wait(): TrellisTestTerminalWaitResult<TTerminal>;
+    },
+): value is {
+  readonly id?: string;
+  wait(): TrellisTestTerminalWaitResult<TTerminal>;
+} {
   return hasFunctionProperty(value, "wait");
 }
 
@@ -221,7 +293,7 @@ function eventMatchesName<
 >(
   event: TEvent,
   eventName: TEventName,
-): event is TrellisTestEventByName<TEvent, TEventName> {
+): event is TEvent & TrellisTestEventByName<TEvent, TEventName> {
   return event.event === eventName;
 }
 
@@ -410,25 +482,42 @@ function waitForFromSource(
  * The helper polls `capture.all()` so generated multi-event captures can be passed
  * directly, then wraps failures with a compact list of events captured so far.
  */
-export async function assertEventCaptured<
-  TEvent extends TrellisTestAssertionCapturedEvent,
-  TEventName extends TEvent["event"],
+export function assertEventCaptured<
+  TCapture extends TrellisTestAssertionEventCapture,
+  TEventName extends TrellisTestEventCaptureEventName<TCapture>,
 >(
-  capture: TrellisTestAssertionEventCapture<TEvent>,
+  capture: TCapture,
   eventName: TEventName,
   predicate?: TrellisTestAssertionEventPredicate<
-    TrellisTestEventByName<TEvent, TEventName>
+    TrellisTestEventCaptureEventByName<TCapture, TEventName>
   >,
   options?: WaitForOptions,
-): Promise<TrellisTestEventByName<TEvent, TEventName>> {
+): Promise<TrellisTestEventCaptureEventByName<TCapture, TEventName>>;
+export async function assertEventCaptured(
+  capture: TrellisTestAssertionEventCapture,
+  eventName: string,
+  predicate?: unknown,
+  options?: WaitForOptions,
+): Promise<TrellisTestAssertionCapturedEvent> {
+  const eventPredicate = isEventPredicate(predicate) ? predicate : undefined;
   try {
-    if (capture.waitFor !== undefined) {
-      return await capture.waitFor(eventName, predicate, options);
+    if (hasLooseEventWaitFor(capture)) {
+      const event = await capture.waitFor(
+        eventName,
+        eventPredicate === undefined
+          ? undefined
+          : (record) => eventPredicate(record),
+        options,
+      );
+      if (event.event === eventName) return event;
+      throw new Error(`capture waitFor returned ${event.event}`);
     }
     return await waitFor(async () => {
       for (const event of capture.all()) {
-        if (!eventMatchesName(event, eventName)) continue;
-        if (predicate === undefined || await predicate(event)) return event;
+        if (event.event !== eventName) continue;
+        if (eventPredicate === undefined || await eventPredicate(event)) {
+          return event;
+        }
       }
       return false;
     }, options);
@@ -448,13 +537,18 @@ export async function assertEventCaptured<
  * Expectations are matched unordered by default. Pass `{ ordered: true }` to
  * require capture order. Returned events are always in expectation order.
  */
-export async function assertEventsCaptured<
-  TEvent extends TrellisTestAssertionCapturedEvent,
+export function assertEventsCaptured<
+  TCapture extends TrellisTestAssertionEventCapture,
 >(
-  capture: TrellisTestAssertionEventCapture<TEvent>,
-  expectations: readonly TrellisTestEventExpectation<TEvent>[],
+  capture: TCapture,
+  expectations: readonly TrellisTestEventExpectationForCapture<TCapture>[],
   options?: TrellisTestAssertEventsCapturedOptions,
-): Promise<TEvent[]> {
+): Promise<TrellisTestEventCaptureEvent<TCapture>[]>;
+export async function assertEventsCaptured(
+  capture: TrellisTestAssertionEventCapture,
+  expectations: readonly TrellisTestEventExpectation[],
+  options?: TrellisTestAssertEventsCapturedOptions,
+): Promise<TrellisTestAssertionCapturedEvent[]> {
   if (expectations.length === 0) return [];
 
   try {
@@ -626,18 +720,59 @@ export async function assertNoEventDuring<
  * When `expectedResult` is provided, object results are matched as a recursive
  * subset while arrays and primitives are compared exactly.
  */
-export async function assertJobCompleted<TPayload, TResult>(
+export async function assertJobCompleted<
+  TTerminal extends TrellisTestJobTerminal,
+>(
+  jobOrTerminal: TTerminal,
+  expectedResult?: TrellisTestDeepPartial<
+    TrellisTestJobTerminalResult<TTerminal>
+  >,
+): Promise<TTerminal>;
+export async function assertJobCompleted<
+  TTerminal extends TrellisTestJobTerminal,
+>(
+  jobOrTerminal: {
+    readonly id?: string;
+    wait(): TrellisTestOrThrowWaitResult<TTerminal>;
+  },
+  expectedResult?: TrellisTestDeepPartial<
+    TrellisTestJobTerminalResult<TTerminal>
+  >,
+): Promise<TTerminal>;
+export async function assertJobCompleted<
+  TTerminal extends TrellisTestJobTerminal,
+>(
+  jobOrTerminal: {
+    readonly id?: string;
+    wait(): TrellisTestTerminalWaitResult<TTerminal>;
+  },
+  expectedResult?: TrellisTestDeepPartial<
+    TrellisTestJobTerminalResult<TTerminal>
+  >,
+): Promise<TTerminal>;
+export async function assertJobCompleted<
+  TTerminal extends TrellisTestJobTerminal,
+>(
   jobOrTerminal:
-    | TerminalJob<TPayload, TResult>
-    | TrellisTestWaitableJob<TPayload, TResult>,
-  expectedResult?: TrellisTestDeepPartial<TResult>,
-): Promise<TerminalJob<TPayload, TResult>> {
+    | TTerminal
+    | {
+      readonly id?: string;
+      wait(): TrellisTestTerminalWaitResult<TTerminal>;
+    },
+  expectedResult?: TrellisTestDeepPartial<
+    TrellisTestJobTerminalResult<TTerminal>
+  >,
+): Promise<TTerminal> {
   const terminal = isWaitableJob(jobOrTerminal)
     ? await resolveTerminalWaitResult(jobOrTerminal.wait())
     : jobOrTerminal;
 
   if (terminal.state !== "completed") {
-    fail(`Expected job ${terminal.id} to complete, got ${terminal.state}`);
+    fail(
+      `Expected job ${
+        terminal.id ?? jobOrTerminal.id ?? "<unknown>"
+      } to complete, got ${terminal.state}`,
+    );
   }
   if (expectedResult !== undefined) {
     assertDeepPartial(terminal.result, expectedResult, "job.result");
