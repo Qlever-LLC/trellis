@@ -8,6 +8,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.19.0-rc.2] - 2026-06-14
+
+### Fixed
+
+- Re-cut the `0.19.0` release candidate after the `0.19.0-rc.1` publishing
+  recovery, keeping the Trellis Svelte and control-plane JSR package publishing
+  fixes in the release candidate source.
+
 ## [0.19.0-rc.1] - 2026-06-14
 
 ### Added
@@ -1074,7 +1082,8 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.19.0-rc.1...HEAD
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.19.0-rc.2...HEAD
+[0.19.0-rc.2]: https://github.com/Qlever-LLC/trellis/compare/v0.19.0-rc.1...v0.19.0-rc.2
 [0.19.0-rc.1]: https://github.com/Qlever-LLC/trellis/compare/v0.10.18-rc.1...v0.19.0-rc.1
 [0.10.18-rc.1]: https://github.com/Qlever-LLC/trellis/compare/v0.10.17...v0.10.18-rc.1
 [0.10.17]: https://github.com/Qlever-LLC/trellis/compare/v0.10.16...v0.10.17
