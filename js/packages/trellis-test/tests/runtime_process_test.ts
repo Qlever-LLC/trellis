@@ -1,4 +1,9 @@
-import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
+import {
+  assert,
+  assertEquals,
+  assertRejects,
+  assertStringIncludes,
+} from "@std/assert";
 import { fromFileUrl } from "@std/path";
 import {
   defineAppContract,
@@ -280,6 +285,65 @@ Deno.test({
         eventController.abort();
         await service.stop();
       }
+    } finally {
+      await runtime.stop();
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "TrellisTestRuntime captures live generated contract events with metadata",
+  ignore: !RUN_RUNTIME_PROCESS_TEST,
+  fn: async () => {
+    const runtime = await TrellisTestRuntime.start({
+      trellis: {
+        command: {
+          cmd: Deno.execPath(),
+          args: ["run", "-A", trellisMainPath],
+        },
+      },
+      timeouts: {
+        startupMs: 60_000,
+        reconciliationMs: 15_000,
+        shutdownMs: 10_000,
+      },
+    });
+
+    try {
+      const capture = await runtime.captureEvents({
+        name: "entity-live-capture",
+        contract: entityContract,
+        events: ["Entity.Changed"],
+      });
+
+      assertEquals(capture.all("Entity.Changed"), []);
+
+      const client = await runtime.connectClient({
+        name: "entity-capture-client",
+        contract: entityClientContract,
+      });
+      await client.event.entity.changed.publish({
+        id: "entity-capture-1",
+        value: "captured",
+      }).orThrow();
+
+      const captured = await capture.waitFor(
+        "Entity.Changed",
+        (record) => record.payload.id === "entity-capture-1",
+      );
+
+      assertEquals(captured.event, "Entity.Changed");
+      assertEquals(captured.payload, {
+        id: "entity-capture-1",
+        value: "captured",
+      });
+      assert(captured.context.id.length > 0);
+      assert(captured.context.time instanceof Date);
+      assertEquals(captured.context.mode, "ephemeral");
+      assert(captured.receivedAt instanceof Date);
+
+      assertEquals(capture.all("Entity.Changed"), [captured]);
     } finally {
       await runtime.stop();
     }
