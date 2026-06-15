@@ -53,6 +53,10 @@ commands.
   `{ event, payload, context, receivedAt }` records. Prefer this over raw NATS
   subscriptions or outbox-only assertions when the test must observe a published
   event through Trellis runtime authority.
+- `@qlever-llc/trellis-test` exports assertion helpers including
+  `assertEventCaptured`, `assertEventsCaptured`, `assertNoEventCaptured`,
+  `assertNoEventDuring`, `assertJobCompleted`, `assertOperationCompleted`,
+  `assertRpcOk`, and `assertRpcErr` for Deno-first TypeScript tests.
 - Event subject `params` must point at string, number, or integer-compatible
   payload fields. For `anyOf` or `oneOf` event payload schemas, every variant must
   contain each routed pointer.

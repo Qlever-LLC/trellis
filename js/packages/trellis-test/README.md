@@ -4,7 +4,10 @@ Deno-first integration test helpers for Trellis service repositories.
 
 ```ts
 import { TrellisService } from "@qlever-llc/trellis/service";
-import { TrellisTestRuntime } from "@qlever-llc/trellis-test";
+import {
+  assertEventCaptured,
+  TrellisTestRuntime,
+} from "@qlever-llc/trellis-test";
 
 await using runtime = await TrellisTestRuntime.start({
   trellis: {
@@ -46,7 +49,7 @@ Live event assertions should use generated event surfaces and
 await using capture = await runtime.captureEvents({
   name: "entity-event-capture",
   contract: entityContract,
-  events: ["Entity.Changed"],
+  events: ["Entity.Changed", "Entity.Indexed", "Entity.Failed"],
 });
 
 await client.event.entity.changed.publish({
@@ -54,13 +57,57 @@ await client.event.entity.changed.publish({
   value: "updated",
 }).orThrow();
 
-const changed = await capture.waitFor(
+const changed = await assertEventCaptured(
+  capture,
   "Entity.Changed",
   (record) => record.payload.id === "entity-1",
 );
 
 assertEquals(changed.payload.value, "updated");
 console.log(changed.event, changed.context.id, changed.receivedAt);
+```
+
+The package also includes generic assertions for multi-event expectations,
+negative event checks, terminal jobs and operations, and `Result`-style RPC
+values:
+
+```ts
+import {
+  assertEventsCaptured,
+  assertJobCompleted,
+  assertNoEventCaptured,
+  assertOperationCompleted,
+  assertRpcOk,
+} from "@qlever-llc/trellis-test";
+
+await assertEventsCaptured(capture, [
+  {
+    event: "Entity.Changed",
+    predicate: (record) => record.payload.id === "entity-1",
+  },
+  "Entity.Indexed",
+]);
+
+await assertNoEventCaptured(capture, "Entity.Failed");
+
+const rpcValue = await assertRpcOk(client.rpc.entity.get({ id: "entity-1" }), {
+  id: "entity-1",
+});
+
+const jobRef = await service.jobs.entitySync.create({ id: rpcValue.id })
+  .orThrow();
+const job = await assertJobCompleted(jobRef, {
+  synced: true,
+});
+
+const operation = await client.operation.entity.rebuild.start({
+  id: rpcValue.id,
+})
+  .orThrow();
+await assertOperationCompleted(operation, {
+  indexed: true,
+});
+console.log(job.id);
 ```
 
 For lower-level `TrellisClient.connect(...)` tests, create client key material
