@@ -349,6 +349,13 @@ export const apiReferenceDocs: DocEntry[] = [
     section: "API Reference",
   },
   {
+    title: "@qlever-llc/trellis-test",
+    description:
+      "Deno-first integration test helpers for Trellis service repositories.",
+    href: "/api/typescript/trellis-test/index.ts/index.html",
+    section: "API Reference",
+  },
+  {
     title: "@qlever-llc/result",
     description:
       "Class-based Result and AsyncResult APIs for explicit TypeScript error handling.",

@@ -25,6 +25,9 @@ Common packages are:
 - `@qlever-llc/trellis/sdk/*`: Trellis-owned generated SDK surfaces.
 - `@qlever-llc/trellis/telemetry`: OpenTelemetry helpers for tracing,
   propagation, initialization, and Trellis error metrics.
+- `@qlever-llc/trellis-test`: Deno-first integration test helpers for service
+  repositories that need isolated NATS/JetStream and a real Trellis
+  control-plane process.
 - `@qlever-llc/trellis-svelte`: Svelte and SvelteKit integration helpers.
 - generated SDK packages under `generated/packages/jsr/` and
   `generated/packages/npm/` for contracts in your project.

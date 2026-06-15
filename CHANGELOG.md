@@ -10,10 +10,48 @@ and this project adheres to
 
 ## [0.19.0-rc.3] - 2026-06-14
 
+### Public Breaking Changes
+
+- Split Trellis event runtime metadata from event bodies. Generated SDK event
+  body types are now body-only, TypeScript handlers must read event id/time from
+  listener context or `TrellisEventMessage`, and Rust prepared events use
+  `headers`, `event_id`, and `event_time` instead of the old message/header
+  helpers.
+- Changed caller-owned SQL outbox/inbox storage schemas for the event metadata
+  split. Outbox tables now store `headers`, `event_id`, and `event_time`, and
+  inbox storage tracks `trellis_inbox_events(event_id)` instead of
+  `trellis_inbox_messages(message_id)`.
+- Changed Jobs runtime and generated SDK APIs for keyed concurrency. `JobQueue`
+  implementations now need `submit(...)`, job results can report not-enqueued
+  outcomes, job states and event/process enums include keyed-concurrency
+  terminal states, and job/job-binding records include concurrency and
+  queue-policy metadata.
+- Changed the Rust `trellis-jobs` crate from a thin `trellis-rs::jobs::*`
+  re-export into an owning jobs crate, so downstream code that mixed nominal
+  `trellis_jobs::*` and `trellis_rs::jobs::*` types may need to standardize on
+  one import path.
+- Changed the public deployment authority protocol so proposal and desired-state
+  `needs` are grouped by `contracts`, `surfaces`, `capabilities`, and
+  `resources`, and materialized authority `grants` are grouped by
+  `capabilities`, `surfaces`, and `nats`. The TypeScript
+  `DeploymentAuthorityNeed` union was replaced by `DeploymentAuthorityNeeds` and
+  family-specific need types.
+- Renamed the runnable Trellis control-plane service JSR package from
+  `@qlever-llc/trellis-service-trellis` to `@qlever-llc/trellis-control-plane`
+  and now publishes it directly from `js/services/trellis` instead of a
+  generated staged package tree.
+- Changed `TrellisTestRuntime.start(...)` so callers must provide an explicit
+  `trellis.command`; removed the default Trellis runtime package resolution and
+  the `trellis.binary` option.
+
 ### Fixed
 
 - Fixed `@qlever-llc/trellis-test` live integration helpers so service approval
   and generated-client connection flows can run against the release candidate.
+- Fixed release retry and publish workflows so manual existing-tag retries can
+  publish after successful release gates, publish jobs still run when unrelated
+  dependencies are skipped, and internal JSR dependencies are rewritten to the
+  release candidate version during release preparation.
 
 ## [0.19.0-rc.2] - 2026-06-14
 
@@ -171,9 +209,9 @@ and this project adheres to
 
 ### Changed
 
-- Changed the public deployment authority protocol so proposal and desired-state
-  `needs` are grouped by `contracts`, `surfaces`, `capabilities`, and
-  `resources`, and materialized authority `grants` are grouped by
+- **Breaking:** Changed the public deployment authority protocol so proposal and
+  desired-state `needs` are grouped by `contracts`, `surfaces`, `capabilities`,
+  and `resources`, and materialized authority `grants` are grouped by
   `capabilities`, `surfaces`, and `nats`. The TypeScript
   `DeploymentAuthorityNeed` union was replaced by `DeploymentAuthorityNeeds` and
   family-specific need types.
