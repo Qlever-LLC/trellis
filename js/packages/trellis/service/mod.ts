@@ -33,6 +33,7 @@ export {
   HealthRpcSchema,
 } from "../server/health_schemas.ts";
 export {
+  type BoundServiceOf,
   type BoundTrellisService,
   type FeedHandler,
   type HealthCheckHandler,

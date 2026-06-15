@@ -430,6 +430,10 @@ dependencies separate from request context and passes them as `args.deps`.
 
 ```ts
 import { Result } from "@qlever-llc/trellis";
+import type { BoundServiceOf } from "@qlever-llc/trellis/service";
+
+type ServiceDeps = { db: Db; logger: Logger; clock: Clock; orders: Orders };
+export type OrdersApp = BoundServiceOf<typeof ordersContract, ServiceDeps>;
 
 const app = service.with({ db, logger, clock, orders });
 

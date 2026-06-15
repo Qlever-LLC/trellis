@@ -51,7 +51,10 @@ repositories.
 - Use `service.with(deps)` once during startup when handlers need
   application-owned dependencies such as databases, loggers, clocks, or domain
   clients. Register bound RPC, feed, operation, job, event, and health handlers
-  from the returned wrapper and read dependencies from `args.deps`.
+  from the returned wrapper and read dependencies from `args.deps`. Use
+  `BoundServiceOf<typeof contract, ServiceDeps>` from
+  `@qlever-llc/trellis/service` for exported bound-wrapper aliases; do not write
+  the lower-level service generic stack by hand.
 - Register event listeners during startup with `service.event`, never inside
   handlers.
 - Inside handlers, use the scoped `client` argument for outbound calls; event

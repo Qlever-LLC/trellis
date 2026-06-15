@@ -1,4 +1,5 @@
 export {
+  type BoundServiceOf,
   type BoundTrellisService,
   type FeedHandler,
   type HealthCheckHandler,

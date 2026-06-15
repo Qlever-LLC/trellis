@@ -150,7 +150,11 @@ contracts remain the input.
    services or `cargo xtask prepare` for Rust services.
 5. Implement handlers with generated provider APIs.
 6. Use scoped handler `client` values for outbound calls and register long-lived
-   event listeners during startup.
+    event listeners during startup.
+   For TypeScript services that bind application dependencies with
+   `service.with(deps)`, export bound-wrapper aliases as
+   `BoundServiceOf<typeof contract, ServiceDeps>` from
+   `@qlever-llc/trellis/service` instead of hand-writing service generic stacks.
 7. Add or update tests at the service boundary. For event-driven code, test the
    local handler logic and the outbox/inbox behavior separately when possible.
    Use `@qlever-llc/trellis-test` when the boundary test must exercise real

@@ -27,7 +27,7 @@ import type { TypedStore } from "../store.ts";
 
 // Import the module under test
 import {
-  type BoundTrellisService,
+  type BoundServiceOf,
   type EventContext,
   type FeedHandler,
   type HealthCheckFn,
@@ -49,9 +49,9 @@ import {
   TrellisService as TrellisServiceClass,
   TrellisServiceRuntime,
 } from "./mod.ts";
-import type { BoundTrellisService as DenoBoundTrellisService } from "../service/deno.ts";
-import type { BoundTrellisService as ServiceBoundTrellisService } from "../service/mod.ts";
-import type { BoundTrellisService as NodeBoundTrellisService } from "../service/node.ts";
+import type { BoundServiceOf as DenoBoundServiceOf } from "../service/deno.ts";
+import type { BoundServiceOf as ServiceBoundServiceOf } from "../service/mod.ts";
+import type { BoundServiceOf as NodeBoundServiceOf } from "../service/node.ts";
 
 const typeTestSchemas = {
   PingInput: Type.Object({ value: Type.String() }),
@@ -389,23 +389,14 @@ Deno.test("service wrapper exposes typed jobs facade", () => {
   assertExists(expectTypedJobs);
 });
 
-Deno.test("service subpaths expose bound service type", () => {
+Deno.test("service subpaths expose contract-derived bound service type", () => {
   type DepsContract = typeof depsTypeTestContract;
-  type OwnedApi = DepsContract["API"]["owned"];
-  type Jobs = NonNullable<DepsContract[typeof CONTRACT_JOBS_METADATA]>;
-  type Kv = NonNullable<DepsContract[typeof CONTRACT_KV_METADATA]>;
   type Deps = { prefix: string };
 
   function expectSubpathTypes(
-    service: DenoBoundTrellisService<OwnedApi, OwnedApi, Jobs, Kv, Deps>,
-  ): ServiceBoundTrellisService<OwnedApi, OwnedApi, Jobs, Kv, Deps> {
-    const nodeService: NodeBoundTrellisService<
-      OwnedApi,
-      OwnedApi,
-      Jobs,
-      Kv,
-      Deps
-    > = service;
+    service: DenoBoundServiceOf<DepsContract, Deps>,
+  ): ServiceBoundServiceOf<DepsContract, Deps> {
+    const nodeService: NodeBoundServiceOf<DepsContract, Deps> = service;
     return nodeService;
   }
 
@@ -418,7 +409,7 @@ Deno.test("bound service wrapper injects deps across handler surfaces", () => {
   type DepsKv = NonNullable<DepsContract[typeof CONTRACT_KV_METADATA]>;
   type DepsService = TrellisService<
     DepsContract["API"]["owned"],
-    DepsContract["API"]["owned"],
+    DepsContract["API"]["trellis"],
     DepsJobs,
     DepsKv
   >;
@@ -426,13 +417,7 @@ Deno.test("bound service wrapper injects deps across handler surfaces", () => {
 
   function expectBoundService(service: DepsService) {
     const bound = service.with({ prefix: "dep" });
-    const explicitBound: BoundTrellisService<
-      DepsContract["API"]["owned"],
-      DepsContract["API"]["owned"],
-      DepsJobs,
-      DepsKv,
-      Deps
-    > = bound;
+    const explicitBound: BoundServiceOf<DepsContract, Deps> = bound;
 
     void bound.handle.rpc.test.ping(({ input, context, client, deps }) => {
       const value: string = input.value;

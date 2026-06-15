@@ -1587,6 +1587,61 @@ export type BoundTrellisService<
     >;
   };
 
+type ContractApiLike = {
+  rpc: Record<string, unknown>;
+  operations: Record<string, unknown>;
+  events: Record<string, unknown>;
+  feeds?: Record<string, unknown>;
+  subjects: Record<string, unknown>;
+};
+
+type BoundServiceContractLike = {
+  API: {
+    owned: ContractApiLike;
+    trellis?: ContractApiLike | undefined;
+  };
+  readonly [CONTRACT_JOBS_METADATA]?: ContractJobsMetadata;
+  readonly [CONTRACT_KV_METADATA]?: ContractKvMetadata;
+};
+
+type BoundServiceOwnedApi<TContract extends BoundServiceContractLike> =
+  & TContract["API"]["owned"]
+  & TrellisAPI;
+
+type BoundServiceTrellisApi<TContract extends BoundServiceContractLike> =
+  [NonNullable<TContract["API"]["trellis"]>] extends [never]
+    ? BoundServiceOwnedApi<TContract>
+    : NonNullable<TContract["API"]["trellis"]> extends ContractApiLike
+      ? NonNullable<TContract["API"]["trellis"]> & TrellisAPI
+    : BoundServiceOwnedApi<TContract>;
+
+type BoundServiceJobsOf<TContract extends BoundServiceContractLike> =
+  NonNullable<TContract[typeof CONTRACT_JOBS_METADATA]> extends
+    ContractJobsMetadata ? NonNullable<TContract[typeof CONTRACT_JOBS_METADATA]>
+    : {};
+
+type BoundServiceKvOf<TContract extends BoundServiceContractLike> =
+  NonNullable<TContract[typeof CONTRACT_KV_METADATA]> extends ContractKvMetadata
+    ? NonNullable<TContract[typeof CONTRACT_KV_METADATA]>
+    : ContractKvMetadata;
+
+/**
+ * Contract-derived service wrapper returned by `TrellisService.with(deps)`.
+ *
+ * Use this helper for exported service-local aliases instead of writing the
+ * lower-level `BoundTrellisService<ownedApi, trellisApi, jobs, kv, deps>` stack.
+ */
+export type BoundServiceOf<
+  TContract extends BoundServiceContractLike,
+  TDeps = unknown,
+> = BoundTrellisService<
+  BoundServiceOwnedApi<TContract>,
+  BoundServiceTrellisApi<TContract>,
+  BoundServiceJobsOf<TContract>,
+  BoundServiceKvOf<TContract>,
+  TDeps
+>;
+
 const MANAGED_JOB_WORKERS = Symbol("trellis.managedJobWorkers");
 
 type ManagedJobWorkers = {

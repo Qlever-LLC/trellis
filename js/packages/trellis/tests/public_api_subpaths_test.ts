@@ -15,6 +15,7 @@ import * as healthSurface from "@qlever-llc/trellis/health";
 import * as deviceDeno from "@qlever-llc/trellis/device/deno";
 import * as serviceSurface from "@qlever-llc/trellis/service";
 import type {
+  BoundServiceOf,
   JobArgs,
   JobResult,
   OperationHandler,
@@ -131,6 +132,7 @@ Deno.test("contracts subpath exposes only kind-specific contract helpers", () =>
           version: "v1",
           input: ref.schema("Ping"),
           output: ref.schema("Ping"),
+          errors: [],
         },
       },
     }),
@@ -141,6 +143,13 @@ Deno.test("contracts subpath exposes only kind-specific contract helpers", () =>
     typeof contract.API.trellis.rpc["Example.Ping"].subject,
     "string",
   );
+
+  type BoundExampleService = BoundServiceOf<
+    typeof contract,
+    { readonly prefix: string }
+  >;
+  const expectBoundService = (service: BoundExampleService) => service.handle;
+  assertEquals(typeof expectBoundService, "function");
 });
 
 Deno.test("generated SDK exports handler aliases for extracted handlers", () => {

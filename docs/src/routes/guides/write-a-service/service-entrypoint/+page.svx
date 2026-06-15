@@ -47,6 +47,10 @@ operation, job, and event listener handlers. It does not replace Trellis runtime
 resources or contract `uses` dependencies; keep `service` for lifecycle and
 resolved resource handles.
 
+When you need to export or pass the bound wrapper type, use
+`BoundServiceOf<typeof contract, ServiceDeps>` from `@qlever-llc/trellis/service`
+instead of spelling the lower-level service generics by hand.
+
 {/snippet}
 {#snippet rust()}
 

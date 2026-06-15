@@ -77,6 +77,9 @@ commands.
   `contract.ts`; multi-contract services use `contracts/*.ts`. Contract source
   files should default-export the `define*Contract(...)` result.
 - Wrap TypeScript Trellis generation in `deno task prepare`.
+- In TypeScript services, when exporting the type returned by
+  `service.with(deps)`, use `BoundServiceOf<typeof contract, ServiceDeps>` from
+  `@qlever-llc/trellis/service` instead of hand-writing service generic stacks.
 - For Deno-first TypeScript integration tests, use
   `@qlever-llc/trellis-test` and `TrellisTestRuntime.start({ trellis: {
   command: ... } })` to start an isolated explicit Trellis control-plane process

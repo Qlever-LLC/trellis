@@ -161,6 +161,11 @@ When handlers need application-owned dependencies, bind them once during startup
 with `service.with(deps)` and register through the returned wrapper:
 
 ```ts
+import type { BoundServiceOf } from "@qlever-llc/trellis/service";
+
+type ServiceDeps = { db: Db; logger: Logger };
+export type OrdersApp = BoundServiceOf<typeof contract, ServiceDeps>;
+
 const app = service.with({ db, logger });
 
 await app.handle.rpc.orders.get(async ({ input, client, deps }) => {
