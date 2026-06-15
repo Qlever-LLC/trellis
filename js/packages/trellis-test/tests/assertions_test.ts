@@ -20,11 +20,13 @@ import {
   assertNoEventDuring,
   assertOperationCompleted,
   assertRpcErr,
+  assertRpcEventuallyOk,
   assertRpcOk,
   type TrellisTestAssertionEventCapture,
   type TrellisTestEventByName,
+  waitFor,
+  type WaitForOptions,
 } from "../index.ts";
-import type { WaitForOptions } from "../src/types.ts";
 
 type SerializableTestError = {
   id: string;
@@ -124,6 +126,45 @@ class IdentityChangingCapture extends FakeCapture {
   }
 }
 
+class DirectMultiEventCaptureLike {
+  readonly #events: TestEvent[] = [];
+
+  constructor(events: readonly TestEvent[] = []) {
+    this.#events.push(...events);
+  }
+
+  all(): ReadonlyArray<TestEvent>;
+  all<TEventName extends TestEvent["event"]>(
+    name: TEventName,
+  ): ReadonlyArray<TrellisTestEventByName<TestEvent, TEventName>>;
+  all<TEventName extends TestEvent["event"]>(
+    name?: TEventName,
+  ):
+    | ReadonlyArray<TestEvent>
+    | ReadonlyArray<TrellisTestEventByName<TestEvent, TEventName>> {
+    if (name === undefined) return [...this.#events];
+    return this.#events.filter((event): event is TrellisTestEventByName<
+      TestEvent,
+      TEventName
+    > => isTestEvent(event, name));
+  }
+
+  async waitFor<TEventName extends TestEvent["event"]>(
+    name: TEventName,
+    predicate?: (
+      event: TrellisTestEventByName<TestEvent, TEventName>,
+    ) => boolean | Promise<boolean>,
+    opts?: WaitForOptions,
+  ): Promise<TrellisTestEventByName<TestEvent, TEventName>> {
+    return await waitFor(async () => {
+      for (const event of this.all(name)) {
+        if (predicate === undefined || await predicate(event)) return event;
+      }
+      return false;
+    }, opts);
+  }
+}
+
 function changed(
   id: string,
   value = "updated",
@@ -215,6 +256,33 @@ Deno.test("assertEventCaptured narrows selected event predicate and return", asy
   assertEquals(value, "updated");
 });
 
+Deno.test("assertEventCaptured uses capture-specific waitFor when available", async () => {
+  const expected = changed("entity-1");
+  let usedCaptureWaitFor = false;
+  const capture: TrellisTestAssertionEventCapture<TestEvent> = {
+    all: () => [],
+    waitFor: async (name, predicate) => {
+      usedCaptureWaitFor = true;
+      if (!isTestEvent(expected, name)) {
+        throw new Error(`unexpected event ${name}`);
+      }
+      if (predicate !== undefined && !await predicate(expected)) {
+        throw new Error("predicate rejected event");
+      }
+      return expected;
+    },
+  };
+
+  const event = await assertEventCaptured(
+    capture,
+    "Entity.Changed",
+    (record) => record.payload.value === "updated",
+  );
+
+  assertEquals(event, expected);
+  assertEquals(usedCaptureWaitFor, true);
+});
+
 Deno.test("assertEventCaptured failure lists captured events", async () => {
   const capture = new FakeCapture([changed("entity-1")]);
 
@@ -278,6 +346,51 @@ Deno.test("assertEventsCaptured narrows object predicate by event name", async (
   ]);
 
   assertEquals(events, [event]);
+});
+
+Deno.test("event assertions accept direct multi-event capture-like shape", async () => {
+  const changedEvent = changed("entity-1", "direct");
+  const deletedEvent = deleted("entity-2");
+  const capture = new DirectMultiEventCaptureLike([changedEvent, deletedEvent]);
+
+  const event = await assertEventCaptured(
+    capture,
+    "Entity.Changed",
+    (record) => {
+      const value: string = record.payload.value;
+      return value === "direct";
+    },
+  );
+  const changedValue: string = event.payload.value;
+
+  const events = await assertEventsCaptured(capture, [
+    {
+      event: "Entity.Deleted",
+      predicate: (record) => {
+        const id: string = record.payload.id;
+        return id === "entity-2";
+      },
+    },
+    {
+      event: "Entity.Changed",
+      predicate: (record) => {
+        const nestedA: number | undefined = record.payload.nested?.a;
+        return nestedA === 1;
+      },
+    },
+  ]);
+
+  await assertNoEventCaptured(
+    capture,
+    "Entity.Deleted",
+    (record) => {
+      const id: string = record.payload.id;
+      return id === "missing";
+    },
+  );
+
+  assertEquals(changedValue, "direct");
+  assertEquals(events, [deletedEvent, changedEvent]);
 });
 
 Deno.test("assertEventsCaptured supports ordered matching", async () => {
@@ -435,6 +548,15 @@ Deno.test("assertJobCompleted accepts terminal and waitable jobs", async () => {
   assertEquals(await assertJobCompleted(waitable, { ok: true }), terminal);
 });
 
+Deno.test("assertJobCompleted accepts generated orThrow wait result", async () => {
+  const terminal = completedJob({ ok: true });
+  const waitable = {
+    wait: () => ({ orThrow: () => Promise.resolve(terminal) }),
+  };
+
+  assertEquals(await assertJobCompleted(waitable, { ok: true }), terminal);
+});
+
 Deno.test("assertJobCompleted fails for non-completed job and result mismatch", async () => {
   const failed: TerminalJob<unknown, { ok: boolean }> = {
     ...completedJob({ ok: false }),
@@ -466,6 +588,18 @@ Deno.test("assertOperationCompleted accepts terminal and waitable operations", a
     await assertOperationCompleted(terminal, { nested: { a: 1 } }),
     terminal,
   );
+  assertEquals(
+    await assertOperationCompleted(waitable, { ok: true }),
+    terminal,
+  );
+});
+
+Deno.test("assertOperationCompleted accepts generated orThrow wait result", async () => {
+  const terminal = terminalOperation("completed", { ok: true });
+  const waitable = {
+    wait: () => ({ orThrow: () => Promise.resolve(terminal) }),
+  };
+
   assertEquals(
     await assertOperationCompleted(waitable, { ok: true }),
     terminal,
@@ -515,6 +649,74 @@ Deno.test("assertRpcOk fails for Err and expected mismatch", async () => {
     Error,
   );
   assertStringIncludes(expectedError.message, "result.value.ok mismatch");
+});
+
+Deno.test("assertRpcEventuallyOk polls Err until Ok and returns value", async () => {
+  let calls = 0;
+
+  const value = await assertRpcEventuallyOk(
+    waitFor,
+    () => {
+      calls += 1;
+      return calls < 3
+        ? Result.err<TestError, { readonly ok: boolean }>(
+          new TestError("not yet"),
+        )
+        : Result.ok({ ok: true });
+    },
+    undefined,
+    { timeoutMs: 50, intervalMs: 1 },
+  );
+
+  assertEquals(value, { ok: true });
+  assertEquals(calls, 3);
+});
+
+Deno.test("assertRpcEventuallyOk waits for expected partial to match", async () => {
+  let calls = 0;
+  const runtime = { waitFor };
+
+  const value = await assertRpcEventuallyOk(
+    runtime,
+    () => {
+      calls += 1;
+      return Result.ok({ id: "entity-1", revision: calls });
+    },
+    { revision: 3 },
+    { timeoutMs: 50, intervalMs: 1 },
+  );
+
+  assertEquals(value, { id: "entity-1", revision: 3 });
+});
+
+Deno.test("assertRpcEventuallyOk failure includes last Err or mismatch", async () => {
+  const errError = await assertRejects(
+    () =>
+      assertRpcEventuallyOk(
+        waitFor,
+        () =>
+          Result.err<TestError, { readonly ok: boolean }>(
+            new TestError("still missing"),
+          ),
+        undefined,
+        { timeoutMs: 3, intervalMs: 1 },
+      ),
+    Error,
+  );
+  assertStringIncludes(errError.message, "last Err TestError: still missing");
+
+  const mismatchError = await assertRejects(
+    () =>
+      assertRpcEventuallyOk(
+        waitFor,
+        () => Result.ok({ ok: false }),
+        { ok: true },
+        { timeoutMs: 3, intervalMs: 1 },
+      ),
+    Error,
+  );
+  assertStringIncludes(mismatchError.message, "last expected mismatch");
+  assertStringIncludes(mismatchError.message, "result.value.ok mismatch");
 });
 
 Deno.test("assertRpcErr accepts Result and AsyncResult with name or constructor", async () => {
