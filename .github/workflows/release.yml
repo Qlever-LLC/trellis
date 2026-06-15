@@ -691,7 +691,7 @@ jobs:
 
   publish-crates:
     name: Publish Rust crates
-    if: needs.prepare-release.outputs.should-publish == 'true'
+    if: always() && needs.prepare-release.outputs.should-publish == 'true' && needs.release-gate.result == 'success' && needs.github-release.result == 'success'
     needs:
       - prepare-release
       - release-gate
@@ -833,7 +833,7 @@ jobs:
 
   publish-npm:
     name: Publish npm packages
-    if: needs.prepare-release.outputs.should-publish == 'true'
+    if: always() && needs.prepare-release.outputs.should-publish == 'true' && needs.github-release.result == 'success' && needs.verify-js.result == 'success'
     needs:
       - prepare-release
       - github-release
@@ -943,7 +943,7 @@ jobs:
 
   publish-jsr:
     name: Publish JSR packages
-    if: needs.prepare-release.outputs.should-publish == 'true'
+    if: always() && needs.prepare-release.outputs.should-publish == 'true' && needs.github-release.result == 'success' && needs.verify-js.result == 'success'
     needs:
       - prepare-release
       - github-release
@@ -1062,7 +1062,7 @@ jobs:
 
   publish-images:
     name: Publish ${{ matrix.image }} image
-    if: needs.prepare-release.outputs.should-publish == 'true'
+    if: always() && needs.prepare-release.outputs.should-publish == 'true' && needs.release-gate.result == 'success' && needs.github-release.result == 'success'
     needs:
       - prepare-release
       - release-gate
