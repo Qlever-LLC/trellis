@@ -13,7 +13,7 @@ WORKDIR /app/js/portals/login
 
 RUN deno task build:static:prebuilt
 
-FROM docker.io/denoland/deno:2.7.7 AS runtime
+FROM docker.io/denoland/deno:2.8.2 AS runtime
 
 WORKDIR /app
 
