@@ -1309,11 +1309,34 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     lines.push(String::new());
     lines.push("export { OWNED_API };".to_string());
     lines.push(String::new());
+    lines.extend([
+        "type __TrellisGeneratedOptionalOperationProgress<TDesc> = TDesc extends { progress: infer TProgress }".to_string(),
+        "  ? { progress?: TProgress }".to_string(),
+        "  : { progress?: undefined };".to_string(),
+        "type __TrellisGeneratedOptionalOperationOutput<TDesc> = TDesc extends { output: infer TOutput }".to_string(),
+        "  ? { output?: TOutput }".to_string(),
+        "  : { output?: undefined };".to_string(),
+        "type __TrellisGeneratedOptionalOperationIO<TDesc> = TDesc extends { input: infer TInput }".to_string(),
+        "  ? Omit<TDesc, \"input\" | \"progress\" | \"output\"> & {".to_string(),
+        "    input: TInput;".to_string(),
+        "  } & __TrellisGeneratedOptionalOperationProgress<TDesc>".to_string(),
+        "    & __TrellisGeneratedOptionalOperationOutput<TDesc>".to_string(),
+        "  : TDesc;".to_string(),
+        "type __TrellisGeneratedOperationApi<TApi> = {".to_string(),
+        "  readonly [K in keyof TApi]: __TrellisGeneratedOptionalOperationIO<TApi[K]>;".to_string(),
+        "};".to_string(),
+    ]);
+    lines.push(String::new());
     lines.extend(render_used_api_type_ts(&uses));
     lines.push(String::new());
     lines.extend(render_used_api_ts(&uses));
     lines.push(String::new());
-    lines.push("export type OwnedApi = typeof OWNED_API;".to_string());
+    lines.push("export type OwnedApi = Omit<typeof OWNED_API, \"operations\"> & {".to_string());
+    lines.push(
+        "  operations: __TrellisGeneratedOperationApi<typeof OWNED_API[\"operations\"]>;"
+            .to_string(),
+    );
+    lines.push("};".to_string());
     lines.push("export type Api = {".to_string());
     lines.push("  rpc: OwnedApi[\"rpc\"] & UsedApi[\"rpc\"];".to_string());
     lines.push("  operations: OwnedApi[\"operations\"] & UsedApi[\"operations\"];".to_string());
@@ -1322,12 +1345,15 @@ fn render_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
     lines.push("  subjects: OwnedApi[\"subjects\"] & UsedApi[\"subjects\"];".to_string());
     lines.push("};".to_string());
     lines.push(String::new());
-    lines.push("export const API = {".to_string());
+    lines.push("export type ApiViews = {".to_string());
+    lines.push("  owned: OwnedApi;".to_string());
+    lines.push("  used: UsedApi;".to_string());
+    lines.push("};".to_string());
+    lines.push(String::new());
+    lines.push("export const API: ApiViews = {".to_string());
     lines.push("  owned: OWNED_API,".to_string());
     lines.push("  used: USED_API,".to_string());
-    lines.push("} as const;".to_string());
-    lines.push(String::new());
-    lines.push("export type ApiViews = typeof API;".to_string());
+    lines.push("};".to_string());
     lines.push(String::new());
 
     format!(
@@ -1367,12 +1393,16 @@ fn render_used_api_type_ts(uses: &[ClientUseDependency]) -> Vec<String> {
         for use_dep in uses {
             let namespace = api_dependency_namespace(&use_dep.namespace);
             for key in selected_used_api_keys(use_dep, selectors) {
-                lines.push(format!(
-                    "    readonly {}: typeof {}.{field}[{}];",
-                    js_string(key),
-                    namespace,
-                    js_string(key)
-                ));
+                let descriptor = if matches!(selectors, UsedApiSelectors::OperationCall) {
+                    format!(
+                        "__TrellisGeneratedOptionalOperationIO<typeof {}.{field}[{}]>",
+                        namespace,
+                        js_string(key)
+                    )
+                } else {
+                    format!("typeof {}.{field}[{}]", namespace, js_string(key))
+                };
+                lines.push(format!("    readonly {}: {};", js_string(key), descriptor));
             }
         }
         lines.push("  };".to_string());
@@ -3356,7 +3386,11 @@ mod tests {
         assert!(owned_api.contains("import type * as Types from \"./types.ts\";"));
         assert!(owned_api.contains("export const OWNED_API = {"));
         assert!(api.contains("import { OWNED_API } from \"./owned_api.ts\";"));
-        assert!(api.contains("export const API = {"));
+        assert!(!api.contains("import type { OperationDesc }"));
+        assert!(api.contains("type __TrellisGeneratedOptionalOperationIO<TDesc>"));
+        assert!(api.contains("progress?: TProgress"));
+        assert!(api.contains("output?: TOutput"));
+        assert!(api.contains("export const API: ApiViews = {"));
         assert!(api.contains("owned: OWNED_API"));
         assert!(api.contains("export const USED_API: UsedApi = {"));
         assert!(api.contains("used: USED_API"));
@@ -3379,6 +3413,11 @@ mod tests {
         assert!(owned_api.contains("subscribeCapabilities: [\"service\"]"));
         assert!(!api.contains("...OWNED_API.feeds"));
         assert!(api.contains("export type Api = {"));
+        assert!(api.contains("export type OwnedApi = Omit<typeof OWNED_API, \"operations\"> & {"));
+        assert!(api.contains(
+            "operations: __TrellisGeneratedOperationApi<typeof OWNED_API[\"operations\"]>;"
+        ));
+        assert!(api.contains("export type ApiViews = {"));
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -3764,6 +3803,9 @@ mod tests {
         );
         assert!(api.contains("export const USED_API: UsedApi = {"));
         assert!(api.contains("\"Jobs.Get\": typeof JobsApi.rpc[\"Jobs.Get\"]"));
+        assert!(api.contains(
+            "\"Jobs.Run\": __TrellisGeneratedOptionalOperationIO<typeof JobsApi.operations[\"Jobs.Run\"]>"
+        ));
         assert!(api.contains("\"Jobs.Get\"() { return JobsApi.rpc[\"Jobs.Get\"]"));
         assert!(api.contains("\"Jobs.Run\"() { return JobsApi.operations[\"Jobs.Run\"]"));
         assert!(api.contains("\"Jobs.Updated\"() { return JobsApi.events[\"Jobs.Updated\"]"));

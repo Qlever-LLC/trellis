@@ -542,14 +542,14 @@ export type OperationInputOf<
 export type OperationProgressOf<
   TA extends AnyTrellisAPI,
   O extends OperationsOf<TA>,
-> = TA["operations"][O] extends { progress: infer TProgress }
+> = TA["operations"][O] extends { progress?: infer TProgress }
   ? TProgress extends undefined ? unknown
   : InferSchemaType<NonNullable<TProgress>>
   : unknown;
 export type OperationOutputOf<
   TA extends AnyTrellisAPI,
   O extends OperationsOf<TA>,
-> = TA["operations"][O] extends { output: infer TOutput }
+> = TA["operations"][O] extends { output?: infer TOutput }
   ? TOutput extends undefined ? unknown : InferSchemaType<NonNullable<TOutput>>
   : unknown;
 export type OperationRuntimeHandle<TProgress = unknown, TOutput = unknown> = {

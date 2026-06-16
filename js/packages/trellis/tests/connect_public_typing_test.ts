@@ -8,8 +8,11 @@ import {
   defineAppContract,
   defineDeviceContract,
   defineServiceContract,
+  type HandlerTrellis,
+  type TrellisAPI,
   TrellisClient,
   TrellisDevice,
+  type TrellisErrorInstance,
 } from "../index.ts";
 import { checkDeviceActivation } from "../device/deno.ts";
 import { API as CORE_API, type Client as CoreClient } from "../sdk/core.ts";
@@ -25,7 +28,12 @@ import type {
   TrellisServiceSqlOutboxOptions,
 } from "../service/mod.ts";
 import { StoreHandle } from "../server/mod.ts";
-import { Trellis, type TrellisAuth, type TrellisOpts } from "../trellis.ts";
+import {
+  type RpcHandlerContext,
+  Trellis,
+  type TrellisAuth,
+  type TrellisOpts,
+} from "../trellis.ts";
 
 // @ts-expect-error root package does not expose the raw runtime class.
 import type { Trellis as RootTrellis } from "../index.ts";
@@ -102,6 +110,9 @@ const serviceSchemas = {
   }),
   SyncPayload: Type.Object({ id: Type.String() }),
   SyncResult: Type.Object({ ok: Type.Boolean() }),
+  RebuildInput: Type.Object({ id: Type.String() }),
+  RebuildProgress: Type.Object({ step: Type.String() }),
+  RebuildOutput: Type.Object({ ok: Type.Boolean() }),
 } as const;
 
 const serviceContract = defineServiceContract(
@@ -125,6 +136,14 @@ const serviceContract = defineServiceContract(
         event: ref.schema("ServiceChanged"),
       },
     },
+    operations: {
+      "Service.Rebuild": {
+        version: "v1",
+        input: ref.schema("RebuildInput"),
+        progress: ref.schema("RebuildProgress"),
+        output: ref.schema("RebuildOutput"),
+      },
+    },
     jobs: {
       sync: {
         payload: ref.schema("SyncPayload"),
@@ -133,6 +152,77 @@ const serviceContract = defineServiceContract(
     },
   }),
 );
+
+const generatedStyleOwnedApi = {
+  rpc: serviceContract.API.owned.rpc,
+  operations: {
+    "Service.Rebuild": {
+      ...serviceContract.API.owned.operations["Service.Rebuild"],
+      progress: serviceContract.API.owned.operations["Service.Rebuild"]
+        .progress!,
+      output: serviceContract.API.owned.operations["Service.Rebuild"].output!,
+    },
+  },
+  events: serviceContract.API.owned.events,
+  feeds: serviceContract.API.owned.feeds,
+  subjects: serviceContract.API.owned.subjects,
+} satisfies TrellisAPI;
+
+type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
+type GeneratedOptionalOperationProgress<TDesc> = TDesc extends {
+  progress: infer TProgress;
+} ? { progress?: TProgress }
+  : { progress?: undefined };
+type GeneratedOptionalOperationOutput<TDesc> = TDesc extends {
+  output: infer TOutput;
+} ? { output?: TOutput }
+  : { output?: undefined };
+type GeneratedOptionalOperationIO<TDesc> = TDesc extends { input: infer TInput }
+  ?
+    & Omit<TDesc, "input" | "progress" | "output">
+    & {
+      input: TInput;
+    }
+    & GeneratedOptionalOperationProgress<TDesc>
+    & GeneratedOptionalOperationOutput<TDesc>
+  : TDesc;
+type GeneratedOperationApi<TApi> = {
+  readonly [K in keyof TApi]: GeneratedOptionalOperationIO<TApi[K]>;
+};
+type GeneratedOwnedApi = Omit<typeof generatedStyleOwnedApi, "operations"> & {
+  operations: GeneratedOperationApi<
+    typeof generatedStyleOwnedApi["operations"]
+  >;
+};
+type GeneratedApi = {
+  rpc: GeneratedOwnedApi["rpc"];
+  operations: GeneratedOwnedApi["operations"];
+  events: GeneratedOwnedApi["events"];
+  feeds: GeneratedOwnedApi["feeds"];
+  subjects: GeneratedOwnedApi["subjects"];
+};
+type GeneratedHandlerClient = HandlerTrellis<GeneratedApi>;
+type GeneratedServicePingHandlerResult = Result<
+  { ok: boolean },
+  TrellisErrorInstance
+>;
+type GeneratedServicePingHandler<TDeps = undefined> = (
+  args: {
+    input: { value: string };
+    context: RpcHandlerContext;
+    client: GeneratedHandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | GeneratedServicePingHandlerResult
+  | Promise<GeneratedServicePingHandlerResult>;
+
+const generatedStylePingHandler: GeneratedServicePingHandler<{
+  label: string;
+}> = ({ input, client, deps }) => {
+  const id = `${deps.label}:${input.value}`;
+  void client.operation.service.rebuild.start({ id });
+  return Result.ok({ ok: id.length > 0 });
+};
 
 declare const connectedAppClient: ConnectedTrellisClient<typeof appContract>;
 declare const coreClient: CoreClient;
@@ -365,6 +455,7 @@ async function typecheckServiceConnectSurface() {
     client.event.service.changed.prepare({ id: "one", value: label });
     return Result.ok({ ok: value.length > 0 });
   });
+  await bound.handle.rpc.service.ping(generatedStylePingHandler);
   await bound.event.service.changed.listen(
     ({ event, context, client, deps }) => {
       const id: string = event.id;
@@ -408,6 +499,8 @@ async function typecheckServiceSqlOutboxSurface() {
       }).orThrow();
       return Result.ok({ ok: true });
     });
+  await service.withSqlOutbox(sqlOutbox).with({ label: "bound" })
+    .handle.rpc.service.ping(generatedStylePingHandler);
 
   await service.withSqlOutbox(sqlOutbox).with({ label: "bound" })
     .event.service.changed.listen(async ({ event, context, deps, outbox }) => {
