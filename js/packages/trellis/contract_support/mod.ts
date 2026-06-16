@@ -1535,6 +1535,8 @@ type ProjectedRpc<
 type ProjectedOperations<
   T,
   TSchemas,
+  TId,
+  TCapabilities,
 > = T extends Readonly<Record<string, ContractSourceOperation>> ? {
     [K in keyof T]:
       & OperationDesc<
@@ -1542,10 +1544,86 @@ type ProjectedOperations<
         ResolveSchemaFromMap<TSchemas, T[K]["progress"]>,
         ResolveSchemaFromMap<TSchemas, T[K]["output"]>
       >
+      & {
+        subject: ProjectedOperationSubject<K, T[K]>;
+        callerCapabilities: ProjectedOperationCapabilities<
+          T[K],
+          "call",
+          TId,
+          TCapabilities
+        >;
+        observeCapabilities: ProjectedOperationCapabilities<
+          T[K],
+          "observe",
+          TId,
+          TCapabilities
+        >;
+        cancelCapabilities: ProjectedOperationCapabilities<
+          T[K],
+          "cancel",
+          TId,
+          TCapabilities
+        >;
+        controlCapabilities: ProjectedOperationCapabilities<
+          T[K],
+          "control",
+          TId,
+          TCapabilities
+        >;
+      }
       & (T[K]["transfer"] extends undefined ? {}
-        : { transfer: T[K]["transfer"] });
+        : { transfer: T[K]["transfer"] })
+      & (T[K] extends { cancel: infer TCancel extends boolean }
+        ? { cancel: TCancel }
+        : {});
   }
   : {};
+
+type ProjectedOperationSubject<TKey, TOperation> = TOperation extends {
+  subject: infer TSubject extends string;
+} ? TSubject
+  : TOperation extends { version: infer TVersion extends `v${number}` }
+    ? `operations.${TVersion}.${Extract<TKey, string>}`
+  : string;
+
+type ProjectedCapabilityNamespace<TId extends string> = TId extends
+  `${infer TNamespace}@v${number}` ? TNamespace
+  : TId;
+
+type ProjectedCapability<
+  TCapability,
+  TId,
+  TCapabilities,
+> = TCapability extends string
+  ? TCapability extends PlatformCapability | GlobalCapability ? TCapability
+  : TCapability extends Extract<keyof NonNullable<TCapabilities>, string>
+    ? `${ProjectedCapabilityNamespace<Extract<TId, string>>}::${TCapability}`
+  : TCapability
+  : never;
+
+type ProjectedCapabilityList<
+  TList,
+  TId,
+  TCapabilities,
+> = TList extends readonly string[] ? {
+    readonly [K in keyof TList]: ProjectedCapability<
+      TList[K],
+      TId,
+      TCapabilities
+    >;
+  }
+  : readonly [];
+
+type ProjectedOperationCapabilities<
+  TOperation,
+  TKind extends "call" | "observe" | "cancel" | "control",
+  TId,
+  TCapabilities,
+> = TOperation extends { capabilities: infer TOperationCapabilities }
+  ? TOperationCapabilities extends { [K in TKind]?: infer TList }
+    ? ProjectedCapabilityList<TList, TId, TCapabilities>
+  : readonly []
+  : readonly [];
 
 type ProjectedEvents<
   T,
@@ -1570,6 +1648,8 @@ type ProjectedFeeds<
 
 export type OwnedApiFromSource<
   T extends {
+    id?: unknown;
+    capabilities?: unknown;
     schemas?: Readonly<Record<string, TSchema>>;
     errors?: unknown;
     rpc?: unknown;
@@ -1579,7 +1659,12 @@ export type OwnedApiFromSource<
   },
 > = {
   rpc: ProjectedRpc<T["rpc"], T["schemas"], T["errors"]>;
-  operations: ProjectedOperations<T["operations"], T["schemas"]>;
+  operations: ProjectedOperations<
+    T["operations"],
+    T["schemas"],
+    T["id"],
+    T["capabilities"]
+  >;
   events: ProjectedEvents<T["events"], T["schemas"]>;
   feeds: ProjectedFeeds<T["feeds"], T["schemas"]>;
   subjects: {};

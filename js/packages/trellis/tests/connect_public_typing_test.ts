@@ -115,12 +115,20 @@ const serviceSchemas = {
   RebuildOutput: Type.Object({ ok: Type.Boolean() }),
 } as const;
 
+const serviceCapabilities = {
+  sync: {
+    displayName: "Sync service data",
+    description: "Start service synchronization workflows.",
+  },
+} as const;
+
 const serviceContract = defineServiceContract(
   { schemas: serviceSchemas },
   (ref) => ({
     id: "trellis.connect-typing-service@v1",
     displayName: "Connect Typing Service",
     description: "Typecheck the public service connect helper.",
+    capabilities: serviceCapabilities,
     rpc: {
       "Service.Ping": {
         version: "v1",
@@ -142,6 +150,8 @@ const serviceContract = defineServiceContract(
         input: ref.schema("RebuildInput"),
         progress: ref.schema("RebuildProgress"),
         output: ref.schema("RebuildOutput"),
+        capabilities: { call: ["sync"] },
+        cancel: true,
       },
     },
     jobs: {
@@ -161,6 +171,8 @@ const generatedStyleOwnedApi = {
       progress: serviceContract.API.owned.operations["Service.Rebuild"]
         .progress!,
       output: serviceContract.API.owned.operations["Service.Rebuild"].output!,
+      callerCapabilities: ["trellis.connect-typing-service::sync"] as const,
+      cancel: true,
     },
   },
   events: serviceContract.API.owned.events,
