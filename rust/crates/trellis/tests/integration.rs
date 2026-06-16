@@ -38,7 +38,6 @@ mod app_identity_approval;
 mod device_activation;
 
 #[test]
-#[ignore]
 fn rust_integration_manifest_conforms_to_shared_matrix() {
     support::cases::assert_rust_manifest_conforms_to_matrix();
 }

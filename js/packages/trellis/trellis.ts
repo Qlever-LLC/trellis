@@ -1386,6 +1386,8 @@ type EventCallback<TMessage> = {
 export type RpcHandlerContext = {
   caller: SessionCaller;
   sessionKey: string;
+  requestId?: string;
+  traceId?: string;
 };
 
 export type HandlerTrellis<
@@ -3437,6 +3439,10 @@ export class Trellis<
 
         let caller: SessionCaller;
         const callerSessionKey = msg.headers?.get("session-key") ?? "";
+        const handlerRequestIdFromHeader = msg.headers?.get("request-id") ?? "";
+        const handlerTraceIdFromHeader = traceIdFromTraceparent(
+          msg.headers?.get("traceparent"),
+        );
 
         const authRequired = ctx.authRequired ?? true;
         if (!authRequired) {
@@ -3707,6 +3713,8 @@ export class Trellis<
               context: {
                 caller,
                 sessionKey: callerSessionKey,
+                requestId: handlerRequestIdFromHeader || undefined,
+                traceId: handlerTraceIdFromHeader || undefined,
               },
               client: handlerTrellis,
             }),

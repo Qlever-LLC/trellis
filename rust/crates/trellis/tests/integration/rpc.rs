@@ -2,14 +2,18 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::task::JoinHandle;
-use trellis_rs::client::RpcDescriptor;
-use trellis_rs::service::GeneratedServiceContract;
+use trellis_rs::client::{RpcDescriptor, ServiceConnectWithContractOptions, TrellisClient};
+use trellis_rs::service::{
+    ConnectedServiceRuntime, DeclaredRpcError, GeneratedServiceContract, ServerError,
+};
 
 use crate::support::assertions::assert_case_registered;
 
 const RPC_SERVICE_ID: &str = "trellis.integration.rpc-service@v1";
 const RPC_CLIENT_ID: &str = "trellis.integration.rpc-client@v1";
+const RPC_UNAUTHORIZED_CLIENT_ID: &str = "trellis.integration.rpc-unauthorized-client@v1";
 const RPC_READ_CAPABILITY: &str = "trellis.integration.rpc-service::read";
 
 const RPC_SERVICE_CONTRACT_JSON: &str = r#"{
@@ -39,6 +43,12 @@ const RPC_SERVICE_CONTRACT_JSON: &str = r#"{
       }
     }
   },
+  "errors": {
+    "NOT_FOUND": {
+      "type": "NOT_FOUND",
+      "schema": { "schema": "EntityGetInput" }
+    }
+  },
   "uses": {
     "required": {
       "health": {
@@ -53,16 +63,17 @@ const RPC_SERVICE_CONTRACT_JSON: &str = r#"{
       "subject": "rpc.v1.Entity.Get",
       "input": { "schema": "EntityGetInput" },
       "output": { "schema": "EntityGetOutput" },
-      "capabilities": { "call": ["trellis.integration.rpc-service::read"] }
+      "capabilities": { "call": ["trellis.integration.rpc-service::read"] },
+      "errors": [{ "type": "NOT_FOUND" }]
     }
   }
 }"#;
 
 struct RpcServiceContract;
 
-impl trellis_rs::service::GeneratedServiceContract for RpcServiceContract {
+impl GeneratedServiceContract for RpcServiceContract {
     const CONTRACT_ID: &'static str = RPC_SERVICE_ID;
-    const CONTRACT_DIGEST: &'static str = "y2lpc8Io-6ZzgG-2nBbKxKPIOzRHJo_14DNY-VAq_y4";
+    const CONTRACT_DIGEST: &'static str = "";
     const CONTRACT_JSON: &'static str = RPC_SERVICE_CONTRACT_JSON;
 }
 
@@ -79,20 +90,24 @@ struct EntityGetOutput {
 
 struct EntityGetRpc;
 
-impl trellis_rs::client::RpcDescriptor for EntityGetRpc {
+impl RpcDescriptor for EntityGetRpc {
     type Input = EntityGetInput;
     type Output = EntityGetOutput;
 
     const KEY: &'static str = "Entity.Get";
     const SUBJECT: &'static str = "rpc.v1.Entity.Get";
     const CALLER_CAPABILITIES: &'static [&'static str] = &[RPC_READ_CAPABILITY];
-    const ERRORS: &'static [&'static str] = &[];
+    const ERRORS: &'static [&'static str] = &["NOT_FOUND"];
 }
 
 #[derive(Debug)]
 struct ObservedRpcRequest {
     subject: String,
     required_capabilities: Option<Vec<String>>,
+    caller: Option<Value>,
+    session_key: Option<String>,
+    request_id: Option<String>,
+    traceparent: Option<String>,
 }
 
 struct AbortOnDrop<T> {
@@ -122,10 +137,15 @@ impl<T> Drop for AbortOnDrop<T> {
     }
 }
 
+type RpcServiceRuntime = ConnectedServiceRuntime<RpcServiceContract>;
+
+fn service_name() -> &'static str {
+    "rpc-fixture-service"
+}
+
 #[tokio::test]
-#[ignore]
-async fn rpc_client_calls_service() {
-    assert_case_registered("rpc.client-calls-service", "rpc", "rpc");
+async fn rpc_client_calls_service_success() {
+    assert_case_registered("rpc.client-calls-service-success", "rpc", "rpc");
 
     let runtime =
         trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
@@ -140,21 +160,36 @@ async fn rpc_client_calls_service() {
     let service_contract =
         trellis_test::TrellisTestContract::from_manifest_json(RpcServiceContract::CONTRACT_JSON)
             .expect("build RPC service test contract");
-    assert_eq!(
-        service_contract.digest(),
-        RpcServiceContract::CONTRACT_DIGEST
-    );
     let client_contract = rpc_client_contract().expect("build RPC client test contract");
 
     let service_key = admin
         .provision_service_instance(&bootstrap_url, &service_contract, None, None)
         .await
         .expect("provision live RPC service instance");
-    let mut service = trellis_rs::service::ConnectedServiceRuntime::<RpcServiceContract>::connect(
-        runtime.service_connect_options("rpc-fixture-service", &service_key),
+    let contract_digest = service_contract.digest().to_string();
+
+    let trellis_url = runtime.trellis_url().to_string();
+    let seed = service_key.seed.clone();
+    let mut service: RpcServiceRuntime = ConnectedServiceRuntime::from_connected_client(
+        service_name(),
+        Arc::new(
+            TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
+                trellis_url: &trellis_url,
+                contract_id: RPC_SERVICE_ID,
+                contract_digest: &contract_digest,
+                contract_json: RPC_SERVICE_CONTRACT_JSON,
+                session_key_seed_base64url: &seed,
+                timeout_ms: trellis_rs::service::DEFAULT_TIMEOUT_MS,
+                retry_delay_ms: trellis_rs::service::DEFAULT_RETRY_DELAY_MS,
+                authority_pending_timeout_ms:
+                    trellis_rs::service::DEFAULT_AUTHORITY_PENDING_TIMEOUT_MS,
+            })
+            .await
+            .expect("connect live Rust RPC service"),
+        ),
     )
-    .await
-    .expect("connect live Rust RPC service");
+    .expect("build connected service runtime");
+
     let observed_requests = Arc::new(tokio::sync::Mutex::new(Vec::<ObservedRpcRequest>::new()));
     let handler_observed_requests = Arc::clone(&observed_requests);
     service.register_rpc::<EntityGetRpc, _, _>(move |context, input| {
@@ -163,6 +198,10 @@ async fn rpc_client_calls_service() {
             observed_requests.lock().await.push(ObservedRpcRequest {
                 subject: context.request().subject.clone(),
                 required_capabilities: context.request().required_capabilities.clone(),
+                caller: None,
+                session_key: None,
+                request_id: None,
+                traceparent: None,
             });
             Ok(EntityGetOutput {
                 id: input.id,
@@ -196,6 +235,242 @@ async fn rpc_client_calls_service() {
     );
 }
 
+#[tokio::test]
+async fn rpc_service_receives_caller_context() {
+    assert_case_registered("rpc.service-receives-caller-context", "rpc", "rpc");
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    let service_contract =
+        trellis_test::TrellisTestContract::from_manifest_json(RpcServiceContract::CONTRACT_JSON)
+            .expect("build RPC service test contract");
+    let client_contract = rpc_client_contract().expect("build RPC client test contract");
+
+    let service_key = admin
+        .provision_service_instance(&bootstrap_url, &service_contract, None, None)
+        .await
+        .expect("provision live RPC service instance");
+    let contract_digest = service_contract.digest().to_string();
+
+    let trellis_url = runtime.trellis_url().to_string();
+    let seed = service_key.seed.clone();
+    let mut service: RpcServiceRuntime = ConnectedServiceRuntime::from_connected_client(
+        service_name(),
+        Arc::new(
+            TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
+                trellis_url: &trellis_url,
+                contract_id: RPC_SERVICE_ID,
+                contract_digest: &contract_digest,
+                contract_json: RPC_SERVICE_CONTRACT_JSON,
+                session_key_seed_base64url: &seed,
+                timeout_ms: trellis_rs::service::DEFAULT_TIMEOUT_MS,
+                retry_delay_ms: trellis_rs::service::DEFAULT_RETRY_DELAY_MS,
+                authority_pending_timeout_ms:
+                    trellis_rs::service::DEFAULT_AUTHORITY_PENDING_TIMEOUT_MS,
+            })
+            .await
+            .expect("connect live Rust RPC service"),
+        ),
+    )
+    .expect("build connected service runtime");
+
+    let observed_requests = Arc::new(tokio::sync::Mutex::new(Vec::<ObservedRpcRequest>::new()));
+    let handler_observed_requests = Arc::clone(&observed_requests);
+    service.register_rpc::<EntityGetRpc, _, _>(move |context, input| {
+        let observed_requests = Arc::clone(&handler_observed_requests);
+        async move {
+            let req = context.request();
+            observed_requests.lock().await.push(ObservedRpcRequest {
+                subject: req.subject.clone(),
+                required_capabilities: req.required_capabilities.clone(),
+                caller: req.caller.clone(),
+                session_key: req.session_key.clone(),
+                request_id: req.request_id.clone(),
+                traceparent: req.traceparent.clone(),
+            });
+            Ok(EntityGetOutput {
+                id: input.id,
+                found: true,
+            })
+        }
+    });
+
+    let service_task = AbortOnDrop::new(tokio::spawn(async move { service.run().await }));
+
+    let client = admin
+        .connect_client(&bootstrap_url, &client_contract)
+        .await
+        .expect("connect live Rust RPC client");
+    let _output = call_entity_get_with_retry(&client, "entity-1").await;
+
+    service_task.abort_and_wait().await;
+    let observed_requests = observed_requests.lock().await;
+    assert_eq!(observed_requests.len(), 1);
+    assert!(observed_requests[0].caller.is_some());
+    assert!(observed_requests[0].session_key.is_some());
+    assert!(observed_requests[0]
+        .session_key
+        .as_ref()
+        .is_some_and(|s| !s.is_empty()));
+    assert!(observed_requests[0].request_id.is_some());
+    assert!(observed_requests[0]
+        .request_id
+        .as_ref()
+        .is_some_and(|s| !s.is_empty()));
+    if let Some(traceparent) = &observed_requests[0].traceparent {
+        assert!(!traceparent.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn rpc_client_receives_declared_error() {
+    assert_case_registered("rpc.client-receives-declared-error", "rpc", "rpc");
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    let service_contract =
+        trellis_test::TrellisTestContract::from_manifest_json(RpcServiceContract::CONTRACT_JSON)
+            .expect("build RPC service test contract");
+    let client_contract = rpc_client_contract().expect("build RPC client test contract");
+
+    let service_key = admin
+        .provision_service_instance(&bootstrap_url, &service_contract, None, None)
+        .await
+        .expect("provision live RPC service instance");
+    let contract_digest = service_contract.digest().to_string();
+
+    let trellis_url = runtime.trellis_url().to_string();
+    let seed = service_key.seed.clone();
+    let mut service: RpcServiceRuntime = ConnectedServiceRuntime::from_connected_client(
+        service_name(),
+        Arc::new(
+            TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
+                trellis_url: &trellis_url,
+                contract_id: RPC_SERVICE_ID,
+                contract_digest: &contract_digest,
+                contract_json: RPC_SERVICE_CONTRACT_JSON,
+                session_key_seed_base64url: &seed,
+                timeout_ms: trellis_rs::service::DEFAULT_TIMEOUT_MS,
+                retry_delay_ms: trellis_rs::service::DEFAULT_RETRY_DELAY_MS,
+                authority_pending_timeout_ms:
+                    trellis_rs::service::DEFAULT_AUTHORITY_PENDING_TIMEOUT_MS,
+            })
+            .await
+            .expect("connect live Rust RPC service"),
+        ),
+    )
+    .expect("build connected service runtime");
+
+    service.register_rpc::<EntityGetRpc, _, _>(move |_context, input| async move {
+        Err(ServerError::DeclaredRpc(DeclaredRpcError::new(
+            "NOT_FOUND",
+            "entity not found",
+            [("data", serde_json::json!({ "id": input.id }))],
+        )))
+    });
+
+    let service_task = AbortOnDrop::new(tokio::spawn(async move { service.run().await }));
+
+    let client = admin
+        .connect_client(&bootstrap_url, &client_contract)
+        .await
+        .expect("connect live Rust RPC client");
+    let result = call_entity_get_expecting_error(&client, "entity-1").await;
+    assert_eq!(result.error_type(), Some("NOT_FOUND"));
+
+    service_task.abort_and_wait().await;
+}
+
+#[tokio::test]
+async fn rpc_denies_client_without_call_authority() {
+    assert_case_registered("rpc.denies-client-without-call-authority", "rpc", "rpc");
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    let service_contract =
+        trellis_test::TrellisTestContract::from_manifest_json(RpcServiceContract::CONTRACT_JSON)
+            .expect("build RPC service test contract");
+    let client_contract =
+        rpc_unauthorized_client_contract().expect("build unauthorized RPC client test contract");
+
+    let service_key = admin
+        .provision_service_instance(&bootstrap_url, &service_contract, None, None)
+        .await
+        .expect("provision live RPC service instance");
+    let contract_digest = service_contract.digest().to_string();
+
+    let trellis_url = runtime.trellis_url().to_string();
+    let seed = service_key.seed.clone();
+    let mut service: RpcServiceRuntime = ConnectedServiceRuntime::from_connected_client(
+        service_name(),
+        Arc::new(
+            TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
+                trellis_url: &trellis_url,
+                contract_id: RPC_SERVICE_ID,
+                contract_digest: &contract_digest,
+                contract_json: RPC_SERVICE_CONTRACT_JSON,
+                session_key_seed_base64url: &seed,
+                timeout_ms: trellis_rs::service::DEFAULT_TIMEOUT_MS,
+                retry_delay_ms: trellis_rs::service::DEFAULT_RETRY_DELAY_MS,
+                authority_pending_timeout_ms:
+                    trellis_rs::service::DEFAULT_AUTHORITY_PENDING_TIMEOUT_MS,
+            })
+            .await
+            .expect("connect live Rust RPC service"),
+        ),
+    )
+    .expect("build connected service runtime");
+
+    service.register_rpc::<EntityGetRpc, _, _>(move |_context, input| async move {
+        Ok(EntityGetOutput {
+            id: input.id,
+            found: true,
+        })
+    });
+
+    let service_task = AbortOnDrop::new(tokio::spawn(async move { service.run().await }));
+
+    let client = admin
+        .connect_client(&bootstrap_url, &client_contract)
+        .await
+        .expect("connect live Rust RPC client");
+    let result = client
+        .call::<EntityGetRpc>(&EntityGetInput {
+            id: "entity-1".to_string(),
+        })
+        .await;
+    assert!(
+        result.is_err(),
+        "expected unauthorized client to receive error"
+    );
+
+    service_task.abort_and_wait().await;
+}
+
 async fn call_entity_get_with_retry(
     client: &trellis_rs::client::TrellisClient,
     id: &str,
@@ -213,6 +488,30 @@ async fn call_entity_get_with_retry(
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
             Err(error) => panic!("call live Entity.Get RPC: {error}"),
+        }
+    }
+}
+
+async fn call_entity_get_expecting_error(
+    client: &trellis_rs::client::TrellisClient,
+    id: &str,
+) -> trellis_rs::client::RpcErrorPayload {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match client
+            .call::<EntityGetRpc>(&EntityGetInput { id: id.to_string() })
+            .await
+        {
+            Ok(_output) => {
+                panic!("expected error but call succeeded");
+            }
+            Err(error)
+                if is_retryable_service_startup_error(&error) && Instant::now() < deadline =>
+            {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            Err(trellis_rs::client::TrellisClientError::RpcError(payload)) => return payload,
+            Err(error) => panic!("expected declared RPC error, got: {error}"),
         }
     }
 }
@@ -238,6 +537,23 @@ fn rpc_client_contract() -> Result<trellis_test::TrellisTestContract, trellis_te
     .use_ref(
         "rpcService",
         trellis_rs::contracts::use_contract(RPC_SERVICE_ID).with_rpc_call(["Entity.Get"]),
+    )
+    .build()?;
+
+    trellis_test::TrellisTestContract::from_manifest_value(serde_json::to_value(manifest)?)
+}
+
+fn rpc_unauthorized_client_contract(
+) -> Result<trellis_test::TrellisTestContract, trellis_test::TrellisTestError> {
+    let manifest = trellis_rs::contracts::ContractManifestBuilder::new(
+        RPC_UNAUTHORIZED_CLIENT_ID,
+        "Trellis Integration Unauthorized RPC Client",
+        "App/client without rpc.call authority for Entity.Get.",
+        trellis_rs::contracts::ContractKind::App,
+    )
+    .use_ref(
+        "rpcService",
+        trellis_rs::contracts::use_contract(RPC_SERVICE_ID),
     )
     .build()?;
 

@@ -3,11 +3,9 @@ use std::time::{Duration, Instant};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
-use trellis_rs::client::RpcDescriptor;
-use trellis_rs::service::GeneratedServiceContract;
-use trellis_rs::service::KvResourceClient;
-use trellis_rs::service::ServerError;
-use trellis_rs::service::StoreResourceClient;
+use trellis_rs::service::{
+    GeneratedServiceContract, KvResourceClient, ServerError, StoreResourceClient,
+};
 
 use crate::support::assertions::assert_case_registered;
 
@@ -167,25 +165,11 @@ impl<T> Drop for AbortOnDrop<T> {
 }
 
 #[tokio::test]
-#[ignore]
-async fn resources_service_uses_bound_resources_for_client_call() {
+async fn resources_service_receives_required_bindings() {
     assert_case_registered(
-        "resources.service-uses-bound-resources-for-client-call",
+        "resources.service-receives-required-bindings",
         "resources",
         "resources",
-    );
-
-    assert_eq!(
-        <ResourcesExerciseRpc as RpcDescriptor>::KEY,
-        "Resources.Exercise"
-    );
-    assert_eq!(
-        <ResourcesExerciseRpc as RpcDescriptor>::SUBJECT,
-        "rpc.v1.Resources.Exercise"
-    );
-    assert_eq!(
-        <ResourcesExerciseRpc as RpcDescriptor>::CALLER_CAPABILITIES,
-        &[] as &[&str]
     );
 
     let runtime =
@@ -205,6 +189,120 @@ async fn resources_service_uses_bound_resources_for_client_call() {
         service_contract.digest(),
         ResourcesServiceContract::CONTRACT_DIGEST
     );
+
+    let service_key = admin
+        .provision_service_instance(&bootstrap_url, &service_contract, None, None)
+        .await
+        .expect("provision live resources service instance");
+
+    let service =
+        trellis_rs::service::ConnectedServiceRuntime::<ResourcesServiceContract>::connect(
+            runtime.service_connect_options("resources-fixture-service", &service_key),
+        )
+        .await
+        .expect("connect live Rust resources service");
+
+    let resources = service.resources().clone();
+    assert!(
+        resources.kv.contains_key("records"),
+        "expected kv.records binding"
+    );
+    assert_eq!(resources.kv["records"].history, 1);
+    assert_eq!(resources.kv["records"].ttl_ms, 0);
+
+    assert!(
+        resources.store.contains_key("blobs"),
+        "expected store.blobs binding"
+    );
+    assert_eq!(resources.store["blobs"].max_total_bytes, Some(4_194_304));
+    assert_eq!(resources.store["blobs"].max_object_bytes, Some(1_048_576));
+
+    let _ = service;
+}
+
+#[tokio::test]
+async fn resources_service_receives_optional_bindings() {
+    assert_case_registered(
+        "resources.service-receives-optional-bindings",
+        "resources",
+        "resources",
+    );
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    let service_contract =
+        trellis_test::TrellisTestContract::from_manifest_json(RESOURCES_SERVICE_CONTRACT_JSON)
+            .expect("build resources service test contract");
+    assert_eq!(
+        service_contract.digest(),
+        ResourcesServiceContract::CONTRACT_DIGEST
+    );
+
+    let service_key = admin
+        .provision_service_instance(&bootstrap_url, &service_contract, None, None)
+        .await
+        .expect("provision live resources service instance");
+
+    let service =
+        trellis_rs::service::ConnectedServiceRuntime::<ResourcesServiceContract>::connect(
+            runtime.service_connect_options("resources-fixture-service", &service_key),
+        )
+        .await
+        .expect("connect live Rust resources service");
+
+    let resources = service.resources().clone();
+    assert!(
+        resources.kv.contains_key("optionalRecords"),
+        "expected kv.optionalRecords binding"
+    );
+    assert_eq!(resources.kv["optionalRecords"].history, 1);
+
+    assert!(
+        resources.store.contains_key("optionalBlobs"),
+        "expected store.optionalBlobs binding"
+    );
+    assert_eq!(
+        resources.store["optionalBlobs"].max_object_bytes,
+        Some(1_048_576)
+    );
+
+    let _ = service;
+}
+
+#[tokio::test]
+async fn resources_service_store_create_read_list_delete() {
+    assert_case_registered(
+        "resources.service-store-create-read-list-delete",
+        "resources",
+        "resources",
+    );
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    let service_contract =
+        trellis_test::TrellisTestContract::from_manifest_json(RESOURCES_SERVICE_CONTRACT_JSON)
+            .expect("build resources service test contract");
+    assert_eq!(
+        service_contract.digest(),
+        ResourcesServiceContract::CONTRACT_DIGEST
+    );
+
     let client_contract =
         resources_client_contract().expect("build resources client test contract");
 
@@ -220,20 +318,9 @@ async fn resources_service_uses_bound_resources_for_client_call() {
         .await
         .expect("connect live Rust resources service");
 
-    let resources = service.resources().clone();
-    assert_eq!(resources.kv["records"].history, 1);
-    assert_eq!(resources.kv["records"].ttl_ms, 0);
-    assert_eq!(resources.kv["optionalRecords"].history, 1);
-    assert_eq!(resources.store["blobs"].max_total_bytes, Some(4_194_304));
-    assert_eq!(
-        resources.store["optionalBlobs"].max_object_bytes,
-        Some(1_048_576)
-    );
-
     service.register_rpc::<ResourcesExerciseRpc, _, _>(|context, input| async move {
         let handle = context.handle().clone();
         let store = handle.store_client("blobs").await?;
-        let kv = handle.kv_client("records").await?;
 
         let store_key = format!("{}.store", input.key);
         let store_text = format!("store:{}", input.message);
@@ -247,29 +334,19 @@ async fn resources_service_uses_bound_resources_for_client_call() {
         let read_text = String::from_utf8(read_bytes.to_vec())
             .map_err(|_| ServerError::Nats("store text not utf-8".to_string()))?;
 
-        let kv_key = format!("{}.kv", input.key);
-        let record = ResourceRecord {
-            message: format!("kv:{}", input.message),
-        };
-        kv.put(
-            &kv_key,
-            Bytes::from(serde_json::to_vec(&record).map_err(ServerError::Json)?),
-        )
-        .await?;
-        let read_record_bytes = kv
-            .get(&kv_key)
-            .await?
-            .ok_or_else(|| ServerError::Nats(format!("kv missing {kv_key}")))?;
-        let read_record: ResourceRecord =
-            serde_json::from_slice(&read_record_bytes).map_err(ServerError::Json)?;
+        let listed = store.list().await?;
+        if !listed.contains(&store_key) {
+            return Err(ServerError::Nats(format!(
+                "store list did not include {store_key}"
+            )));
+        }
 
         store.delete(&store_key).await?;
-        kv.delete(&kv_key).await?;
 
         Ok(ResourceExerciseOutput {
             provider: "rust".to_string(),
             store_text: read_text,
-            kv_message: read_record.message,
+            kv_message: String::new(),
         })
     });
 
@@ -288,7 +365,227 @@ async fn resources_service_uses_bound_resources_for_client_call() {
         ResourceExerciseOutput {
             provider: "rust".to_string(),
             store_text: "store:client to resources".to_string(),
+            kv_message: String::new(),
+        }
+    );
+
+    service_task.abort_and_wait().await;
+}
+
+#[tokio::test]
+async fn resources_service_kv_create_put_get_delete() {
+    assert_case_registered(
+        "resources.service-kv-create-put-get-delete",
+        "resources",
+        "resources",
+    );
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    let service_contract =
+        trellis_test::TrellisTestContract::from_manifest_json(RESOURCES_SERVICE_CONTRACT_JSON)
+            .expect("build resources service test contract");
+    assert_eq!(
+        service_contract.digest(),
+        ResourcesServiceContract::CONTRACT_DIGEST
+    );
+
+    let client_contract =
+        resources_client_contract().expect("build resources client test contract");
+
+    let service_key = admin
+        .provision_service_instance(&bootstrap_url, &service_contract, None, None)
+        .await
+        .expect("provision live resources service instance");
+
+    let mut service =
+        trellis_rs::service::ConnectedServiceRuntime::<ResourcesServiceContract>::connect(
+            runtime.service_connect_options("resources-fixture-service", &service_key),
+        )
+        .await
+        .expect("connect live Rust resources service");
+
+    service.register_rpc::<ResourcesExerciseRpc, _, _>(|context, input| async move {
+        let handle = context.handle().clone();
+        let kv = handle.kv_client("records").await?;
+
+        let key = format!("{}.kv", input.key);
+        let record = ResourceRecord {
+            message: format!("kv:{}", input.message),
+        };
+        kv.put(
+            &key,
+            Bytes::from(serde_json::to_vec(&record).map_err(ServerError::Json)?),
+        )
+        .await?;
+        let read_bytes = kv
+            .get(&key)
+            .await?
+            .ok_or_else(|| ServerError::Nats(format!("kv missing {key}")))?;
+        let read_record: ResourceRecord =
+            serde_json::from_slice(&read_bytes).map_err(ServerError::Json)?;
+
+        kv.delete(&key).await?;
+
+        Ok(ResourceExerciseOutput {
+            provider: "rust".to_string(),
+            store_text: String::new(),
+            kv_message: read_record.message,
+        })
+    });
+
+    let service_task = AbortOnDrop::new(tokio::spawn(async move { service.run().await }));
+
+    let client = admin
+        .connect_client(&bootstrap_url, &client_contract)
+        .await
+        .expect("connect live Rust resources client");
+
+    let output =
+        call_resources_exercise_with_retry(&client, "client.resource", "client to resources").await;
+
+    assert_eq!(
+        output,
+        ResourceExerciseOutput {
+            provider: "rust".to_string(),
+            store_text: String::new(),
             kv_message: "kv:client to resources".to_string(),
+        }
+    );
+
+    service_task.abort_and_wait().await;
+}
+
+#[tokio::test]
+async fn resources_service_kv_stale_revision_rejected() {
+    assert_case_registered(
+        "resources.service-kv-stale-revision-rejected",
+        "resources",
+        "resources",
+    );
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    let service_contract =
+        trellis_test::TrellisTestContract::from_manifest_json(RESOURCES_SERVICE_CONTRACT_JSON)
+            .expect("build resources service test contract");
+    assert_eq!(
+        service_contract.digest(),
+        ResourcesServiceContract::CONTRACT_DIGEST
+    );
+
+    let client_contract =
+        resources_client_contract().expect("build resources client test contract");
+
+    let service_key = admin
+        .provision_service_instance(&bootstrap_url, &service_contract, None, None)
+        .await
+        .expect("provision live resources service instance");
+
+    let mut service =
+        trellis_rs::service::ConnectedServiceRuntime::<ResourcesServiceContract>::connect(
+            runtime.service_connect_options("resources-fixture-service", &service_key),
+        )
+        .await
+        .expect("connect live Rust resources service");
+
+    service.register_rpc::<ResourcesExerciseRpc, _, _>(|context, input| async move {
+        let handle = context.handle().clone();
+        let kv = handle.kv_client("records").await?;
+
+        let key = format!("{}.kv", input.key);
+
+        let record = ResourceRecord {
+            message: "initial".to_string(),
+        };
+        kv.put(
+            &key,
+            Bytes::from(serde_json::to_vec(&record).map_err(ServerError::Json)?),
+        )
+        .await?;
+
+        let entry = kv
+            .get_entry(&key)
+            .await?
+            .ok_or_else(|| ServerError::Nats(format!("kv missing {key}")))?;
+        let original_revision = entry.revision;
+
+        let updated = ResourceRecord {
+            message: "updated".to_string(),
+        };
+        kv.put(
+            &key,
+            Bytes::from(serde_json::to_vec(&updated).map_err(ServerError::Json)?),
+        )
+        .await?;
+
+        let stale_record = ResourceRecord {
+            message: "stale".to_string(),
+        };
+        let stale_bytes =
+            Bytes::from(serde_json::to_vec(&stale_record).map_err(ServerError::Json)?);
+        match kv
+            .update_revision(&key, stale_bytes, original_revision)
+            .await
+        {
+            Err(ServerError::KvRevisionMismatch { .. }) => {}
+            result => {
+                return Err(ServerError::Nats(format!(
+                    "expected KvRevisionMismatch on stale update, got {result:?}"
+                )));
+            }
+        }
+
+        match kv.delete_revision(&key, original_revision).await {
+            Err(ServerError::KvRevisionMismatch { .. }) => {}
+            result => {
+                return Err(ServerError::Nats(format!(
+                    "expected KvRevisionMismatch on stale delete, got {result:?}"
+                )));
+            }
+        }
+
+        kv.delete(&key).await?;
+
+        Ok(ResourceExerciseOutput {
+            provider: "rust".to_string(),
+            store_text: String::new(),
+            kv_message: "stale-test-passed".to_string(),
+        })
+    });
+
+    let service_task = AbortOnDrop::new(tokio::spawn(async move { service.run().await }));
+
+    let client = admin
+        .connect_client(&bootstrap_url, &client_contract)
+        .await
+        .expect("connect live Rust resources client");
+
+    let output =
+        call_resources_exercise_with_retry(&client, "client.resource", "client to resources").await;
+
+    assert_eq!(
+        output,
+        ResourceExerciseOutput {
+            provider: "rust".to_string(),
+            store_text: String::new(),
+            kv_message: "stale-test-passed".to_string(),
         }
     );
 

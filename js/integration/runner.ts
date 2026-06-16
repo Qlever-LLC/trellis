@@ -10,6 +10,11 @@ type RunnerOptions = {
   readonly help: boolean;
 };
 
+type ResolvedFiles = {
+  readonly files: readonly string[];
+  readonly testNames: readonly string[];
+};
+
 const integrationRoot = fromFileUrl(new URL("./", import.meta.url));
 const CONFORMANCE_FILE = "matrix_conformance_test.ts";
 
@@ -25,34 +30,30 @@ export async function main(args: readonly string[]): Promise<number> {
     const matrix = await loadClientTestMatrix();
     validateFilters(options, matrix.cases);
     const selectedCases = selectMatrixCases(options, matrix.cases);
-    const selectedFiles = resolveSelectedFiles(options, selectedCases);
-    const conformanceFiles = options.skipConformance ? [] : [CONFORMANCE_FILE];
-    const testFiles = [
-      ...conformanceFiles,
-      ...selectedFiles,
-    ];
+    const resolved = resolveSelectedFiles(options, selectedCases);
 
-    if (testFiles.length === 0) {
+    if (resolved.files.length === 0) {
       throw new Error("no JS integration test files selected");
     }
 
-    const command = new Deno.Command(Deno.execPath(), {
-      args: [
-        "test",
-        "-A",
-        "-c",
-        "deno.json",
-        "--lock",
-        "../deno.lock",
-        ...testFiles,
-      ],
-      cwd: integrationRoot,
-      stdin: "inherit",
-      stdout: "inherit",
-      stderr: "inherit",
-    });
-    const status = await command.spawn().status;
-    return status.code;
+    const hasFilters = options.fixtureFilters.length > 0 ||
+      options.caseFilters.length > 0 || options.coverageFilters.length > 0;
+
+    if (hasFilters) {
+      if (!options.skipConformance) {
+        const conformanceCode = await runDenoTest([CONFORMANCE_FILE]);
+        if (conformanceCode !== 0) return conformanceCode;
+      }
+
+      const filter = `/^(${resolved.testNames.map(escapeRegExp).join("|")})$/`;
+      return await runDenoTest([...resolved.files, "--filter", filter]);
+    }
+
+    const conformanceFiles = options.skipConformance ? [] : [CONFORMANCE_FILE];
+    return await runDenoTest([
+      ...conformanceFiles,
+      ...resolved.files,
+    ]);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 1;
@@ -61,6 +62,37 @@ export async function main(args: readonly string[]): Promise<number> {
 
 if (import.meta.main) {
   Deno.exit(await main(Deno.args));
+}
+
+function runDenoTest(testFiles: readonly string[]): Promise<number> {
+  const command = new Deno.Command(Deno.execPath(), {
+    args: [
+      "test",
+      "-A",
+      "-c",
+      "deno.json",
+      "--lock",
+      "../deno.lock",
+      ...testFiles,
+    ],
+    cwd: integrationRoot,
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  return command.spawn().status.then((s) => s.code);
+}
+
+/** Returns the Deno.test names for the given matrix case IDs. */
+export function testNamesForCaseIds(ids: readonly string[]): string[] {
+  const names: string[] = [];
+  for (const id of ids) {
+    const localCase = jsCaseById(id);
+    if (localCase !== undefined) {
+      names.push(localCase.testName);
+    }
+  }
+  return names;
 }
 
 function parseRunnerArgs(args: readonly string[]): RunnerOptions {
@@ -179,9 +211,10 @@ function selectMatrixCases(
 function resolveSelectedFiles(
   options: RunnerOptions,
   selectedCases: readonly MatrixCase[],
-): readonly string[] {
+): ResolvedFiles {
   const missingCaseIds: string[] = [];
   const files = new Set<string>();
+  const testNames: string[] = [];
 
   for (const caseEntry of selectedCases) {
     const localCase = jsCaseById(caseEntry.id);
@@ -189,6 +222,7 @@ function resolveSelectedFiles(
       missingCaseIds.push(caseEntry.id);
     } else {
       files.add(localCase.file);
+      testNames.push(localCase.testName);
     }
   }
 
@@ -200,7 +234,11 @@ function resolveSelectedFiles(
     );
   }
 
-  return [...files].toSorted();
+  return { files: [...files].toSorted(), testNames };
+}
+
+function escapeRegExp(s: string): string {
+  return s.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function helpText(): string {

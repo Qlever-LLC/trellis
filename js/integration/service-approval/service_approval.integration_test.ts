@@ -70,58 +70,16 @@ const serviceApprovalAdminContract = defineAppContract(() => ({
   },
 }));
 
-Deno.test("service-approval.service-startup-awaits-approval blocks service startup until authority approval", async () => {
-  await withTrellisRuntime(async (runtime) => {
-    await runtime.deployments.create({});
-
-    const seed = randomSessionSeed();
-    const serviceAuth = await createAuth({ sessionKeySeed: seed });
-    const admin = await runtime.connectClient({
-      name: "service-approval-fixture-admin",
-      contract: serviceApprovalAdminContract,
-    });
-    await admin.rpc.auth.serviceInstancesProvision({
-      deploymentId: "test",
-      instanceKey: serviceAuth.sessionKey,
-    }).orThrow();
-
-    let service: Awaited<ReturnType<typeof connectApprovalService>> | undefined;
-    const connectPromise = connectApprovalService(runtime.trellisUrl, seed)
-      .then((connected) => {
-        service = connected;
-        return connected;
-      });
-
-    assert(
-      await remainsPending(connectPromise, 750),
-      "service startup resolved before deployment authority approval",
-    );
-
-    await runtime.contracts.approve({
-      contract: serviceApprovalServiceContract,
-      allowPlanClassifications: ["update", "migration"],
-    });
-
-    const connectedService = await connectPromise;
-    try {
-      await connectedService.handle.rpc.startup.ping(({ input }) =>
-        Result.ok({ message: input.message, approved: true })
-      );
-
-      const client = await runtime.connectClient({
-        name: "service-approval-fixture-client",
-        contract: serviceApprovalClientContract,
-      });
-
-      const result = await client.rpc.startup.ping({
-        message: "approved-startup",
-      }).orThrow();
-      assertEquals(result, { message: "approved-startup", approved: true });
-    } finally {
-      await service?.stop();
-    }
-  });
-});
+function randomSessionSeed(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(
+    /=+$/,
+    "",
+  );
+}
 
 async function connectApprovalService(trellisUrl: string, seed: string) {
   return await TrellisService.connect({
@@ -153,13 +111,140 @@ async function remainsPending(
   return result === sentinel;
 }
 
-function randomSessionSeed(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(
-    /=+$/,
-    "",
-  );
-}
+Deno.test(
+  "service-approval.startup-blocks-before-authority-approval blocks service startup before approval",
+  async () => {
+    await withTrellisRuntime(async (runtime) => {
+      await runtime.deployments.create({});
+
+      const seed = randomSessionSeed();
+      const serviceAuth = await createAuth({ sessionKeySeed: seed });
+      const admin = await runtime.connectClient({
+        name: "service-approval-fixture-admin",
+        contract: serviceApprovalAdminContract,
+      });
+      await admin.rpc.auth.serviceInstancesProvision({
+        deploymentId: "test",
+        instanceKey: serviceAuth.sessionKey,
+      }).orThrow();
+
+      const connectPromise = connectApprovalService(
+        runtime.trellisUrl,
+        seed,
+      );
+
+      assert(
+        await remainsPending(connectPromise, 750),
+        "service startup resolved before deployment authority approval",
+      );
+    });
+  },
+);
+
+Deno.test(
+  "service-approval.startup-completes-after-authority-approval connects after authority approval",
+  async () => {
+    await withTrellisRuntime(async (runtime) => {
+      await runtime.deployments.create({});
+
+      const seed = randomSessionSeed();
+      const serviceAuth = await createAuth({ sessionKeySeed: seed });
+      const admin = await runtime.connectClient({
+        name: "service-approval-fixture-admin",
+        contract: serviceApprovalAdminContract,
+      });
+      await admin.rpc.auth.serviceInstancesProvision({
+        deploymentId: "test",
+        instanceKey: serviceAuth.sessionKey,
+      }).orThrow();
+
+      let service:
+        | Awaited<ReturnType<typeof connectApprovalService>>
+        | undefined;
+      const connectPromise = connectApprovalService(
+        runtime.trellisUrl,
+        seed,
+      ).then((connected) => {
+        service = connected;
+        return connected;
+      });
+
+      assert(
+        await remainsPending(connectPromise, 750),
+        "service startup resolved before deployment authority approval",
+      );
+
+      await runtime.contracts.approve({
+        contract: serviceApprovalServiceContract,
+        allowPlanClassifications: ["update", "migration"],
+      });
+
+      const connectedService = await connectPromise;
+      try {
+        assert(connectedService !== undefined, "service should be connected");
+      } finally {
+        await service?.stop();
+      }
+    });
+  },
+);
+
+Deno.test(
+  "service-approval.approved-service-handles-client-rpc handles a client RPC after approval",
+  async () => {
+    await withTrellisRuntime(async (runtime) => {
+      await runtime.deployments.create({});
+
+      const seed = randomSessionSeed();
+      const serviceAuth = await createAuth({ sessionKeySeed: seed });
+      const admin = await runtime.connectClient({
+        name: "service-approval-fixture-admin",
+        contract: serviceApprovalAdminContract,
+      });
+      await admin.rpc.auth.serviceInstancesProvision({
+        deploymentId: "test",
+        instanceKey: serviceAuth.sessionKey,
+      }).orThrow();
+
+      let service:
+        | Awaited<ReturnType<typeof connectApprovalService>>
+        | undefined;
+      const connectPromise = connectApprovalService(
+        runtime.trellisUrl,
+        seed,
+      ).then((connected) => {
+        service = connected;
+        return connected;
+      });
+
+      assert(
+        await remainsPending(connectPromise, 750),
+        "service startup resolved before deployment authority approval",
+      );
+
+      await runtime.contracts.approve({
+        contract: serviceApprovalServiceContract,
+        allowPlanClassifications: ["update", "migration"],
+      });
+
+      const connectedService = await connectPromise;
+      try {
+        await connectedService.handle.rpc.startup.ping(({ input }) =>
+          Result.ok({ message: input.message, approved: true })
+        );
+
+        const client = await runtime.connectClient({
+          name: "service-approval-fixture-client",
+          contract: serviceApprovalClientContract,
+        });
+
+        const result = await client.rpc.startup.ping({
+          message: "approved-startup",
+        }).orThrow();
+        assertEquals(result, { message: "approved-startup", approved: true });
+      } finally {
+        await service?.stop();
+      }
+    });
+  },
+);

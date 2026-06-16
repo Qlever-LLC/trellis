@@ -1,12 +1,13 @@
 use std::collections::BTreeSet;
+use std::fmt;
 use std::fs;
 use std::path::PathBuf;
 
+use serde::de;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct ClientTestMatrix {
-    pub(crate) schema_version: u8,
     pub(crate) cases: Vec<MatrixCase>,
 }
 
@@ -23,12 +24,64 @@ pub(crate) struct MatrixCase {
     pub(crate) title: String,
     pub(crate) coverage: Vec<String>,
     pub(crate) description: String,
+    pub(crate) scenario: Scenario,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct Scenario {
+    pub(crate) participants: Vec<ScenarioParticipant>,
+    pub(crate) given: Vec<String>,
+    pub(crate) when: Vec<String>,
+    pub(crate) then: Vec<String>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct ScenarioParticipant {
+    pub(crate) name: String,
+    pub(crate) kind: ScenarioParticipantKind,
+    pub(crate) contract: String,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) enum ScenarioParticipantKind {
+    App,
+    Service,
+    Device,
+    Admin,
+}
+
+impl fmt::Display for ScenarioParticipantKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ScenarioParticipantKind::App => write!(f, "app"),
+            ScenarioParticipantKind::Service => write!(f, "service"),
+            ScenarioParticipantKind::Device => write!(f, "device"),
+            ScenarioParticipantKind::Admin => write!(f, "admin"),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ScenarioParticipantKind {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match s.as_str() {
+            "app" => Ok(ScenarioParticipantKind::App),
+            "service" => Ok(ScenarioParticipantKind::Service),
+            "device" => Ok(ScenarioParticipantKind::Device),
+            "admin" => Ok(ScenarioParticipantKind::Admin),
+            other => Err(de::Error::custom(format!(
+                "invalid participant kind: {other}, expected one of: app, service, device, admin"
+            ))),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
 struct RawClientTestMatrix {
-    schema_version: u8,
     cases: Vec<RawMatrixCase>,
 }
 
@@ -40,6 +93,24 @@ struct RawMatrixCase {
     title: String,
     coverage: Vec<String>,
     description: String,
+    scenario: RawScenario,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawScenario {
+    participants: Vec<RawScenarioParticipant>,
+    given: Vec<String>,
+    when: Vec<String>,
+    then: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawScenarioParticipant {
+    name: String,
+    kind: ScenarioParticipantKind,
+    contract: String,
 }
 
 pub(crate) fn load_client_test_matrix() -> Result<ClientTestMatrix, String> {
@@ -84,10 +155,6 @@ fn client_test_matrix_path() -> Result<PathBuf, String> {
 }
 
 fn validate_matrix(raw: RawClientTestMatrix) -> Result<ClientTestMatrix, String> {
-    if raw.schema_version != 1 {
-        return Err("client integration matrix schemaVersion must be 1".to_string());
-    }
-
     let mut seen_ids = BTreeSet::new();
     let mut duplicate_ids = BTreeSet::new();
     let mut cases = Vec::with_capacity(raw.cases.len());
@@ -117,6 +184,9 @@ fn validate_matrix(raw: RawClientTestMatrix) -> Result<ClientTestMatrix, String>
                 &mut errors,
             );
         }
+
+        let scenario = parse_scenario(raw_case.scenario, &context, &mut errors);
+
         let expected_prefix = format!("{}.", raw_case.fixture);
         if !raw_case.id.starts_with(&expected_prefix) {
             errors.push(format!(
@@ -130,6 +200,7 @@ fn validate_matrix(raw: RawClientTestMatrix) -> Result<ClientTestMatrix, String>
             title: raw_case.title,
             coverage: raw_case.coverage,
             description: raw_case.description,
+            scenario,
         });
     }
 
@@ -143,14 +214,54 @@ fn validate_matrix(raw: RawClientTestMatrix) -> Result<ClientTestMatrix, String>
         return Err(errors.join("\n"));
     }
 
-    Ok(ClientTestMatrix {
-        schema_version: raw.schema_version,
-        cases,
-    })
+    Ok(ClientTestMatrix { cases })
+}
+
+fn parse_scenario(raw: RawScenario, context: &str, errors: &mut Vec<String>) -> Scenario {
+    if raw.participants.is_empty() {
+        errors.push(format!(
+            "{context} scenario participants must be a non-empty array"
+        ));
+    }
+    for (i, participant) in raw.participants.iter().enumerate() {
+        let pctx = format!("{context} scenario participant {}", i + 1);
+        validate_non_empty(&participant.name, &format!("{pctx} name"), errors);
+        validate_non_empty(&participant.contract, &format!("{pctx} contract"), errors);
+    }
+
+    validate_non_empty_strings(&raw.given, &format!("{context} scenario given"), errors);
+    validate_non_empty_strings(&raw.when, &format!("{context} scenario when"), errors);
+    validate_non_empty_strings(&raw.then, &format!("{context} scenario then"), errors);
+
+    let participants: Vec<ScenarioParticipant> = raw
+        .participants
+        .into_iter()
+        .map(|p| ScenarioParticipant {
+            name: p.name,
+            kind: p.kind,
+            contract: p.contract,
+        })
+        .collect();
+
+    Scenario {
+        participants,
+        given: raw.given,
+        when: raw.when,
+        then: raw.then,
+    }
 }
 
 fn validate_non_empty(value: &str, context: &str, errors: &mut Vec<String>) {
     if value.trim().is_empty() {
         errors.push(format!("{context} must be a non-empty string"));
+    }
+}
+
+fn validate_non_empty_strings(values: &[String], context: &str, errors: &mut Vec<String>) {
+    if values.is_empty() {
+        errors.push(format!("{context} must be a non-empty array"));
+    }
+    for (i, entry) in values.iter().enumerate() {
+        validate_non_empty(entry, &format!("{context} {}", i + 1), errors);
     }
 }

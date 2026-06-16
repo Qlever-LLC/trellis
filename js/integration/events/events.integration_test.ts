@@ -1,5 +1,10 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
-import { defineAppContract, defineServiceContract } from "@qlever-llc/trellis";
+import {
+  defineAppContract,
+  defineServiceContract,
+  type EventListenerContext,
+  Result,
+} from "@qlever-llc/trellis";
 import { assertEventCaptured } from "@qlever-llc/trellis-test";
 import { Type } from "typebox";
 import { withTrellisRuntime } from "../_support/runtime.ts";
@@ -68,7 +73,20 @@ const eventSubscribeOnlyClientContract = defineAppContract(() => ({
   },
 }));
 
-Deno.test("events.client-publishes-and-subscribes publishes and captures a generated event", async () => {
+const eventPublishOnlyClientContract = defineAppContract(() => ({
+  id: "trellis.integration.events-publish-only-client@v1",
+  displayName: "Trellis Integration Events Publish-Only Client",
+  description: "App/client participant without event subscribe authority.",
+  uses: {
+    required: {
+      eventsService: eventServiceContract.use({
+        events: { publish: ["Entity.Changed"] },
+      }),
+    },
+  },
+}));
+
+Deno.test("events.client-publishes-and-subscriber-receives publishes and captures a generated event", async () => {
   await withTrellisRuntime(async (runtime) => {
     const capture = await runtime.captureEvents({
       name: "events-fixture-capture",
@@ -96,7 +114,7 @@ Deno.test("events.client-publishes-and-subscribes publishes and captures a gener
   });
 });
 
-Deno.test("events.denied-publish rejects a subscribe-only client publish", async () => {
+Deno.test("events.denies-publish-without-authority rejects a subscribe-only client publish", async () => {
   await withTrellisRuntime(async (runtime) => {
     await runtime.contracts.approve({ contract: eventServiceContract });
     const client = await runtime.connectClient({
@@ -110,5 +128,45 @@ Deno.test("events.denied-publish rejects a subscribe-only client publish", async
         value: "should-not-publish",
       }).orThrow()
     );
+  });
+});
+
+Deno.test("events.denies-subscribe-without-authority does not deliver events to a publish-only client", async () => {
+  await withTrellisRuntime(async (runtime) => {
+    await runtime.contracts.approve({ contract: eventServiceContract });
+    const listenerController = new AbortController();
+    const publishOnlyClient = await runtime.connectClient({
+      name: "events-fixture-publish-only",
+      contract: eventPublishOnlyClientContract,
+    });
+    const publisher = await runtime.connectClient({
+      name: "events-fixture-authorized-publisher",
+      contract: eventPubSubClientContract,
+    });
+    let received = false;
+
+    try {
+      await publishOnlyClient.event.entity.changed.listen(
+        (
+          _event: { id: string; value: string },
+          _context: EventListenerContext,
+        ) => {
+          received = true;
+          return Result.ok(undefined);
+        },
+        {},
+        { mode: "ephemeral", signal: listenerController.signal },
+      ).orThrow();
+
+      await publisher.event.entity.changed.publish({
+        id: "entity-no-subscribe-1",
+        value: "should-not-deliver",
+      }).orThrow();
+
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      assertEquals(received, false);
+    } finally {
+      listenerController.abort();
+    }
   });
 });

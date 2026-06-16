@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use trellis_rs::client::RpcDescriptor;
-use trellis_rs::service::GeneratedServiceContract;
+use trellis_rs::service::{GeneratedServiceContract, ServiceRuntimeError};
 
 use crate::support::assertions::assert_case_registered;
 
@@ -99,13 +99,6 @@ impl<T> AbortOnDrop<T> {
             handle: Some(handle),
         }
     }
-
-    async fn abort_and_wait(mut self) {
-        if let Some(handle) = self.handle.take() {
-            handle.abort();
-            let _ = handle.await;
-        }
-    }
 }
 
 impl<T> Drop for AbortOnDrop<T> {
@@ -116,15 +109,17 @@ impl<T> Drop for AbortOnDrop<T> {
     }
 }
 
-#[tokio::test]
-#[ignore]
-async fn app_identity_approval_client_obtains_approved_grant() {
-    assert_case_registered(
-        "app-identity-approval.client-obtains-approved-grant",
-        "app-identity-approval",
-        "app_identity_approval",
-    );
+struct AppIdentityFixture {
+    #[allow(dead_code)]
+    runtime: trellis_test::TrellisTestRuntime,
+    admin: trellis_test::TrellisTestAdmin,
+    bootstrap_url: String,
+    client_contract: trellis_test::TrellisTestContract,
+    #[allow(dead_code)]
+    service_task: AbortOnDrop<Result<(), ServiceRuntimeError>>,
+}
 
+async fn setup_app_identity_environment() -> AppIdentityFixture {
     let runtime =
         trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
             .await
@@ -164,13 +159,71 @@ async fn app_identity_approval_client_obtains_approved_grant() {
 
     let service_task = AbortOnDrop::new(tokio::spawn(async move { service.run().await }));
 
-    let client = admin
-        .connect_client(&bootstrap_url, &client_contract)
+    AppIdentityFixture {
+        runtime,
+        admin,
+        bootstrap_url,
+        client_contract,
+        service_task,
+    }
+}
+
+#[tokio::test]
+async fn app_identity_approval_connect_requires_auth_flow() {
+    assert_case_registered(
+        "app-identity-approval.connect-requires-auth-flow",
+        "app-identity-approval",
+        "app_identity_approval",
+    );
+
+    let mut fixture = setup_app_identity_environment().await;
+
+    let _client = fixture
+        .admin
+        .connect_client(&fixture.bootstrap_url, &fixture.client_contract)
         .await
         .expect("connect live Rust app identity approval client");
-    let output = call_grant_ping_with_retry(&client, "app-approved").await;
+}
 
-    service_task.abort_and_wait().await;
+#[tokio::test]
+async fn app_identity_approval_approved_client_connects() {
+    assert_case_registered(
+        "app-identity-approval.approved-client-connects",
+        "app-identity-approval",
+        "app_identity_approval",
+    );
+
+    let mut fixture = setup_app_identity_environment().await;
+
+    let client = fixture
+        .admin
+        .connect_client(&fixture.bootstrap_url, &fixture.client_contract)
+        .await
+        .expect("connect live Rust app identity approval client");
+
+    client
+        .flush()
+        .await
+        .expect("connected client should flush without error");
+}
+
+#[tokio::test]
+async fn app_identity_approval_approved_client_calls_service() {
+    assert_case_registered(
+        "app-identity-approval.approved-client-calls-service",
+        "app-identity-approval",
+        "app_identity_approval",
+    );
+
+    let mut fixture = setup_app_identity_environment().await;
+
+    let client = fixture
+        .admin
+        .connect_client(&fixture.bootstrap_url, &fixture.client_contract)
+        .await
+        .expect("connect live Rust app identity approval client");
+
+    let output = call_grant_ping_with_retry(&client, "app-approved").await;
     assert_eq!(
         output,
         GrantPingOutput {

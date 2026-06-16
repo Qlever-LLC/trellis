@@ -10,7 +10,14 @@ that every supported client language must implement and pass.
 - The `fixture` groups focused local runs; it is not language-specific.
 - The matrix must not contain a `languages` field, language skips, or
   language-specific required lists.
+- The matrix must not contain a schema-version field. The clean-break JSON shape
+  is the contract.
 - `coverage` values preserve the existing release-guide coverage vocabulary.
+- Every case must include a language-neutral `scenario` with `participants`,
+  `given`, `when`, and `then` sections.
+- Every matrix case must map to one live TypeScript/Deno test and one live Rust
+  test. Unit, descriptor-only, mock-only, or ignored tests do not satisfy matrix
+  coverage.
 
 ## Adding A Case
 
@@ -25,10 +32,20 @@ should be called out in review.
 
 ## Focused Runs
 
-Focused integration execution is intended to be driven from the shared matrix by
-fixture, case ID, or coverage ID. Later migration phases will add language-owned
-runners for commands such as focused `rpc` fixture runs, single-case runs, and
-coverage-filtered runs.
+Focused TypeScript/Deno runs are driven from the shared matrix:
+
+```sh
+deno task -c js/deno.json test:integration -- --fixture rpc
+deno task -c js/deno.json test:integration -- --case rpc.client-calls-service-success
+deno task -c js/deno.json test:integration -- --coverage cross-runtime-rpc
+```
+
+Focused Rust runs use Cargo's normal test filtering with the function names
+registered in `rust/crates/trellis/tests/integration/support/cases.rs`:
+
+```sh
+cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration rpc_client_calls_service_success -- --nocapture
+```
 
 ## Release Parity
 

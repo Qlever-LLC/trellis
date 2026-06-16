@@ -116,9 +116,8 @@ impl<T> Drop for AbortOnDrop<T> {
 }
 
 #[tokio::test]
-#[ignore]
-async fn feeds_client_consumes_service_feed() {
-    assert_case_registered("feeds.client-consumes-service-feed", "feeds", "feeds");
+async fn feeds_client_receives_first_frame() {
+    assert_case_registered("feeds.client-receives-first-frame", "feeds", "feeds");
 
     let runtime =
         trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
@@ -137,21 +136,73 @@ async fn feeds_client_consumes_service_feed() {
         service_contract.digest(),
         FeedsServiceContract::CONTRACT_DIGEST
     );
+
+    let client_contract = feeds_client_contract().expect("build feeds client test contract");
+
+    let service_key = admin
+        .provision_service_instance(&bootstrap_url, &service_contract, None, None)
+        .await
+        .expect("provision live feeds service instance");
+
+    let mut service =
+        trellis_rs::service::ConnectedServiceRuntime::<FeedsServiceContract>::connect(
+            runtime.service_connect_options("feeds-fixture-service", &service_key),
+        )
+        .await
+        .expect("connect live Rust feeds service");
+
+    service.register_feed::<EntityLiveFeed, _, _>(|_context, input| {
+        assert_eq!(input.topic, "entity-feed-1");
+
+        futures_util::stream::iter(vec![Ok(EntityFeedFrame {
+            topic: input.topic.clone(),
+            message: format!("feed:{}:1", input.topic),
+            sequence: 1,
+        })])
+    });
+
+    let service_task = AbortOnDrop::new(tokio::spawn(async move { service.run().await }));
+
+    let client = admin
+        .connect_client(&bootstrap_url, &client_contract)
+        .await
+        .expect("connect live Rust feeds client");
+
+    let frames = subscribe_entity_feed_n(&client, "entity-feed-1", 1).await;
+
+    service_task.abort_and_wait().await;
+
+    assert_eq!(frames.len(), 1);
     assert_eq!(
-        <EntityLiveFeed as trellis_rs::client::FeedDescriptor>::KEY,
-        "Entity.Live"
+        frames[0],
+        EntityFeedFrame {
+            topic: "entity-feed-1".to_string(),
+            message: "feed:entity-feed-1:1".to_string(),
+            sequence: 1,
+        }
     );
+}
+
+#[tokio::test]
+async fn feeds_client_receives_ordered_frames() {
+    assert_case_registered("feeds.client-receives-ordered-frames", "feeds", "feeds");
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    let service_contract =
+        trellis_test::TrellisTestContract::from_manifest_json(FEEDS_SERVICE_CONTRACT_JSON)
+            .expect("build feeds service test contract");
     assert_eq!(
-        <EntityLiveFeed as trellis_rs::client::FeedDescriptor>::SUBJECT,
-        "feeds.v1.Entity.Live"
-    );
-    assert_eq!(
-        <EntityLiveFeed as trellis_rs::service::FeedDescriptor>::SUBJECT,
-        "feeds.v1.Entity.Live"
-    );
-    assert_eq!(
-        <EntityLiveFeed as trellis_rs::client::FeedDescriptor>::SUBSCRIBE_CAPABILITIES,
-        &["readFeeds"]
+        service_contract.digest(),
+        FeedsServiceContract::CONTRACT_DIGEST
     );
 
     let client_contract = feeds_client_contract().expect("build feeds client test contract");
@@ -192,7 +243,7 @@ async fn feeds_client_consumes_service_feed() {
         .await
         .expect("connect live Rust feeds client");
 
-    let frames = subscribe_entity_feed_with_retry(&client, "entity-feed-1").await;
+    let frames = subscribe_entity_feed_n(&client, "entity-feed-1", 2).await;
 
     service_task.abort_and_wait().await;
 
@@ -215,9 +266,138 @@ async fn feeds_client_consumes_service_feed() {
     );
 }
 
-async fn subscribe_entity_feed_with_retry(
+#[tokio::test]
+async fn feeds_abort_stops_client_subscription() {
+    assert_case_registered("feeds.abort-stops-client-subscription", "feeds", "feeds");
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    let service_contract =
+        trellis_test::TrellisTestContract::from_manifest_json(FEEDS_SERVICE_CONTRACT_JSON)
+            .expect("build feeds service test contract");
+    assert_eq!(
+        service_contract.digest(),
+        FeedsServiceContract::CONTRACT_DIGEST
+    );
+
+    let client_contract = feeds_client_contract().expect("build feeds client test contract");
+
+    let service_key = admin
+        .provision_service_instance(&bootstrap_url, &service_contract, None, None)
+        .await
+        .expect("provision live feeds service instance");
+
+    let mut service =
+        trellis_rs::service::ConnectedServiceRuntime::<FeedsServiceContract>::connect(
+            runtime.service_connect_options("feeds-fixture-service", &service_key),
+        )
+        .await
+        .expect("connect live Rust feeds service");
+
+    service.register_feed::<EntityLiveFeed, _, _>(|_context, input| {
+        futures_util::stream::unfold(
+            (1u64, input.topic.clone()),
+            move |(seq, topic)| async move {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                Some((
+                    Ok(EntityFeedFrame {
+                        topic: topic.clone(),
+                        message: format!("feed:{}:{}", topic, seq),
+                        sequence: seq,
+                    }),
+                    (seq + 1, topic),
+                ))
+            },
+        )
+    });
+
+    let service_task = AbortOnDrop::new(tokio::spawn(async move { service.run().await }));
+
+    let client = admin
+        .connect_client(&bootstrap_url, &client_contract)
+        .await
+        .expect("connect live Rust feeds client");
+
+    let mut stream = client
+        .feed::<EntityLiveFeed>(&EntityFeedInput {
+            topic: "entity-feed-1".to_string(),
+        })
+        .await
+        .expect("subscribe to Entity.Live feed");
+
+    let first = stream
+        .next()
+        .await
+        .expect("first frame")
+        .expect("first frame ok");
+    assert_eq!(first.sequence, 1);
+
+    drop(stream);
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    service_task.abort_and_wait().await;
+}
+
+#[tokio::test]
+async fn feeds_denies_subscribe_without_authority() {
+    assert_case_registered("feeds.denies-subscribe-without-authority", "feeds", "feeds");
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    let service_contract =
+        trellis_test::TrellisTestContract::from_manifest_json(FEEDS_SERVICE_CONTRACT_JSON)
+            .expect("build feeds service test contract");
+    assert_eq!(
+        service_contract.digest(),
+        FeedsServiceContract::CONTRACT_DIGEST
+    );
+
+    let unauthorized_client_contract = feeds_unauthorized_client_contract()
+        .expect("build feeds unauthorized client test contract");
+
+    admin
+        .provision_service_instance(&bootstrap_url, &service_contract, None, None)
+        .await
+        .expect("provision live feeds service instance");
+
+    let client = admin
+        .connect_client(&bootstrap_url, &unauthorized_client_contract)
+        .await
+        .expect("connect live Rust feeds unauthorized client");
+
+    let result = client
+        .feed::<EntityLiveFeed>(&EntityFeedInput {
+            topic: "entity-feed-1".to_string(),
+        })
+        .await;
+
+    assert!(
+        result.is_err(),
+        "expected feed subscribe to be denied for unauthorized client"
+    );
+}
+
+async fn subscribe_entity_feed_n(
     client: &trellis_rs::client::TrellisClient,
     topic: &str,
+    count: usize,
 ) -> Vec<EntityFeedFrame> {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
@@ -234,7 +414,7 @@ async fn subscribe_entity_feed_with_retry(
                     match frame_result {
                         Ok(frame) => {
                             frames.push(frame);
-                            if frames.len() == 2 {
+                            if frames.len() == count {
                                 return frames;
                             }
                         }
@@ -247,7 +427,7 @@ async fn subscribe_entity_feed_with_retry(
                         Err(error) => panic!("feed frame error: {error}"),
                     }
                 }
-                if frames.len() < 2 && Instant::now() < deadline {
+                if frames.len() < count && Instant::now() < deadline {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             }
@@ -280,6 +460,23 @@ fn feeds_client_contract(
     .use_ref(
         "feedsService",
         trellis_rs::contracts::use_contract(FEEDS_SERVICE_ID).with_feed_subscribe(["Entity.Live"]),
+    )
+    .build()?;
+
+    trellis_test::TrellisTestContract::from_manifest_value(serde_json::to_value(manifest)?)
+}
+
+fn feeds_unauthorized_client_contract(
+) -> Result<trellis_test::TrellisTestContract, trellis_test::TrellisTestError> {
+    let manifest = trellis_rs::contracts::ContractManifestBuilder::new(
+        "trellis.integration.feeds-unauthorized-client@v1",
+        "Trellis Integration Feeds Unauthorized Client",
+        "App/client participant without feed subscribe authority.",
+        trellis_rs::contracts::ContractKind::App,
+    )
+    .use_ref(
+        "feedsService",
+        trellis_rs::contracts::use_contract(FEEDS_SERVICE_ID),
     )
     .build()?;
 

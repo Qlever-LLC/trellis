@@ -1,13 +1,28 @@
+export type ScenarioParticipantKind = "app" | "service" | "device" | "admin";
+
+export type ScenarioParticipant = {
+  readonly name: string;
+  readonly kind: ScenarioParticipantKind;
+  readonly contract: string;
+};
+
+export type Scenario = {
+  readonly participants: readonly ScenarioParticipant[];
+  readonly given: readonly string[];
+  readonly when: readonly string[];
+  readonly then: readonly string[];
+};
+
 export type MatrixCase = {
   readonly id: string;
   readonly fixture: string;
   readonly title: string;
   readonly coverage: readonly string[];
   readonly description: string;
+  readonly scenario: Scenario;
 };
 
 export type ClientTestMatrix = {
-  readonly schemaVersion: 1;
   readonly cases: readonly MatrixCase[];
 };
 
@@ -43,16 +58,15 @@ export function matrixCasesByFixture(
 
 function parseClientTestMatrix(value: unknown): ClientTestMatrix {
   const root = expectRecord(value, "matrix root");
-  expectKeys(root, ["schemaVersion", "cases"], "matrix root");
+  expectKeys(root, ["cases"], "matrix root");
 
-  if (root.schemaVersion !== 1) {
-    throw new Error("client integration matrix schemaVersion must be 1");
-  }
   if (!Array.isArray(root.cases)) {
     throw new Error("client integration matrix cases must be an array");
   }
 
-  const cases = root.cases.map(parseMatrixCase);
+  const cases = root.cases.map((caseEntry, index) =>
+    parseMatrixCase(caseEntry, index)
+  );
   const duplicateIds = duplicates(cases.map((caseEntry) => caseEntry.id));
   if (duplicateIds.length > 0) {
     throw new Error(
@@ -64,15 +78,18 @@ function parseClientTestMatrix(value: unknown): ClientTestMatrix {
     );
   }
 
-  return { schemaVersion: 1, cases };
+  return { cases };
 }
 
-function parseMatrixCase(value: unknown, index: number): MatrixCase {
+function parseMatrixCase(
+  value: unknown,
+  index: number,
+): MatrixCase {
   const context = `matrix case ${index + 1}`;
   const caseEntry = expectRecord(value, context);
   expectKeys(
     caseEntry,
-    ["id", "fixture", "title", "coverage", "description"],
+    ["id", "fixture", "title", "coverage", "description", "scenario"],
     context,
   );
 
@@ -99,7 +116,67 @@ function parseMatrixCase(value: unknown, index: number): MatrixCase {
       caseEntry.description,
       `${context} description`,
     ),
+    scenario: parseScenario(caseEntry.scenario, context),
   };
+}
+
+function parseScenario(value: unknown, context: string): Scenario {
+  const scenario = expectRecord(value, `${context} scenario`);
+  expectKeys(
+    scenario,
+    ["participants", "given", "when", "then"],
+    `${context} scenario`,
+  );
+
+  if (
+    !Array.isArray(scenario.participants) || scenario.participants.length === 0
+  ) {
+    throw new Error(
+      `${context} scenario participants must be a non-empty array`,
+    );
+  }
+  const participants = scenario.participants.map(
+    (p: unknown, i: number) =>
+      parseParticipant(p, `${context} scenario participant ${i + 1}`),
+  );
+
+  const given = validateStringArray(
+    scenario.given,
+    `${context} scenario given`,
+  );
+  const when = validateStringArray(scenario.when, `${context} scenario when`);
+  const then = validateStringArray(scenario.then, `${context} scenario then`);
+
+  return { participants, given, when, then };
+}
+
+function parseParticipant(
+  value: unknown,
+  context: string,
+): ScenarioParticipant {
+  const p = expectRecord(value, context);
+  expectKeys(p, ["name", "kind", "contract"], context);
+
+  const name = expectNonEmptyString(p.name, `${context} name`);
+  const kind = expectNonEmptyString(p.kind, `${context} kind`);
+  const validKinds = ["app", "service", "device", "admin"];
+  if (!validKinds.includes(kind)) {
+    throw new Error(
+      `${context} kind must be one of: ${validKinds.join(", ")}`,
+    );
+  }
+  const contract = expectNonEmptyString(p.contract, `${context} contract`);
+
+  return { name, kind: kind as ScenarioParticipantKind, contract };
+}
+
+function validateStringArray(value: unknown, context: string): string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${context} must be a non-empty array of strings`);
+  }
+  return value.map((entry, i) =>
+    expectNonEmptyString(entry, `${context} ${i + 1}`)
+  );
 }
 
 function expectRecord(

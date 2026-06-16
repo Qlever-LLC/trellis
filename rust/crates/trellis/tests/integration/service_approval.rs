@@ -102,10 +102,220 @@ impl Drop for AbortOnDrop {
 }
 
 #[tokio::test]
-#[ignore]
-async fn service_approval_service_startup_awaits_approval() {
+async fn service_approval_startup_blocks_before_authority_approval() {
     assert_case_registered(
-        "service-approval.service-startup-awaits-approval",
+        "service-approval.startup-blocks-before-authority-approval",
+        "service-approval",
+        "service_approval",
+    );
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    admin
+        .connect_admin(&bootstrap_url)
+        .await
+        .expect("connect admin client for direct Auth RPCs");
+
+    let service_contract =
+        trellis_test::TrellisTestContract::from_manifest_json(SERVICE_CONTRACT_JSON)
+            .expect("build service approval service contract");
+
+    admin
+        .create_deployment(&bootstrap_url, None, None)
+        .await
+        .expect("create deployment");
+
+    let seed = trellis_rs::auth::generate_session_keypair().0;
+    let auth_material = trellis_rs::client::SessionAuth::from_seed_base64url(&seed)
+        .expect("build session auth from seed");
+
+    let admin_client = admin
+        .connect_admin(&bootstrap_url)
+        .await
+        .expect("get admin client");
+    let auth = trellis_rs::sdk::auth::AuthClient::new(admin_client);
+    auth.rpc()
+        .auth()
+        .service_instances_provision(
+            &trellis_rs::sdk::auth::types::AuthServiceInstancesProvisionRequest {
+                deployment_id: "test".to_string(),
+                instance_key: auth_material.session_key.clone(),
+            },
+        )
+        .await
+        .expect("provision service instance key before authority approval");
+
+    let connect_trellis_url = runtime.trellis_url().to_string();
+    let connect_seed = seed.clone();
+    let contract_digest = service_contract.digest().to_string();
+
+    let (connected_tx, connected_rx) = oneshot::channel::<()>();
+    let connect_handle: JoinHandle<
+        trellis_rs::service::ConnectedServiceRuntime<ServiceApprovalContract>,
+    > = tokio::spawn(async move {
+        let client =
+            TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
+                trellis_url: &connect_trellis_url,
+                contract_id: SERVICE_CONTRACT_ID,
+                contract_digest: &contract_digest,
+                contract_json: SERVICE_CONTRACT_JSON,
+                session_key_seed_base64url: &connect_seed,
+                timeout_ms: trellis_rs::service::DEFAULT_TIMEOUT_MS,
+                retry_delay_ms: trellis_rs::service::DEFAULT_RETRY_DELAY_MS,
+                authority_pending_timeout_ms:
+                    trellis_rs::service::DEFAULT_AUTHORITY_PENDING_TIMEOUT_MS,
+            })
+            .await
+            .expect("service connect should succeed after approval");
+        let service =
+            trellis_rs::service::ConnectedServiceRuntime::<ServiceApprovalContract>::from_connected_client(
+                "service-approval-fixture-service",
+                Arc::new(client),
+            )
+            .expect("build connected service runtime from client");
+        let _ = connected_tx.send(());
+        service
+    });
+
+    let pending = tokio::time::timeout(Duration::from_millis(500), connected_rx).await;
+    match pending {
+        Err(_) => {}
+        Ok(Ok(())) => {
+            panic!("service connected before deployment authority approval");
+        }
+        Ok(Err(_)) => {
+            panic!("service connect task failed before approval");
+        }
+    }
+
+    connect_handle.abort();
+    let _ = connect_handle.await;
+}
+
+#[tokio::test]
+async fn service_approval_startup_completes_after_authority_approval() {
+    assert_case_registered(
+        "service-approval.startup-completes-after-authority-approval",
+        "service-approval",
+        "service_approval",
+    );
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    admin
+        .connect_admin(&bootstrap_url)
+        .await
+        .expect("connect admin client for direct Auth RPCs");
+
+    let service_contract =
+        trellis_test::TrellisTestContract::from_manifest_json(SERVICE_CONTRACT_JSON)
+            .expect("build service approval service contract");
+
+    admin
+        .create_deployment(&bootstrap_url, None, None)
+        .await
+        .expect("create deployment");
+
+    let seed = trellis_rs::auth::generate_session_keypair().0;
+    let auth_material = trellis_rs::client::SessionAuth::from_seed_base64url(&seed)
+        .expect("build session auth from seed");
+
+    let admin_client = admin
+        .connect_admin(&bootstrap_url)
+        .await
+        .expect("get admin client");
+    let auth = trellis_rs::sdk::auth::AuthClient::new(admin_client);
+    auth.rpc()
+        .auth()
+        .service_instances_provision(
+            &trellis_rs::sdk::auth::types::AuthServiceInstancesProvisionRequest {
+                deployment_id: "test".to_string(),
+                instance_key: auth_material.session_key.clone(),
+            },
+        )
+        .await
+        .expect("provision service instance key before authority approval");
+
+    let connect_trellis_url = runtime.trellis_url().to_string();
+    let connect_seed = seed.clone();
+    let contract_digest = service_contract.digest().to_string();
+
+    let (connected_tx, connected_rx) = oneshot::channel::<()>();
+    let connect_handle: JoinHandle<
+        trellis_rs::service::ConnectedServiceRuntime<ServiceApprovalContract>,
+    > = tokio::spawn(async move {
+        let client =
+            TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
+                trellis_url: &connect_trellis_url,
+                contract_id: SERVICE_CONTRACT_ID,
+                contract_digest: &contract_digest,
+                contract_json: SERVICE_CONTRACT_JSON,
+                session_key_seed_base64url: &connect_seed,
+                timeout_ms: trellis_rs::service::DEFAULT_TIMEOUT_MS,
+                retry_delay_ms: trellis_rs::service::DEFAULT_RETRY_DELAY_MS,
+                authority_pending_timeout_ms:
+                    trellis_rs::service::DEFAULT_AUTHORITY_PENDING_TIMEOUT_MS,
+            })
+            .await
+            .expect("service connect should succeed after approval");
+        let service =
+            trellis_rs::service::ConnectedServiceRuntime::<ServiceApprovalContract>::from_connected_client(
+                "service-approval-fixture-service",
+                Arc::new(client),
+            )
+            .expect("build connected service runtime from client");
+        let _ = connected_tx.send(());
+        service
+    });
+
+    let pending = tokio::time::timeout(Duration::from_millis(500), connected_rx).await;
+    match pending {
+        Err(_) => {}
+        Ok(Ok(())) => {
+            panic!("service connected before deployment authority approval");
+        }
+        Ok(Err(_)) => {
+            panic!("service connect task failed before approval");
+        }
+    }
+
+    admin
+        .approve_contract(&bootstrap_url, &service_contract, None, &[])
+        .await
+        .expect("approve service contract");
+
+    let service = tokio::time::timeout(Duration::from_secs(10), connect_handle)
+        .await
+        .expect("timed out waiting for service connect after approval")
+        .expect("service connect task panicked");
+
+    let service_task = AbortOnDrop::new(tokio::spawn(async move {
+        service.run().await.expect("service runtime loop failed")
+    }));
+
+    service_task.abort_and_wait().await;
+}
+
+#[tokio::test]
+async fn service_approval_approved_service_handles_client_rpc() {
+    assert_case_registered(
+        "service-approval.approved-service-handles-client-rpc",
         "service-approval",
         "service_approval",
     );

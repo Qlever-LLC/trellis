@@ -1,144 +1,1647 @@
 {
-  "schemaVersion": 1,
   "cases": [
     {
-      "id": "rpc.client-calls-service",
+      "id": "rpc.client-calls-service-success",
       "fixture": "rpc",
-      "title": "Client calls a service RPC through generated surfaces",
+      "title": "Client calls a service RPC and receives a successful typed response",
       "coverage": [
         "cross-runtime-rpc",
         "auth-protocol-matrix",
         "observability-trace-matrix"
       ],
-      "description": "A client participant calls a service-owned RPC, the service receives authenticated caller context, and the client receives the typed response."
+      "description": "A client participant calls a service-owned RPC through generated surfaces and receives the typed successful response.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.rpc-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.rpc-service@v1"
+          }
+        ],
+        "given": [
+          "a live Trellis runtime",
+          "the rpc fixture contracts are approved"
+        ],
+        "when": [
+          "the client calls Entity.Get through the generated RPC surface"
+        ],
+        "then": [
+          "the service receives the typed input",
+          "the client receives { id, found: true }"
+        ]
+      }
     },
     {
-      "id": "service-approval.service-startup-awaits-approval",
-      "fixture": "service-approval",
-      "title": "Service startup waits for deployment approval",
+      "id": "rpc.service-receives-caller-context",
+      "fixture": "rpc",
+      "title": "Service RPC handler receives authenticated caller context",
       "coverage": [
-        "service-authority-acceptance-flow",
         "cross-runtime-rpc",
-        "observability-trace-matrix"
-      ],
-      "description": "A service participant can start only after the deployment authority approves its service identity and resources."
-    },
-    {
-      "id": "app-identity-approval.client-obtains-approved-grant",
-      "fixture": "app-identity-approval",
-      "title": "App client obtains an approved identity grant",
-      "coverage": [
-        "app-identity-grant-approval",
         "auth-protocol-matrix",
         "observability-trace-matrix"
       ],
-      "description": "An app client completes identity grant approval and uses the approved identity for Trellis client access."
+      "description": "The service RPC handler observes non-empty caller, session, request, and trace metadata from the live request context.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.rpc-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.rpc-service@v1"
+          }
+        ],
+        "given": [
+          "a live Trellis runtime",
+          "the rpc fixture contracts are approved"
+        ],
+        "when": [
+          "the client calls Entity.Get through the generated RPC surface"
+        ],
+        "then": [
+          "the service handler observes non-empty caller metadata",
+          "the service handler observes non-empty session metadata",
+          "the service handler observes non-empty request metadata",
+          "the service handler observes non-empty trace metadata"
+        ]
+      }
     },
     {
-      "id": "operations.client-starts-and-watches-operation",
+      "id": "rpc.client-receives-declared-error",
+      "fixture": "rpc",
+      "title": "Client receives a declared service RPC error through the result surface",
+      "coverage": [
+        "cross-runtime-rpc",
+        "observability-trace-matrix"
+      ],
+      "description": "The client calls an RPC whose handler returns a declared error, and the client result surface preserves the declared error code and data.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.rpc-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.rpc-service@v1"
+          }
+        ],
+        "given": [
+          "a live Trellis runtime",
+          "the rpc fixture contracts include a declared RPC error"
+        ],
+        "when": [
+          "the client calls an RPC whose handler returns the declared error"
+        ],
+        "then": [
+          "the client result surface preserves the declared error code",
+          "the client result surface preserves the declared error data"
+        ]
+      }
+    },
+    {
+      "id": "rpc.denies-client-without-call-authority",
+      "fixture": "rpc",
+      "title": "RPC call is denied for a client without call authority",
+      "coverage": [
+        "cross-runtime-rpc",
+        "capability-permission-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "A client lacking rpc.call authority for Entity.Get receives a denied result when attempting to call the RPC.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.rpc-client@v1"
+          }
+        ],
+        "given": [
+          "a live Trellis runtime",
+          "the client lacks rpc.call authority for Entity.Get"
+        ],
+        "when": [
+          "the client calls Entity.Get through the generated RPC surface"
+        ],
+        "then": [
+          "the generated RPC call is denied"
+        ]
+      }
+    },
+    {
+      "id": "events.client-publishes-and-subscriber-receives",
+      "fixture": "events",
+      "title": "Publisher sends an event and subscriber receives the exact payload",
+      "coverage": [
+        "cross-runtime-events",
+        "observability-trace-matrix"
+      ],
+      "description": "An authorized publisher sends a contract event and an authorized subscriber receives the exact payload with context id and time.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "publisher",
+            "kind": "app",
+            "contract": "trellis.integration.events-pubsub-client@v1"
+          },
+          {
+            "name": "subscriber",
+            "kind": "app",
+            "contract": "trellis.integration.events-pubsub-client@v1"
+          }
+        ],
+        "given": [
+          "a subscriber is connected and listening for Entity.Changed events"
+        ],
+        "when": [
+          "the publisher sends an Entity.Changed event"
+        ],
+        "then": [
+          "the subscriber receives the exact payload",
+          "the received event contains context with id and time"
+        ]
+      }
+    },
+    {
+      "id": "events.denies-publish-without-authority",
+      "fixture": "events",
+      "title": "Event publish is denied for a subscribe-only client",
+      "coverage": [
+        "cross-runtime-events",
+        "capability-permission-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "A client with subscribe-only authority attempts to publish a contract event and receives a public denied failure.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.events-subscribe-only-client@v1"
+          }
+        ],
+        "given": [
+          "a client is connected with subscribe-only authority"
+        ],
+        "when": [
+          "the client attempts to publish an Entity.Changed event"
+        ],
+        "then": [
+          "the publish call is denied with a public denied failure"
+        ]
+      }
+    },
+    {
+      "id": "events.denies-subscribe-without-authority",
+      "fixture": "events",
+      "title": "Event subscribe does not deliver to a client without subscribe authority",
+      "coverage": [
+        "cross-runtime-events",
+        "capability-permission-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "A client lacking subscribe authority attempts to listen for events and does not receive events published by an authorized client.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.events-publish-only-client@v1"
+          }
+        ],
+        "given": [
+          "a client is connected without subscribe authority"
+        ],
+        "when": [
+          "the client attempts to listen for events",
+          "an authorized client publishes an event"
+        ],
+        "then": [
+          "the unauthorized listener does not receive the event"
+        ]
+      }
+    },
+    {
+      "id": "operations.client-starts-operation",
       "fixture": "operations",
-      "title": "Client starts and watches a caller-visible operation",
+      "title": "Client starts an operation through public operation APIs",
+      "coverage": [
+        "cross-runtime-operations",
+        "observability-trace-matrix"
+      ],
+      "description": "An authorized client starts Entity.Process and receives an operation reference with typed input received by the service handler.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.operations-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.operations-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected and handles Entity.Process operation"
+        ],
+        "when": [
+          "the client starts an Entity.Process operation"
+        ],
+        "then": [
+          "the client receives an operation reference and id",
+          "the service handler receives typed input"
+        ]
+      }
+    },
+    {
+      "id": "operations.client-watches-progress",
+      "fixture": "operations",
+      "title": "Client watches operation progress events",
+      "coverage": [
+        "cross-runtime-operations",
+        "observability-trace-matrix"
+      ],
+      "description": "The client watch stream observes at least one typed progress event with expected payload during operation execution.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.operations-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.operations-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected and handles Entity.Process operation"
+        ],
+        "when": [
+          "the client starts Entity.Process and watches the operation"
+        ],
+        "then": [
+          "the watch stream observes at least one typed progress event"
+        ]
+      }
+    },
+    {
+      "id": "operations.client-waits-for-completion",
+      "fixture": "operations",
+      "title": "Client waits for operation completion and receives typed output",
+      "coverage": [
+        "cross-runtime-operations",
+        "observability-trace-matrix"
+      ],
+      "description": "The client wait helper observes terminal completed state with typed operation output.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.operations-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.operations-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected and handles Entity.Process operation"
+        ],
+        "when": [
+          "the client starts Entity.Process and waits for completion"
+        ],
+        "then": [
+          "the client observes terminal completed state",
+          "the client receives typed operation output"
+        ]
+      }
+    },
+    {
+      "id": "operations.denies-start-without-call-authority",
+      "fixture": "operations",
+      "title": "Operation start is denied for a client without call authority",
       "coverage": [
         "cross-runtime-operations",
         "capability-permission-matrix",
         "observability-trace-matrix"
       ],
-      "description": "A client starts an operation through public operation APIs and observes terminal status through the watch surface."
+      "description": "A client lacking operation call authority attempts to start Entity.Process and receives a public denied failure.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.operations-client@v1"
+          }
+        ],
+        "given": [
+          "a client is connected without operation call authority"
+        ],
+        "when": [
+          "the client attempts to start Entity.Process"
+        ],
+        "then": [
+          "the operation start is denied with a public denied failure"
+        ]
+      }
     },
     {
-      "id": "events.client-publishes-and-subscribes",
-      "fixture": "events",
-      "title": "Client publishes and subscribes to contract events",
+      "id": "feeds.client-receives-first-frame",
+      "fixture": "feeds",
+      "title": "Client receives the first feed frame after subscribing",
       "coverage": [
-        "cross-runtime-events",
+        "feeds-parity",
         "observability-trace-matrix"
       ],
-      "description": "A client with publish and subscribe authority sends a contract event and another authorized participant receives it."
+      "description": "An authorized client subscribes to Entity.Live and receives the first typed frame for the requested topic.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.feeds-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.feeds-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected that handles Entity.Live feed subscriptions"
+        ],
+        "when": [
+          "the client subscribes to Entity.Live"
+        ],
+        "then": [
+          "the client receives the first typed frame"
+        ]
+      }
     },
     {
-      "id": "events.denied-publish",
-      "fixture": "events",
-      "title": "Client event publish is denied without publish authority",
+      "id": "feeds.client-receives-ordered-frames",
+      "fixture": "feeds",
+      "title": "Client receives feed frames in order",
       "coverage": [
-        "cross-runtime-events",
+        "feeds-parity",
+        "observability-trace-matrix"
+      ],
+      "description": "The service emits two frames and the client observes sequence 1 followed by sequence 2 without reordering.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.feeds-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.feeds-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected that handles Entity.Live feed subscriptions"
+        ],
+        "when": [
+          "the service emits two feed frames"
+        ],
+        "then": [
+          "the client observes sequence 1",
+          "the client observes sequence 2 in order"
+        ]
+      }
+    },
+    {
+      "id": "feeds.abort-stops-client-subscription",
+      "fixture": "feeds",
+      "title": "Aborting a feed subscription stops the stream without leaking",
+      "coverage": [
+        "feeds-parity",
+        "observability-trace-matrix"
+      ],
+      "description": "The client aborts a feed subscription and the stream terminates cleanly without leaking a pending task.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.feeds-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.feeds-service@v1"
+          }
+        ],
+        "given": [
+          "a client has an active feed subscription"
+        ],
+        "when": [
+          "the client aborts the subscription"
+        ],
+        "then": [
+          "the stream terminates without leaking"
+        ]
+      }
+    },
+    {
+      "id": "feeds.denies-subscribe-without-authority",
+      "fixture": "feeds",
+      "title": "Feed subscribe is denied for a client without authority",
+      "coverage": [
+        "feeds-parity",
         "capability-permission-matrix",
         "observability-trace-matrix"
       ],
-      "description": "A client with subscribe-only authority cannot publish a contract event."
+      "description": "A client lacking feed subscribe authority attempts to subscribe and receives a public denied failure.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.feeds-client@v1"
+          }
+        ],
+        "given": [
+          "a client is connected without feed subscribe authority"
+        ],
+        "when": [
+          "the client attempts to subscribe to Entity.Live"
+        ],
+        "then": [
+          "the subscribe call is denied with a public denied failure"
+        ]
+      }
     },
     {
-      "id": "health.client-observes-service-heartbeat",
-      "fixture": "health",
-      "title": "Client observes service health heartbeat events",
-      "coverage": [
-        "health-heartbeat-event",
-        "observability-trace-matrix"
-      ],
-      "description": "A client can observe public service health heartbeat behavior exposed by Trellis health surfaces."
-    },
-    {
-      "id": "state.client-reads-and-updates-shared-state",
+      "id": "state.value-store-missing-read",
       "fixture": "state",
-      "title": "Client reads and updates contract-owned shared state",
+      "title": "Reading an empty value store returns found false",
       "coverage": [
         "state-parity",
         "observability-trace-matrix"
       ],
-      "description": "A client uses public state APIs to read and update contract-owned shared state with matching semantics across languages."
+      "description": "Reading from a fresh value store that has no entry returns { found: false }.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.state-client@v1"
+          }
+        ],
+        "given": [
+          "a client is connected with a value store"
+        ],
+        "when": [
+          "the client reads a value that does not exist"
+        ],
+        "then": [
+          "the client receives { found: false }"
+        ]
+      }
     },
     {
-      "id": "transfer.client-uploads-and-downloads-file",
+      "id": "state.value-store-create-read-delete",
+      "fixture": "state",
+      "title": "Value store create, read, and delete cycle",
+      "coverage": [
+        "state-parity",
+        "observability-trace-matrix"
+      ],
+      "description": "Creating with expectedRevision null applies, read returns the value, revision delete succeeds, and final read returns found false.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.state-client@v1"
+          }
+        ],
+        "given": [
+          "a client is connected with a value store"
+        ],
+        "when": [
+          "the client creates an entry with expectedRevision null",
+          "the client reads the entry",
+          "the client deletes using the returned revision",
+          "the client reads the entry again"
+        ],
+        "then": [
+          "the create applies with a revision",
+          "the read returns the stored value",
+          "the delete returns deleted true",
+          "the final read returns found false"
+        ]
+      }
+    },
+    {
+      "id": "state.value-store-stale-revision-rejected",
+      "fixture": "state",
+      "title": "Value store rejects stale revision writes and deletes",
+      "coverage": [
+        "state-parity",
+        "observability-trace-matrix"
+      ],
+      "description": "Writing or deleting with a stale revision returns a public conflict or not-applied shape.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.state-client@v1"
+          }
+        ],
+        "given": [
+          "a client is connected with a value store",
+          "an entry exists with a known revision"
+        ],
+        "when": [
+          "the client writes with a stale revision",
+          "the client deletes with a stale revision"
+        ],
+        "then": [
+          "the write returns a conflict or not-applied shape",
+          "the delete returns a conflict or not-applied shape"
+        ]
+      }
+    },
+    {
+      "id": "state.map-store-prefix-put-get-list-delete",
+      "fixture": "state",
+      "title": "Map store prefix put, get, list, and delete cycle",
+      "coverage": [
+        "state-parity",
+        "observability-trace-matrix"
+      ],
+      "description": "Using a prefixed map handle, writes apply, get returns the value, bounded list includes the key, revision delete succeeds, and final get is missing.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.state-client@v1"
+          }
+        ],
+        "given": [
+          "a client is connected with a map store"
+        ],
+        "when": [
+          "the client writes a key-value pair to a prefixed map",
+          "the client gets the written key",
+          "the client lists entries with a limit",
+          "the client deletes the entry with a revision",
+          "the client gets the key again"
+        ],
+        "then": [
+          "the write applies with a revision",
+          "the get returns the stored value",
+          "the list includes the written key",
+          "the delete succeeds",
+          "the final get returns missing"
+        ]
+      }
+    },
+    {
+      "id": "state.map-store-list-limit",
+      "fixture": "state",
+      "title": "Map store list respects the requested limit",
+      "coverage": [
+        "state-parity",
+        "observability-trace-matrix"
+      ],
+      "description": "Putting more entries than the requested limit returns no more than limit entries with stable keys.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.state-client@v1"
+          }
+        ],
+        "given": [
+          "a client is connected with a map store"
+        ],
+        "when": [
+          "the client puts more entries than the requested list limit",
+          "the client lists entries with the limit"
+        ],
+        "then": [
+          "the list returns no more than the requested limit entries",
+          "the returned keys are stable"
+        ]
+      }
+    },
+    {
+      "id": "transfer.client-uploads-file-via-operation",
       "fixture": "transfer",
-      "title": "Client uploads and downloads file transfer data",
+      "title": "Client uploads a file through the transfer operation",
       "coverage": [
         "transfer-parity",
         "auth-protocol-matrix",
         "observability-trace-matrix"
       ],
-      "description": "A client transfers file data through public transfer APIs and verifies the returned metadata and bytes."
+      "description": "The client sends bytes through the generated transfer operation and the service observes completed upload with size, key, and contentType.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.transfer-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.transfer-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected that handles file uploads"
+        ],
+        "when": [
+          "the client sends bytes through the transfer operation"
+        ],
+        "then": [
+          "the service observes completed upload size",
+          "the service observes completed upload key",
+          "the service observes completed upload contentType",
+          "the terminal output matches the upload"
+        ]
+      }
     },
     {
-      "id": "feeds.client-consumes-service-feed",
-      "fixture": "feeds",
-      "title": "Client consumes service feed updates",
+      "id": "transfer.client-downloads-file-via-receive-grant",
+      "fixture": "transfer",
+      "title": "Client downloads a file through a receive grant",
       "coverage": [
-        "feeds-parity",
+        "transfer-parity",
+        "auth-protocol-matrix",
         "observability-trace-matrix"
       ],
-      "description": "A client subscribes to a service-owned feed and observes published updates through the public feed surface."
+      "description": "The service creates a receive grant for the caller session and the client downloads bytes through the public transfer helper with matching payload.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.transfer-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.transfer-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected that handles file downloads",
+          "a file is available for download via a receive grant"
+        ],
+        "when": [
+          "the service creates a receive grant for the client session",
+          "the client downloads bytes through the transfer helper"
+        ],
+        "then": [
+          "the downloaded payload matches the expected content"
+        ]
+      }
     },
     {
-      "id": "resources.service-uses-bound-resources-for-client-call",
+      "id": "transfer.download-grant-is-session-bound",
+      "fixture": "transfer",
+      "title": "Download grant is bound to the requesting session",
+      "coverage": [
+        "transfer-parity",
+        "auth-protocol-matrix",
+        "capability-permission-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "A second client attempting to use another client's receive grant receives a public denied or invalid grant failure.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.transfer-client@v1"
+          },
+          {
+            "name": "second-client",
+            "kind": "app",
+            "contract": "trellis.integration.transfer-client@v1"
+          }
+        ],
+        "given": [
+          "a receive grant exists for the first client session"
+        ],
+        "when": [
+          "the second client attempts to use the first client's receive grant"
+        ],
+        "then": [
+          "the second client receives a public denied or invalid grant failure"
+        ]
+      }
+    },
+    {
+      "id": "resources.service-receives-required-bindings",
       "fixture": "resources",
-      "title": "Service uses bound resources during a client RPC",
+      "title": "Service receives required resource bindings",
       "coverage": [
         "resources-service-bound-parity",
         "cross-runtime-rpc",
         "observability-trace-matrix"
       ],
-      "description": "A client call reaches a service that uses Trellis-provided resource bindings through public service handles."
+      "description": "The connected service has required KV and store handles materialized through public service handles.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.resources-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.resources-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected with required KV and store bindings declared"
+        ],
+        "when": [
+          "the service connects to Trellis"
+        ],
+        "then": [
+          "the required KV handle is materialized",
+          "the required store handle is materialized"
+        ]
+      }
     },
     {
-      "id": "jobs.service-runs-local-job-for-client-visible-workflow",
+      "id": "resources.service-receives-optional-bindings",
+      "fixture": "resources",
+      "title": "Service receives optional resource bindings",
+      "coverage": [
+        "resources-service-bound-parity",
+        "observability-trace-matrix"
+      ],
+      "description": "The connected service has optional KV and store handles present when declared and provisioned.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.resources-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.resources-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected with optional KV and store bindings declared"
+        ],
+        "when": [
+          "the service connects to Trellis"
+        ],
+        "then": [
+          "the optional KV handle is present",
+          "the optional store handle is present"
+        ]
+      }
+    },
+    {
+      "id": "resources.service-store-create-read-list-delete",
+      "fixture": "resources",
+      "title": "Service-bound store supports create, read, list, and delete",
+      "coverage": [
+        "resources-service-bound-parity",
+        "cross-runtime-rpc",
+        "observability-trace-matrix"
+      ],
+      "description": "The service uses a bound store during a client RPC and create, wait, read, status, list, and delete all work.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.resources-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.resources-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected with a store binding",
+          "a client can trigger an RPC on the service"
+        ],
+        "when": [
+          "the client calls an RPC that triggers store operations on the service"
+        ],
+        "then": [
+          "the service store create works",
+          "the service store wait works",
+          "the service store read works",
+          "the service store status works",
+          "the service store list works",
+          "the service store delete works"
+        ]
+      }
+    },
+    {
+      "id": "resources.service-kv-create-put-get-delete",
+      "fixture": "resources",
+      "title": "Service-bound KV supports create, put, get, and delete",
+      "coverage": [
+        "resources-service-bound-parity",
+        "cross-runtime-rpc",
+        "observability-trace-matrix"
+      ],
+      "description": "The service uses a bound KV store during a client RPC and create, put, get, and revision delete all work.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.resources-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.resources-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected with a KV binding",
+          "a client can trigger an RPC on the service"
+        ],
+        "when": [
+          "the client calls an RPC that triggers KV operations on the service"
+        ],
+        "then": [
+          "the service KV create works",
+          "the service KV put works",
+          "the service KV get works",
+          "the service KV revision delete works"
+        ]
+      }
+    },
+    {
+      "id": "resources.service-kv-stale-revision-rejected",
+      "fixture": "resources",
+      "title": "Service-bound KV rejects stale revision operations",
+      "coverage": [
+        "resources-service-bound-parity",
+        "cross-runtime-rpc",
+        "observability-trace-matrix"
+      ],
+      "description": "The service attempts KV update or delete with a stale revision and the public handle surface fails.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.resources-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.resources-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected with a KV binding",
+          "a key exists with a known revision"
+        ],
+        "when": [
+          "the service attempts to update with a stale revision",
+          "the service attempts to delete with a stale revision"
+        ],
+        "then": [
+          "the stale update fails through the public handle surface",
+          "the stale delete fails through the public handle surface"
+        ]
+      }
+    },
+    {
+      "id": "jobs.service-creates-local-job-from-client-rpc",
       "fixture": "jobs",
-      "title": "Service runs local job work behind a client-visible workflow",
+      "title": "Service creates a local job in response to a client RPC",
       "coverage": [
         "jobs-public-api",
         "jobs-service-local-parity",
         "observability-trace-matrix"
       ],
-      "description": "A service uses Trellis jobs for private execution while the client observes the public API outcome."
+      "description": "The client RPC reaches the service, the service creates a service-local job, and the response includes a non-empty job id.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.jobs-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.jobs-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected that handles jobs"
+        ],
+        "when": [
+          "the client calls an RPC that triggers a local job"
+        ],
+        "then": [
+          "the response includes a non-empty job id"
+        ]
+      }
     },
     {
-      "id": "device-activation.device-client-activates-and-connects",
+      "id": "jobs.job-progress-and-log-are-published",
+      "fixture": "jobs",
+      "title": "Job progress and log entries are published",
+      "coverage": [
+        "jobs-public-api",
+        "jobs-service-local-parity",
+        "observability-trace-matrix"
+      ],
+      "description": "The job handler publishes progress and log entries which are observable through the public job observation surface.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.jobs-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.jobs-service@v1"
+          }
+        ],
+        "given": [
+          "a job handler that publishes progress and log entries"
+        ],
+        "when": [
+          "the job executes"
+        ],
+        "then": [
+          "progress entries are observable through the public surface",
+          "log entries are observable through the public surface"
+        ]
+      }
+    },
+    {
+      "id": "jobs.job-wait-returns-typed-result",
+      "fixture": "jobs",
+      "title": "Job wait returns terminal state with typed result",
+      "coverage": [
+        "jobs-public-api",
+        "jobs-service-local-parity",
+        "observability-trace-matrix"
+      ],
+      "description": "Waiting for a completed job returns terminal completed state with typed result.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.jobs-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.jobs-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected and handles jobs"
+        ],
+        "when": [
+          "a job completes",
+          "the client waits for the job"
+        ],
+        "then": [
+          "the wait returns completed terminal state",
+          "the wait returns a typed result"
+        ]
+      }
+    },
+    {
+      "id": "jobs.job-context-propagates-request-and-trace",
+      "fixture": "jobs",
+      "title": "Job context propagates request id and trace id",
+      "coverage": [
+        "jobs-public-api",
+        "jobs-service-local-parity",
+        "observability-trace-matrix"
+      ],
+      "description": "The job response contains a non-empty request id and a 32-character trace id propagated from the client-visible workflow.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.jobs-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.jobs-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected that handles jobs"
+        ],
+        "when": [
+          "a client-visible workflow completes"
+        ],
+        "then": [
+          "the response contains a non-empty request id",
+          "the response contains a 32-character trace id"
+        ]
+      }
+    },
+    {
+      "id": "health.client-subscribes-to-heartbeats",
+      "fixture": "health",
+      "title": "Client subscribes to service health heartbeats",
+      "coverage": [
+        "health-heartbeat-event",
+        "observability-trace-matrix"
+      ],
+      "description": "An authorized observer subscribes to Health.Heartbeat and receives a heartbeat for the service.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "observer",
+            "kind": "app",
+            "contract": "trellis.integration.health-observer@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.health-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected that emits health heartbeats"
+        ],
+        "when": [
+          "the observer subscribes to Health.Heartbeat"
+        ],
+        "then": [
+          "the observer receives a heartbeat for the service"
+        ]
+      }
+    },
+    {
+      "id": "health.heartbeat-includes-service-metadata",
+      "fixture": "health",
+      "title": "Heartbeat includes service identity metadata",
+      "coverage": [
+        "health-heartbeat-event",
+        "observability-trace-matrix"
+      ],
+      "description": "The heartbeat includes status, service kind, name, contract id, digest, runtime, version, instance id, startedAt, and publish interval.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "observer",
+            "kind": "app",
+            "contract": "trellis.integration.health-observer@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.health-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected that emits health heartbeats"
+        ],
+        "when": [
+          "the observer receives a heartbeat"
+        ],
+        "then": [
+          "the heartbeat includes status",
+          "the heartbeat includes service kind",
+          "the heartbeat includes service name",
+          "the heartbeat includes contract id",
+          "the heartbeat includes digest",
+          "the heartbeat includes runtime",
+          "the heartbeat includes version",
+          "the heartbeat includes instance id",
+          "the heartbeat includes startedAt",
+          "the heartbeat includes publish interval"
+        ]
+      }
+    },
+    {
+      "id": "health.heartbeat-includes-custom-checks",
+      "fixture": "health",
+      "title": "Heartbeat includes built-in and custom health checks",
+      "coverage": [
+        "health-heartbeat-event",
+        "observability-trace-matrix"
+      ],
+      "description": "The heartbeat includes the built-in nats ok check and a custom fixture ok check with summary and info.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "observer",
+            "kind": "app",
+            "contract": "trellis.integration.health-observer@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.health-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected that emits health heartbeats with custom checks"
+        ],
+        "when": [
+          "the observer receives a heartbeat"
+        ],
+        "then": [
+          "the heartbeat includes a built-in nats ok check",
+          "the heartbeat includes a custom fixture ok check with summary and info"
+        ]
+      }
+    },
+    {
+      "id": "health.heartbeat-event-context-is-populated",
+      "fixture": "health",
+      "title": "Heartbeat event context is populated",
+      "coverage": [
+        "health-heartbeat-event",
+        "observability-trace-matrix"
+      ],
+      "description": "The heartbeat event context has subject, mode, id, and time populated, with subject events.v1.Health.Heartbeat.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "observer",
+            "kind": "app",
+            "contract": "trellis.integration.health-observer@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.health-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected that emits health heartbeats"
+        ],
+        "when": [
+          "the observer receives a heartbeat"
+        ],
+        "then": [
+          "the event context subject is populated",
+          "the event context mode is populated",
+          "the event context id is populated",
+          "the event context time is populated",
+          "the event context subject is events.v1.Health.Heartbeat"
+        ]
+      }
+    },
+    {
+      "id": "service-approval.startup-blocks-before-authority-approval",
+      "fixture": "service-approval",
+      "title": "Service startup blocks before deployment authority approval",
+      "coverage": [
+        "service-authority-acceptance-flow",
+        "cross-runtime-rpc",
+        "observability-trace-matrix"
+      ],
+      "description": "A service instance key is provisioned before contract approval, and the service connect remains pending.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.integration.service-approval-admin@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.service-approval-service@v1"
+          }
+        ],
+        "given": [
+          "a service instance key is provisioned before contract approval"
+        ],
+        "when": [
+          "the service attempts to connect"
+        ],
+        "then": [
+          "the service connect remains pending"
+        ]
+      }
+    },
+    {
+      "id": "service-approval.startup-completes-after-authority-approval",
+      "fixture": "service-approval",
+      "title": "Service startup completes after deployment authority approval",
+      "coverage": [
+        "service-authority-acceptance-flow",
+        "cross-runtime-rpc",
+        "observability-trace-matrix"
+      ],
+      "description": "After the admin approves and reconciles, the pending service connect resolves successfully.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.integration.service-approval-admin@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.service-approval-service@v1"
+          }
+        ],
+        "given": [
+          "a service connect is pending"
+        ],
+        "when": [
+          "the admin approves the service contract",
+          "the admin reconciles deployment authority"
+        ],
+        "then": [
+          "the pending service connect resolves"
+        ]
+      }
+    },
+    {
+      "id": "service-approval.approved-service-handles-client-rpc",
+      "fixture": "service-approval",
+      "title": "Approved service handles a client RPC",
+      "coverage": [
+        "service-authority-acceptance-flow",
+        "cross-runtime-rpc",
+        "observability-trace-matrix"
+      ],
+      "description": "An approved service registers an RPC handler and an authorized client receives a typed response.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.integration.service-approval-admin@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.service-approval-service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.service-approval-client@v1"
+          }
+        ],
+        "given": [
+          "a service is connected and approved",
+          "the service registers an RPC handler"
+        ],
+        "when": [
+          "the client calls the service RPC"
+        ],
+        "then": [
+          "the client receives a typed response"
+        ]
+      }
+    },
+    {
+      "id": "app-identity-approval.connect-requires-auth-flow",
+      "fixture": "app-identity-approval",
+      "title": "App client connect triggers auth-required callback before approval",
+      "coverage": [
+        "app-identity-grant-approval",
+        "auth-protocol-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "TrellisClient.connect invoked before approval triggers an auth-required callback with a login URL, session key mode, and session key.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.auth@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.app-identity-approval-client@v1"
+          }
+        ],
+        "given": [
+          "the app client contract requires identity grant approval"
+        ],
+        "when": [
+          "the client attempts to connect before approval"
+        ],
+        "then": [
+          "the client receives an auth-required callback",
+          "the callback includes a login URL",
+          "the callback includes a session key mode",
+          "the callback includes a session key"
+        ]
+      }
+    },
+    {
+      "id": "app-identity-approval.approved-client-connects",
+      "fixture": "app-identity-approval",
+      "title": "Approved app client connects successfully",
+      "coverage": [
+        "app-identity-grant-approval",
+        "auth-protocol-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "After admin-assisted approval completes, the client connects with an open connection.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.auth@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.app-identity-approval-client@v1"
+          }
+        ],
+        "given": [
+          "the app client contract requires identity grant approval"
+        ],
+        "when": [
+          "the admin completes the approval flow",
+          "the client connects"
+        ],
+        "then": [
+          "the client connects with an open connection"
+        ]
+      }
+    },
+    {
+      "id": "app-identity-approval.approved-client-calls-service",
+      "fixture": "app-identity-approval",
+      "title": "Approved app client calls a service RPC",
+      "coverage": [
+        "app-identity-grant-approval",
+        "auth-protocol-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "An approved app client calls a generated service RPC and receives a typed response.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.auth@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.app-identity-approval-service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.app-identity-approval-client@v1"
+          }
+        ],
+        "given": [
+          "a service is connected and handles an RPC",
+          "the client has an approved identity grant"
+        ],
+        "when": [
+          "the client calls the generated service RPC"
+        ],
+        "then": [
+          "the client receives a typed response"
+        ]
+      }
+    },
+    {
+      "id": "device-activation.admin-provisions-known-device",
       "fixture": "device-activation",
-      "title": "Device client activates and connects with issued credentials",
+      "title": "Admin provisions a known device identity",
       "coverage": [
         "device-activation-end-to-end",
         "auth-protocol-matrix",
         "observability-trace-matrix"
       ],
-      "description": "A known device completes activation and uses the resulting connection information as a Trellis client."
+      "description": "The admin creates a device deployment, approves the device contract, provisions the device public identity and activation key, and receives expected instance metadata.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.auth@v1"
+          },
+          {
+            "name": "device",
+            "kind": "device",
+            "contract": "trellis.integration.device-activation-device@v1"
+          }
+        ],
+        "given": [
+          "a deployment authority is configured"
+        ],
+        "when": [
+          "the admin creates a device deployment",
+          "the admin approves the device contract",
+          "the admin provisions the device with public identity and activation key"
+        ],
+        "then": [
+          "the admin receives expected instance metadata",
+          "the admin receives a deployment id",
+          "the admin receives a public identity key"
+        ]
+      }
+    },
+    {
+      "id": "device-activation.device-starts-activation-request",
+      "fixture": "device-activation",
+      "title": "Device starts an activation request",
+      "coverage": [
+        "device-activation-end-to-end",
+        "auth-protocol-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "The device builds a signed activation payload, starts the activation request through the public HTTP helper, and receives an activation URL with flow id.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.integration.device-activation-admin@v1"
+          },
+          {
+            "name": "device",
+            "kind": "device",
+            "contract": "trellis.integration.device-activation-device@v1"
+          }
+        ],
+        "given": [
+          "a device has an activation key and public identity key"
+        ],
+        "when": [
+          "the device builds a signed activation payload",
+          "the device starts the activation request"
+        ],
+        "then": [
+          "the device receives an activation URL",
+          "the activation URL includes a flow id"
+        ]
+      }
+    },
+    {
+      "id": "device-activation.admin-resolves-activation-operation",
+      "fixture": "device-activation",
+      "title": "Admin resolves the device activation operation",
+      "coverage": [
+        "device-activation-end-to-end",
+        "auth-protocol-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "The admin starts Auth.DeviceUserAuthorities.Resolve operation and it completes with activated status, deployment id, and instance id.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.integration.device-activation-admin@v1"
+          }
+        ],
+        "given": [
+          "a device activation request is pending"
+        ],
+        "when": [
+          "the admin starts the resolve operation"
+        ],
+        "then": [
+          "the operation completes with activated status",
+          "the operation completes with a deployment id",
+          "the operation completes with an instance id"
+        ]
+      }
+    },
+    {
+      "id": "device-activation.device-receives-connect-info",
+      "fixture": "device-activation",
+      "title": "Device receives connection information after activation",
+      "coverage": [
+        "device-activation-end-to-end",
+        "auth-protocol-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "The device waits for activation and receives connect info with deployment id and contract digest.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "device",
+            "kind": "device",
+            "contract": "trellis.integration.device-activation-device@v1"
+          }
+        ],
+        "given": [
+          "a device activation is in progress"
+        ],
+        "when": [
+          "the device waits for activation to complete"
+        ],
+        "then": [
+          "the device receives connect info with deployment id",
+          "the device receives connect info with contract digest"
+        ]
+      }
+    },
+    {
+      "id": "device-activation.activated-device-connects-and-authenticates",
+      "fixture": "device-activation",
+      "title": "Activated device connects and authenticates",
+      "coverage": [
+        "device-activation-end-to-end",
+        "auth-protocol-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "The activated device connects through the public device client surface and Auth.Sessions.Me reports participant kind device with expected identity.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "device",
+            "kind": "device",
+            "contract": "trellis.integration.device-activation-device@v1"
+          }
+        ],
+        "given": [
+          "a device has been activated"
+        ],
+        "when": [
+          "the device connects through the public device client surface"
+        ],
+        "then": [
+          "Auth.Sessions.Me reports participant kind device",
+          "Auth.Sessions.Me reports the expected identity"
+        ]
+      }
+    },
+    {
+      "id": "device-activation.activated-device-authority-is-listed",
+      "fixture": "device-activation",
+      "title": "Activated device appears in admin authority list",
+      "coverage": [
+        "device-activation-end-to-end",
+        "auth-protocol-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "The admin lists device user authorities and the activated device entry is present.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.integration.device-activation-admin@v1"
+          }
+        ],
+        "given": [
+          "a device has been activated"
+        ],
+        "when": [
+          "the admin lists device user authorities"
+        ],
+        "then": [
+          "the list includes the activated device entry"
+        ]
+      }
     }
   ]
 }

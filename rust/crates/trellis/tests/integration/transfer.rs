@@ -13,7 +13,7 @@ use trellis_rs::service::StoreResourceClient;
 use trellis_rs::service::{
     AcceptedOperation, DefaultRequestValidator, FileTransferInfo, GeneratedServiceContract,
     OperationRefData, OperationSnapshot, OperationState as ServiceOpState, ServerError,
-    ServiceHandlerContext, TransferDownloadGrantArgs, TransferUploadGrantArgs,
+    ServiceHandlerContext, ServiceRuntimeError, TransferDownloadGrantArgs, TransferUploadGrantArgs,
     UploadTransferCompletion, UploadTransferSession,
 };
 
@@ -186,33 +186,6 @@ impl trellis_rs::client::RpcDescriptor for FilesDownloadRpc {
     const ERRORS: &'static [&'static str] = &[];
 }
 
-struct AbortOnDrop<T> {
-    handle: Option<JoinHandle<T>>,
-}
-
-impl<T> AbortOnDrop<T> {
-    fn new(handle: JoinHandle<T>) -> Self {
-        Self {
-            handle: Some(handle),
-        }
-    }
-
-    async fn abort_and_wait(mut self) {
-        if let Some(handle) = self.handle.take() {
-            handle.abort();
-            let _ = handle.await;
-        }
-    }
-}
-
-impl<T> Drop for AbortOnDrop<T> {
-    fn drop(&mut self) {
-        if let Some(handle) = &self.handle {
-            handle.abort();
-        }
-    }
-}
-
 struct SharedOpState {
     snapshots: tokio::sync::Mutex<
         std::collections::HashMap<String, OperationSnapshot<Value, UploadOutput>>,
@@ -233,48 +206,84 @@ fn now_iso() -> Result<String, ServerError> {
         .map_err(|e| ServerError::Nats(e.to_string()))
 }
 
-#[tokio::test]
-#[ignore]
-async fn transfer_client_uploads_and_downloads_file() {
-    assert_case_registered(
-        "transfer.client-uploads-and-downloads-file",
-        "transfer",
-        "transfer",
-    );
+#[allow(dead_code)]
+struct TransferFixture {
+    runtime: trellis_test::TrellisTestRuntime,
+    admin: trellis_test::TrellisTestAdmin,
+    bootstrap_url: String,
+    service_task: Option<JoinHandle<Result<(), ServiceRuntimeError>>>,
+    client_contract: trellis_test::TrellisTestContract,
+}
 
-    let runtime =
-        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
-            .await
-            .expect("start live Trellis test runtime");
-    let bootstrap_url = runtime
-        .wait_for_bootstrap_url(Duration::from_secs(10))
-        .await
-        .expect("observe first admin bootstrap URL");
-    let mut admin = runtime.admin();
-
-    let service_contract =
-        trellis_test::TrellisTestContract::from_manifest_json(TRANSFER_SERVICE_CONTRACT_JSON)
-            .expect("build transfer service test contract");
-    assert_eq!(
-        service_contract.digest(),
-        TransferServiceContract::CONTRACT_DIGEST
-    );
-    let client_contract = transfer_client_contract().expect("build transfer client test contract");
-
-    let service_key = admin
-        .provision_service_instance(&bootstrap_url, &service_contract, None, None)
-        .await
-        .expect("provision live transfer service instance");
-    let mut service =
-        trellis_rs::service::ConnectedServiceRuntime::<TransferServiceContract>::connect(
-            runtime.service_connect_options("transfer-fixture-service", &service_key),
+impl TransferFixture {
+    async fn start() -> Self {
+        let runtime = trellis_test::TrellisTestRuntime::start(
+            trellis_test::TrellisTestRuntimeOptions::default(),
         )
         .await
-        .expect("connect live Rust transfer service");
+        .expect("start live Trellis test runtime");
+        let bootstrap_url = runtime
+            .wait_for_bootstrap_url(Duration::from_secs(10))
+            .await
+            .expect("observe first admin bootstrap URL");
+        let mut admin = runtime.admin();
 
-    let shared = SharedOpState::new();
+        let service_contract =
+            trellis_test::TrellisTestContract::from_manifest_json(TRANSFER_SERVICE_CONTRACT_JSON)
+                .expect("build transfer service test contract");
+        assert_eq!(
+            service_contract.digest(),
+            TransferServiceContract::CONTRACT_DIGEST
+        );
+        let client_contract =
+            transfer_client_contract().expect("build transfer client test contract");
 
-    // --- Upload operation handler ---
+        let service_key = admin
+            .provision_service_instance(&bootstrap_url, &service_contract, None, None)
+            .await
+            .expect("provision live transfer service instance");
+        let mut service =
+            trellis_rs::service::ConnectedServiceRuntime::<TransferServiceContract>::connect(
+                runtime.service_connect_options("transfer-fixture-service", &service_key),
+            )
+            .await
+            .expect("connect live Rust transfer service");
+
+        let shared = SharedOpState::new();
+
+        register_upload_handler(&mut service, Arc::clone(&shared));
+        register_download_handler(&mut service);
+
+        let service_task = tokio::spawn(async move { service.run().await });
+
+        TransferFixture {
+            runtime,
+            admin,
+            bootstrap_url,
+            service_task: Some(service_task),
+            client_contract,
+        }
+    }
+
+    async fn connect_client(&mut self) -> trellis_rs::client::TrellisClient {
+        self.admin
+            .connect_client(&self.bootstrap_url, &self.client_contract)
+            .await
+            .expect("connect live Rust transfer client")
+    }
+
+    async fn shutdown(mut self) {
+        if let Some(handle) = self.service_task.take() {
+            handle.abort();
+            let _ = handle.await;
+        }
+    }
+}
+
+fn register_upload_handler(
+    service: &mut trellis_rs::service::ConnectedServiceRuntime<TransferServiceContract>,
+    shared: Arc<SharedOpState>,
+) {
     service.register_operation_with_watch::<FilesUploadOp, _, _, _, _, _, _, _>(
         {
             let shared = Arc::clone(&shared);
@@ -440,8 +449,11 @@ async fn transfer_client_uploads_and_downloads_file() {
             })
         },
     );
+}
 
-    // --- Download RPC handler ---
+fn register_download_handler(
+    service: &mut trellis_rs::service::ConnectedServiceRuntime<TransferServiceContract>,
+) {
     service.register_rpc::<FilesDownloadRpc, _, _>(move |context, input| async move {
         let handle = context.handle();
         let client = Arc::clone(handle.client());
@@ -488,15 +500,19 @@ async fn transfer_client_uploads_and_downloads_file() {
         let grant_value = serde_json::to_value(&plan.grant).map_err(ServerError::Json)?;
         Ok(grant_value)
     });
+}
 
-    let service_task = AbortOnDrop::new(tokio::spawn(async move { service.run().await }));
+#[tokio::test]
+async fn transfer_client_uploads_file_via_operation() {
+    assert_case_registered(
+        "transfer.client-uploads-file-via-operation",
+        "transfer",
+        "transfer",
+    );
 
-    let client = admin
-        .connect_client(&bootstrap_url, &client_contract)
-        .await
-        .expect("connect live Rust transfer client");
+    let mut fixture = TransferFixture::start().await;
+    let client = fixture.connect_client().await;
 
-    // --- Upload flow ---
     let upload_bytes = Bytes::from_static(b"uploaded through transfer");
     let upload_input = UploadInput {
         key: "client/upload.txt".to_string(),
@@ -521,7 +537,20 @@ async fn transfer_client_uploads_and_downloads_file() {
     assert_eq!(output.size, upload_bytes.len() as u64);
     assert_eq!(output.content_type.as_deref(), Some("text/plain"));
 
-    // --- Download flow ---
+    fixture.shutdown().await;
+}
+
+#[tokio::test]
+async fn transfer_client_downloads_file_via_receive_grant() {
+    assert_case_registered(
+        "transfer.client-downloads-file-via-receive-grant",
+        "transfer",
+        "transfer",
+    );
+
+    let mut fixture = TransferFixture::start().await;
+    let client = fixture.connect_client().await;
+
     let download_key = "client/download.txt";
     let download_input = DownloadInput {
         key: download_key.to_string(),
@@ -546,7 +575,38 @@ async fn transfer_client_uploads_and_downloads_file() {
         format!("download:{download_key}")
     );
 
-    service_task.abort_and_wait().await;
+    fixture.shutdown().await;
+}
+
+#[tokio::test]
+async fn transfer_download_grant_is_session_bound() {
+    assert_case_registered(
+        "transfer.download-grant-is-session-bound",
+        "transfer",
+        "transfer",
+    );
+
+    let mut fixture = TransferFixture::start().await;
+
+    // Client A gets a download grant
+    let client_a = fixture.connect_client().await;
+    let download_key = "client/session-bound.txt";
+    let download_input = DownloadInput {
+        key: download_key.to_string(),
+    };
+    let grant_value = call_download_with_retry(&client_a, &download_input).await;
+    let download_grant = trellis_rs::client::download_transfer_grant_from_value(grant_value)
+        .expect("parse download transfer grant");
+
+    // Client B attempts to use client A's grant
+    let client_b = fixture.connect_client().await;
+    let result = client_b.download_transfer(&download_grant).await;
+    assert!(
+        result.is_err(),
+        "cross-session grant usage should be rejected"
+    );
+
+    fixture.shutdown().await;
 }
 
 async fn start_upload_with_retry<'a>(

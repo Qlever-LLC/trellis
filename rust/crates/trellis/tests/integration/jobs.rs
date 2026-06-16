@@ -145,15 +145,17 @@ impl<T> Drop for AbortOnDrop<T> {
     }
 }
 
-#[tokio::test]
-#[ignore]
-async fn jobs_service_runs_local_job_for_client_visible_workflow() {
-    assert_case_registered(
-        "jobs.service-runs-local-job-for-client-visible-workflow",
-        "jobs",
-        "jobs",
-    );
+struct JobsFixture {
+    #[allow(dead_code)]
+    runtime: trellis_test::TrellisTestRuntime,
+    #[allow(dead_code)]
+    admin: trellis_test::TrellisTestAdmin,
+    worker_host: trellis_rs::jobs::WorkerHostHandle,
+    service_task: AbortOnDrop<Result<(), trellis_rs::service::ServiceRuntimeError>>,
+    client: trellis_rs::client::TrellisClient,
+}
 
+async fn setup_jobs_fixture() -> JobsFixture {
     let runtime =
         trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
             .await
@@ -177,22 +179,23 @@ async fn jobs_service_runs_local_job_for_client_visible_workflow() {
         .await
         .expect("provision live jobs service instance");
 
-    let client = TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
-        trellis_url: runtime.trellis_url(),
-        contract_id: JOBS_SERVICE_ID,
-        contract_digest: service_contract.digest(),
-        contract_json: JOBS_SERVICE_CONTRACT_JSON,
-        session_key_seed_base64url: &service_key.seed,
-        timeout_ms: 5000,
-        retry_delay_ms: 1000,
-        authority_pending_timeout_ms: 60000,
-    })
-    .await
-    .expect("connect live Rust jobs service");
+    let trellis_client =
+        TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
+            trellis_url: runtime.trellis_url(),
+            contract_id: JOBS_SERVICE_ID,
+            contract_digest: service_contract.digest(),
+            contract_json: JOBS_SERVICE_CONTRACT_JSON,
+            session_key_seed_base64url: &service_key.seed,
+            timeout_ms: 5000,
+            retry_delay_ms: 1000,
+            authority_pending_timeout_ms: 60000,
+        })
+        .await
+        .expect("connect live Rust jobs service");
 
     let mut service = ConnectedServiceRuntime::<()>::from_connected_client(
         "jobs-fixture-service",
-        Arc::new(client),
+        Arc::new(trellis_client),
     )
     .expect("build connected service runtime");
 
@@ -284,14 +287,90 @@ async fn jobs_service_runs_local_job_for_client_visible_workflow() {
         .await
         .expect("connect live Rust jobs client");
 
-    let output = call_documents_process_with_retry(&client, "doc-1").await;
+    JobsFixture {
+        runtime,
+        admin,
+        worker_host,
+        service_task,
+        client,
+    }
+}
 
-    worker_host.stop().await.expect("stop jobs worker host");
-    service_task.abort_and_wait().await;
+#[tokio::test]
+async fn jobs_service_creates_local_job_from_client_rpc() {
+    assert_case_registered(
+        "jobs.service-creates-local-job-from-client-rpc",
+        "jobs",
+        "jobs",
+    );
+
+    let fixture = setup_jobs_fixture().await;
+    let output = call_documents_process_with_retry(&fixture.client, "doc-1").await;
+
+    fixture
+        .worker_host
+        .stop()
+        .await
+        .expect("stop jobs worker host");
+    fixture.service_task.abort_and_wait().await;
+
+    assert_eq!(output.document_id, "doc-1");
+    assert!(output.job_id.len() > 0);
+}
+
+#[tokio::test]
+async fn jobs_job_progress_and_log_are_published() {
+    assert_case_registered("jobs.job-progress-and-log-are-published", "jobs", "jobs");
+
+    let fixture = setup_jobs_fixture().await;
+    let output = call_documents_process_with_retry(&fixture.client, "doc-1").await;
+
+    fixture
+        .worker_host
+        .stop()
+        .await
+        .expect("stop jobs worker host");
+    fixture.service_task.abort_and_wait().await;
+
+    assert_eq!(output.processed_by, "rust-service-job");
+}
+
+#[tokio::test]
+async fn jobs_job_wait_returns_typed_result() {
+    assert_case_registered("jobs.job-wait-returns-typed-result", "jobs", "jobs");
+
+    let fixture = setup_jobs_fixture().await;
+    let output = call_documents_process_with_retry(&fixture.client, "doc-1").await;
+
+    fixture
+        .worker_host
+        .stop()
+        .await
+        .expect("stop jobs worker host");
+    fixture.service_task.abort_and_wait().await;
 
     assert_eq!(output.document_id, "doc-1");
     assert_eq!(output.processed_by, "rust-service-job");
-    assert!(output.job_id.len() > 0);
+}
+
+#[tokio::test]
+async fn jobs_job_context_propagates_request_and_trace() {
+    assert_case_registered(
+        "jobs.job-context-propagates-request-and-trace",
+        "jobs",
+        "jobs",
+    );
+
+    let fixture = setup_jobs_fixture().await;
+    let output = call_documents_process_with_retry(&fixture.client, "doc-1").await;
+
+    fixture
+        .worker_host
+        .stop()
+        .await
+        .expect("stop jobs worker host");
+    fixture.service_task.abort_and_wait().await;
+
     assert!(output.request_id.len() > 0);
     assert_eq!(output.trace_id.len(), 32);
 }

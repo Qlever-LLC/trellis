@@ -18,10 +18,104 @@ struct Draft {
 }
 
 #[tokio::test]
-#[ignore]
-async fn state_client_reads_and_updates_shared_state() {
+async fn state_value_store_missing_read() {
+    assert_case_registered("state.value-store-missing-read", "state", "state");
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    let contract = state_client_contract().expect("build state client test contract");
+
+    let client = admin
+        .connect_client(&bootstrap_url, &contract)
+        .await
+        .expect("connect live Rust state client");
+
+    let preferences =
+        trellis_rs::client::ValueStateStore::<_, Preferences>::new(&client, "preferences");
+
+    assert_eq!(
+        call_state_get_missing_with_retry(&preferences).await,
+        trellis_rs::client::StateGetResult::Missing { found: false }
+    );
+}
+
+#[tokio::test]
+async fn state_value_store_create_read_delete() {
+    assert_case_registered("state.value-store-create-read-delete", "state", "state");
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    let contract = state_client_contract().expect("build state client test contract");
+
+    let client = admin
+        .connect_client(&bootstrap_url, &contract)
+        .await
+        .expect("connect live Rust state client");
+
+    let preferences =
+        trellis_rs::client::ValueStateStore::<_, Preferences>::new(&client, "preferences");
+
+    let created = preferences
+        .put_with_options(
+            &Preferences {
+                theme: "dark".to_string(),
+                density: "comfortable".to_string(),
+            },
+            &trellis_rs::client::PutStateOptions {
+                expected_revision: trellis_rs::client::ExpectedPutRevision::CreateIfAbsent,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("create preferences");
+    assert!(created.applied);
+    let created_entry = match created.entry {
+        Some(trellis_rs::client::StateValue::Current(entry)) => entry,
+        _ => panic!("expected current preferences entry"),
+    };
+    assert_eq!(created_entry.value.theme, "dark");
+
+    match preferences.get().await.expect("read preferences") {
+        trellis_rs::client::StateGetResult::Found { entry, .. } => {
+            assert_eq!(entry.value.density, "comfortable");
+        }
+        other => panic!("expected found preferences, got {other:?}"),
+    }
+
+    let deleted = preferences
+        .delete_with_options(&trellis_rs::client::DeleteStateOptions {
+            expected_revision: Some(created_entry.revision),
+        })
+        .await
+        .expect("delete preferences");
+    assert!(deleted.deleted);
+
+    assert_eq!(
+        preferences.get().await.expect("read deleted preferences"),
+        trellis_rs::client::StateGetResult::Missing { found: false }
+    );
+}
+
+#[tokio::test]
+async fn state_value_store_stale_revision_rejected() {
     assert_case_registered(
-        "state.client-reads-and-updates-shared-state",
+        "state.value-store-stale-revision-rejected",
         "state",
         "state",
     );
@@ -45,15 +139,8 @@ async fn state_client_reads_and_updates_shared_state() {
 
     let preferences =
         trellis_rs::client::ValueStateStore::<_, Preferences>::new(&client, "preferences");
-    let drafts =
-        trellis_rs::client::MapStateStore::<_, Draft>::new(&client, "drafts").prefix("inspection");
 
-    assert_eq!(
-        call_state_get_missing_with_retry(&preferences).await,
-        trellis_rs::client::StateGetResult::Missing { found: false }
-    );
-
-    let created_preferences = preferences
+    let created = preferences
         .put_with_options(
             &Preferences {
                 theme: "dark".to_string(),
@@ -66,34 +153,63 @@ async fn state_client_reads_and_updates_shared_state() {
         )
         .await
         .expect("create preferences");
-    assert!(created_preferences.applied);
-    let created_preferences_entry = match created_preferences.entry {
-        Some(trellis_rs::client::StateValue::Current(entry)) => entry,
-        _ => panic!("expected current preferences entry"),
-    };
-    assert_eq!(created_preferences_entry.value.theme, "dark");
+    assert!(created.applied);
 
-    match preferences.get().await.expect("read preferences") {
-        trellis_rs::client::StateGetResult::Found { entry, .. } => {
-            assert_eq!(entry.value.density, "comfortable");
-        }
-        other => panic!("expected found preferences, got {other:?}"),
-    }
+    let stale_write = preferences
+        .put_with_options(
+            &Preferences {
+                theme: "light".to_string(),
+                density: "compact".to_string(),
+            },
+            &trellis_rs::client::PutStateOptions {
+                expected_revision: trellis_rs::client::ExpectedPutRevision::Revision(
+                    "stale-revision".to_string(),
+                ),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("stale write should not error");
+    assert!(!stale_write.applied);
 
-    let deleted_preferences = preferences
+    let stale_delete = preferences
         .delete_with_options(&trellis_rs::client::DeleteStateOptions {
-            expected_revision: Some(created_preferences_entry.revision),
+            expected_revision: Some("stale-revision".to_string()),
         })
         .await
-        .expect("delete preferences");
-    assert!(deleted_preferences.deleted);
+        .expect("stale delete should not error");
+    assert!(!stale_delete.deleted);
+}
 
-    assert_eq!(
-        preferences.get().await.expect("read deleted preferences"),
-        trellis_rs::client::StateGetResult::Missing { found: false }
+#[tokio::test]
+async fn state_map_store_prefix_put_get_list_delete() {
+    assert_case_registered(
+        "state.map-store-prefix-put-get-list-delete",
+        "state",
+        "state",
     );
 
-    let created_draft = drafts
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    let contract = state_client_contract().expect("build state client test contract");
+
+    let client = admin
+        .connect_client(&bootstrap_url, &contract)
+        .await
+        .expect("connect live Rust state client");
+
+    let drafts =
+        trellis_rs::client::MapStateStore::<_, Draft>::new(&client, "drafts").prefix("inspection");
+
+    let created = drafts
         .put_with_options(
             "state-draft",
             &Draft {
@@ -107,11 +223,11 @@ async fn state_client_reads_and_updates_shared_state() {
         )
         .await
         .expect("create draft");
-    let created_draft_entry = match created_draft.entry {
+    let created_entry = match created.entry {
         Some(trellis_rs::client::StateValue::Current(entry)) => entry,
         _ => panic!("expected current draft entry"),
     };
-    assert_eq!(created_draft_entry.key, "inspection/state-draft");
+    assert_eq!(created_entry.key, "inspection/state-draft");
 
     match drafts.get("state-draft").await.expect("read draft") {
         trellis_rs::client::StateGetResult::Found { entry, .. } => {
@@ -134,20 +250,76 @@ async fn state_client_reads_and_updates_shared_state() {
     };
     assert_eq!(listed_entry.key, "inspection/state-draft");
 
-    let deleted_draft = drafts
+    let deleted = drafts
         .delete_with_options(
             "state-draft",
             &trellis_rs::client::DeleteStateOptions {
-                expected_revision: Some(created_draft_entry.revision),
+                expected_revision: Some(created_entry.revision),
             },
         )
         .await
         .expect("delete draft");
-    assert!(deleted_draft.deleted);
+    assert!(deleted.deleted);
 
     assert_eq!(
         drafts.get("state-draft").await.expect("read deleted draft"),
         trellis_rs::client::StateGetResult::Missing { found: false }
+    );
+}
+
+#[tokio::test]
+async fn state_map_store_list_limit() {
+    assert_case_registered("state.map-store-list-limit", "state", "state");
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    let contract = state_client_contract().expect("build state client test contract");
+
+    let client = admin
+        .connect_client(&bootstrap_url, &contract)
+        .await
+        .expect("connect live Rust state client");
+
+    let drafts =
+        trellis_rs::client::MapStateStore::<_, Draft>::new(&client, "drafts").prefix("limit-test");
+
+    for i in 1..=5 {
+        let result = drafts
+            .put_with_options(
+                &format!("entry-{i}"),
+                &Draft {
+                    title: format!("Entry {i}"),
+                    body: "body".to_string(),
+                },
+                &trellis_rs::client::PutStateOptions {
+                    expected_revision: trellis_rs::client::ExpectedPutRevision::CreateIfAbsent,
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("create draft entry");
+        assert!(result.applied);
+    }
+
+    let listed = drafts
+        .list(&trellis_rs::client::ListStateOptions {
+            limit: Some(2),
+            ..Default::default()
+        })
+        .await
+        .expect("list drafts");
+    assert!(
+        listed.entries.len() <= 2,
+        "expected ≤ 2 entries, got {}",
+        listed.entries.len()
     );
 }
 

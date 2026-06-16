@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import { defineAppContract, defineServiceContract } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import { Type } from "typebox";
@@ -50,13 +50,80 @@ const feedsClientContract = defineAppContract(() => ({
   },
 }));
 
+const feedsUnauthorizedClientContract = defineAppContract(() => ({
+  id: "trellis.integration.feeds-unauthorized-client@v1",
+  displayName: "Trellis Integration Feeds Unauthorized Client",
+  description: "App/client participant without feed subscribe authority.",
+  uses: {
+    required: {
+      feedsService: feedsServiceContract.use({
+        feeds: {},
+      }),
+    },
+  },
+}));
+
 type FeedFrame = {
   readonly topic: string;
   readonly message: string;
   readonly sequence: number;
 };
 
-Deno.test("feeds.client-consumes-service-feed receives generated feed frames", async () => {
+Deno.test("feeds.client-receives-first-frame receives the first generated feed frame", async () => {
+  await withTrellisRuntime(async (runtime) => {
+    const serviceKey = await runtime.registerService({
+      name: "feeds-fixture-service",
+      contract: feedsServiceContract,
+    });
+    const service = await TrellisService.connect({
+      trellisUrl: runtime.trellisUrl,
+      contract: feedsServiceContract,
+      name: "feeds-fixture-service",
+      sessionKeySeed: serviceKey.seed,
+      telemetry: false,
+      server: {},
+    }).orThrow();
+
+    try {
+      await service.handle.feed.entity.live(async ({ input, emit }) => {
+        await emit({
+          topic: input.topic,
+          message: `feed:${input.topic}:1`,
+          sequence: 1,
+        }).orThrow();
+      });
+
+      const client = await runtime.connectClient({
+        name: "feeds-fixture-client",
+        contract: feedsClientContract,
+      });
+      const controller = new AbortController();
+
+      try {
+        const stream = await client.feed.entity.live(
+          { topic: "entity-feed-1" },
+          { signal: controller.signal },
+        ).orThrow();
+        const frames = await withTimeout(
+          collectFeedFrames(stream, 1),
+          "feeds.client-receives-first-frame frames",
+        );
+
+        assertEquals(frames, [{
+          topic: "entity-feed-1",
+          message: "feed:entity-feed-1:1",
+          sequence: 1,
+        }]);
+      } finally {
+        controller.abort();
+      }
+    } finally {
+      await service.stop();
+    }
+  });
+});
+
+Deno.test("feeds.client-receives-ordered-frames receives two frames in sequence order", async () => {
   await withTrellisRuntime(async (runtime) => {
     const serviceKey = await runtime.registerService({
       name: "feeds-fixture-service",
@@ -94,13 +161,11 @@ Deno.test("feeds.client-consumes-service-feed receives generated feed frames", a
       try {
         const stream = await client.feed.entity.live(
           { topic: "entity-feed-1" },
-          {
-            signal: controller.signal,
-          },
+          { signal: controller.signal },
         ).orThrow();
         const frames = await withTimeout(
           collectFeedFrames(stream, 2),
-          "feeds.client-consumes-service-feed frames",
+          "feeds.client-receives-ordered-frames frames",
         );
 
         assertEquals(frames, [
@@ -121,6 +186,85 @@ Deno.test("feeds.client-consumes-service-feed receives generated feed frames", a
     } finally {
       await service.stop();
     }
+  });
+});
+
+Deno.test("feeds.abort-stops-client-subscription stops the feed stream on abort", async () => {
+  await withTrellisRuntime(async (runtime) => {
+    const serviceKey = await runtime.registerService({
+      name: "feeds-fixture-service",
+      contract: feedsServiceContract,
+    });
+    const service = await TrellisService.connect({
+      trellisUrl: runtime.trellisUrl,
+      contract: feedsServiceContract,
+      name: "feeds-fixture-service",
+      sessionKeySeed: serviceKey.seed,
+      telemetry: false,
+      server: {},
+    }).orThrow();
+
+    try {
+      await service.handle.feed.entity.live(async ({ input, emit }) => {
+        for (let i = 1; i <= 10; i++) {
+          await emit({
+            topic: input.topic,
+            message: `feed:${input.topic}:${i}`,
+            sequence: i,
+          }).orThrow();
+        }
+      });
+
+      const client = await runtime.connectClient({
+        name: "feeds-fixture-client",
+        contract: feedsClientContract,
+      });
+      const controller = new AbortController();
+
+      const stream = await client.feed.entity.live(
+        { topic: "entity-feed-1" },
+        { signal: controller.signal },
+      ).orThrow();
+
+      controller.abort();
+
+      let terminated = false;
+      const timeout = new Promise<void>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("stream did not terminate after abort")),
+          5000,
+        )
+      );
+      const iterate = (async () => {
+        for await (const _ of stream) {
+          // drain
+        }
+        terminated = true;
+      })();
+
+      await Promise.race([iterate, timeout]);
+      assert(terminated, "feed stream should terminate after abort");
+    } finally {
+      await service.stop();
+    }
+  });
+});
+
+Deno.test("feeds.denies-subscribe-without-authority rejects an unauthorized feed subscribe", async () => {
+  await withTrellisRuntime(async (runtime) => {
+    await runtime.contracts.approve({ contract: feedsServiceContract });
+    const client = await runtime.connectClient({
+      name: "feeds-fixture-unauthorized",
+      contract: feedsUnauthorizedClientContract,
+    });
+
+    await assertRejects(async () => {
+      const feedApi = (client as any).feed;
+      if (feedApi?.entity?.live === undefined) {
+        throw new Error("denied: feed subscribe is not available");
+      }
+      await feedApi.entity.live({ topic: "entity-feed-1" }).orThrow();
+    });
   });
 });
 

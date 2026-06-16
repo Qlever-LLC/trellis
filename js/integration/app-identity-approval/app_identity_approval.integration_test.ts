@@ -6,6 +6,7 @@ import {
   TrellisClient,
 } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
+import type { TrellisTestRuntime } from "@qlever-llc/trellis-test";
 import { Type } from "typebox";
 import { withTrellisRuntime } from "../_support/runtime.ts";
 
@@ -55,31 +56,41 @@ const appIdentityClientContract = defineAppContract(() => ({
   },
 }));
 
-Deno.test("app-identity-approval.client-obtains-approved-grant connects after approval", async () => {
-  await withTrellisRuntime(async (runtime) => {
-    const serviceKey = await runtime.registerService({
-      name: "app-identity-approval-fixture-service",
-      contract: appIdentityServiceContract,
-    });
-    const service = await TrellisService.connect({
-      trellisUrl: runtime.trellisUrl,
-      contract: appIdentityServiceContract,
-      name: "app-identity-approval-fixture-service",
-      sessionKeySeed: serviceKey.seed,
-      telemetry: false,
-      server: { log: false },
-    }).orThrow();
+async function setupService(runtime: TrellisTestRuntime) {
+  const serviceKey = await runtime.registerService({
+    name: "app-identity-approval-fixture-service",
+    contract: appIdentityServiceContract,
+  });
+  const service = await TrellisService.connect({
+    trellisUrl: runtime.trellisUrl,
+    contract: appIdentityServiceContract,
+    name: "app-identity-approval-fixture-service",
+    sessionKeySeed: serviceKey.seed,
+    telemetry: false,
+    server: { log: false },
+  }).orThrow();
 
-    try {
-      await service.handle.rpc.grant.ping(({ input }) =>
-        Result.ok({ message: input.message, approved: true })
-      );
+  service.handle.rpc.grant.ping(({ input }) =>
+    Result.ok({ message: input.message, approved: true })
+  );
 
-      const clientKey = await runtime.registerClient({
-        name: "app-identity-approval-fixture-client",
-        contract: appIdentityClientContract,
-      });
-      const clientAuth = runtime.clientAuth(clientKey);
+  return service;
+}
+
+async function setupClientRegistration(runtime: TrellisTestRuntime) {
+  const clientKey = await runtime.registerClient({
+    name: "app-identity-approval-fixture-client",
+    contract: appIdentityClientContract,
+  });
+  return { clientKey, clientAuth: runtime.clientAuth(clientKey) };
+}
+
+Deno.test(
+  "app-identity-approval.connect-requires-auth-flow invokes auth-required callback",
+  async () => {
+    await withTrellisRuntime(async (runtime) => {
+      const service = await setupService(runtime);
+      const { clientKey, clientAuth } = await setupClientRegistration(runtime);
       let observedAuth:
         | {
           loginUrl: string;
@@ -87,42 +98,104 @@ Deno.test("app-identity-approval.client-obtains-approved-grant connects after ap
           mode: "browser" | "session_key";
         }
         | undefined;
-      const client = await TrellisClient.connect({
-        trellisUrl: runtime.trellisUrl,
-        name: "app-identity-approval-fixture-client",
-        contract: appIdentityClientContract,
-        auth: clientAuth.auth,
-        onAuthRequired: async (ctx) => {
-          observedAuth = ctx;
-          return await clientAuth.onAuthRequired(ctx);
-        },
-      }).orThrow();
 
       try {
-        if (observedAuth === undefined) {
-          throw new Error("expected app identity approval to require auth");
-        }
-        const loginUrl = new URL(observedAuth.loginUrl);
-        const runtimeUrl = new URL(runtime.trellisUrl);
-        assertEquals(loginUrl.protocol, runtimeUrl.protocol);
-        assertEquals(loginUrl.port, runtimeUrl.port);
-        assertEquals(
-          ["127.0.0.1", "localhost"].includes(loginUrl.hostname),
-          true,
-        );
-        assertEquals(loginUrl.searchParams.has("flowId"), true);
-        assertEquals(observedAuth.mode, "session_key");
-        assertEquals(observedAuth.sessionKey, clientKey.sessionKey);
-
-        const result = await client.rpc.grant.ping({
-          message: "app-approved",
+        const client = await TrellisClient.connect({
+          trellisUrl: runtime.trellisUrl,
+          name: "app-identity-approval-fixture-client",
+          contract: appIdentityClientContract,
+          auth: clientAuth.auth,
+          onAuthRequired: async (ctx) => {
+            observedAuth = ctx;
+            return await clientAuth.onAuthRequired(ctx);
+          },
         }).orThrow();
-        assertEquals(result, { message: "app-approved", approved: true });
+
+        try {
+          if (observedAuth === undefined) {
+            throw new Error("expected app identity approval to require auth");
+          }
+          const loginUrl = new URL(observedAuth.loginUrl);
+          const runtimeUrl = new URL(runtime.trellisUrl);
+          assertEquals(loginUrl.protocol, runtimeUrl.protocol);
+          assertEquals(loginUrl.port, runtimeUrl.port);
+          assertEquals(
+            ["127.0.0.1", "localhost"].includes(loginUrl.hostname),
+            true,
+          );
+          assertEquals(loginUrl.searchParams.has("flowId"), true);
+          assertEquals(observedAuth.mode, "session_key");
+          assertEquals(observedAuth.sessionKey, clientKey.sessionKey);
+        } finally {
+          await client.connection.close();
+        }
       } finally {
-        await client.connection.close();
+        await service.stop();
       }
-    } finally {
-      await service.stop();
-    }
-  });
-});
+    });
+  },
+);
+
+Deno.test(
+  "app-identity-approval.approved-client-connects produces a connected public client",
+  async () => {
+    await withTrellisRuntime(async (runtime) => {
+      const service = await setupService(runtime);
+      const { clientAuth } = await setupClientRegistration(runtime);
+
+      try {
+        const client = await TrellisClient.connect({
+          trellisUrl: runtime.trellisUrl,
+          name: "app-identity-approval-fixture-client",
+          contract: appIdentityClientContract,
+          auth: clientAuth.auth,
+          onAuthRequired: async (ctx) => {
+            return await clientAuth.onAuthRequired(ctx);
+          },
+        }).orThrow();
+
+        try {
+          assertEquals(typeof client.connection, "object");
+          assertEquals(client.connection !== null, true);
+        } finally {
+          await client.connection.close();
+        }
+      } finally {
+        await service.stop();
+      }
+    });
+  },
+);
+
+Deno.test(
+  "app-identity-approval.approved-client-calls-service calls service RPC after approval",
+  async () => {
+    await withTrellisRuntime(async (runtime) => {
+      const service = await setupService(runtime);
+      const { clientAuth } = await setupClientRegistration(runtime);
+
+      try {
+        const client = await TrellisClient.connect({
+          trellisUrl: runtime.trellisUrl,
+          name: "app-identity-approval-fixture-client",
+          contract: appIdentityClientContract,
+          auth: clientAuth.auth,
+          onAuthRequired: async (ctx) => {
+            return await clientAuth.onAuthRequired(ctx);
+          },
+        }).orThrow();
+
+        try {
+          const result = await client.rpc.grant.ping({
+            message: "app-approved",
+          }).orThrow();
+          assertEquals(result, { message: "app-approved", approved: true });
+        } finally {
+          await client.connection.close();
+        }
+      } finally {
+        await service.stop();
+      }
+    });
+  },
+);

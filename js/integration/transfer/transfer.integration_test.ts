@@ -7,6 +7,7 @@ import {
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import { Type } from "typebox";
 import { withTrellisRuntime } from "../_support/runtime.ts";
+import type { TrellisTestRuntime } from "@qlever-llc/trellis-test";
 
 const transferSchemas = {
   UploadInput: Type.Object({
@@ -102,7 +103,11 @@ const transferClientContract = defineAppContract(() => ({
   },
 }));
 
-Deno.test("transfer.client-uploads-and-downloads-file uploads and downloads bytes", async () => {
+async function withTransferFixture(
+  fn: (
+    ctx: { runtime: TrellisTestRuntime; service: TrellisService },
+  ) => Promise<void>,
+) {
   await withTrellisRuntime(async (runtime) => {
     const serviceKey = await runtime.registerService({
       name: "transfer-fixture-service",
@@ -147,6 +152,17 @@ Deno.test("transfer.client-uploads-and-downloads-file uploads and downloads byte
         },
       );
 
+      await fn({ runtime, service });
+    } finally {
+      await service.stop();
+    }
+  });
+}
+
+Deno.test(
+  "transfer.client-uploads-file-via-operation uploads bytes through a transfer operation",
+  async () => {
+    await withTransferFixture(async ({ runtime }) => {
       const client = await runtime.connectClient({
         name: "transfer-fixture-client",
         contract: transferClientContract,
@@ -168,6 +184,18 @@ Deno.test("transfer.client-uploads-and-downloads-file uploads and downloads byte
         size: uploadBytes.length,
         contentType: "text/plain",
       });
+    });
+  },
+);
+
+Deno.test(
+  "transfer.client-downloads-file-via-receive-grant downloads bytes through a receive grant",
+  async () => {
+    await withTransferFixture(async ({ runtime }) => {
+      const client = await runtime.connectClient({
+        name: "transfer-fixture-client",
+        contract: transferClientContract,
+      });
 
       const downloadKey = "client/download.txt";
       const grant = await client.rpc.files.download({ key: downloadKey })
@@ -181,8 +209,30 @@ Deno.test("transfer.client-uploads-and-downloads-file uploads and downloads byte
         new TextDecoder().decode(downloaded),
         `download:${downloadKey}`,
       );
-    } finally {
-      await service.stop();
-    }
-  });
-});
+    });
+  },
+);
+
+Deno.test(
+  "transfer.download-grant-is-session-bound rejects cross-session grant usage",
+  async () => {
+    await withTransferFixture(async ({ runtime }) => {
+      const clientA = await runtime.connectClient({
+        name: "transfer-fixture-client-A",
+        contract: transferClientContract,
+      });
+
+      const downloadKey = "client/session-bound.txt";
+      const grant = await clientA.rpc.files.download({ key: downloadKey })
+        .orThrow();
+
+      const clientB = await runtime.connectClient({
+        name: "transfer-fixture-client-B",
+        contract: transferClientContract,
+      });
+
+      const result = await clientB.transfer(grant).bytes();
+      assertEquals(result.isOk(), false);
+    });
+  },
+);
