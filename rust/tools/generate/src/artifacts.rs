@@ -516,6 +516,7 @@ fn ts_shell_deno_json(
     root.insert(
         "compilerOptions".to_string(),
         serde_json::json!({
+            "lib": ["dom", "dom.iterable", "dom.asynciterable", "deno.ns"],
             "strict": true,
             "verbatimModuleSyntax": true
         }),
@@ -1577,6 +1578,7 @@ mod tests {
 
         let contract = fs::read_to_string(ts_out.join("contract.ts")).expect("read contract shell");
         let api = fs::read_to_string(ts_out.join("api.ts")).expect("read api shell");
+        let deno = fs::read_to_string(ts_out.join("deno.json")).expect("read deno shell config");
         let owned_api =
             fs::read_to_string(ts_out.join("owned_api.ts")).expect("read owned api shell");
         assert!(contract.contains("export const sdk"));
@@ -1587,6 +1589,9 @@ mod tests {
         assert!(api.contains("getOwnPropertyDescriptor"));
         assert!(owned_api.contains("export const OWNED_API"));
         assert!(owned_api.contains("permissiveApiRecord"));
+        assert!(deno.contains(r#""lib": ["#));
+        assert!(deno.contains(r#""dom""#));
+        assert!(deno.contains(r#""deno.ns""#));
         assert!(!contract.contains("assertSelectedKeysExist"));
         assert!(!metadata.exists());
     }

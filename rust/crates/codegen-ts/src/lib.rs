@@ -180,6 +180,7 @@ fn deno_json(
         "compilerOptions".to_string(),
         serde_json::json!({
             "strict": true,
+            "lib": ["dom", "dom.iterable", "dom.asynciterable", "deno.ns"],
             "verbatimModuleSyntax": true
         }),
     );
@@ -1011,7 +1012,7 @@ fn render_owned_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Str
             .and_then(|caps| caps.call.clone())
             .unwrap_or_default();
         lines.push(format!(
-            "      callerCapabilities: {},",
+            "      callerCapabilities: {} as const,",
             serde_json::to_string(&capabilities).unwrap()
         ));
         if let Some(errors) = &rpc.errors {
@@ -1178,19 +1179,19 @@ fn render_owned_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Str
             .and_then(|caps| caps.control.clone())
             .unwrap_or_default();
         lines.push(format!(
-            "      callerCapabilities: {},",
+            "      callerCapabilities: {} as const,",
             serde_json::to_string(&caller).unwrap()
         ));
         lines.push(format!(
-            "      observeCapabilities: {},",
+            "      observeCapabilities: {} as const,",
             serde_json::to_string(&observe).unwrap()
         ));
         lines.push(format!(
-            "      cancelCapabilities: {},",
+            "      cancelCapabilities: {} as const,",
             serde_json::to_string(&cancel).unwrap()
         ));
         lines.push(format!(
-            "      controlCapabilities: {},",
+            "      controlCapabilities: {} as const,",
             serde_json::to_string(&control).unwrap()
         ));
         if let Some(cancelable) = operation.cancel {
@@ -1233,11 +1234,11 @@ fn render_owned_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Str
             .and_then(|caps| caps.subscribe.clone())
             .unwrap_or_default();
         lines.push(format!(
-            "      publishCapabilities: {},",
+            "      publishCapabilities: {} as const,",
             serde_json::to_string(&publish).unwrap()
         ));
         lines.push(format!(
-            "      subscribeCapabilities: {},",
+            "      subscribeCapabilities: {} as const,",
             serde_json::to_string(&subscribe).unwrap()
         ));
         lines.push("    },".to_string());
@@ -1267,7 +1268,7 @@ fn render_owned_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Str
             .and_then(|caps| caps.subscribe.clone())
             .unwrap_or_default();
         lines.push(format!(
-            "      subscribeCapabilities: {},",
+            "      subscribeCapabilities: {} as const,",
             serde_json::to_string(&subscribe).unwrap()
         ));
         lines.push("    },".to_string());
@@ -3264,6 +3265,42 @@ mod tests {
     }
 
     #[test]
+    fn generated_sdk_deno_json_includes_web_and_deno_libs() {
+        let root = unique_temp_dir("sdk-deno-libs");
+        fs::create_dir_all(&root).unwrap();
+        let manifest_path = root.join("trellis.core@v1.json");
+        fs::write(
+            &manifest_path,
+            serde_json::to_string(&minimal_manifest("trellis.core@v1")).unwrap(),
+        )
+        .unwrap();
+        let opts = GenerateTsSdkOpts {
+            manifest_path: manifest_path.clone(),
+            out_dir: root.join("generated/packages/jsr/trellis-core"),
+            package_name: "@qlever-llc/trellis-sdk-core".to_string(),
+            package_version: "0.4.0".to_string(),
+            runtime_deps: TsRuntimeDeps {
+                source: TsRuntimeSource::Registry,
+                version: "0.4.0".to_string(),
+                repo_root: None,
+            },
+        };
+        let loaded = load_manifest(&manifest_path).unwrap();
+        let deno = deno_json(&opts, &loaded).unwrap();
+        let compiler_options = deno
+            .get("compilerOptions")
+            .and_then(Value::as_object)
+            .unwrap();
+
+        assert_eq!(
+            compiler_options.get("lib").unwrap(),
+            &json!(["dom", "dom.iterable", "dom.asynciterable", "deno.ns"])
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn jsr_package_generation_does_not_emit_npm_build_scripts() {
         let (opts, _loaded, root) =
             sample_opts_and_loaded("@qlever-llc/trellis-sdk-core", "trellis.core@v1");
@@ -3418,6 +3455,107 @@ mod tests {
             "operations: __TrellisGeneratedOperationApi<typeof OWNED_API[\"operations\"]>;"
         ));
         assert!(api.contains("export type ApiViews = {"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn generated_owned_api_emits_literal_capability_arrays_for_all_surfaces() {
+        let root = unique_temp_dir("literal-capability-arrays");
+        fs::create_dir_all(&root).unwrap();
+        let manifest_path = root.join("trellis.demo@v1.json");
+        fs::write(
+            &manifest_path,
+            serde_json::to_string(&json!({
+                "format": "trellis.contract.v1",
+                "id": "trellis.demo@v1",
+                "displayName": "Demo",
+                "description": "Capability literal fixture.",
+                "kind": "service",
+                "schemas": {
+                    "Empty": { "type": "object", "properties": {} },
+                    "Result": { "type": "object", "properties": { "ok": { "type": "boolean" } } }
+                },
+                "rpc": {
+                    "Demo.Get": {
+                        "version": "v1",
+                        "subject": "rpc.v1.Demo.Get",
+                        "input": { "schema": "Empty" },
+                        "output": { "schema": "Result" },
+                        "capabilities": { "call": ["trellis.demo::rpc.read"] }
+                    }
+                },
+                "operations": {
+                    "Demo.Run": {
+                        "version": "v1",
+                        "subject": "operations.v1.Demo.Run",
+                        "input": { "schema": "Empty" },
+                        "progress": { "schema": "Result" },
+                        "output": { "schema": "Result" },
+                        "capabilities": {
+                            "call": ["trellis.demo::operation.run"],
+                            "observe": ["trellis.demo::operation.observe"],
+                            "cancel": ["trellis.demo::operation.cancel"],
+                            "control": ["trellis.demo::operation.control"]
+                        },
+                        "cancel": true
+                    }
+                },
+                "events": {
+                    "Demo.Updated": {
+                        "version": "v1",
+                        "subject": "events.v1.Demo.Updated",
+                        "event": { "schema": "Result" },
+                        "capabilities": {
+                            "publish": ["trellis.demo::event.publish"],
+                            "subscribe": ["trellis.demo::event.subscribe"]
+                        }
+                    }
+                },
+                "feeds": {
+                    "Demo.Live": {
+                        "version": "v1",
+                        "subject": "feeds.v1.Demo.Live",
+                        "input": { "schema": "Empty" },
+                        "event": { "schema": "Result" },
+                        "capabilities": { "subscribe": ["trellis.demo::feed.subscribe"] }
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let opts = GenerateTsSdkOpts {
+            manifest_path: manifest_path.clone(),
+            out_dir: root.join("out"),
+            package_name: "@qlever-llc/trellis-sdk-demo".to_string(),
+            package_version: "0.4.0".to_string(),
+            runtime_deps: TsRuntimeDeps {
+                source: TsRuntimeSource::Registry,
+                version: "0.4.0".to_string(),
+                repo_root: None,
+            },
+        };
+        let loaded = load_manifest(&manifest_path).unwrap();
+        let owned_api = render_owned_api_ts(&opts, &loaded);
+
+        assert!(owned_api.contains("callerCapabilities: [\"trellis.demo::rpc.read\"] as const,"));
+        assert!(
+            owned_api.contains("callerCapabilities: [\"trellis.demo::operation.run\"] as const,")
+        );
+        assert!(owned_api
+            .contains("observeCapabilities: [\"trellis.demo::operation.observe\"] as const,"));
+        assert!(owned_api
+            .contains("cancelCapabilities: [\"trellis.demo::operation.cancel\"] as const,"));
+        assert!(owned_api
+            .contains("controlCapabilities: [\"trellis.demo::operation.control\"] as const,"));
+        assert!(
+            owned_api.contains("publishCapabilities: [\"trellis.demo::event.publish\"] as const,")
+        );
+        assert!(owned_api
+            .contains("subscribeCapabilities: [\"trellis.demo::event.subscribe\"] as const,"));
+        assert!(owned_api
+            .contains("subscribeCapabilities: [\"trellis.demo::feed.subscribe\"] as const,"));
 
         fs::remove_dir_all(root).unwrap();
     }
