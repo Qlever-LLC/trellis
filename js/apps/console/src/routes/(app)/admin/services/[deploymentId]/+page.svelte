@@ -61,6 +61,11 @@
 
   const authority = $derived(detail?.authority ?? null);
   const materializedAuthority = $derived(detail?.materializedAuthority ?? null);
+  const materializedGrantCount = $derived(
+    (materializedAuthority?.grants.capabilities.length ?? 0) +
+      (materializedAuthority?.grants.surfaces.length ?? 0) +
+      (materializedAuthority?.grants.nats.length ?? 0),
+  );
   const counts = $derived(authority ? authorityCounts(authority.desiredState) : null);
   const selectedInstances = $derived(instances.filter((instance) => instance.deploymentId === selectedDeploymentId));
   const desiredContractRows = $derived(authority ? deltaContractRows(authority.desiredState) : []);
@@ -228,7 +233,7 @@
           {#if !materializedAuthority}
             <EmptyState title="No materialized authority" description="Run reconciliation after accepting an authority update or migration." />
           {:else}
-            <DataTable><thead><tr><th>Desired version</th><th>Status</th><th>Reconciled</th><th>Grants</th></tr></thead><tbody><tr><td class="trellis-identifier">{materializedAuthority.desiredVersion}</td><td><StatusBadge label={materializedAuthority.status} status={statusVariant(materializedAuthority.status)} /></td><td>{materializedAuthority.reconciledAt ? formatDate(materializedAuthority.reconciledAt) : "—"}</td><td>{materializedAuthority.grants.length}</td></tr></tbody></DataTable>
+            <DataTable><thead><tr><th>Desired version</th><th>Status</th><th>Reconciled</th><th>Grants</th></tr></thead><tbody><tr><td class="trellis-identifier">{materializedAuthority.desiredVersion}</td><td><StatusBadge label={materializedAuthority.status} status={statusVariant(materializedAuthority.status)} /></td><td>{materializedAuthority.reconciledAt ? formatDate(materializedAuthority.reconciledAt) : "—"}</td><td>{materializedGrantCount}</td></tr></tbody></DataTable>
           {/if}
         {:else if activeTab === "resources"}
           <DataTable><thead><tr><th>Resource</th><th>Availability</th><th>Materialized binding</th></tr></thead><tbody>{#each desiredResourceRows as row (row.id)}{@const binding = materializedAuthority?.resourceBindings.find((item) => item.kind === row.kind && item.alias === row.alias)}<tr><td><div class="trellis-identifier">{row.alias}</div><div class="text-xs text-base-content/60">{row.kind}</div></td><td><span class="badge badge-outline badge-xs">{row.availability}</span></td><td class="trellis-identifier text-xs">{binding ? formatBindingTarget(binding) : "not materialized"}</td></tr>{:else}<tr><td colspan="3"><EmptyState title="No resources" description="This deployment authority has no desired resource needs." /></td></tr>{/each}</tbody></DataTable>

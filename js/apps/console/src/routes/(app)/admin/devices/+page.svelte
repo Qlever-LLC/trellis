@@ -74,6 +74,11 @@
   const selectedPendingReviews = $derived(selectedReviews.filter((review) => review.state === "pending"));
   const selectedDeploymentAuthority = $derived(selectedAuthorityDetail?.authority ?? deploymentAuthorities.find((authority) => authority.deploymentId === selectedDeploymentId) ?? null);
   const selectedMaterializedAuthority = $derived(selectedAuthorityDetail?.materializedAuthority ?? null);
+  const selectedMaterializedGrantCount = $derived(
+    (selectedMaterializedAuthority?.grants.capabilities.length ?? 0) +
+      (selectedMaterializedAuthority?.grants.surfaces.length ?? 0) +
+      (selectedMaterializedAuthority?.grants.nats.length ?? 0),
+  );
   const selectedCapabilityDefinitions = $derived(selectedAuthorityDetail?.capabilityDefinitions ?? capabilityDefinitions);
   const createsRows = $derived(selectedDeploymentAuthority ? createsCapabilityRows(selectedDeploymentAuthority, selectedCapabilityDefinitions) : []);
   const givenRows = $derived(selectedDeploymentAuthority ? givenCapabilityRows(selectedDeploymentAuthority, selectedMaterializedAuthority, selectedCapabilityDefinitions) : []);
@@ -525,7 +530,7 @@
                       <span class="badge badge-outline badge-sm trellis-identifier">desired {selectedDeploymentAuthority.version}</span>
                       {#if selectedMaterializedAuthority}
                         <StatusBadge label={`materialized ${selectedMaterializedAuthority.status}`} status={materializedStatus(selectedMaterializedAuthority.status)} />
-                        <span class="badge badge-outline badge-sm">{selectedMaterializedAuthority.grants.length} materialized grants</span>
+                        <span class="badge badge-outline badge-sm">{selectedMaterializedGrantCount} materialized grants</span>
                       {:else}
                         <StatusBadge label="materialized unknown" status="offline" />
                       {/if}
