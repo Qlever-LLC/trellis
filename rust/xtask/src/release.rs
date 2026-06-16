@@ -1254,7 +1254,7 @@ fn run_verify(
     parse_release_tag(since)?;
     if skip_integration {
         println!(
-            "WARNING: --skip-integration was set; release verification is incomplete until the full integration harness passes."
+            "WARNING: --skip-integration was set; release verification is incomplete until the JS and Rust integration suites pass."
         );
     }
 
@@ -1332,7 +1332,31 @@ fn verify_command_specs(
                 "js/services/trellis/main.ts",
             ],
         ),
-        CommandSpec::new("deno", vec!["test", "-c", "js/deno.json", "-A"]),
+        CommandSpec::new(
+            "deno",
+            vec!["task", "-c", "js/deno.json", "test:prepared:packages"],
+        ),
+        CommandSpec::new(
+            "deno",
+            vec![
+                "task",
+                "-c",
+                "js/deno.json",
+                "test:prepared:service:catalog-state",
+            ],
+        ),
+        CommandSpec::new(
+            "deno",
+            vec!["task", "-c", "js/deno.json", "test:prepared:service:auth"],
+        ),
+        CommandSpec::new(
+            "deno",
+            vec!["task", "-c", "js/deno.json", "test:prepared:ui-tools"],
+        ),
+        CommandSpec::new(
+            "deno",
+            vec!["task", "-c", "js/deno.json", "test:prepared:packaging"],
+        ),
         CommandSpec::new(
             "cargo",
             vec!["test", "--manifest-path", "rust/Cargo.toml", "--workspace"],
@@ -1349,19 +1373,39 @@ fn verify_command_specs(
     ];
 
     if !skip_integration {
-        let mut args = vec![
-            "run".to_string(),
-            "--manifest-path".to_string(),
-            "xtask/Cargo.toml".to_string(),
-            "--".to_string(),
-            "integration".to_string(),
-            "run".to_string(),
-            "--skip-prepare".to_string(),
+        let mut js_args = vec![
+            "task".to_string(),
+            "-c".to_string(),
+            "js/deno.json".to_string(),
+            "test:integration".to_string(),
         ];
         if keep_workdir {
-            args.push("--keep-workdir".to_string());
+            js_args.insert(0, "deno".to_string());
+            js_args.insert(0, "TRELLIS_TEST_KEEP_WORKDIR=1".to_string());
+            specs.push(CommandSpec::new("env", js_args));
+        } else {
+            specs.push(CommandSpec::new("deno", js_args));
         }
-        specs.push(CommandSpec::new("cargo", args));
+
+        let mut rust_args = vec![
+            "test".to_string(),
+            "--manifest-path".to_string(),
+            "rust/Cargo.toml".to_string(),
+            "-p".to_string(),
+            "trellis-rs".to_string(),
+            "--test".to_string(),
+            "integration".to_string(),
+            "--".to_string(),
+            "--ignored".to_string(),
+            "--nocapture".to_string(),
+        ];
+        if keep_workdir {
+            rust_args.insert(0, "cargo".to_string());
+            rust_args.insert(0, "TRELLIS_TEST_KEEP_WORKDIR=1".to_string());
+            specs.push(CommandSpec::new("env", rust_args));
+        } else {
+            specs.push(CommandSpec::new("cargo", rust_args));
+        }
     }
 
     specs
@@ -1810,7 +1854,7 @@ mod tests {
 
     #[test]
     fn verify_command_specs_include_checks_and_integration() {
-        let specs = verify_command_specs("0.9.0", "v0.8.2", false, true);
+        let specs = verify_command_specs("0.9.0", "v0.8.2", false, false);
         let commands: Vec<_> = specs.iter().map(command_text).collect();
 
         assert!(commands.contains(&"cargo run --manifest-path xtask/Cargo.toml -- release check-metadata --version 0.9.0 --since v0.8.2".to_string()));
@@ -1825,9 +1869,39 @@ mod tests {
             .contains(&"cargo test --manifest-path rust/tools/generate/Cargo.toml".to_string()));
         assert!(commands.contains(&"cargo test --manifest-path rust/xtask/Cargo.toml".to_string()));
         assert!(commands.contains(&"cargo test --manifest-path xtask/Cargo.toml".to_string()));
+        assert!(commands.contains(&"deno task -c js/deno.json test:prepared:packages".to_string()));
+        assert!(commands.contains(
+            &"deno task -c js/deno.json test:prepared:service:catalog-state".to_string()
+        ));
+        assert!(
+            commands.contains(&"deno task -c js/deno.json test:prepared:service:auth".to_string())
+        );
+        assert!(commands.contains(&"deno task -c js/deno.json test:prepared:ui-tools".to_string()));
+        assert!(commands.contains(&"deno task -c js/deno.json test:prepared:packaging".to_string()));
+        assert_eq!(
+            &commands[commands.len() - 2],
+            "deno task -c js/deno.json test:integration"
+        );
         assert_eq!(
             commands.last().expect("last release verify command"),
-            "cargo run --manifest-path xtask/Cargo.toml -- integration run --skip-prepare --keep-workdir"
+            "cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration -- --ignored --nocapture"
+        );
+    }
+
+    #[test]
+    fn verify_command_specs_keep_workdir_sets_js_and_rust_integration_env() {
+        let commands: Vec<_> = verify_command_specs("0.9.0", "v0.8.2", false, true)
+            .iter()
+            .map(command_text)
+            .collect();
+
+        assert_eq!(
+            &commands[commands.len() - 2],
+            "env TRELLIS_TEST_KEEP_WORKDIR=1 deno task -c js/deno.json test:integration"
+        );
+        assert_eq!(
+            commands.last().expect("last release verify command"),
+            "env TRELLIS_TEST_KEEP_WORKDIR=1 cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration -- --ignored --nocapture"
         );
     }
 
@@ -1840,7 +1914,10 @@ mod tests {
 
         assert!(!commands
             .iter()
-            .any(|command| command.contains(" integration run ")));
+            .any(|command| command.contains("test:integration")));
+        assert!(!commands
+            .iter()
+            .any(|command| command.contains("--test integration")));
     }
 
     #[test]

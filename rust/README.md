@@ -11,23 +11,22 @@ behind modules of the public `trellis` facade.
 
 **Crates in this repository:**
 
-| Crate                         | Purpose                                                       |
-| ----------------------------- | ------------------------------------------------------------- |
-| `trellis-auth`                | Unpublished compatibility/test package for auth helpers       |
-| `trellis-auth-adapters`       | Unpublished compatibility/test package for auth adapters      |
-| `trellis`                     | Curated public Rust facade for clients and services           |
-| `trellis-cli`                 | Operator CLI crate for the `trellis` binary                   |
-| `trellis-client`              | Unpublished compatibility package for `trellis_rs::client`    |
-| `trellis-codegen-rust`        | Internal Rust SDK code generation                             |
-| `trellis-codegen-ts`          | Internal TypeScript SDK code generation                       |
-| `trellis-contracts`           | Contract manifest model and validation                        |
-| `trellis-core-bootstrap`      | Internal bootstrap helpers for infrastructure state           |
-| `trellis-generate-runner`     | Internal helper for invoking the bootstrap-safe generator     |
-| `trellis-integration-harness` | End-to-end integration harness used by release verification   |
-| `trellis-jobs`                | Unpublished compatibility/test package for `trellis_rs::jobs` |
-| `trellis-local-bootstrap`     | Internal local Trellis/NATS bootstrap bundle generation       |
-| `trellis-service`             | Unpublished compatibility/test package for `trellis_rs::service` |
-| `trellis-service-jobs`        | Internal service-side jobs integration helpers                |
+| Crate                     | Purpose                                                          |
+| ------------------------- | ---------------------------------------------------------------- |
+| `trellis-auth`            | Unpublished compatibility/test package for auth helpers          |
+| `trellis-auth-adapters`   | Unpublished compatibility/test package for auth adapters         |
+| `trellis`                 | Curated public Rust facade for clients and services              |
+| `trellis-cli`             | Operator CLI crate for the `trellis` binary                      |
+| `trellis-client`          | Unpublished compatibility package for `trellis_rs::client`       |
+| `trellis-codegen-rust`    | Internal Rust SDK code generation                                |
+| `trellis-codegen-ts`      | Internal TypeScript SDK code generation                          |
+| `trellis-contracts`       | Contract manifest model and validation                           |
+| `trellis-core-bootstrap`  | Internal bootstrap helpers for infrastructure state              |
+| `trellis-generate-runner` | Internal helper for invoking the bootstrap-safe generator        |
+| `trellis-jobs`            | Unpublished compatibility/test package for `trellis_rs::jobs`    |
+| `trellis-local-bootstrap` | Internal local Trellis/NATS bootstrap bundle generation          |
+| `trellis-service`         | Unpublished compatibility/test package for `trellis_rs::service` |
+| `trellis-service-jobs`    | Internal service-side jobs integration helpers                   |
 
 See `../design/tooling/trellis-cli.md` and
 `../design/contracts/trellis-rust-contract-libraries.md`.
@@ -76,8 +75,16 @@ Before `cargo build` or `cargo install --path rust/crates/cli`, run
 `cargo xtask prepare` so the generated Rust SDK crates under
 `generated/packages/cargo/` exist. If you are doing a normal Rust build from the
 repo, prefer `cargo xtask build`, which runs `prepare` first and then invokes
-the default Rust workspace build. The default build excludes the live
-`trellis-integration-harness`; run `cargo xtask integration run` for that suite.
+the default Rust workspace build. Rust client-library integration coverage lives
+in the public `trellis` facade crate and runs with:
+
+```sh
+cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration -- --nocapture
+```
+
+That Rust suite is a peer of the TypeScript/Deno suite
+(`deno task -c js/deno.json test:integration`) and must conform to the shared
+`integration/client-test-matrix.json` parity contract.
 
 ## Known 0.9.x Rust Gaps
 

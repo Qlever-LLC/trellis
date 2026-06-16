@@ -205,8 +205,11 @@ Auth/admin control-plane correlation:
   application RPCs
 - traced admin errors include the request trace ID in serialized Trellis error
   data so operators can correlate failed control-plane calls with logs and spans
-- the integration harness covers both a successful traced `Auth.Sessions.Me`
-  call and a traced failing `Auth.Users.Get` call through live NATS/auth-callout
+- language-owned client integration suites cover traced auth/admin behavior
+  through live NATS/auth-callout according to the shared
+  `integration/client-test-matrix.json` parity contract; successful and failing
+  auth/admin flows should be represented as separate matrix cases when both are
+  required coverage
 
 Event deduplication:
 

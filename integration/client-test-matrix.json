@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "rpc.client-calls-service",
+      "fixture": "rpc",
+      "title": "Client calls a service RPC through generated surfaces",
+      "coverage": [
+        "cross-runtime-rpc",
+        "auth-protocol-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "A client participant calls a service-owned RPC, the service receives authenticated caller context, and the client receives the typed response."
+    },
+    {
+      "id": "service-approval.service-startup-awaits-approval",
+      "fixture": "service-approval",
+      "title": "Service startup waits for deployment approval",
+      "coverage": [
+        "service-authority-acceptance-flow",
+        "cross-runtime-rpc",
+        "observability-trace-matrix"
+      ],
+      "description": "A service participant can start only after the deployment authority approves its service identity and resources."
+    },
+    {
+      "id": "app-identity-approval.client-obtains-approved-grant",
+      "fixture": "app-identity-approval",
+      "title": "App client obtains an approved identity grant",
+      "coverage": [
+        "app-identity-grant-approval",
+        "auth-protocol-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "An app client completes identity grant approval and uses the approved identity for Trellis client access."
+    },
+    {
+      "id": "operations.client-starts-and-watches-operation",
+      "fixture": "operations",
+      "title": "Client starts and watches a caller-visible operation",
+      "coverage": [
+        "cross-runtime-operations",
+        "capability-permission-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "A client starts an operation through public operation APIs and observes terminal status through the watch surface."
+    },
+    {
+      "id": "events.client-publishes-and-subscribes",
+      "fixture": "events",
+      "title": "Client publishes and subscribes to contract events",
+      "coverage": [
+        "cross-runtime-events",
+        "observability-trace-matrix"
+      ],
+      "description": "A client with publish and subscribe authority sends a contract event and another authorized participant receives it."
+    },
+    {
+      "id": "events.denied-publish",
+      "fixture": "events",
+      "title": "Client event publish is denied without publish authority",
+      "coverage": [
+        "cross-runtime-events",
+        "capability-permission-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "A client with subscribe-only authority cannot publish a contract event."
+    },
+    {
+      "id": "health.client-observes-service-heartbeat",
+      "fixture": "health",
+      "title": "Client observes service health heartbeat events",
+      "coverage": [
+        "health-heartbeat-event",
+        "observability-trace-matrix"
+      ],
+      "description": "A client can observe public service health heartbeat behavior exposed by Trellis health surfaces."
+    },
+    {
+      "id": "state.client-reads-and-updates-shared-state",
+      "fixture": "state",
+      "title": "Client reads and updates contract-owned shared state",
+      "coverage": [
+        "state-parity",
+        "observability-trace-matrix"
+      ],
+      "description": "A client uses public state APIs to read and update contract-owned shared state with matching semantics across languages."
+    },
+    {
+      "id": "transfer.client-uploads-and-downloads-file",
+      "fixture": "transfer",
+      "title": "Client uploads and downloads file transfer data",
+      "coverage": [
+        "transfer-parity",
+        "auth-protocol-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "A client transfers file data through public transfer APIs and verifies the returned metadata and bytes."
+    },
+    {
+      "id": "feeds.client-consumes-service-feed",
+      "fixture": "feeds",
+      "title": "Client consumes service feed updates",
+      "coverage": [
+        "feeds-parity",
+        "observability-trace-matrix"
+      ],
+      "description": "A client subscribes to a service-owned feed and observes published updates through the public feed surface."
+    },
+    {
+      "id": "resources.service-uses-bound-resources-for-client-call",
+      "fixture": "resources",
+      "title": "Service uses bound resources during a client RPC",
+      "coverage": [
+        "resources-service-bound-parity",
+        "cross-runtime-rpc",
+        "observability-trace-matrix"
+      ],
+      "description": "A client call reaches a service that uses Trellis-provided resource bindings through public service handles."
+    },
+    {
+      "id": "jobs.service-runs-local-job-for-client-visible-workflow",
+      "fixture": "jobs",
+      "title": "Service runs local job work behind a client-visible workflow",
+      "coverage": [
+        "jobs-public-api",
+        "jobs-service-local-parity",
+        "observability-trace-matrix"
+      ],
+      "description": "A service uses Trellis jobs for private execution while the client observes the public API outcome."
+    },
+    {
+      "id": "device-activation.device-client-activates-and-connects",
+      "fixture": "device-activation",
+      "title": "Device client activates and connects with issued credentials",
+      "coverage": [
+        "device-activation-end-to-end",
+        "auth-protocol-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "A known device completes activation and uses the resulting connection information as a Trellis client."
+    }
+  ]
+}

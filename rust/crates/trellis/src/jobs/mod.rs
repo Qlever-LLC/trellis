@@ -19,6 +19,7 @@ pub mod manager;
 pub mod projection;
 pub mod publisher;
 pub mod registry;
+pub mod runtime_ref;
 mod runtime_worker;
 pub mod subjects;
 pub mod types;

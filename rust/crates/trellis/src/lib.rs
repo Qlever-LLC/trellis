@@ -101,7 +101,6 @@ mod tests {
             "codegen-ts/Cargo.toml",
             "core-bootstrap/Cargo.toml",
             "generate-runner/Cargo.toml",
-            "integration-harness/Cargo.toml",
             "jobs/Cargo.toml",
             "local-bootstrap/Cargo.toml",
             "service/Cargo.toml",

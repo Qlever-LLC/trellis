@@ -1,6 +1,6 @@
 # Trellis AI guidance for services and browser apps
 
-Last verified against Trellis main (2026-06-15).
+Last verified against Trellis main (2026-06-16).
 
 This file is for AI coding agents working in a service or browser app repository
 that consumes Trellis. The canonical URL is:
@@ -122,6 +122,13 @@ Rules:
   the explicit Trellis control-plane command as a spawned process. Allow
   migration authority plans only in isolated mutable-dev tests through
   `authority.autoAccept` or per-approval `allowPlanClassifications`.
+- In the Trellis repo, client-library integration parity is owned by
+  `integration/client-test-matrix.json`. Release verification runs the
+  language-owned JS suite with `deno task -c js/deno.json test:integration` and
+  the Rust `trellis-rs` suite with
+  `cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration -- --nocapture`.
+  The matrix has no per-language opt-ins or skips; every supported language suite
+  must register every case.
 - the local `AGENTS.md` should record the contract source path, generated artifact
   command, format command, typecheck/clippy command, test command, run command,
   and migration command

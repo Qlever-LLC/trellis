@@ -2,6 +2,30 @@
 
 Deno-first integration test helpers for Trellis service repositories.
 
+## Repo-local JS integration suite
+
+Within the Trellis repository, the language-owned TypeScript/Deno client
+integration suite under `js/integration/` uses this package to start isolated
+Trellis runtime environments for public client-library behavior tests. Run the
+suite from the repository root with:
+
+```sh
+deno task -c js/deno.json test:integration
+```
+
+Focused runs use the shared `integration/client-test-matrix.json` case metadata:
+
+```sh
+deno task -c js/deno.json test:integration -- --fixture rpc
+deno task -c js/deno.json test:integration -- --case rpc.client-calls-service
+deno task -c js/deno.json test:integration -- --coverage cross-runtime-rpc
+```
+
+The matrix is the parity contract for supported Trellis client languages. Every
+matrix case must be registered by the JS suite and by the Rust `trellis-rs`
+integration suite; this package provides the JS runtime primitives, not a Rust
+orchestration harness.
+
 ```ts
 import { TrellisService } from "@qlever-llc/trellis/service";
 import {

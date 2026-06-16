@@ -1,6 +1,6 @@
 # Trellis AI guidance for Rust services
 
-Last verified against Trellis main (2026-06-15).
+Last verified against Trellis main (2026-06-16).
 
 Use this file for AI coding agents working in a Rust service repository that
 consumes Trellis. The language-neutral guide is:
@@ -42,6 +42,13 @@ Rules:
   consumer groups. Generated TypeScript event captures and service job refs can
   be passed directly to those helpers; Rust-native code should still use
   generated descriptors/facades.
+- In the Trellis repo, Rust client-library integration coverage lives in the
+  public `trellis-rs` facade integration target and runs with
+  `cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration -- --nocapture`.
+  It is a peer of the JS suite
+  (`deno task -c js/deno.json test:integration`) and must register every case in
+  `integration/client-test-matrix.json`; there are no Rust-only skips or
+  per-language matrix opt-ins.
 - service-private jobs that must be singleton per logical key should declare
   `keyConcurrency`. Keep the existing numeric `concurrency` field for
   worker-count concurrency. Keyed queues default to clear failure

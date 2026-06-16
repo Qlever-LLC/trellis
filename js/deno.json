@@ -1,6 +1,7 @@
 {
   "workspace": [
     "./apps/console",
+    "./integration",
     "./packages/result",
     "./packages/trellis-svelte",
     "./packages/trellis-test",
@@ -17,8 +18,9 @@
     "check:npm-release": "deno task build:npm && deno task smoke:npm",
     "build:npm": "deno task prepare && deno task packages:build:npm",
     "check": "deno task prepare && deno check packages/trellis/index.ts packages/trellis-svelte/src/index.ts packages/trellis-svelte/src/context.svelte.ts packages/trellis-test/index.ts services/trellis/main.ts",
-    "check:integration-fixtures": "deno check ../rust/crates/integration-harness/fixtures/events/behavior.ts ../rust/crates/integration-harness/fixtures/events/denied-publish.ts ../rust/crates/integration-harness/fixtures/events/self.ts ../rust/crates/integration-harness/fixtures/events/trace-publisher.ts ../rust/crates/integration-harness/fixtures/events/publisher.ts ../rust/crates/integration-harness/fixtures/events/subscriber.ts ../rust/crates/integration-harness/fixtures/operations/client.ts ../rust/crates/integration-harness/fixtures/operations/service.ts ../rust/crates/integration-harness/fixtures/feeds/client.ts ../rust/crates/integration-harness/fixtures/feeds/service.ts ../rust/crates/integration-harness/fixtures/rpc/updated-client.ts ../rust/crates/integration-harness/fixtures/rpc/client.ts ../rust/crates/integration-harness/fixtures/rpc/service.ts ../rust/crates/integration-harness/fixtures/state/state.ts ../rust/crates/integration-harness/fixtures/transfer/client.ts ../rust/crates/integration-harness/fixtures/transfer/service.ts ../rust/crates/integration-harness/fixtures/jobs/local-service.ts ../rust/crates/integration-harness/fixtures/resources/client.ts ../rust/crates/integration-harness/fixtures/resources/service.ts",
-    "fmt:integration-fixtures": "deno fmt ../rust/crates/integration-harness/fixtures",
+    "check:integration": "deno check -c integration/deno.json integration/runner.ts integration/matrix_conformance_test.ts integration/_support/runtime.ts integration/rpc/rpc.integration_test.ts integration/events/events.integration_test.ts integration/operations/operations.integration_test.ts integration/feeds/feeds.integration_test.ts integration/state/state.integration_test.ts integration/transfer/transfer.integration_test.ts integration/resources/resources.integration_test.ts integration/jobs/jobs.integration_test.ts integration/health/health.integration_test.ts integration/service-approval/service_approval.integration_test.ts integration/app-identity-approval/app_identity_approval.integration_test.ts integration/device-activation/device_activation.integration_test.ts",
+    "fmt:integration": "deno fmt -c deno.json integration",
+    "test:integration": "deno run -A -c integration/deno.json integration/runner.ts",
     "test:contracts": "deno task prepare && deno test -A packages/trellis/contract_support/source_emission_test.ts packages/trellis/contract_support/conformance_test.ts services/trellis/catalog/store.test.ts services/trellis/catalog/permissions.test.ts",
     "test:auth": "deno task prepare && deno test -A packages/trellis/auth/conformance_test.ts packages/trellis/auth/session_auth_test.ts services/trellis",
     "test:prepared:packages": "deno test -A packages/result packages/trellis packages/trellis-svelte packages/trellis-test",

@@ -1,6 +1,6 @@
 # Trellis AI guide
 
-Last verified against Trellis main (2026-06-15).
+Last verified against Trellis main (2026-06-16).
 
 Canonical full guide:
 https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt
@@ -75,6 +75,12 @@ commands.
   TypeScript tests. The captured-event helpers accept generated
   `runtime.captureEvents(...)` captures directly, and `assertJobCompleted`
   accepts generated service job refs directly.
+- Trellis client-library integration parity is tracked by
+  `integration/client-test-matrix.json`. In the Trellis repo, release verification
+  runs the JS suite with `deno task -c js/deno.json test:integration` and the
+  Rust suite with
+  `cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration -- --nocapture`;
+  every supported language suite must register every matrix case.
 - Event subject `params` must point at string, number, or integer-compatible
   payload fields. For `anyOf` or `oneOf` event payload schemas, every variant must
   contain each routed pointer.

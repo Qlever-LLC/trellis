@@ -343,7 +343,14 @@ jobs:
         working-directory: js
 
       - name: Run Deno tests
-        run: time deno test -c js/deno.json -A
+        shell: bash
+        run: |
+          set -euo pipefail
+          time deno task -c js/deno.json test:prepared:packages
+          time deno task -c js/deno.json test:prepared:service:catalog-state
+          time deno task -c js/deno.json test:prepared:service:auth
+          time deno task -c js/deno.json test:prepared:ui-tools
+          time deno task -c js/deno.json test:prepared:packaging
 
       - name: Smoke test packed npm packages
         run: time deno task smoke:npm
@@ -550,8 +557,8 @@ jobs:
             org.opencontainers.image.description=${{ matrix.description }}
             io.trellis.contract.path=${{ matrix.contract-path }}
 
-  verify-integration:
-    name: Verify integration harness
+  verify-js-integration:
+    name: Verify JS integration suite
     needs: prepare-release
     runs-on: ubuntu-latest
 
@@ -570,8 +577,41 @@ jobs:
         with:
           deno-version: ${{ env.DENO_VERSION }}
 
+      - name: Cache Deno dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/deno
+            js/node_modules
+          key: deno-${{ runner.os }}-${{ env.DENO_VERSION }}-${{ hashFiles('js/deno.lock') }}
+          restore-keys: |
+            deno-${{ runner.os }}-${{ env.DENO_VERSION }}-
+
+      - name: Run JS integration tests
+        run: time deno task -c js/deno.json test:integration
+
+  verify-rust-integration:
+    name: Verify Rust integration suite
+    needs: prepare-release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download prepared release workspace
+        uses: actions/download-artifact@v4
+        with:
+          name: prepared-release
+          path: .
+
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
 
       - name: Cache Rust build artifacts
         uses: swatinem/rust-cache@v2
@@ -582,8 +622,8 @@ jobs:
             rust/xtask -> target
             rust/tools/generate -> target
 
-      - name: Run integration harness
-        run: time cargo run --manifest-path xtask/Cargo.toml -- integration run --skip-prepare
+      - name: Run Rust integration tests
+        run: time cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration -- --ignored --nocapture
 
   release-gate:
     name: Release gate
@@ -593,7 +633,8 @@ jobs:
       - verify-js
       - build-cli
       - verify-images
-      - verify-integration
+      - verify-js-integration
+      - verify-rust-integration
     runs-on: ubuntu-latest
 
     steps:

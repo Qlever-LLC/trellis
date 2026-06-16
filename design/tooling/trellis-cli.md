@@ -85,8 +85,13 @@ Rust contributors should run `cargo xtask prepare` before `cargo build` or
 `cargo install --path rust/crates/cli`, because the Rust workspace depends on
 generated SDK crates under `generated/packages/cargo/`. `cargo xtask build` is a
 convenience wrapper that runs `prepare` first and then invokes the default Rust
-workspace build. That default build excludes the live integration harness; use
-`cargo xtask integration run` for the full live suite.
+workspace build. Live client-library integration is language-owned and is run
+outside `cargo xtask build`: use `deno task -c js/deno.json test:integration`
+for the TypeScript suite and
+`cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration -- --nocapture`
+for the Rust suite. Both suites are governed by
+`integration/client-test-matrix.json`; every supported client language must
+cover every matrix case against a live Trellis runtime.
 
 `trellis-generate` still owns the explicit source-to-artifact interface for repo
 scripts, wrappers, and CI:

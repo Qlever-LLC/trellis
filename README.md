@@ -78,14 +78,21 @@ If you build or install Rust binaries from this repo directly, run
 `cargo xtask prepare` first so the generated Rust SDK crates under
 `generated/packages/cargo/` exist. `cargo xtask build` is the convenient
 Rust-side wrapper for `prepare` followed by the default Rust workspace build.
-The default build excludes the live integration harness; run
-`cargo xtask integration run` when you need that coverage. Use
-`cargo xtask prepare-watch` during active contract development. Watch mode
-watches broadly, ignores file changes that are not TypeScript, JavaScript, or
-Rust source unless they are recognized project/discovery inputs, prepares only
-affected contract entries when safe, falls back to full prepare for project
-manifests and discovery-shape changes, and asks you to restart the watcher after
-generator/tooling changes.
+Live client-library integration coverage is language-owned. Run these peer
+suites when you need that coverage:
+
+```sh
+deno task -c js/deno.json test:integration
+cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration -- --nocapture
+```
+
+Both suites conform to `integration/client-test-matrix.json`, the shared parity
+contract for supported client languages. Use `cargo xtask prepare-watch` during
+active contract development. Watch mode watches broadly, ignores file changes
+that are not TypeScript, JavaScript, or Rust source unless they are recognized
+project/discovery inputs, prepares only affected contract entries when safe,
+falls back to full prepare for project manifests and discovery-shape changes,
+and asks you to restart the watcher after generator/tooling changes.
 
 ## Design documents
 
