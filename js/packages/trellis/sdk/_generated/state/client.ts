@@ -31,8 +31,6 @@ import type {
 } from "../../../index.ts";
 import type { API, Api } from "./api.ts";
 import type * as Types from "./types.ts";
-import type { RpcHandler as ServiceRpcHandler } from "@qlever-llc/trellis/service";
-import type { sdk } from "./contract.ts";
 import type * as HealthSdk from "../health/mod.ts";
 
 type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
@@ -156,27 +154,13 @@ export interface ServiceEventSurface<TDeps> {
 export interface ServiceHandle<TDeps = undefined> {
   readonly rpc: {
     readonly state: {
-      adminDelete(
-        handler: ServiceRpcHandler<typeof sdk, "State.Admin.Delete", TDeps>,
-      ): Promise<void>;
-      adminGet(
-        handler: ServiceRpcHandler<typeof sdk, "State.Admin.Get", TDeps>,
-      ): Promise<void>;
-      adminList(
-        handler: ServiceRpcHandler<typeof sdk, "State.Admin.List", TDeps>,
-      ): Promise<void>;
-      delete(
-        handler: ServiceRpcHandler<typeof sdk, "State.Delete", TDeps>,
-      ): Promise<void>;
-      get(
-        handler: ServiceRpcHandler<typeof sdk, "State.Get", TDeps>,
-      ): Promise<void>;
-      list(
-        handler: ServiceRpcHandler<typeof sdk, "State.List", TDeps>,
-      ): Promise<void>;
-      put(
-        handler: ServiceRpcHandler<typeof sdk, "State.Put", TDeps>,
-      ): Promise<void>;
+      adminDelete(handler: Types.StateAdminDeleteHandler<TDeps>): Promise<void>;
+      adminGet(handler: Types.StateAdminGetHandler<TDeps>): Promise<void>;
+      adminList(handler: Types.StateAdminListHandler<TDeps>): Promise<void>;
+      delete(handler: Types.StateDeleteHandler<TDeps>): Promise<void>;
+      get(handler: Types.StateGetHandler<TDeps>): Promise<void>;
+      list(handler: Types.StateListHandler<TDeps>): Promise<void>;
+      put(handler: Types.StatePutHandler<TDeps>): Promise<void>;
     };
   };
   readonly feed: {};

@@ -31,8 +31,6 @@ import type {
 } from "../../../index.ts";
 import type { API, Api } from "./api.ts";
 import type * as Types from "./types.ts";
-import type { ServiceEventHandler as ServiceOwnedEventHandler } from "@qlever-llc/trellis/service";
-import type { sdk } from "./contract.ts";
 
 type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
 
@@ -110,11 +108,7 @@ export interface ServiceEventSurface<TDeps> {
         ValidationError | UnexpectedError
       >;
       listen(
-        handler: ServiceOwnedEventHandler<
-          typeof sdk,
-          "Health.Heartbeat",
-          TDeps
-        >,
+        handler: Types.HealthHeartbeatEventHandler<TDeps>,
         subjectData?: Record<string, unknown>,
         opts?: EventOpts,
       ): AsyncResult<void, ValidationError | UnexpectedError>;

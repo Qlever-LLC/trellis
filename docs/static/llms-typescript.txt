@@ -60,6 +60,8 @@ Rules:
   `deno run -A @qlever-llc/trellis/generate prepare .`
 - generated SDKs, manifests, and package outputs belong under the service repo's
   generated output locations; do not edit generated files by hand
+- after changing a contract, run `deno task prepare` before typing extracted
+  handlers so generated SDK aliases match the current surfaces
 - Trellis caches manifests by digest at runtime. If auth/bootstrap reports a
   missing digest after the cache is pruned, regenerate from source and present the
   full manifest; do not patch deployment authority or implementation offers by
@@ -114,15 +116,15 @@ For integration tests, prefer `@qlever-llc/trellis-test` over raw NATS subjects
 or hand-built bootstrap responses. The test runtime requires an explicit
 `trellis.command`, creates an isolated NATS/JetStream environment, and starts the
 real Trellis control plane as a spawned process; services under test still
-  connect through public `TrellisService.connect(...)`. Use
-  `runtime.connectClient(...)` or `runtime.registerClient(...)` plus
-  `runtime.clientAuth(...)` for app/client participants, use
-  `runtime.captureEvents(...)` for live event assertions with decoded
-  `{ event, payload, context, receivedAt }` records, and prefer the exported
-  assertion helpers for captured events, terminal jobs and operations, and
-  immediate or eventual `Result` RPC values. Generated captures and job refs are
-  accepted directly. Allow migration plans only in explicit isolated mutable-dev
-  tests with `authority.autoAccept` or per-approval `allowPlanClassifications`.
+connect through public `TrellisService.connect(...)`. Use
+`runtime.connectClient(...)` or `runtime.registerClient(...)` plus
+`runtime.clientAuth(...)` for app/client participants, use
+`runtime.captureEvents(...)` for live event assertions with decoded
+`{ event, payload, context, receivedAt }` records, and prefer the exported
+assertion helpers for captured events, terminal jobs and operations, and
+immediate or eventual `Result` RPC values. Generated captures and job refs are
+accepted directly. Allow migration plans only in explicit isolated mutable-dev
+tests with `authority.autoAccept` or per-approval `allowPlanClassifications`.
 
 For service-private jobs that must be singleton per logical key, declare
 `keyConcurrency` on the job queue. Keep the existing numeric `concurrency`
@@ -161,10 +163,14 @@ When handlers need application-owned dependencies, bind them once during startup
 with `service.with(deps)` and register through the returned wrapper:
 
 ```ts
-import type { BoundServiceOf } from "@qlever-llc/trellis/service";
+import { Result } from "@qlever-llc/trellis";
+import type {
+  OrdersGetHandler,
+  ServiceWithDeps,
+} from "@my-org/orders-service-sdk";
 
 type ServiceDeps = { db: Db; logger: Logger };
-export type OrdersApp = BoundServiceOf<typeof contract, ServiceDeps>;
+export type OrdersApp = ServiceWithDeps<ServiceDeps>;
 
 const app = service.with({ db, logger });
 
@@ -177,7 +183,23 @@ await app.handle.rpc.orders.get(async ({ input, client, deps }) => {
 
   return Result.ok(row);
 });
+
+export const getOrder: OrdersGetHandler<ServiceDeps> = async ({
+  input,
+  client,
+  deps,
+}) => {
+  const row = await deps.db.orders.get(input.orderId);
+  if (!row) return Result.err(orderNotFound(input.orderId));
+
+  await client.event.orders.viewed.publish({ orderId: input.orderId }).orThrow();
+  return Result.ok(row);
+};
 ```
+
+Inline handlers infer from the `service.handle...` registration site. Extracted
+RPC, event, feed, operation, and job handlers should use concrete handler aliases
+from the generated SDK, for example `OrdersGetHandler<ServiceDeps>`.
 
 ## Schemas and errors
 
@@ -195,6 +217,9 @@ await app.handle.rpc.orders.get(async ({ input, client, deps }) => {
   `normalizeCursorQuery(...)`, and `buildCursorPage(...)`.
 - Return declared business errors through `Result` values. Use `.orThrow()` only
   at process boundaries where throwing is intentional.
+- Extracted handler aliases accept source `defineError(...)` instances when their
+  serialized data matches the generated declared error data. Client-side SDKs
+  still reconstruct declared errors as generated SDK classes.
 
 ## Prepared events and outbox/inbox
 

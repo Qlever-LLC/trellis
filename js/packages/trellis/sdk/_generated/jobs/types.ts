@@ -1,10 +1,20 @@
 // Generated from ./generated/contracts/manifests/trellis.jobs@v1.json
-import type { RpcHandler } from "@qlever-llc/trellis/service";
-import type { sdk } from "./contract.ts";
+import type {
+  BaseError,
+  HandlerTrellis,
+  Result,
+  RpcHandlerContext,
+  TrellisErrorInstance,
+} from "../../../index.ts";
+
+import type { Api } from "./api.ts";
 
 import { type SerializableErrorData, TrellisError } from "../../../index.ts";
 
 import { NotFoundErrorDataSchema } from "./schemas.ts";
+
+type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
+export type HandlerClient = HandlerTrellis<Api>;
 
 export const CONTRACT_ID = "trellis.jobs@v1" as const;
 export const CONTRACT_DIGEST =
@@ -550,56 +560,135 @@ export interface RpcMap {
   "Jobs.Retry": { input: JobsRetryInput; output: JobsRetryOutput };
 }
 
-export type JobsCancelHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Jobs.Cancel",
-  TDeps
+export type JobsCancelHandlerError =
+  | TrellisErrorInstance
+  | BaseError<NotFoundErrorData>;
+export type JobsCancelHandlerResult = Result<
+  JobsCancelOutput,
+  JobsCancelHandlerError
 >;
-export type JobsDismissDLQHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Jobs.DismissDLQ",
-  TDeps
+export type JobsCancelHandler<TDeps = undefined> = (
+  args: {
+    input: JobsCancelInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => JobsCancelHandlerResult | Promise<JobsCancelHandlerResult>;
+export type JobsDismissDLQHandlerError =
+  | TrellisErrorInstance
+  | BaseError<NotFoundErrorData>;
+export type JobsDismissDLQHandlerResult = Result<
+  JobsDismissDLQOutput,
+  JobsDismissDLQHandlerError
 >;
-export type JobsGetHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Jobs.Get",
-  TDeps
+export type JobsDismissDLQHandler<TDeps = undefined> = (
+  args: {
+    input: JobsDismissDLQInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => JobsDismissDLQHandlerResult | Promise<JobsDismissDLQHandlerResult>;
+export type JobsGetHandlerError =
+  | TrellisErrorInstance
+  | BaseError<NotFoundErrorData>;
+export type JobsGetHandlerResult = Result<JobsGetOutput, JobsGetHandlerError>;
+export type JobsGetHandler<TDeps = undefined> = (
+  args: {
+    input: JobsGetInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => JobsGetHandlerResult | Promise<JobsGetHandlerResult>;
+export type JobsGetKeyHandlerError =
+  | TrellisErrorInstance
+  | BaseError<NotFoundErrorData>;
+export type JobsGetKeyHandlerResult = Result<
+  JobsGetKeyOutput,
+  JobsGetKeyHandlerError
 >;
-export type JobsGetKeyHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Jobs.GetKey",
-  TDeps
+export type JobsGetKeyHandler<TDeps = undefined> = (
+  args: {
+    input: JobsGetKeyInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => JobsGetKeyHandlerResult | Promise<JobsGetKeyHandlerResult>;
+export type JobsHealthHandlerError = TrellisErrorInstance;
+export type JobsHealthHandlerResult = Result<
+  JobsHealthOutput,
+  JobsHealthHandlerError
 >;
-export type JobsHealthHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Jobs.Health",
-  TDeps
+export type JobsHealthHandler<TDeps = undefined> = (
+  args: {
+    input: JobsHealthInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => JobsHealthHandlerResult | Promise<JobsHealthHandlerResult>;
+export type JobsListHandlerError = TrellisErrorInstance;
+export type JobsListHandlerResult = Result<
+  JobsListOutput,
+  JobsListHandlerError
 >;
-export type JobsListHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Jobs.List",
-  TDeps
+export type JobsListHandler<TDeps = undefined> = (
+  args: {
+    input: JobsListInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => JobsListHandlerResult | Promise<JobsListHandlerResult>;
+export type JobsListDLQHandlerError = TrellisErrorInstance;
+export type JobsListDLQHandlerResult = Result<
+  JobsListDLQOutput,
+  JobsListDLQHandlerError
 >;
-export type JobsListDLQHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Jobs.ListDLQ",
-  TDeps
+export type JobsListDLQHandler<TDeps = undefined> = (
+  args: {
+    input: JobsListDLQInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => JobsListDLQHandlerResult | Promise<JobsListDLQHandlerResult>;
+export type JobsListServicesHandlerError = TrellisErrorInstance;
+export type JobsListServicesHandlerResult = Result<
+  JobsListServicesOutput,
+  JobsListServicesHandlerError
 >;
-export type JobsListServicesHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Jobs.ListServices",
-  TDeps
+export type JobsListServicesHandler<TDeps = undefined> = (
+  args: {
+    input: JobsListServicesInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => JobsListServicesHandlerResult | Promise<JobsListServicesHandlerResult>;
+export type JobsReplayDLQHandlerError =
+  | TrellisErrorInstance
+  | BaseError<NotFoundErrorData>;
+export type JobsReplayDLQHandlerResult = Result<
+  JobsReplayDLQOutput,
+  JobsReplayDLQHandlerError
 >;
-export type JobsReplayDLQHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Jobs.ReplayDLQ",
-  TDeps
+export type JobsReplayDLQHandler<TDeps = undefined> = (
+  args: {
+    input: JobsReplayDLQInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => JobsReplayDLQHandlerResult | Promise<JobsReplayDLQHandlerResult>;
+export type JobsRetryHandlerError =
+  | TrellisErrorInstance
+  | BaseError<NotFoundErrorData>;
+export type JobsRetryHandlerResult = Result<
+  JobsRetryOutput,
+  JobsRetryHandlerError
 >;
-export type JobsRetryHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Jobs.Retry",
-  TDeps
->;
+export type JobsRetryHandler<TDeps = undefined> = (
+  args: {
+    input: JobsRetryInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => JobsRetryHandlerResult | Promise<JobsRetryHandlerResult>;
 
 export interface EventMap {
 }

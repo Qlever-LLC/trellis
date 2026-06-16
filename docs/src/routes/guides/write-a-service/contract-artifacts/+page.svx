@@ -48,7 +48,11 @@ Outputs include:
 - generated Cargo crates under `generated/packages/cargo/`
 - Rust build output under `generated/packages/cargo/*/target/`
 
-JSR packages include `client.ts` facade types for consumers. Service contracts generate JSR, npm, and Cargo SDK packages; app contracts generate JSR and npm SDK packages so Svelte/browser code can import concrete client facade types. Device and agent contracts are verified, with Rust participant facades generated where applicable.
+JSR packages include `client.ts` facade types for consumers and concrete handler
+aliases for service implementations. Service contracts generate JSR, npm, and
+Cargo SDK packages; app contracts generate JSR and npm SDK packages so
+Svelte/browser code can import concrete client facade types. Device and agent
+contracts are verified, with Rust participant facades generated where applicable.
 
 Refresh the outputs with the repo workflow entrypoints:
 
@@ -96,7 +100,10 @@ trellis-generate prepare --watch --changes .
 
 That prints the changed paths, the watch decision, and the reason.
 
-Regenerate these artifacts whenever the contract changes. If only handler implementation changed, you usually do not need a prepare run.
+Regenerate these artifacts whenever the contract changes. For TypeScript services,
+run prepare before typing extracted handlers so aliases such as
+`OrdersCreateHandler<TDeps>` match the current contract. If only handler
+implementation changed, you usually do not need a prepare run.
 
 {/snippet}
 {#snippet rust()}

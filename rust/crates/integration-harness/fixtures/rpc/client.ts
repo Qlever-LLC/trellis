@@ -1,10 +1,4 @@
-import {
-  defineAgentContract,
-  defineError,
-  defineServiceContract,
-  isErr,
-  TrellisClient,
-} from "@qlever-llc/trellis";
+import { defineAgentContract, isErr, TrellisClient } from "@qlever-llc/trellis";
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
@@ -13,98 +7,11 @@ import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { sdk as auth } from "@qlever-llc/trellis/sdk/auth";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import { getTracer, withSpanAsync } from "@qlever-llc/trellis/telemetry";
-import { Type } from "typebox";
+import { NotFoundError, sdk as harness } from "./sdk/mod.ts";
 
 new NodeTracerProvider({
   spanProcessors: [new SimpleSpanProcessor(new InMemorySpanExporter())],
 }).register();
-
-const schemas = {
-  PingRequest: Type.Object({ message: Type.String() }),
-  PingResponse: Type.Object({ message: Type.String() }),
-  CallerContextResponse: Type.Object({
-    provider: Type.String(),
-    callerType: Type.String(),
-    participantKind: Type.String(),
-    userId: Type.String(),
-  }),
-  TraceContextResponse: Type.Object({
-    provider: Type.String(),
-    traceId: Type.String(),
-    traceparent: Type.String(),
-  }),
-} as const;
-
-const NotFoundError = defineError({
-  type: "NotFoundError",
-  fields: { resource: Type.String() },
-  message: ({ resource }) => `${resource} not found`,
-});
-
-const harness = defineServiceContract(
-  { schemas, errors: { NotFoundError } },
-  (ref) => ({
-    id: "trellis.integration-harness.rpc@v1",
-    displayName: "Trellis Integration Harness RPC",
-    description:
-      "Harness-owned service contract for full-stack Rust/TypeScript RPC verification.",
-    uses: {
-      required: {
-        auth: auth.use({ rpc: { call: ["Auth.Requests.Validate"] } }),
-      },
-    },
-    rpc: {
-      "Harness.Rust.Ping": {
-        version: "v1",
-        subject: "rpc.v1.Harness.Rust.Ping",
-        input: ref.schema("PingRequest"),
-        output: ref.schema("PingResponse"),
-        capabilities: { call: [] },
-        errors: [ref.error("NotFoundError"), ref.error("UnexpectedError")],
-      },
-      "Harness.Ts.Ping": {
-        version: "v1",
-        subject: "rpc.v1.Harness.Ts.Ping",
-        input: ref.schema("PingRequest"),
-        output: ref.schema("PingResponse"),
-        capabilities: { call: [] },
-        errors: [ref.error("NotFoundError"), ref.error("UnexpectedError")],
-      },
-      "Harness.Rust.CallerContext": {
-        version: "v1",
-        subject: "rpc.v1.Harness.Rust.CallerContext",
-        input: ref.schema("PingRequest"),
-        output: ref.schema("CallerContextResponse"),
-        capabilities: { call: [] },
-        errors: [ref.error("UnexpectedError")],
-      },
-      "Harness.Ts.CallerContext": {
-        version: "v1",
-        subject: "rpc.v1.Harness.Ts.CallerContext",
-        input: ref.schema("PingRequest"),
-        output: ref.schema("CallerContextResponse"),
-        capabilities: { call: [] },
-        errors: [ref.error("UnexpectedError")],
-      },
-      "Harness.Rust.TraceContext": {
-        version: "v1",
-        subject: "rpc.v1.Harness.Rust.TraceContext",
-        input: ref.schema("PingRequest"),
-        output: ref.schema("TraceContextResponse"),
-        capabilities: { call: [] },
-        errors: [ref.error("UnexpectedError")],
-      },
-      "Harness.Ts.TraceContext": {
-        version: "v1",
-        subject: "rpc.v1.Harness.Ts.TraceContext",
-        input: ref.schema("PingRequest"),
-        output: ref.schema("TraceContextResponse"),
-        capabilities: { call: [] },
-        errors: [ref.error("UnexpectedError")],
-      },
-    },
-  }),
-);
 
 const contract = defineAgentContract(() => ({
   id: "trellis.integration-rpc-agent@v1",
@@ -316,13 +223,11 @@ async function assertNotFoundError(
     throw new Error(`${method} not-found unexpectedly succeeded`);
   }
   const error = result.error;
-  assert(
-    error instanceof NotFoundError,
-    `${method} did not reconstruct NotFoundError`,
-  );
+  if (!(error instanceof NotFoundError)) {
+    throw new Error(`${method} did not reconstruct NotFoundError`);
+  }
   assertEqual(
-    // @ts-expect-error NotFoundError carries resource at runtime; generic BaseError typing loses it here.
-    error.resource,
+    error.data.resource,
     "Workspace",
     `${method} NotFoundError resource mismatch`,
   );

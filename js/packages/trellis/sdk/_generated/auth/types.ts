@@ -1,12 +1,21 @@
 // Generated from ./generated/contracts/manifests/trellis.auth@v1.json
-import type { TrellisEventMessage } from "../../../index.ts";
-
 import type {
-  OperationHandler,
-  RpcHandler,
-  ServiceEventHandler,
-} from "@qlever-llc/trellis/service";
-import type { sdk } from "./contract.ts";
+  BaseError,
+  EventListenerContext,
+  HandlerTrellis,
+  MaybeAsync,
+  OperationRuntimeHandle,
+  Result,
+  RpcHandlerContext,
+  SessionCaller,
+  TrellisErrorInstance,
+  TrellisEventMessage,
+} from "../../../index.ts";
+
+import type { Api } from "./api.ts";
+
+type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
+export type HandlerClient = HandlerTrellis<Api>;
 
 export const CONTRACT_ID = "trellis.auth@v1" as const;
 export const CONTRACT_DIGEST =
@@ -2336,7 +2345,17 @@ export type AuthDeviceUserAuthoritiesResolveOutput = {
 
 export type AuthDeviceUserAuthoritiesResolveOperationHandler<
   TDeps = undefined,
-> = OperationHandler<typeof sdk, "Auth.DeviceUserAuthorities.Resolve", TDeps>;
+> = (
+  args: {
+    input: AuthDeviceUserAuthoritiesResolveInput;
+    op: OperationRuntimeHandle<
+      AuthDeviceUserAuthoritiesResolveProgress,
+      AuthDeviceUserAuthoritiesResolveOutput
+    >;
+    caller: SessionCaller;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => unknown | Promise<unknown>;
 
 export type AuthConnectionsClosedEvent = {
   id: string;
@@ -2347,8 +2366,13 @@ export type AuthConnectionsClosedEvent = {
 export type AuthConnectionsClosedEventMessage = TrellisEventMessage<
   AuthConnectionsClosedEvent
 >;
-export type AuthConnectionsClosedEventHandler<TDeps = undefined> =
-  ServiceEventHandler<typeof sdk, "Auth.Connections.Closed", TDeps>;
+export type AuthConnectionsClosedEventHandler<TDeps = undefined> = (
+  args: {
+    event: AuthConnectionsClosedEvent;
+    context: EventListenerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => MaybeAsync<void, BaseError>;
 
 export type AuthConnectionsKickedEvent = {
   id: string;
@@ -2359,8 +2383,13 @@ export type AuthConnectionsKickedEvent = {
 export type AuthConnectionsKickedEventMessage = TrellisEventMessage<
   AuthConnectionsKickedEvent
 >;
-export type AuthConnectionsKickedEventHandler<TDeps = undefined> =
-  ServiceEventHandler<typeof sdk, "Auth.Connections.Kicked", TDeps>;
+export type AuthConnectionsKickedEventHandler<TDeps = undefined> = (
+  args: {
+    event: AuthConnectionsKickedEvent;
+    context: EventListenerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => MaybeAsync<void, BaseError>;
 
 export type AuthConnectionsOpenedEvent = {
   id: string;
@@ -2371,8 +2400,13 @@ export type AuthConnectionsOpenedEvent = {
 export type AuthConnectionsOpenedEventMessage = TrellisEventMessage<
   AuthConnectionsOpenedEvent
 >;
-export type AuthConnectionsOpenedEventHandler<TDeps = undefined> =
-  ServiceEventHandler<typeof sdk, "Auth.Connections.Opened", TDeps>;
+export type AuthConnectionsOpenedEventHandler<TDeps = undefined> = (
+  args: {
+    event: AuthConnectionsOpenedEvent;
+    context: EventListenerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => MaybeAsync<void, BaseError>;
 
 export type AuthDeviceUserAuthoritiesApprovedEvent = {
   approvedAt: string;
@@ -2396,8 +2430,13 @@ export type AuthDeviceUserAuthoritiesApprovedEvent = {
 export type AuthDeviceUserAuthoritiesApprovedEventMessage = TrellisEventMessage<
   AuthDeviceUserAuthoritiesApprovedEvent
 >;
-export type AuthDeviceUserAuthoritiesApprovedEventHandler<TDeps = undefined> =
-  ServiceEventHandler<typeof sdk, "Auth.DeviceUserAuthorities.Approved", TDeps>;
+export type AuthDeviceUserAuthoritiesApprovedEventHandler<TDeps = undefined> = (
+  args: {
+    event: AuthDeviceUserAuthoritiesApprovedEvent;
+    context: EventListenerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => MaybeAsync<void, BaseError>;
 
 export type AuthDeviceUserAuthoritiesRequestedEvent = {
   deploymentId: string;
@@ -2414,11 +2453,13 @@ export type AuthDeviceUserAuthoritiesRequestedEvent = {
 export type AuthDeviceUserAuthoritiesRequestedEventMessage =
   TrellisEventMessage<AuthDeviceUserAuthoritiesRequestedEvent>;
 export type AuthDeviceUserAuthoritiesRequestedEventHandler<TDeps = undefined> =
-  ServiceEventHandler<
-    typeof sdk,
-    "Auth.DeviceUserAuthorities.Requested",
-    TDeps
-  >;
+  (
+    args: {
+      event: AuthDeviceUserAuthoritiesRequestedEvent;
+      context: EventListenerContext;
+      client: HandlerClient;
+    } & WithDeps<TDeps>,
+  ) => MaybeAsync<void, BaseError>;
 
 export type AuthDeviceUserAuthoritiesResolvedEvent = {
   deploymentId: string;
@@ -2436,8 +2477,13 @@ export type AuthDeviceUserAuthoritiesResolvedEvent = {
 export type AuthDeviceUserAuthoritiesResolvedEventMessage = TrellisEventMessage<
   AuthDeviceUserAuthoritiesResolvedEvent
 >;
-export type AuthDeviceUserAuthoritiesResolvedEventHandler<TDeps = undefined> =
-  ServiceEventHandler<typeof sdk, "Auth.DeviceUserAuthorities.Resolved", TDeps>;
+export type AuthDeviceUserAuthoritiesResolvedEventHandler<TDeps = undefined> = (
+  args: {
+    event: AuthDeviceUserAuthoritiesResolvedEvent;
+    context: EventListenerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => MaybeAsync<void, BaseError>;
 
 export type AuthDeviceUserAuthoritiesReviewRequestedEvent = {
   deploymentId: string;
@@ -2456,11 +2502,13 @@ export type AuthDeviceUserAuthoritiesReviewRequestedEventMessage =
   TrellisEventMessage<AuthDeviceUserAuthoritiesReviewRequestedEvent>;
 export type AuthDeviceUserAuthoritiesReviewRequestedEventHandler<
   TDeps = undefined,
-> = ServiceEventHandler<
-  typeof sdk,
-  "Auth.DeviceUserAuthorities.ReviewRequested",
-  TDeps
->;
+> = (
+  args: {
+    event: AuthDeviceUserAuthoritiesReviewRequestedEvent;
+    context: EventListenerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => MaybeAsync<void, BaseError>;
 
 export type AuthSessionsRevokedEvent = {
   id: string;
@@ -2471,8 +2519,13 @@ export type AuthSessionsRevokedEvent = {
 export type AuthSessionsRevokedEventMessage = TrellisEventMessage<
   AuthSessionsRevokedEvent
 >;
-export type AuthSessionsRevokedEventHandler<TDeps = undefined> =
-  ServiceEventHandler<typeof sdk, "Auth.Sessions.Revoked", TDeps>;
+export type AuthSessionsRevokedEventHandler<TDeps = undefined> = (
+  args: {
+    event: AuthSessionsRevokedEvent;
+    context: EventListenerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => MaybeAsync<void, BaseError>;
 
 export interface RpcMap {
   "Auth.Capabilities.List": {
@@ -2732,301 +2785,906 @@ export interface RpcMap {
   };
 }
 
-export type AuthCapabilitiesListHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Capabilities.List",
-  TDeps
+export type AuthCapabilitiesListHandlerError = TrellisErrorInstance;
+export type AuthCapabilitiesListHandlerResult = Result<
+  AuthCapabilitiesListOutput,
+  AuthCapabilitiesListHandlerError
 >;
-export type AuthCapabilityGroupsDeleteHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.CapabilityGroups.Delete",
-  TDeps
+export type AuthCapabilitiesListHandler<TDeps = undefined> = (
+  args: {
+    input: AuthCapabilitiesListInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthCapabilitiesListHandlerResult
+  | Promise<AuthCapabilitiesListHandlerResult>;
+export type AuthCapabilityGroupsDeleteHandlerError = TrellisErrorInstance;
+export type AuthCapabilityGroupsDeleteHandlerResult = Result<
+  AuthCapabilityGroupsDeleteOutput,
+  AuthCapabilityGroupsDeleteHandlerError
 >;
-export type AuthCapabilityGroupsGetHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.CapabilityGroups.Get",
-  TDeps
+export type AuthCapabilityGroupsDeleteHandler<TDeps = undefined> = (
+  args: {
+    input: AuthCapabilityGroupsDeleteInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthCapabilityGroupsDeleteHandlerResult
+  | Promise<AuthCapabilityGroupsDeleteHandlerResult>;
+export type AuthCapabilityGroupsGetHandlerError = TrellisErrorInstance;
+export type AuthCapabilityGroupsGetHandlerResult = Result<
+  AuthCapabilityGroupsGetOutput,
+  AuthCapabilityGroupsGetHandlerError
 >;
-export type AuthCapabilityGroupsListHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.CapabilityGroups.List",
-  TDeps
+export type AuthCapabilityGroupsGetHandler<TDeps = undefined> = (
+  args: {
+    input: AuthCapabilityGroupsGetInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthCapabilityGroupsGetHandlerResult
+  | Promise<AuthCapabilityGroupsGetHandlerResult>;
+export type AuthCapabilityGroupsListHandlerError = TrellisErrorInstance;
+export type AuthCapabilityGroupsListHandlerResult = Result<
+  AuthCapabilityGroupsListOutput,
+  AuthCapabilityGroupsListHandlerError
 >;
-export type AuthCapabilityGroupsPutHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.CapabilityGroups.Put",
-  TDeps
+export type AuthCapabilityGroupsListHandler<TDeps = undefined> = (
+  args: {
+    input: AuthCapabilityGroupsListInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthCapabilityGroupsListHandlerResult
+  | Promise<AuthCapabilityGroupsListHandlerResult>;
+export type AuthCapabilityGroupsPutHandlerError = TrellisErrorInstance;
+export type AuthCapabilityGroupsPutHandlerResult = Result<
+  AuthCapabilityGroupsPutOutput,
+  AuthCapabilityGroupsPutHandlerError
 >;
-export type AuthCatalogIssuesResolveHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.CatalogIssues.Resolve",
-  TDeps
+export type AuthCapabilityGroupsPutHandler<TDeps = undefined> = (
+  args: {
+    input: AuthCapabilityGroupsPutInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthCapabilityGroupsPutHandlerResult
+  | Promise<AuthCapabilityGroupsPutHandlerResult>;
+export type AuthCatalogIssuesResolveHandlerError = TrellisErrorInstance;
+export type AuthCatalogIssuesResolveHandlerResult = Result<
+  AuthCatalogIssuesResolveOutput,
+  AuthCatalogIssuesResolveHandlerError
 >;
-export type AuthConnectionsKickHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Connections.Kick",
-  TDeps
+export type AuthCatalogIssuesResolveHandler<TDeps = undefined> = (
+  args: {
+    input: AuthCatalogIssuesResolveInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthCatalogIssuesResolveHandlerResult
+  | Promise<AuthCatalogIssuesResolveHandlerResult>;
+export type AuthConnectionsKickHandlerError = TrellisErrorInstance;
+export type AuthConnectionsKickHandlerResult = Result<
+  AuthConnectionsKickOutput,
+  AuthConnectionsKickHandlerError
 >;
-export type AuthConnectionsListHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Connections.List",
-  TDeps
+export type AuthConnectionsKickHandler<TDeps = undefined> = (
+  args: {
+    input: AuthConnectionsKickInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthConnectionsKickHandlerResult
+  | Promise<AuthConnectionsKickHandlerResult>;
+export type AuthConnectionsListHandlerError = TrellisErrorInstance;
+export type AuthConnectionsListHandlerResult = Result<
+  AuthConnectionsListOutput,
+  AuthConnectionsListHandlerError
 >;
-export type AuthDeploymentAuthorityAcceptMigrationHandler<TDeps = undefined> =
-  RpcHandler<typeof sdk, "Auth.DeploymentAuthority.AcceptMigration", TDeps>;
-export type AuthDeploymentAuthorityAcceptUpdateHandler<TDeps = undefined> =
-  RpcHandler<typeof sdk, "Auth.DeploymentAuthority.AcceptUpdate", TDeps>;
-export type AuthDeploymentAuthorityGetHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.DeploymentAuthority.Get",
-  TDeps
+export type AuthConnectionsListHandler<TDeps = undefined> = (
+  args: {
+    input: AuthConnectionsListInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthConnectionsListHandlerResult
+  | Promise<AuthConnectionsListHandlerResult>;
+export type AuthDeploymentAuthorityAcceptMigrationHandlerError =
+  TrellisErrorInstance;
+export type AuthDeploymentAuthorityAcceptMigrationHandlerResult = Result<
+  AuthDeploymentAuthorityAcceptMigrationOutput,
+  AuthDeploymentAuthorityAcceptMigrationHandlerError
+>;
+export type AuthDeploymentAuthorityAcceptMigrationHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDeploymentAuthorityAcceptMigrationInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDeploymentAuthorityAcceptMigrationHandlerResult
+  | Promise<AuthDeploymentAuthorityAcceptMigrationHandlerResult>;
+export type AuthDeploymentAuthorityAcceptUpdateHandlerError =
+  TrellisErrorInstance;
+export type AuthDeploymentAuthorityAcceptUpdateHandlerResult = Result<
+  AuthDeploymentAuthorityAcceptUpdateOutput,
+  AuthDeploymentAuthorityAcceptUpdateHandlerError
+>;
+export type AuthDeploymentAuthorityAcceptUpdateHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDeploymentAuthorityAcceptUpdateInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDeploymentAuthorityAcceptUpdateHandlerResult
+  | Promise<AuthDeploymentAuthorityAcceptUpdateHandlerResult>;
+export type AuthDeploymentAuthorityGetHandlerError = TrellisErrorInstance;
+export type AuthDeploymentAuthorityGetHandlerResult = Result<
+  AuthDeploymentAuthorityGetOutput,
+  AuthDeploymentAuthorityGetHandlerError
+>;
+export type AuthDeploymentAuthorityGetHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDeploymentAuthorityGetInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDeploymentAuthorityGetHandlerResult
+  | Promise<AuthDeploymentAuthorityGetHandlerResult>;
+export type AuthDeploymentAuthorityGrantOverridesListHandlerError =
+  TrellisErrorInstance;
+export type AuthDeploymentAuthorityGrantOverridesListHandlerResult = Result<
+  AuthDeploymentAuthorityGrantOverridesListOutput,
+  AuthDeploymentAuthorityGrantOverridesListHandlerError
 >;
 export type AuthDeploymentAuthorityGrantOverridesListHandler<
   TDeps = undefined,
-> = RpcHandler<
-  typeof sdk,
-  "Auth.DeploymentAuthority.GrantOverrides.List",
-  TDeps
+> = (
+  args: {
+    input: AuthDeploymentAuthorityGrantOverridesListInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDeploymentAuthorityGrantOverridesListHandlerResult
+  | Promise<AuthDeploymentAuthorityGrantOverridesListHandlerResult>;
+export type AuthDeploymentAuthorityGrantOverridesPutHandlerError =
+  TrellisErrorInstance;
+export type AuthDeploymentAuthorityGrantOverridesPutHandlerResult = Result<
+  AuthDeploymentAuthorityGrantOverridesPutOutput,
+  AuthDeploymentAuthorityGrantOverridesPutHandlerError
 >;
 export type AuthDeploymentAuthorityGrantOverridesPutHandler<TDeps = undefined> =
-  RpcHandler<typeof sdk, "Auth.DeploymentAuthority.GrantOverrides.Put", TDeps>;
+  (
+    args: {
+      input: AuthDeploymentAuthorityGrantOverridesPutInput;
+      context: RpcHandlerContext;
+      client: HandlerClient;
+    } & WithDeps<TDeps>,
+  ) =>
+    | AuthDeploymentAuthorityGrantOverridesPutHandlerResult
+    | Promise<AuthDeploymentAuthorityGrantOverridesPutHandlerResult>;
+export type AuthDeploymentAuthorityGrantOverridesRemoveHandlerError =
+  TrellisErrorInstance;
+export type AuthDeploymentAuthorityGrantOverridesRemoveHandlerResult = Result<
+  AuthDeploymentAuthorityGrantOverridesRemoveOutput,
+  AuthDeploymentAuthorityGrantOverridesRemoveHandlerError
+>;
 export type AuthDeploymentAuthorityGrantOverridesRemoveHandler<
   TDeps = undefined,
-> = RpcHandler<
-  typeof sdk,
-  "Auth.DeploymentAuthority.GrantOverrides.Remove",
-  TDeps
+> = (
+  args: {
+    input: AuthDeploymentAuthorityGrantOverridesRemoveInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDeploymentAuthorityGrantOverridesRemoveHandlerResult
+  | Promise<AuthDeploymentAuthorityGrantOverridesRemoveHandlerResult>;
+export type AuthDeploymentAuthorityListHandlerError = TrellisErrorInstance;
+export type AuthDeploymentAuthorityListHandlerResult = Result<
+  AuthDeploymentAuthorityListOutput,
+  AuthDeploymentAuthorityListHandlerError
 >;
-export type AuthDeploymentAuthorityListHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.DeploymentAuthority.List",
-  TDeps
+export type AuthDeploymentAuthorityListHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDeploymentAuthorityListInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDeploymentAuthorityListHandlerResult
+  | Promise<AuthDeploymentAuthorityListHandlerResult>;
+export type AuthDeploymentAuthorityPlanHandlerError = TrellisErrorInstance;
+export type AuthDeploymentAuthorityPlanHandlerResult = Result<
+  AuthDeploymentAuthorityPlanOutput,
+  AuthDeploymentAuthorityPlanHandlerError
 >;
-export type AuthDeploymentAuthorityPlanHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.DeploymentAuthority.Plan",
-  TDeps
+export type AuthDeploymentAuthorityPlanHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDeploymentAuthorityPlanInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDeploymentAuthorityPlanHandlerResult
+  | Promise<AuthDeploymentAuthorityPlanHandlerResult>;
+export type AuthDeploymentAuthorityPlansGetHandlerError = TrellisErrorInstance;
+export type AuthDeploymentAuthorityPlansGetHandlerResult = Result<
+  AuthDeploymentAuthorityPlansGetOutput,
+  AuthDeploymentAuthorityPlansGetHandlerError
 >;
-export type AuthDeploymentAuthorityPlansGetHandler<TDeps = undefined> =
-  RpcHandler<typeof sdk, "Auth.DeploymentAuthority.Plans.Get", TDeps>;
-export type AuthDeploymentAuthorityPlansListHandler<TDeps = undefined> =
-  RpcHandler<typeof sdk, "Auth.DeploymentAuthority.Plans.List", TDeps>;
-export type AuthDeploymentAuthorityReconcileHandler<TDeps = undefined> =
-  RpcHandler<typeof sdk, "Auth.DeploymentAuthority.Reconcile", TDeps>;
-export type AuthDeploymentAuthorityRejectHandler<TDeps = undefined> =
-  RpcHandler<typeof sdk, "Auth.DeploymentAuthority.Reject", TDeps>;
-export type AuthDeploymentsCreateHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Deployments.Create",
-  TDeps
+export type AuthDeploymentAuthorityPlansGetHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDeploymentAuthorityPlansGetInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDeploymentAuthorityPlansGetHandlerResult
+  | Promise<AuthDeploymentAuthorityPlansGetHandlerResult>;
+export type AuthDeploymentAuthorityPlansListHandlerError = TrellisErrorInstance;
+export type AuthDeploymentAuthorityPlansListHandlerResult = Result<
+  AuthDeploymentAuthorityPlansListOutput,
+  AuthDeploymentAuthorityPlansListHandlerError
 >;
-export type AuthDeploymentsDisableHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Deployments.Disable",
-  TDeps
+export type AuthDeploymentAuthorityPlansListHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDeploymentAuthorityPlansListInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDeploymentAuthorityPlansListHandlerResult
+  | Promise<AuthDeploymentAuthorityPlansListHandlerResult>;
+export type AuthDeploymentAuthorityReconcileHandlerError = TrellisErrorInstance;
+export type AuthDeploymentAuthorityReconcileHandlerResult = Result<
+  AuthDeploymentAuthorityReconcileOutput,
+  AuthDeploymentAuthorityReconcileHandlerError
 >;
-export type AuthDeploymentsEnableHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Deployments.Enable",
-  TDeps
+export type AuthDeploymentAuthorityReconcileHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDeploymentAuthorityReconcileInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDeploymentAuthorityReconcileHandlerResult
+  | Promise<AuthDeploymentAuthorityReconcileHandlerResult>;
+export type AuthDeploymentAuthorityRejectHandlerError = TrellisErrorInstance;
+export type AuthDeploymentAuthorityRejectHandlerResult = Result<
+  AuthDeploymentAuthorityRejectOutput,
+  AuthDeploymentAuthorityRejectHandlerError
 >;
-export type AuthDeploymentsListHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Deployments.List",
-  TDeps
+export type AuthDeploymentAuthorityRejectHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDeploymentAuthorityRejectInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDeploymentAuthorityRejectHandlerResult
+  | Promise<AuthDeploymentAuthorityRejectHandlerResult>;
+export type AuthDeploymentsCreateHandlerError = TrellisErrorInstance;
+export type AuthDeploymentsCreateHandlerResult = Result<
+  AuthDeploymentsCreateOutput,
+  AuthDeploymentsCreateHandlerError
 >;
-export type AuthDeploymentsRemoveHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Deployments.Remove",
-  TDeps
+export type AuthDeploymentsCreateHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDeploymentsCreateInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDeploymentsCreateHandlerResult
+  | Promise<AuthDeploymentsCreateHandlerResult>;
+export type AuthDeploymentsDisableHandlerError = TrellisErrorInstance;
+export type AuthDeploymentsDisableHandlerResult = Result<
+  AuthDeploymentsDisableOutput,
+  AuthDeploymentsDisableHandlerError
 >;
-export type AuthDeviceUserAuthoritiesListHandler<TDeps = undefined> =
-  RpcHandler<typeof sdk, "Auth.DeviceUserAuthorities.List", TDeps>;
-export type AuthDeviceUserAuthoritiesReviewsDecideHandler<TDeps = undefined> =
-  RpcHandler<typeof sdk, "Auth.DeviceUserAuthorities.Reviews.Decide", TDeps>;
-export type AuthDeviceUserAuthoritiesReviewsListHandler<TDeps = undefined> =
-  RpcHandler<typeof sdk, "Auth.DeviceUserAuthorities.Reviews.List", TDeps>;
-export type AuthDeviceUserAuthoritiesRevokeHandler<TDeps = undefined> =
-  RpcHandler<typeof sdk, "Auth.DeviceUserAuthorities.Revoke", TDeps>;
-export type AuthDevicesConnectInfoGetHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Devices.ConnectInfo.Get",
-  TDeps
+export type AuthDeploymentsDisableHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDeploymentsDisableInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDeploymentsDisableHandlerResult
+  | Promise<AuthDeploymentsDisableHandlerResult>;
+export type AuthDeploymentsEnableHandlerError = TrellisErrorInstance;
+export type AuthDeploymentsEnableHandlerResult = Result<
+  AuthDeploymentsEnableOutput,
+  AuthDeploymentsEnableHandlerError
 >;
-export type AuthDevicesDisableHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Devices.Disable",
-  TDeps
+export type AuthDeploymentsEnableHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDeploymentsEnableInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDeploymentsEnableHandlerResult
+  | Promise<AuthDeploymentsEnableHandlerResult>;
+export type AuthDeploymentsListHandlerError = TrellisErrorInstance;
+export type AuthDeploymentsListHandlerResult = Result<
+  AuthDeploymentsListOutput,
+  AuthDeploymentsListHandlerError
 >;
-export type AuthDevicesEnableHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Devices.Enable",
-  TDeps
+export type AuthDeploymentsListHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDeploymentsListInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDeploymentsListHandlerResult
+  | Promise<AuthDeploymentsListHandlerResult>;
+export type AuthDeploymentsRemoveHandlerError = TrellisErrorInstance;
+export type AuthDeploymentsRemoveHandlerResult = Result<
+  AuthDeploymentsRemoveOutput,
+  AuthDeploymentsRemoveHandlerError
 >;
-export type AuthDevicesListHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Devices.List",
-  TDeps
+export type AuthDeploymentsRemoveHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDeploymentsRemoveInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDeploymentsRemoveHandlerResult
+  | Promise<AuthDeploymentsRemoveHandlerResult>;
+export type AuthDeviceUserAuthoritiesListHandlerError = TrellisErrorInstance;
+export type AuthDeviceUserAuthoritiesListHandlerResult = Result<
+  AuthDeviceUserAuthoritiesListOutput,
+  AuthDeviceUserAuthoritiesListHandlerError
 >;
-export type AuthDevicesProvisionHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Devices.Provision",
-  TDeps
+export type AuthDeviceUserAuthoritiesListHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDeviceUserAuthoritiesListInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDeviceUserAuthoritiesListHandlerResult
+  | Promise<AuthDeviceUserAuthoritiesListHandlerResult>;
+export type AuthDeviceUserAuthoritiesReviewsDecideHandlerError =
+  TrellisErrorInstance;
+export type AuthDeviceUserAuthoritiesReviewsDecideHandlerResult = Result<
+  AuthDeviceUserAuthoritiesReviewsDecideOutput,
+  AuthDeviceUserAuthoritiesReviewsDecideHandlerError
 >;
-export type AuthDevicesRemoveHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Devices.Remove",
-  TDeps
+export type AuthDeviceUserAuthoritiesReviewsDecideHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDeviceUserAuthoritiesReviewsDecideInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDeviceUserAuthoritiesReviewsDecideHandlerResult
+  | Promise<AuthDeviceUserAuthoritiesReviewsDecideHandlerResult>;
+export type AuthDeviceUserAuthoritiesReviewsListHandlerError =
+  TrellisErrorInstance;
+export type AuthDeviceUserAuthoritiesReviewsListHandlerResult = Result<
+  AuthDeviceUserAuthoritiesReviewsListOutput,
+  AuthDeviceUserAuthoritiesReviewsListHandlerError
 >;
-export type AuthHealthHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Health",
-  TDeps
+export type AuthDeviceUserAuthoritiesReviewsListHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDeviceUserAuthoritiesReviewsListInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDeviceUserAuthoritiesReviewsListHandlerResult
+  | Promise<AuthDeviceUserAuthoritiesReviewsListHandlerResult>;
+export type AuthDeviceUserAuthoritiesRevokeHandlerError = TrellisErrorInstance;
+export type AuthDeviceUserAuthoritiesRevokeHandlerResult = Result<
+  AuthDeviceUserAuthoritiesRevokeOutput,
+  AuthDeviceUserAuthoritiesRevokeHandlerError
 >;
-export type AuthIdentitiesListHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Identities.List",
-  TDeps
+export type AuthDeviceUserAuthoritiesRevokeHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDeviceUserAuthoritiesRevokeInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDeviceUserAuthoritiesRevokeHandlerResult
+  | Promise<AuthDeviceUserAuthoritiesRevokeHandlerResult>;
+export type AuthDevicesConnectInfoGetHandlerError = TrellisErrorInstance;
+export type AuthDevicesConnectInfoGetHandlerResult = Result<
+  AuthDevicesConnectInfoGetOutput,
+  AuthDevicesConnectInfoGetHandlerError
 >;
-export type AuthIdentityGrantsListHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.IdentityGrants.List",
-  TDeps
+export type AuthDevicesConnectInfoGetHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDevicesConnectInfoGetInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDevicesConnectInfoGetHandlerResult
+  | Promise<AuthDevicesConnectInfoGetHandlerResult>;
+export type AuthDevicesDisableHandlerError = TrellisErrorInstance;
+export type AuthDevicesDisableHandlerResult = Result<
+  AuthDevicesDisableOutput,
+  AuthDevicesDisableHandlerError
 >;
-export type AuthIdentityGrantsRevokeHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.IdentityGrants.Revoke",
-  TDeps
+export type AuthDevicesDisableHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDevicesDisableInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => AuthDevicesDisableHandlerResult | Promise<AuthDevicesDisableHandlerResult>;
+export type AuthDevicesEnableHandlerError = TrellisErrorInstance;
+export type AuthDevicesEnableHandlerResult = Result<
+  AuthDevicesEnableOutput,
+  AuthDevicesEnableHandlerError
 >;
-export type AuthPortalsGetHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Portals.Get",
-  TDeps
+export type AuthDevicesEnableHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDevicesEnableInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => AuthDevicesEnableHandlerResult | Promise<AuthDevicesEnableHandlerResult>;
+export type AuthDevicesListHandlerError = TrellisErrorInstance;
+export type AuthDevicesListHandlerResult = Result<
+  AuthDevicesListOutput,
+  AuthDevicesListHandlerError
 >;
-export type AuthPortalsListHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Portals.List",
-  TDeps
+export type AuthDevicesListHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDevicesListInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => AuthDevicesListHandlerResult | Promise<AuthDevicesListHandlerResult>;
+export type AuthDevicesProvisionHandlerError = TrellisErrorInstance;
+export type AuthDevicesProvisionHandlerResult = Result<
+  AuthDevicesProvisionOutput,
+  AuthDevicesProvisionHandlerError
 >;
-export type AuthPortalsLoginSettingsGetHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Portals.LoginSettings.Get",
-  TDeps
+export type AuthDevicesProvisionHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDevicesProvisionInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthDevicesProvisionHandlerResult
+  | Promise<AuthDevicesProvisionHandlerResult>;
+export type AuthDevicesRemoveHandlerError = TrellisErrorInstance;
+export type AuthDevicesRemoveHandlerResult = Result<
+  AuthDevicesRemoveOutput,
+  AuthDevicesRemoveHandlerError
 >;
-export type AuthPortalsLoginSettingsUpdateHandler<TDeps = undefined> =
-  RpcHandler<typeof sdk, "Auth.Portals.LoginSettings.Update", TDeps>;
-export type AuthPortalsPutHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Portals.Put",
-  TDeps
+export type AuthDevicesRemoveHandler<TDeps = undefined> = (
+  args: {
+    input: AuthDevicesRemoveInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => AuthDevicesRemoveHandlerResult | Promise<AuthDevicesRemoveHandlerResult>;
+export type AuthHealthHandlerError = TrellisErrorInstance;
+export type AuthHealthHandlerResult = Result<
+  AuthHealthOutput,
+  AuthHealthHandlerError
 >;
-export type AuthPortalsRemoveHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Portals.Remove",
-  TDeps
+export type AuthHealthHandler<TDeps = undefined> = (
+  args: {
+    input: AuthHealthInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => AuthHealthHandlerResult | Promise<AuthHealthHandlerResult>;
+export type AuthIdentitiesListHandlerError = TrellisErrorInstance;
+export type AuthIdentitiesListHandlerResult = Result<
+  AuthIdentitiesListOutput,
+  AuthIdentitiesListHandlerError
 >;
-export type AuthPortalsRoutesPutHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Portals.Routes.Put",
-  TDeps
+export type AuthIdentitiesListHandler<TDeps = undefined> = (
+  args: {
+    input: AuthIdentitiesListInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => AuthIdentitiesListHandlerResult | Promise<AuthIdentitiesListHandlerResult>;
+export type AuthIdentityGrantsListHandlerError = TrellisErrorInstance;
+export type AuthIdentityGrantsListHandlerResult = Result<
+  AuthIdentityGrantsListOutput,
+  AuthIdentityGrantsListHandlerError
 >;
-export type AuthPortalsRoutesRemoveHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Portals.Routes.Remove",
-  TDeps
+export type AuthIdentityGrantsListHandler<TDeps = undefined> = (
+  args: {
+    input: AuthIdentityGrantsListInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthIdentityGrantsListHandlerResult
+  | Promise<AuthIdentityGrantsListHandlerResult>;
+export type AuthIdentityGrantsRevokeHandlerError = TrellisErrorInstance;
+export type AuthIdentityGrantsRevokeHandlerResult = Result<
+  AuthIdentityGrantsRevokeOutput,
+  AuthIdentityGrantsRevokeHandlerError
 >;
-export type AuthRequestsValidateHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Requests.Validate",
-  TDeps
+export type AuthIdentityGrantsRevokeHandler<TDeps = undefined> = (
+  args: {
+    input: AuthIdentityGrantsRevokeInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthIdentityGrantsRevokeHandlerResult
+  | Promise<AuthIdentityGrantsRevokeHandlerResult>;
+export type AuthPortalsGetHandlerError = TrellisErrorInstance;
+export type AuthPortalsGetHandlerResult = Result<
+  AuthPortalsGetOutput,
+  AuthPortalsGetHandlerError
 >;
-export type AuthServiceInstancesDisableHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.ServiceInstances.Disable",
-  TDeps
+export type AuthPortalsGetHandler<TDeps = undefined> = (
+  args: {
+    input: AuthPortalsGetInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => AuthPortalsGetHandlerResult | Promise<AuthPortalsGetHandlerResult>;
+export type AuthPortalsListHandlerError = TrellisErrorInstance;
+export type AuthPortalsListHandlerResult = Result<
+  AuthPortalsListOutput,
+  AuthPortalsListHandlerError
 >;
-export type AuthServiceInstancesEnableHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.ServiceInstances.Enable",
-  TDeps
+export type AuthPortalsListHandler<TDeps = undefined> = (
+  args: {
+    input: AuthPortalsListInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => AuthPortalsListHandlerResult | Promise<AuthPortalsListHandlerResult>;
+export type AuthPortalsLoginSettingsGetHandlerError = TrellisErrorInstance;
+export type AuthPortalsLoginSettingsGetHandlerResult = Result<
+  AuthPortalsLoginSettingsGetOutput,
+  AuthPortalsLoginSettingsGetHandlerError
 >;
-export type AuthServiceInstancesListHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.ServiceInstances.List",
-  TDeps
+export type AuthPortalsLoginSettingsGetHandler<TDeps = undefined> = (
+  args: {
+    input: AuthPortalsLoginSettingsGetInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthPortalsLoginSettingsGetHandlerResult
+  | Promise<AuthPortalsLoginSettingsGetHandlerResult>;
+export type AuthPortalsLoginSettingsUpdateHandlerError = TrellisErrorInstance;
+export type AuthPortalsLoginSettingsUpdateHandlerResult = Result<
+  AuthPortalsLoginSettingsUpdateOutput,
+  AuthPortalsLoginSettingsUpdateHandlerError
 >;
-export type AuthServiceInstancesProvisionHandler<TDeps = undefined> =
-  RpcHandler<typeof sdk, "Auth.ServiceInstances.Provision", TDeps>;
-export type AuthServiceInstancesRemoveHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.ServiceInstances.Remove",
-  TDeps
+export type AuthPortalsLoginSettingsUpdateHandler<TDeps = undefined> = (
+  args: {
+    input: AuthPortalsLoginSettingsUpdateInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthPortalsLoginSettingsUpdateHandlerResult
+  | Promise<AuthPortalsLoginSettingsUpdateHandlerResult>;
+export type AuthPortalsPutHandlerError = TrellisErrorInstance;
+export type AuthPortalsPutHandlerResult = Result<
+  AuthPortalsPutOutput,
+  AuthPortalsPutHandlerError
 >;
-export type AuthSessionsListHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Sessions.List",
-  TDeps
+export type AuthPortalsPutHandler<TDeps = undefined> = (
+  args: {
+    input: AuthPortalsPutInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => AuthPortalsPutHandlerResult | Promise<AuthPortalsPutHandlerResult>;
+export type AuthPortalsRemoveHandlerError = TrellisErrorInstance;
+export type AuthPortalsRemoveHandlerResult = Result<
+  AuthPortalsRemoveOutput,
+  AuthPortalsRemoveHandlerError
 >;
-export type AuthSessionsLogoutHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Sessions.Logout",
-  TDeps
+export type AuthPortalsRemoveHandler<TDeps = undefined> = (
+  args: {
+    input: AuthPortalsRemoveInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => AuthPortalsRemoveHandlerResult | Promise<AuthPortalsRemoveHandlerResult>;
+export type AuthPortalsRoutesPutHandlerError = TrellisErrorInstance;
+export type AuthPortalsRoutesPutHandlerResult = Result<
+  AuthPortalsRoutesPutOutput,
+  AuthPortalsRoutesPutHandlerError
 >;
-export type AuthSessionsMeHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Sessions.Me",
-  TDeps
+export type AuthPortalsRoutesPutHandler<TDeps = undefined> = (
+  args: {
+    input: AuthPortalsRoutesPutInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthPortalsRoutesPutHandlerResult
+  | Promise<AuthPortalsRoutesPutHandlerResult>;
+export type AuthPortalsRoutesRemoveHandlerError = TrellisErrorInstance;
+export type AuthPortalsRoutesRemoveHandlerResult = Result<
+  AuthPortalsRoutesRemoveOutput,
+  AuthPortalsRoutesRemoveHandlerError
 >;
-export type AuthSessionsRevokeHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Sessions.Revoke",
-  TDeps
+export type AuthPortalsRoutesRemoveHandler<TDeps = undefined> = (
+  args: {
+    input: AuthPortalsRoutesRemoveInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthPortalsRoutesRemoveHandlerResult
+  | Promise<AuthPortalsRoutesRemoveHandlerResult>;
+export type AuthRequestsValidateHandlerError = TrellisErrorInstance;
+export type AuthRequestsValidateHandlerResult = Result<
+  AuthRequestsValidateOutput,
+  AuthRequestsValidateHandlerError
 >;
-export type AuthUserIdentitiesListHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.UserIdentities.List",
-  TDeps
+export type AuthRequestsValidateHandler<TDeps = undefined> = (
+  args: {
+    input: AuthRequestsValidateInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthRequestsValidateHandlerResult
+  | Promise<AuthRequestsValidateHandlerResult>;
+export type AuthServiceInstancesDisableHandlerError = TrellisErrorInstance;
+export type AuthServiceInstancesDisableHandlerResult = Result<
+  AuthServiceInstancesDisableOutput,
+  AuthServiceInstancesDisableHandlerError
 >;
-export type AuthUserIdentitiesUnlinkHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.UserIdentities.Unlink",
-  TDeps
+export type AuthServiceInstancesDisableHandler<TDeps = undefined> = (
+  args: {
+    input: AuthServiceInstancesDisableInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthServiceInstancesDisableHandlerResult
+  | Promise<AuthServiceInstancesDisableHandlerResult>;
+export type AuthServiceInstancesEnableHandlerError = TrellisErrorInstance;
+export type AuthServiceInstancesEnableHandlerResult = Result<
+  AuthServiceInstancesEnableOutput,
+  AuthServiceInstancesEnableHandlerError
 >;
-export type AuthUsersCreateHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Users.Create",
-  TDeps
+export type AuthServiceInstancesEnableHandler<TDeps = undefined> = (
+  args: {
+    input: AuthServiceInstancesEnableInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthServiceInstancesEnableHandlerResult
+  | Promise<AuthServiceInstancesEnableHandlerResult>;
+export type AuthServiceInstancesListHandlerError = TrellisErrorInstance;
+export type AuthServiceInstancesListHandlerResult = Result<
+  AuthServiceInstancesListOutput,
+  AuthServiceInstancesListHandlerError
 >;
-export type AuthUsersGetHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Users.Get",
-  TDeps
+export type AuthServiceInstancesListHandler<TDeps = undefined> = (
+  args: {
+    input: AuthServiceInstancesListInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthServiceInstancesListHandlerResult
+  | Promise<AuthServiceInstancesListHandlerResult>;
+export type AuthServiceInstancesProvisionHandlerError = TrellisErrorInstance;
+export type AuthServiceInstancesProvisionHandlerResult = Result<
+  AuthServiceInstancesProvisionOutput,
+  AuthServiceInstancesProvisionHandlerError
 >;
-export type AuthUsersIdentityLinkCreateHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Users.IdentityLink.Create",
-  TDeps
+export type AuthServiceInstancesProvisionHandler<TDeps = undefined> = (
+  args: {
+    input: AuthServiceInstancesProvisionInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthServiceInstancesProvisionHandlerResult
+  | Promise<AuthServiceInstancesProvisionHandlerResult>;
+export type AuthServiceInstancesRemoveHandlerError = TrellisErrorInstance;
+export type AuthServiceInstancesRemoveHandlerResult = Result<
+  AuthServiceInstancesRemoveOutput,
+  AuthServiceInstancesRemoveHandlerError
 >;
-export type AuthUsersListHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Users.List",
-  TDeps
+export type AuthServiceInstancesRemoveHandler<TDeps = undefined> = (
+  args: {
+    input: AuthServiceInstancesRemoveInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthServiceInstancesRemoveHandlerResult
+  | Promise<AuthServiceInstancesRemoveHandlerResult>;
+export type AuthSessionsListHandlerError = TrellisErrorInstance;
+export type AuthSessionsListHandlerResult = Result<
+  AuthSessionsListOutput,
+  AuthSessionsListHandlerError
 >;
-export type AuthUsersPasswordChangeHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Users.Password.Change",
-  TDeps
+export type AuthSessionsListHandler<TDeps = undefined> = (
+  args: {
+    input: AuthSessionsListInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => AuthSessionsListHandlerResult | Promise<AuthSessionsListHandlerResult>;
+export type AuthSessionsLogoutHandlerError = TrellisErrorInstance;
+export type AuthSessionsLogoutHandlerResult = Result<
+  AuthSessionsLogoutOutput,
+  AuthSessionsLogoutHandlerError
 >;
-export type AuthUsersPasswordResetCreateHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Users.PasswordReset.Create",
-  TDeps
+export type AuthSessionsLogoutHandler<TDeps = undefined> = (
+  args: {
+    input: AuthSessionsLogoutInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => AuthSessionsLogoutHandlerResult | Promise<AuthSessionsLogoutHandlerResult>;
+export type AuthSessionsMeHandlerError = TrellisErrorInstance;
+export type AuthSessionsMeHandlerResult = Result<
+  AuthSessionsMeOutput,
+  AuthSessionsMeHandlerError
 >;
-export type AuthUsersUpdateHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Auth.Users.Update",
-  TDeps
+export type AuthSessionsMeHandler<TDeps = undefined> = (
+  args: {
+    input: AuthSessionsMeInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => AuthSessionsMeHandlerResult | Promise<AuthSessionsMeHandlerResult>;
+export type AuthSessionsRevokeHandlerError = TrellisErrorInstance;
+export type AuthSessionsRevokeHandlerResult = Result<
+  AuthSessionsRevokeOutput,
+  AuthSessionsRevokeHandlerError
 >;
+export type AuthSessionsRevokeHandler<TDeps = undefined> = (
+  args: {
+    input: AuthSessionsRevokeInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => AuthSessionsRevokeHandlerResult | Promise<AuthSessionsRevokeHandlerResult>;
+export type AuthUserIdentitiesListHandlerError = TrellisErrorInstance;
+export type AuthUserIdentitiesListHandlerResult = Result<
+  AuthUserIdentitiesListOutput,
+  AuthUserIdentitiesListHandlerError
+>;
+export type AuthUserIdentitiesListHandler<TDeps = undefined> = (
+  args: {
+    input: AuthUserIdentitiesListInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthUserIdentitiesListHandlerResult
+  | Promise<AuthUserIdentitiesListHandlerResult>;
+export type AuthUserIdentitiesUnlinkHandlerError = TrellisErrorInstance;
+export type AuthUserIdentitiesUnlinkHandlerResult = Result<
+  AuthUserIdentitiesUnlinkOutput,
+  AuthUserIdentitiesUnlinkHandlerError
+>;
+export type AuthUserIdentitiesUnlinkHandler<TDeps = undefined> = (
+  args: {
+    input: AuthUserIdentitiesUnlinkInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthUserIdentitiesUnlinkHandlerResult
+  | Promise<AuthUserIdentitiesUnlinkHandlerResult>;
+export type AuthUsersCreateHandlerError = TrellisErrorInstance;
+export type AuthUsersCreateHandlerResult = Result<
+  AuthUsersCreateOutput,
+  AuthUsersCreateHandlerError
+>;
+export type AuthUsersCreateHandler<TDeps = undefined> = (
+  args: {
+    input: AuthUsersCreateInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => AuthUsersCreateHandlerResult | Promise<AuthUsersCreateHandlerResult>;
+export type AuthUsersGetHandlerError = TrellisErrorInstance;
+export type AuthUsersGetHandlerResult = Result<
+  AuthUsersGetOutput,
+  AuthUsersGetHandlerError
+>;
+export type AuthUsersGetHandler<TDeps = undefined> = (
+  args: {
+    input: AuthUsersGetInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => AuthUsersGetHandlerResult | Promise<AuthUsersGetHandlerResult>;
+export type AuthUsersIdentityLinkCreateHandlerError = TrellisErrorInstance;
+export type AuthUsersIdentityLinkCreateHandlerResult = Result<
+  AuthUsersIdentityLinkCreateOutput,
+  AuthUsersIdentityLinkCreateHandlerError
+>;
+export type AuthUsersIdentityLinkCreateHandler<TDeps = undefined> = (
+  args: {
+    input: AuthUsersIdentityLinkCreateInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthUsersIdentityLinkCreateHandlerResult
+  | Promise<AuthUsersIdentityLinkCreateHandlerResult>;
+export type AuthUsersListHandlerError = TrellisErrorInstance;
+export type AuthUsersListHandlerResult = Result<
+  AuthUsersListOutput,
+  AuthUsersListHandlerError
+>;
+export type AuthUsersListHandler<TDeps = undefined> = (
+  args: {
+    input: AuthUsersListInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => AuthUsersListHandlerResult | Promise<AuthUsersListHandlerResult>;
+export type AuthUsersPasswordChangeHandlerError = TrellisErrorInstance;
+export type AuthUsersPasswordChangeHandlerResult = Result<
+  AuthUsersPasswordChangeOutput,
+  AuthUsersPasswordChangeHandlerError
+>;
+export type AuthUsersPasswordChangeHandler<TDeps = undefined> = (
+  args: {
+    input: AuthUsersPasswordChangeInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthUsersPasswordChangeHandlerResult
+  | Promise<AuthUsersPasswordChangeHandlerResult>;
+export type AuthUsersPasswordResetCreateHandlerError = TrellisErrorInstance;
+export type AuthUsersPasswordResetCreateHandlerResult = Result<
+  AuthUsersPasswordResetCreateOutput,
+  AuthUsersPasswordResetCreateHandlerError
+>;
+export type AuthUsersPasswordResetCreateHandler<TDeps = undefined> = (
+  args: {
+    input: AuthUsersPasswordResetCreateInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | AuthUsersPasswordResetCreateHandlerResult
+  | Promise<AuthUsersPasswordResetCreateHandlerResult>;
+export type AuthUsersUpdateHandlerError = TrellisErrorInstance;
+export type AuthUsersUpdateHandlerResult = Result<
+  AuthUsersUpdateOutput,
+  AuthUsersUpdateHandlerError
+>;
+export type AuthUsersUpdateHandler<TDeps = undefined> = (
+  args: {
+    input: AuthUsersUpdateInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => AuthUsersUpdateHandlerResult | Promise<AuthUsersUpdateHandlerResult>;
 
 export interface EventMap {
   "Auth.Connections.Closed": { event: AuthConnectionsClosedEvent };

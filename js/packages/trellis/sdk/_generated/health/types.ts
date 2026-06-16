@@ -1,8 +1,16 @@
 // Generated from ./generated/contracts/manifests/trellis.health@v1.json
-import type { TrellisEventMessage } from "../../../index.ts";
+import type {
+  BaseError,
+  EventListenerContext,
+  HandlerTrellis,
+  MaybeAsync,
+  TrellisEventMessage,
+} from "../../../index.ts";
 
-import type { ServiceEventHandler } from "@qlever-llc/trellis/service";
-import type { sdk } from "./contract.ts";
+import type { Api } from "./api.ts";
+
+type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
+export type HandlerClient = HandlerTrellis<Api>;
 
 export const CONTRACT_ID = "trellis.health@v1" as const;
 export const CONTRACT_DIGEST =
@@ -38,8 +46,13 @@ export type HealthHeartbeatEvent = {
 export type HealthHeartbeatEventMessage = TrellisEventMessage<
   HealthHeartbeatEvent
 >;
-export type HealthHeartbeatEventHandler<TDeps = undefined> =
-  ServiceEventHandler<typeof sdk, "Health.Heartbeat", TDeps>;
+export type HealthHeartbeatEventHandler<TDeps = undefined> = (
+  args: {
+    event: HealthHeartbeatEvent;
+    context: EventListenerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => MaybeAsync<void, BaseError>;
 
 export interface RpcMap {
 }

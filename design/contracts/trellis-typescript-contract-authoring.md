@@ -471,15 +471,13 @@ Rules:
   builder flow and grant consumption through runtime transfer helpers
 - contract descriptors declare transfer direction explicitly for operations that
   ingest caller bytes and RPCs that issue service-owned byte grants
-- for locally owned contracts, author-facing code should normally define
-  concrete handler-local aliases such as
-  `type Args = RpcArgs<typeof myContract, "My.Method">` and
-  `type Return = RpcResult<typeof myContract, "My.Method">`
-- service-owned RPC handlers should normally use explicit function declarations
-  with those aliases, for example
-  `async function myHandler({ input, context }: Args): Promise<Return> { ... }`
-- docs and examples should prefer explicit `Args` and `Return` aliases for
-  handler signatures instead of handwritten request parsing
+- for locally owned TypeScript contracts, inline handlers can infer from
+  `service.handle...` registration, while extracted handlers should import
+  concrete aliases from the generated SDK after prepare/generation, such as
+  `MyMethodHandler<ServiceDeps>`
+- service-owned RPC handler docs and examples should prefer generated SDK
+  handler aliases for extracted signatures instead of handwritten request
+  parsing
 - callers do not manually assemble runtime API arrays for normal usage
 - locally authored contracts should normally export the helper return value
   directly; do not wrap it in a handwritten default-export object that

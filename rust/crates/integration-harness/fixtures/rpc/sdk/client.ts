@@ -1,4 +1,4 @@
-// Generated from ./generated/contracts/manifests/trellis.jobs@v1.json
+// Generated from rust/crates/integration-harness/fixtures/rpc/contract.ts
 import type {
   AcceptedOperation,
   AsyncResult,
@@ -28,12 +28,11 @@ import type {
   UnexpectedError,
   ValidationError,
   ValueStateStoreClient,
-} from "../../../index.ts";
+} from "@qlever-llc/trellis";
 import type { API, Api } from "./api.ts";
 import type * as Types from "./types.ts";
-import type * as AuthSdk from "../auth/mod.ts";
-import type * as CoreSdk from "../core/mod.ts";
-import type * as HealthSdk from "../health/mod.ts";
+import type * as AuthSdk from "@qlever-llc/trellis/sdk/auth";
+import type * as HealthSdk from "@qlever-llc/trellis/sdk/health";
 
 type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
 
@@ -50,14 +49,14 @@ type DependencyServiceEventHandler<TEvent, TDeps = undefined> = (
     & WithDeps<TDeps>,
 ) => MaybeAsync<void, BaseError>;
 
-export type TrellisJobsState = {};
+export type TrellisIntegrationHarnessRpcState = {};
 
-export interface TrellisJobsClient {
+export interface TrellisIntegrationHarnessRpcClient {
   readonly name: string;
   readonly timeout: number;
   readonly stream: string;
   readonly api: Api;
-  readonly state: TrellisJobsState;
+  readonly state: TrellisIntegrationHarnessRpcState;
   readonly connection: TrellisConnection;
   transfer(grant: SendTransferGrant): SendTransferHandle;
   transfer(grant: ReceiveTransferGrant): ReceiveTransferHandle;
@@ -68,53 +67,31 @@ export interface TrellisJobsClient {
         opts?: RequestOpts,
       ): AsyncResult<AuthSdk.AuthRequestsValidateOutput, BaseError>;
     };
-    readonly jobs: {
-      cancel(
-        input: Types.JobsCancelInput,
+    readonly harness: {
+      rustCallerContext(
+        input: Types.HarnessRustCallerContextInput,
         opts?: RequestOpts,
-      ): AsyncResult<Types.JobsCancelOutput, BaseError>;
-      dismissDLQ(
-        input: Types.JobsDismissDLQInput,
+      ): AsyncResult<Types.HarnessRustCallerContextOutput, BaseError>;
+      rustPing(
+        input: Types.HarnessRustPingInput,
         opts?: RequestOpts,
-      ): AsyncResult<Types.JobsDismissDLQOutput, BaseError>;
-      get(
-        input: Types.JobsGetInput,
+      ): AsyncResult<Types.HarnessRustPingOutput, BaseError>;
+      rustTraceContext(
+        input: Types.HarnessRustTraceContextInput,
         opts?: RequestOpts,
-      ): AsyncResult<Types.JobsGetOutput, BaseError>;
-      getKey(
-        input: Types.JobsGetKeyInput,
+      ): AsyncResult<Types.HarnessRustTraceContextOutput, BaseError>;
+      tsCallerContext(
+        input: Types.HarnessTsCallerContextInput,
         opts?: RequestOpts,
-      ): AsyncResult<Types.JobsGetKeyOutput, BaseError>;
-      health(
-        input: Types.JobsHealthInput,
+      ): AsyncResult<Types.HarnessTsCallerContextOutput, BaseError>;
+      tsPing(
+        input: Types.HarnessTsPingInput,
         opts?: RequestOpts,
-      ): AsyncResult<Types.JobsHealthOutput, BaseError>;
-      list(
-        input: Types.JobsListInput,
+      ): AsyncResult<Types.HarnessTsPingOutput, BaseError>;
+      tsTraceContext(
+        input: Types.HarnessTsTraceContextInput,
         opts?: RequestOpts,
-      ): AsyncResult<Types.JobsListOutput, BaseError>;
-      listDLQ(
-        input: Types.JobsListDLQInput,
-        opts?: RequestOpts,
-      ): AsyncResult<Types.JobsListDLQOutput, BaseError>;
-      listServices(
-        input: Types.JobsListServicesInput,
-        opts?: RequestOpts,
-      ): AsyncResult<Types.JobsListServicesOutput, BaseError>;
-      replayDLQ(
-        input: Types.JobsReplayDLQInput,
-        opts?: RequestOpts,
-      ): AsyncResult<Types.JobsReplayDLQOutput, BaseError>;
-      retry(
-        input: Types.JobsRetryInput,
-        opts?: RequestOpts,
-      ): AsyncResult<Types.JobsRetryOutput, BaseError>;
-    };
-    readonly trellis: {
-      catalog(
-        input: CoreSdk.TrellisCatalogInput,
-        opts?: RequestOpts,
-      ): AsyncResult<CoreSdk.TrellisCatalogOutput, BaseError>;
+      ): AsyncResult<Types.HarnessTsTraceContextOutput, BaseError>;
     };
   };
   readonly event: {
@@ -142,16 +119,18 @@ export interface TrellisJobsClient {
   wait(): AsyncResult<void, BaseError>;
 }
 
-export interface Service extends TrellisJobsClient {
+export interface Service extends TrellisIntegrationHarnessRpcClient {
   readonly handle: ServiceHandle;
   with<TDeps>(deps: TDeps): ServiceWithDeps<TDeps>;
 }
 
-export type ServiceWithDeps<TDeps> = Omit<TrellisJobsClient, "event"> & {
-  readonly event: ServiceEventSurface<TDeps>;
-  readonly handle: ServiceHandle<TDeps>;
-  with<TNextDeps>(deps: TNextDeps): ServiceWithDeps<TNextDeps>;
-};
+export type ServiceWithDeps<TDeps> =
+  & Omit<TrellisIntegrationHarnessRpcClient, "event">
+  & {
+    readonly event: ServiceEventSurface<TDeps>;
+    readonly handle: ServiceHandle<TDeps>;
+    with<TNextDeps>(deps: TNextDeps): ServiceWithDeps<TNextDeps>;
+  };
 
 export interface ServiceEventSurface<TDeps> {
   readonly health: {
@@ -179,19 +158,21 @@ export interface ServiceEventSurface<TDeps> {
 
 export interface ServiceHandle<TDeps = undefined> {
   readonly rpc: {
-    readonly jobs: {
-      cancel(handler: Types.JobsCancelHandler<TDeps>): Promise<void>;
-      dismissDLQ(handler: Types.JobsDismissDLQHandler<TDeps>): Promise<void>;
-      get(handler: Types.JobsGetHandler<TDeps>): Promise<void>;
-      getKey(handler: Types.JobsGetKeyHandler<TDeps>): Promise<void>;
-      health(handler: Types.JobsHealthHandler<TDeps>): Promise<void>;
-      list(handler: Types.JobsListHandler<TDeps>): Promise<void>;
-      listDLQ(handler: Types.JobsListDLQHandler<TDeps>): Promise<void>;
-      listServices(
-        handler: Types.JobsListServicesHandler<TDeps>,
+    readonly harness: {
+      rustCallerContext(
+        handler: Types.HarnessRustCallerContextHandler<TDeps>,
       ): Promise<void>;
-      replayDLQ(handler: Types.JobsReplayDLQHandler<TDeps>): Promise<void>;
-      retry(handler: Types.JobsRetryHandler<TDeps>): Promise<void>;
+      rustPing(handler: Types.HarnessRustPingHandler<TDeps>): Promise<void>;
+      rustTraceContext(
+        handler: Types.HarnessRustTraceContextHandler<TDeps>,
+      ): Promise<void>;
+      tsCallerContext(
+        handler: Types.HarnessTsCallerContextHandler<TDeps>,
+      ): Promise<void>;
+      tsPing(handler: Types.HarnessTsPingHandler<TDeps>): Promise<void>;
+      tsTraceContext(
+        handler: Types.HarnessTsTraceContextHandler<TDeps>,
+      ): Promise<void>;
     };
   };
   readonly feed: {};
@@ -199,4 +180,4 @@ export interface ServiceHandle<TDeps = undefined> {
 }
 
 export type HandlerClient = HandlerTrellis<Api>;
-export type Client = TrellisJobsClient;
+export type Client = TrellisIntegrationHarnessRpcClient;

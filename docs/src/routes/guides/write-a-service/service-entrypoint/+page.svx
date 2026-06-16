@@ -54,9 +54,12 @@ wrapper. SQL-outbox-bound handlers receive `args.outbox`; when combined with
 Use `outbox.transaction(...)` around the local database work and event enqueues
 that must commit together.
 
-When you need to export or pass the bound wrapper type, use
-`BoundServiceOf<typeof contract, ServiceDeps>` from `@qlever-llc/trellis/service`
-instead of spelling the lower-level service generics by hand.
+When you need to export or pass the bound wrapper type after generation, import
+`ServiceWithDeps` from your generated SDK package and write
+`ServiceWithDeps<ServiceDeps>`. Extracted handler modules should likewise import
+generated handler aliases such as `OrdersCreateHandler<ServiceDeps>` from that
+SDK; inline handlers registered directly in `service.handle...` still infer their
+types from the registration site.
 
 {/snippet}
 {#snippet rust()}

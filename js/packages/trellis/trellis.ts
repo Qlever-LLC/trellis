@@ -1559,30 +1559,18 @@ export type ConnectedTrellisClient<TContract> = Simplify<
   >
 >;
 
-export type HandlerArgs<
-  TMountApi extends AnyTrellisAPI,
-  M extends MethodsOf<TMountApi>,
-  TOutboundApi extends AnyTrellisAPI = TMountApi,
-  TTrellis = HandlerTrellis<TOutboundApi>,
-> = {
-  input: MethodInputOf<TMountApi, M>;
-  context: RpcHandlerContext;
-  client: TTrellis;
-};
-
 export type HandlerFn<
   TMountApi extends AnyTrellisAPI,
   M extends MethodsOf<TMountApi>,
   TOutboundApi extends AnyTrellisAPI = TMountApi,
   TTrellis = HandlerTrellis<TOutboundApi>,
-> = (args: HandlerArgs<TMountApi, M, TOutboundApi, TTrellis>) => MaybePromise<
+> = (args: {
+  input: MethodInputOf<TMountApi, M>;
+  context: RpcHandlerContext;
+  client: TTrellis;
+}) => MaybePromise<
   Result<MethodOutputOf<TMountApi, M>, HandlerErrorOf<TMountApi, M>>
 >;
-export type RpcHandlerFn<
-  TA extends AnyTrellisAPI,
-  M extends RpcMethodNameOf<TA>,
-> = HandlerFn<TA, M, TA>;
-export type TrellisFor<TContract> = HandlerTrellisForContract<TContract>;
 
 const DEFAULT_STATE_LIST_LIMIT = 100;
 
@@ -1852,22 +1840,6 @@ function validateStateListResult(
   return Result.ok({ ...result, entries });
 }
 
-export type RpcArgs<
-  TContract,
-  M extends RpcMethodNameOf<OwnedApiFor<TContract>>,
-> = HandlerArgs<
-  OwnedApiFor<TContract>,
-  M,
-  TrellisApiFor<TContract>,
-  HandlerTrellisForContract<TContract>
->;
-export type RpcResult<
-  TContract,
-  M extends RpcMethodNameOf<OwnedApiFor<TContract>>,
-> = Result<
-  RpcOutputOf<OwnedApiFor<TContract>, M>,
-  RpcHandlerErrorOf<OwnedApiFor<TContract>, M>
->;
 export type RpcRequestErrorOf<
   TA extends AnyTrellisAPI,
   M extends RpcMethodNameOf<TA>,
@@ -1885,13 +1857,6 @@ export type EventPayload<
   TContract,
   E extends EventName<TContract>,
 > = EventPayloadOf<OwnedApiFor<TContract>, E>;
-export type EventHandler<
-  TContract,
-  E extends EventName<TContract>,
-> = (
-  event: EventType<TContract, E>,
-  context: EventListenerContext,
-) => MaybeAsync<void, BaseError>;
 
 type DeepRecord<T> = {
   [k: string]: T | DeepRecord<T>;

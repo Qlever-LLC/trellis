@@ -26,6 +26,16 @@ If you are using Node.js instead, use `npm`:
 npm install @qlever-llc/trellis @sinclair/typebox
 ```
 
+Add a prepare task for generated SDKs and contract artifacts:
+
+```json
+{
+  "tasks": {
+    "prepare": "deno run -A @qlever-llc/trellis/generate prepare ."
+  }
+}
+```
+
 {/snippet}
 {#snippet rust()}
 

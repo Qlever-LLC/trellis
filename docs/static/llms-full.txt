@@ -125,6 +125,9 @@ Rules:
 - the local `AGENTS.md` should record the contract source path, generated artifact
   command, format command, typecheck/clippy command, test command, run command,
   and migration command
+- TypeScript services should import generated SDK handler aliases for extracted
+  handlers after prepare/generation. Inline `service.handle...` handlers can rely
+  on registration-site inference.
 
 The important pattern is that TypeScript services and apps run
 `deno task prepare`, Rust services run `cargo xtask prepare`, and source
@@ -148,22 +151,23 @@ contracts remain the input.
 3. Make the smallest contract change that exposes the required surface.
 4. Regenerate generated artifacts with `deno task prepare` for TypeScript
    services or `cargo xtask prepare` for Rust services.
-5. Implement handlers with generated provider APIs.
+5. Implement handlers with generated provider APIs. For TypeScript extracted
+   handlers, import generated SDK aliases such as
+   `OrdersCreateHandler<ServiceDeps>` after running prepare/generation.
 6. Use scoped handler `client` values for outbound calls and register long-lived
-    event listeners during startup.
+   event listeners during startup.
    For TypeScript services that bind application dependencies with
-   `service.with(deps)`, export bound-wrapper aliases as
-   `BoundServiceOf<typeof contract, ServiceDeps>` from
-   `@qlever-llc/trellis/service` instead of hand-writing service generic stacks.
+   `service.with(deps)`, export generated SDK `ServiceWithDeps<ServiceDeps>`
+   aliases instead of hand-writing service generic stacks.
 7. Add or update tests at the service boundary. For event-driven code, test the
    local handler logic and the outbox/inbox behavior separately when possible.
    Use `@qlever-llc/trellis-test` when the boundary test must exercise real
-    Trellis bootstrap, auth validation, deployment authority, generated clients,
-    app/client auth, live event capture, jobs, operations, KV, store, state, or
-    durable event consumers. Prefer its assertion helpers for captured events,
-    terminal jobs and operations, immediate `Result` RPC values, and eventual RPC
-    projection checks; generated captures and service job refs can be passed
-    directly.
+   Trellis bootstrap, auth validation, deployment authority, generated clients,
+   app/client auth, live event capture, jobs, operations, KV, store, state, or
+   durable event consumers. Prefer its assertion helpers for captured events,
+   terminal jobs and operations, immediate `Result` RPC values, and eventual RPC
+   projection checks; generated captures and service job refs can be passed
+   directly.
 8. Run formatting, type checks, generation checks, and tests before reporting
    completion.
 
@@ -204,6 +208,10 @@ expected by that repo.
 - Catching expected business failures as generic exceptions instead of modeling
   declared errors or Result values.
 - Editing generated files by hand without updating the source contract.
+- Typing TypeScript extracted service handlers before running prepare after a
+  contract change. Import generated SDK handler aliases after generation. Source
+  `defineError(...)` instances are valid handler returns when their serialized
+  data matches the generated declared error.
 - Expanding `uses` broadly when a narrow surface selection is sufficient.
 
 ## Human reference links

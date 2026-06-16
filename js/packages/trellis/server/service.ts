@@ -1072,14 +1072,6 @@ type ContractKvOf<
   >,
 > = NonNullable<TContract[typeof CONTRACT_KV_METADATA]>;
 
-type ContractJobName<
-  TContract extends ServiceContract<
-    TrellisAPI,
-    TrellisAPI | undefined,
-    ContractJobsMetadata
-  >,
-> = keyof ContractJobsOf<TContract> & string;
-
 type ContractEventName<
   TContract extends ServiceContract<
     TrellisAPI,
@@ -1088,14 +1080,6 @@ type ContractEventName<
   >,
 > = ServiceEventName<ContractTrellisApi<TContract>>;
 
-type ContractFeedName<
-  TContract extends ServiceContract<
-    TrellisAPI,
-    TrellisAPI | undefined,
-    ContractJobsMetadata
-  >,
-> = keyof ContractOwnedApi<TContract>["feeds"] & string;
-
 type ContractOperationName<
   TContract extends ServiceContract<
     TrellisAPI,
@@ -1103,57 +1087,6 @@ type ContractOperationName<
     ContractJobsMetadata
   >,
 > = keyof ContractOwnedApi<TContract>["operations"] & string;
-
-type ContractJobPayload<
-  TContract extends ServiceContract<
-    TrellisAPI,
-    TrellisAPI | undefined,
-    ContractJobsMetadata
-  >,
-  TJob extends ContractJobName<TContract>,
-> = ContractJobsOf<TContract>[TJob]["payload"];
-
-type ContractJobResult<
-  TContract extends ServiceContract<
-    TrellisAPI,
-    TrellisAPI | undefined,
-    ContractJobsMetadata
-  >,
-  TJob extends ContractJobName<TContract>,
-> = ContractJobsOf<TContract>[TJob]["result"];
-
-/** Arguments passed to a typed Trellis service job handler. */
-export type JobArgs<
-  TContract extends ServiceContract<
-    TrellisAPI,
-    TrellisAPI | undefined,
-    ContractJobsMetadata,
-    ContractKvMetadata
-  >,
-  TJob extends ContractJobName<TContract>,
-  TDeps = undefined,
-> = {
-  job: PublicActiveJob<
-    ContractJobPayload<TContract, TJob>,
-    ContractJobResult<TContract, TJob>
-  >;
-  client: Trellis<
-    ContractTrellisApi<TContract>,
-    ContractKvOf<TContract>,
-    ContractJobsOf<TContract>
-  >;
-} & WithDeps<TDeps>;
-
-/** Result returned by a typed Trellis service job handler. */
-export type JobResult<
-  TContract extends ServiceContract<
-    TrellisAPI,
-    TrellisAPI | undefined,
-    ContractJobsMetadata,
-    ContractKvMetadata
-  >,
-  TJob extends ContractJobName<TContract>,
-> = Result<ContractJobResult<TContract, TJob>, BaseError>;
 
 type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
 
@@ -1225,46 +1158,6 @@ export type ServiceEventHandler<
     >;
   } & WithDeps<TDeps>,
 ) => MaybeAsync<void, BaseError>;
-
-/** Typed feed handler function for an extracted Trellis service handler. */
-export type FeedHandler<
-  TContract extends ServiceContract<
-    TrellisAPI,
-    TrellisAPI | undefined,
-    ContractJobsMetadata,
-    ContractKvMetadata
-  >,
-  F extends ContractFeedName<TContract>,
-  TDeps = undefined,
-> = (
-  context: {
-    input: FeedInputOf<ContractOwnedApi<TContract>, F>;
-    caller: unknown;
-    signal: AbortSignal;
-    emit(
-      event: FeedEventOf<ContractOwnedApi<TContract>, F>,
-    ): AsyncResult<void, ValidationError | UnexpectedError>;
-    client: Trellis<
-      ContractTrellisApi<TContract>,
-      ContractKvOf<TContract>,
-      ContractJobsOf<TContract>
-    >;
-  } & WithDeps<TDeps>,
-) => unknown | Promise<unknown>;
-
-/** Typed job handler function for an extracted Trellis service job handler. */
-export type JobHandler<
-  TContract extends ServiceContract<
-    TrellisAPI,
-    TrellisAPI | undefined,
-    ContractJobsMetadata,
-    ContractKvMetadata
-  >,
-  TJob extends ContractJobName<TContract>,
-  TDeps = undefined,
-> = (args: JobArgs<TContract, TJob, TDeps>) => Promise<
-  JobResult<TContract, TJob>
->;
 
 /** Typed operation handler function for an extracted Trellis service handler. */
 export type OperationHandler<
@@ -2031,23 +1924,6 @@ type BoundServiceKvOf<TContract extends BoundServiceContractLike> =
   NonNullable<TContract[typeof CONTRACT_KV_METADATA]> extends ContractKvMetadata
     ? NonNullable<TContract[typeof CONTRACT_KV_METADATA]>
     : ContractKvMetadata;
-
-/**
- * Contract-derived service wrapper returned by `TrellisService.with(deps)`.
- *
- * Use this helper for exported service-local aliases instead of writing the
- * lower-level `BoundTrellisService<ownedApi, trellisApi, jobs, kv, deps>` stack.
- */
-export type BoundServiceOf<
-  TContract extends BoundServiceContractLike,
-  TDeps = unknown,
-> = BoundTrellisService<
-  BoundServiceOwnedApi<TContract>,
-  BoundServiceTrellisApi<TContract>,
-  BoundServiceJobsOf<TContract>,
-  BoundServiceKvOf<TContract>,
-  TDeps
->;
 
 const MANAGED_JOB_WORKERS = Symbol("trellis.managedJobWorkers");
 

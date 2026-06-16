@@ -1,6 +1,15 @@
 // Generated from ./generated/contracts/manifests/trellis.core@v1.json
-import type { RpcHandler } from "@qlever-llc/trellis/service";
-import type { sdk } from "./contract.ts";
+import type {
+  HandlerTrellis,
+  Result,
+  RpcHandlerContext,
+  TrellisErrorInstance,
+} from "../../../index.ts";
+
+import type { Api } from "./api.ts";
+
+type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
+export type HandlerClient = HandlerTrellis<Api>;
 
 export const CONTRACT_ID = "trellis.core@v1" as const;
 export const CONTRACT_DIGEST =
@@ -250,26 +259,56 @@ export interface RpcMap {
   };
 }
 
-export type TrellisBindingsGetHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Trellis.Bindings.Get",
-  TDeps
+export type TrellisBindingsGetHandlerError = TrellisErrorInstance;
+export type TrellisBindingsGetHandlerResult = Result<
+  TrellisBindingsGetOutput,
+  TrellisBindingsGetHandlerError
 >;
-export type TrellisCatalogHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Trellis.Catalog",
-  TDeps
+export type TrellisBindingsGetHandler<TDeps = undefined> = (
+  args: {
+    input: TrellisBindingsGetInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => TrellisBindingsGetHandlerResult | Promise<TrellisBindingsGetHandlerResult>;
+export type TrellisCatalogHandlerError = TrellisErrorInstance;
+export type TrellisCatalogHandlerResult = Result<
+  TrellisCatalogOutput,
+  TrellisCatalogHandlerError
 >;
-export type TrellisContractGetHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Trellis.Contract.Get",
-  TDeps
+export type TrellisCatalogHandler<TDeps = undefined> = (
+  args: {
+    input: TrellisCatalogInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => TrellisCatalogHandlerResult | Promise<TrellisCatalogHandlerResult>;
+export type TrellisContractGetHandlerError = TrellisErrorInstance;
+export type TrellisContractGetHandlerResult = Result<
+  TrellisContractGetOutput,
+  TrellisContractGetHandlerError
 >;
-export type TrellisSurfaceStatusHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "Trellis.Surface.Status",
-  TDeps
+export type TrellisContractGetHandler<TDeps = undefined> = (
+  args: {
+    input: TrellisContractGetInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => TrellisContractGetHandlerResult | Promise<TrellisContractGetHandlerResult>;
+export type TrellisSurfaceStatusHandlerError = TrellisErrorInstance;
+export type TrellisSurfaceStatusHandlerResult = Result<
+  TrellisSurfaceStatusOutput,
+  TrellisSurfaceStatusHandlerError
 >;
+export type TrellisSurfaceStatusHandler<TDeps = undefined> = (
+  args: {
+    input: TrellisSurfaceStatusInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) =>
+  | TrellisSurfaceStatusHandlerResult
+  | Promise<TrellisSurfaceStatusHandlerResult>;
 
 export interface EventMap {
 }

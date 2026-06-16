@@ -33,8 +33,9 @@ Common packages are:
   `generated/packages/npm/` for contracts in your project.
 
 Generated SDKs include contract metadata, TypeScript schema-derived types,
-`use(...)` helpers for consumers, and `client.ts` facade types such as `Client`
-and `Service`.
+`use(...)` helpers for consumers, concrete handler aliases for extracted service
+handlers, and `client.ts` facade types such as `Client`, `Service`, and
+`ServiceWithDeps`.
 
 ## Connect as an app or CLI
 
@@ -493,10 +494,13 @@ dependencies separate from request context and passes them as `args.deps`.
 
 ```ts
 import { Result } from "@qlever-llc/trellis";
-import type { BoundServiceOf } from "@qlever-llc/trellis/service";
+import type {
+  OrdersGetHandler,
+  ServiceWithDeps,
+} from "@my-org/orders-service-sdk";
 
 type ServiceDeps = { db: Db; logger: Logger; clock: Clock; orders: Orders };
-export type OrdersApp = BoundServiceOf<typeof ordersContract, ServiceDeps>;
+export type OrdersApp = ServiceWithDeps<ServiceDeps>;
 
 const app = service.with({ db, logger, clock, orders });
 
@@ -507,7 +511,19 @@ await app.handle.rpc.orders.get(async ({ input, context, client, deps }) => {
 
   return Result.ok(entry.value.value);
 });
+
+export const getOrder: OrdersGetHandler<ServiceDeps> = async ({
+  input,
+  deps,
+}) => {
+  const order = await deps.orders.get(input.orderId);
+  return Result.ok(order);
+};
 ```
+
+Inline handlers infer from the registration site. Extracted handlers should use
+the generated SDK aliases. After changing a contract, run prepare/generation
+before typing extracted handlers so the alias matches the current generated SDK.
 
 Feed handlers receive an `emit(...)` helper and an abort signal.
 

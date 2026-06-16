@@ -256,7 +256,6 @@ await app.handle.rpc.partner.update(async ({ input, outbox }) => {
 
 ```ts
 import { defineServiceContract, Result } from "@qlever-llc/trellis";
-import type { RpcArgs, RpcResult } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import {
   HealthResponseSchema,
@@ -288,9 +287,6 @@ export const serviceContract = defineServiceContract(
 
 export default serviceContract;
 
-type Args = RpcArgs<typeof serviceContract, "Echo.Health">;
-type Return = RpcResult<typeof serviceContract, "Echo.Health">;
-
 const service = await TrellisService.connect({
   trellisUrl,
   contract: serviceContract,
@@ -299,7 +295,7 @@ const service = await TrellisService.connect({
   server: {},
 });
 
-export async function health({ client }: Args): Promise<Return> {
+export async function health() {
   return Result.ok({
     status: "healthy",
     service: "echo",
@@ -343,10 +339,9 @@ Rules:
   grace window used after unplanned disconnects
 - mounted RPC handlers should rely on Trellis-provided payload typing and
   validation rather than re-parsing the mounted payload just to recover types
-- extracted service RPC handler aliases should come from
-  `@qlever-llc/trellis/service` so handlers use the canonical object argument
-  shape and receive the narrow injected `trellis` service runtime facade rather
-  than the full `TrellisService`
+- inline TypeScript handlers can infer from `service.handle...` registration;
+  extracted TypeScript service handler aliases should come from the generated
+  SDK package after prepare/generation, not from public generic runtime helpers
 - mounted RPC handlers may be synchronous when they do not need `await`
 - mounted RPC handlers may return declared local `TrellisError` subclasses
   directly when those errors are listed in the contract RPC `errors: [...]`

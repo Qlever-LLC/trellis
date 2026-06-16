@@ -1,8 +1,5 @@
 export {
-  type JobArgs,
-  type JobHandler,
   type JobQueue,
-  type JobResult,
   type JobsFacadeOf,
   type OperationHandler,
   type OperationRegistration,

@@ -31,8 +31,6 @@ import type {
 } from "../../../index.ts";
 import type { API, Api } from "./api.ts";
 import type * as Types from "./types.ts";
-import type { RpcHandler as ServiceRpcHandler } from "@qlever-llc/trellis/service";
-import type { sdk } from "./contract.ts";
 import type * as HealthSdk from "../health/mod.ts";
 
 type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
@@ -140,14 +138,12 @@ export interface ServiceEventSurface<TDeps> {
 export interface ServiceHandle<TDeps = undefined> {
   readonly rpc: {
     readonly trellis: {
-      catalog(
-        handler: ServiceRpcHandler<typeof sdk, "Trellis.Catalog", TDeps>,
-      ): Promise<void>;
+      catalog(handler: Types.TrellisCatalogHandler<TDeps>): Promise<void>;
       contractGet(
-        handler: ServiceRpcHandler<typeof sdk, "Trellis.Contract.Get", TDeps>,
+        handler: Types.TrellisContractGetHandler<TDeps>,
       ): Promise<void>;
       surfaceStatus(
-        handler: ServiceRpcHandler<typeof sdk, "Trellis.Surface.Status", TDeps>,
+        handler: Types.TrellisSurfaceStatusHandler<TDeps>,
       ): Promise<void>;
     };
   };

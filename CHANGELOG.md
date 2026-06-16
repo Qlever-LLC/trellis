@@ -24,6 +24,8 @@ and this project adheres to
   advanced helper, but the main service-author flow is generic
   `withSqlOutbox(...)`; direct `withSqlOutbox({ drizzle })` sugar is deferred
   and not exposed.
+- TypeScript extracted service handlers now use concrete handler aliases from
+  the generated SDK after running prepare/generation.
 
 ### Added
 
@@ -40,12 +42,12 @@ and this project adheres to
 
 ### Changed
 
-- **Breaking:** Changed generated TypeScript service handler aliases to use the
-  stable `@qlever-llc/trellis/service` handler types and optional `TDeps`
-  generic. Existing RPC alias names are preserved, but type-level consumers that
-  relied on the previous root `RpcHandlerFn` alias shape or generated
-  `HandlerClient` argument shape may need to update. Generated SDKs also emit
-  service-author aliases for owned events, feeds, operations, and jobs.
+- **Breaking:** Changed generated TypeScript service handler aliases into
+  concrete generated SDK function aliases with an optional `TDeps` generic.
+  Generated `client.ts` service registration surfaces consume those aliases
+  directly, inline handlers still infer from `service.handle...`, and
+  handler-side source `defineError(...)` instances are accepted when their
+  serialized data matches the declared generated error data.
 
 ## [0.19.0-rc.5] - 2026-06-15
 

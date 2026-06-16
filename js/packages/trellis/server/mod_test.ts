@@ -5,39 +5,24 @@
 
 import { assertEquals, assertExists } from "jsr:@std/assert";
 import { Type } from "typebox";
-import { AsyncResult, type BaseError, Result } from "@qlever-llc/result";
+import { AsyncResult, Result } from "@qlever-llc/result";
 import { defineServiceContract } from "../contract.ts";
 import {
   CONTRACT_JOBS_METADATA,
   CONTRACT_KV_METADATA,
 } from "../contract_support/mod.ts";
-import type {
-  EventHandler,
-  EventName,
-  EventPayload,
-  RpcArgs,
-  RpcHandlerFn,
-  RpcOutputOf,
-  RpcResult,
-  StoreError,
-  TrellisFor,
-} from "@qlever-llc/trellis";
+import type { StoreError } from "@qlever-llc/trellis";
 import type { TypedKV } from "../kv.ts";
 import type { TypedStore } from "../store.ts";
 
 // Import the module under test
 import {
-  type BoundServiceOf,
   type EventContext,
-  type FeedHandler,
   type HealthCheckFn,
   type HealthCheckHandler,
   type HealthCheckResult,
   type HealthInfoHandler,
   type HealthResponse,
-  type JobArgs,
-  type JobHandler,
-  type JobResult,
   type OperationHandler,
   type OrderingGroup,
   type RpcHandler,
@@ -49,9 +34,6 @@ import {
   TrellisService as TrellisServiceClass,
   TrellisServiceRuntime,
 } from "./mod.ts";
-import type { BoundServiceOf as DenoBoundServiceOf } from "../service/deno.ts";
-import type { BoundServiceOf as ServiceBoundServiceOf } from "../service/mod.ts";
-import type { BoundServiceOf as NodeBoundServiceOf } from "../service/node.ts";
 
 const typeTestSchemas = {
   PingInput: Type.Object({ value: Type.String() }),
@@ -389,20 +371,6 @@ Deno.test("service wrapper exposes typed jobs facade", () => {
   assertExists(expectTypedJobs);
 });
 
-Deno.test("service subpaths expose contract-derived bound service type", () => {
-  type DepsContract = typeof depsTypeTestContract;
-  type Deps = { prefix: string };
-
-  function expectSubpathTypes(
-    service: DenoBoundServiceOf<DepsContract, Deps>,
-  ): ServiceBoundServiceOf<DepsContract, Deps> {
-    const nodeService: NodeBoundServiceOf<DepsContract, Deps> = service;
-    return nodeService;
-  }
-
-  assertExists(expectSubpathTypes);
-});
-
 Deno.test("bound service wrapper injects deps across handler surfaces", () => {
   type DepsContract = typeof depsTypeTestContract;
   type DepsJobs = NonNullable<DepsContract[typeof CONTRACT_JOBS_METADATA]>;
@@ -417,7 +385,6 @@ Deno.test("bound service wrapper injects deps across handler surfaces", () => {
 
   function expectBoundService(service: DepsService) {
     const bound = service.with({ prefix: "dep" });
-    const explicitBound: BoundServiceOf<DepsContract, Deps> = bound;
 
     void bound.handle.rpc.test.ping(({ input, context, client, deps }) => {
       const value: string = input.value;
@@ -459,7 +426,7 @@ Deno.test("bound service wrapper injects deps across handler surfaces", () => {
       { mode: "ephemeral" },
     );
 
-    return explicitBound.name;
+    return bound.name;
   }
 
   assertExists(expectBoundService);
@@ -484,92 +451,6 @@ Deno.test("server RPC helper types support extracted handlers", () => {
   assertExists(pingHandler);
 });
 
-Deno.test("lower-level API RPC helper types support extracted handlers", () => {
-  type OwnedApi = typeof typeTestContract.API.owned;
-  type PingArgs = Parameters<RpcHandlerFn<OwnedApi, "Test.Ping">>[0];
-  type PingResult = RpcOutputOf<OwnedApi, "Test.Ping">;
-
-  const pingHandler = ({
-    input,
-    context,
-  }: PingArgs): Result<PingResult, BaseError> => {
-    const value: PingArgs["input"]["value"] = input.value;
-    const sessionKey: string = context.sessionKey;
-    const output: PingResult = {
-      ok: value.length > 0 && sessionKey.length >= 0,
-    };
-    return Result.ok(output);
-  };
-
-  assertExists(pingHandler);
-});
-
-Deno.test("contract-oriented helper types support local Args and Return aliases", () => {
-  type Args = RpcArgs<typeof typeTestContract, "Test.Ping">;
-  type Return = RpcResult<typeof typeTestContract, "Test.Ping">;
-  type TypeTestEvent<T extends EventName<typeof typeTestContract>> =
-    EventHandler<typeof typeTestContract, T>;
-  type TypeTestEventPayload<T extends EventName<typeof typeTestContract>> =
-    EventPayload<typeof typeTestContract, T>;
-  type TypeTestTrellis = TrellisFor<typeof typeTestContract>;
-  const argsTypeCheck: Args | undefined = undefined;
-
-  const ping = ({
-    input,
-    context,
-    client,
-  }: Args): Return => {
-    const value: string = input.value;
-    const sessionKey: string = context.sessionKey;
-    const outbound: TypeTestTrellis = client;
-    assertExists(outbound.rpc.test.ping({ value }));
-    const kv: TypedKV<typeof typeTestSchemas.KVValue> = client.kv.items;
-    const store = client.store.uploads.open();
-    assertExists(kv);
-    assertExists(store);
-    assertExists(client.jobs);
-    const output = {
-      ok: value.length > 0 && sessionKey.length >= 0,
-    };
-    return Result.ok(output);
-  };
-
-  const onPinged: TypeTestEvent<"Test.Pinged"> = async (
-    event: Parameters<TypeTestEvent<"Test.Pinged">>[0],
-    context: Parameters<TypeTestEvent<"Test.Pinged">>[1],
-  ) => {
-    const value: TypeTestEventPayload<"Test.Pinged">["value"] = event.value;
-    const subject: string = context.subject;
-    assertEquals(value, event.value);
-    assertExists(subject);
-    return Result.ok(undefined);
-  };
-
-  assertExists(ping);
-  assertExists(onPinged);
-  assertEquals(argsTypeCheck, undefined);
-});
-
-Deno.test("job helper types support local Args and Return aliases", () => {
-  type Args = JobArgs<typeof jobsTypeTestContract, "refreshSummaries">;
-  type Return = JobResult<typeof jobsTypeTestContract, "refreshSummaries">;
-  const argsTypeCheck: Args | undefined = undefined;
-
-  const refresh = async ({ job, client }: Args): Promise<Return> => {
-    const siteId: string = job.payload.siteId;
-    const kv: TypedKV<typeof jobsTypeTestSchemas.KVValue> = client.kv.items;
-    const created = client.jobs.refreshSummaries.create({ siteId });
-    const store = client.store.uploads.open();
-    assertExists(kv);
-    assertExists(created);
-    assertExists(store);
-    return Result.ok({ refreshId: siteId });
-  };
-
-  assertExists(refresh);
-  assertEquals(argsTypeCheck, undefined);
-});
-
 Deno.test("service handler aliases expose narrow client object args", () => {
   type PingRpcHandler = RpcHandler<typeof typeTestContract, "Test.Ping">;
   type Deps = { readonly prefix: string };
@@ -583,16 +464,6 @@ Deno.test("service handler aliases expose narrow client object args", () => {
     "Test.Changed",
     Deps
   >;
-  type BoundFeedHandler = FeedHandler<
-    typeof depsTypeTestContract,
-    "Test.Stream",
-    Deps
-  >;
-  type BoundJobHandler = JobHandler<
-    typeof depsTypeTestContract,
-    "refresh",
-    Deps
-  >;
   type BoundOperationHandler = OperationHandler<
     typeof depsTypeTestContract,
     "Test.Run",
@@ -600,10 +471,6 @@ Deno.test("service handler aliases expose narrow client object args", () => {
   >;
   type BoundHealthInfoHandler = HealthInfoHandler<Deps>;
   type BoundHealthCheckHandler = HealthCheckHandler<Deps>;
-  type RefreshJobHandler = JobHandler<
-    typeof jobsTypeTestContract,
-    "refreshSummaries"
-  >;
   type PingOperationHandler = OperationHandler<
     typeof operationsTypeTestContract,
     "Test.Run"
@@ -641,18 +508,6 @@ Deno.test("service handler aliases expose narrow client object args", () => {
     return Result.ok(undefined);
   };
 
-  const boundFeedHandler: BoundFeedHandler = (
-    { input, emit, client, deps },
-  ) => {
-    assertExists(client.kv.items);
-    assertExists(emit({ value: `${deps.prefix}:${input.value}` }));
-  };
-
-  const boundJobHandler: BoundJobHandler = async ({ job, client, deps }) => {
-    assertExists(client.kv.items);
-    return Result.ok({ value: `${deps.prefix}:${job.payload.value}` });
-  };
-
   const boundOperationHandler: BoundOperationHandler = async (
     { input, op, client, deps },
   ) => {
@@ -670,13 +525,6 @@ Deno.test("service handler aliases expose narrow client object args", () => {
     status: deps.prefix.length > 0 ? "ok" : "failed",
   });
 
-  const jobHandler: RefreshJobHandler = async ({ job, client }) => {
-    assertExists(
-      client.jobs.refreshSummaries.create({ siteId: job.payload.siteId }),
-    );
-    return Result.ok({ refreshId: job.payload.siteId });
-  };
-
   const operationHandler: PingOperationHandler = async (
     { input, op, client },
   ) => {
@@ -689,11 +537,8 @@ Deno.test("service handler aliases expose narrow client object args", () => {
   assertExists(rpcHandler);
   assertExists(boundRpcHandler);
   assertExists(boundEventHandler);
-  assertExists(boundFeedHandler);
-  assertExists(boundJobHandler);
   assertExists(boundOperationHandler);
   assertExists(boundHealthInfoHandler);
   assertExists(boundHealthCheckHandler);
-  assertExists(jobHandler);
   assertExists(operationHandler);
 });

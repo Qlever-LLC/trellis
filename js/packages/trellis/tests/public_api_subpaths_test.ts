@@ -17,13 +17,7 @@ import * as stateSdk from "@qlever-llc/trellis/sdk/state";
 import * as healthSurface from "@qlever-llc/trellis/health";
 import * as deviceDeno from "@qlever-llc/trellis/device/deno";
 import * as serviceSurface from "@qlever-llc/trellis/service";
-import type {
-  BoundServiceOf,
-  JobArgs,
-  JobResult,
-  OperationHandler,
-  TrellisService as TrellisServiceType,
-} from "@qlever-llc/trellis/service";
+import type { TrellisService as TrellisServiceType } from "@qlever-llc/trellis/service";
 import { TrellisService as DenoTrellisService } from "@qlever-llc/trellis/service/deno";
 import { TrellisService as NodeTrellisService } from "@qlever-llc/trellis/service/node";
 
@@ -60,53 +54,6 @@ Deno.test("auth and device runtime subpaths retain depended-on helpers", () => {
   assertEquals(typeof deviceDeno.checkDeviceActivation, "function");
   assertEquals("openDeviceActivationStateStore" in deviceDeno, false);
   assertEquals("resolveDeviceActivationStatePath" in deviceDeno, false);
-});
-
-Deno.test("service subpath retains extracted handler helper types", () => {
-  const typeSurfaceContract = defineServiceContract(
-    {
-      schemas: {
-        Input: Type.Object({ value: Type.String() }),
-        Progress: Type.Object({ value: Type.String() }),
-        Output: Type.Object({ ok: Type.Boolean() }),
-        JobPayload: Type.Object({ siteId: Type.String() }),
-        JobOutput: Type.Object({ refreshId: Type.String() }),
-      },
-    },
-    (ref) => ({
-      id: "example.service-types@v1",
-      displayName: "Example Service Types",
-      description: "Verifies retained service helper type exports.",
-      operations: {
-        "Example.Run": {
-          version: "v1",
-          input: ref.schema("Input"),
-          progress: ref.schema("Progress"),
-          output: ref.schema("Output"),
-        },
-      },
-      jobs: {
-        refresh: {
-          payload: ref.schema("JobPayload"),
-          result: ref.schema("JobOutput"),
-        },
-      },
-    }),
-  );
-
-  type Args = JobArgs<typeof typeSurfaceContract, "refresh">;
-  type Return = JobResult<typeof typeSurfaceContract, "refresh">;
-  type Handler = OperationHandler<typeof typeSurfaceContract, "Example.Run">;
-  const argsTypeCheck: Args | undefined = undefined;
-  const returnTypeCheck: Return | undefined = undefined;
-  const handler: Handler = ({ input }) => {
-    const value: string = input.value;
-    assertEquals(typeof value, "string");
-  };
-
-  assertEquals(argsTypeCheck, undefined);
-  assertEquals(returnTypeCheck, undefined);
-  assertEquals(typeof handler, "function");
 });
 
 Deno.test("contracts subpath exposes only kind-specific contract helpers", () => {
@@ -146,13 +93,6 @@ Deno.test("contracts subpath exposes only kind-specific contract helpers", () =>
     typeof contract.API.trellis.rpc["Example.Ping"].subject,
     "string",
   );
-
-  type BoundExampleService = BoundServiceOf<
-    typeof contract,
-    { readonly prefix: string }
-  >;
-  const expectBoundService = (service: BoundExampleService) => service.handle;
-  assertEquals(typeof expectBoundService, "function");
 });
 
 Deno.test("generated SDK exports handler aliases for extracted handlers", () => {

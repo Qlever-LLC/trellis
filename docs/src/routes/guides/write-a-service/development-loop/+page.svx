@@ -9,8 +9,9 @@ Once the service is real, the loop is simple:
 
 1. Update schemas and the `defineServiceContract(...)` module
 2. Run `deno task prepare`, or keep `deno task prepare:watch` running
-3. Review and update deployment authority if the contract boundary changed
-4. Restart the service
+3. Implement or update extracted handlers with generated SDK handler aliases
+4. Review and update deployment authority if the contract boundary changed
+5. Restart the service
 
 {/snippet}
 {#snippet rust()}

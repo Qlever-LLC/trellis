@@ -57,28 +57,27 @@ import * as schemas from "../schemas.ts";
 
 The top-level `capabilities` map defines what `orders.write` means for approval and admin UIs. The RPC-level `capabilities.call` field is the gate: only callers that have been granted the projected `orders.write` capability can invoke this RPC. Trellis enforces this on every request before your handler ever runs. There is no auth middleware to write.
 
+Run your TypeScript prepare/generation task after changing the contract so the
+generated SDK includes the new handler alias.
+
 Now implement the handler in `handlers/orders.ts`:
 
 ```ts
 import { ok } from "@qlever-llc/trellis";
 import type {
-  RpcHandlerArgs,
-  RpcHandlerResult,
-} from "../contracts/orders_service.ts";
+  OrdersCreateHandler,
+} from "../generated/packages/jsr/orders-service/mod.ts";
 
-type Args = RpcHandlerArgs<"Orders.Create"> & {
-  deps: {
-    id(): string;
-    clock(): Date;
-  };
+type ServiceDeps = {
+  id(): string;
+  clock(): Date;
 };
-type Result = RpcHandlerResult<"Orders.Create">;
 
-export async function createOrderHandler({
+export const createOrderHandler: OrdersCreateHandler<ServiceDeps> = async ({
   input,
   client,
   deps,
-}: Args): Promise<Result> {
+}) => {
   const orderId = deps.id();
   const order = {
     orderId,
@@ -91,7 +90,7 @@ export async function createOrderHandler({
   await client.kv.orders.put(orderId, order).orThrow();
 
   return ok({ orderId, status: "pending" });
-}
+};
 ```
 
 Mount it from `main.ts`:
@@ -109,6 +108,10 @@ for declared, caller-visible failures. Input validation has already happened by
 the time your handler is called. If the caller sends a malformed request, Trellis
 rejects it before reaching your code. Use `.orThrow()` only for unexpected
 platform failures that should become `UnexpectedError` responses.
+
+If you write the handler inline inside `app.handle.rpc.orders.create(...)`, the
+registration call infers the same argument and result types without an explicit
+alias.
 
 {/snippet}
 {#snippet rust()}

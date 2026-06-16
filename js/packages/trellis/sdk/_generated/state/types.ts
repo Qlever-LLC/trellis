@@ -1,6 +1,15 @@
 // Generated from ./generated/contracts/manifests/trellis.state@v1.json
-import type { RpcHandler } from "@qlever-llc/trellis/service";
-import type { sdk } from "./contract.ts";
+import type {
+  HandlerTrellis,
+  Result,
+  RpcHandlerContext,
+  TrellisErrorInstance,
+} from "../../../index.ts";
+
+import type { Api } from "./api.ts";
+
+type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
+export type HandlerClient = HandlerTrellis<Api>;
 
 export const CONTRACT_ID = "trellis.state@v1" as const;
 export const CONTRACT_DIGEST =
@@ -231,41 +240,90 @@ export interface RpcMap {
   "State.Put": { input: StatePutInput; output: StatePutOutput };
 }
 
-export type StateAdminDeleteHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "State.Admin.Delete",
-  TDeps
+export type StateAdminDeleteHandlerError = TrellisErrorInstance;
+export type StateAdminDeleteHandlerResult = Result<
+  StateAdminDeleteOutput,
+  StateAdminDeleteHandlerError
 >;
-export type StateAdminGetHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "State.Admin.Get",
-  TDeps
+export type StateAdminDeleteHandler<TDeps = undefined> = (
+  args: {
+    input: StateAdminDeleteInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => StateAdminDeleteHandlerResult | Promise<StateAdminDeleteHandlerResult>;
+export type StateAdminGetHandlerError = TrellisErrorInstance;
+export type StateAdminGetHandlerResult = Result<
+  StateAdminGetOutput,
+  StateAdminGetHandlerError
 >;
-export type StateAdminListHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "State.Admin.List",
-  TDeps
+export type StateAdminGetHandler<TDeps = undefined> = (
+  args: {
+    input: StateAdminGetInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => StateAdminGetHandlerResult | Promise<StateAdminGetHandlerResult>;
+export type StateAdminListHandlerError = TrellisErrorInstance;
+export type StateAdminListHandlerResult = Result<
+  StateAdminListOutput,
+  StateAdminListHandlerError
 >;
-export type StateDeleteHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "State.Delete",
-  TDeps
+export type StateAdminListHandler<TDeps = undefined> = (
+  args: {
+    input: StateAdminListInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => StateAdminListHandlerResult | Promise<StateAdminListHandlerResult>;
+export type StateDeleteHandlerError = TrellisErrorInstance;
+export type StateDeleteHandlerResult = Result<
+  StateDeleteOutput,
+  StateDeleteHandlerError
 >;
-export type StateGetHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "State.Get",
-  TDeps
+export type StateDeleteHandler<TDeps = undefined> = (
+  args: {
+    input: StateDeleteInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => StateDeleteHandlerResult | Promise<StateDeleteHandlerResult>;
+export type StateGetHandlerError = TrellisErrorInstance;
+export type StateGetHandlerResult = Result<
+  StateGetOutput,
+  StateGetHandlerError
 >;
-export type StateListHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "State.List",
-  TDeps
+export type StateGetHandler<TDeps = undefined> = (
+  args: {
+    input: StateGetInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => StateGetHandlerResult | Promise<StateGetHandlerResult>;
+export type StateListHandlerError = TrellisErrorInstance;
+export type StateListHandlerResult = Result<
+  StateListOutput,
+  StateListHandlerError
 >;
-export type StatePutHandler<TDeps = undefined> = RpcHandler<
-  typeof sdk,
-  "State.Put",
-  TDeps
+export type StateListHandler<TDeps = undefined> = (
+  args: {
+    input: StateListInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => StateListHandlerResult | Promise<StateListHandlerResult>;
+export type StatePutHandlerError = TrellisErrorInstance;
+export type StatePutHandlerResult = Result<
+  StatePutOutput,
+  StatePutHandlerError
 >;
+export type StatePutHandler<TDeps = undefined> = (
+  args: {
+    input: StatePutInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  } & WithDeps<TDeps>,
+) => StatePutHandlerResult | Promise<StatePutHandlerResult>;
 
 export interface EventMap {
 }
