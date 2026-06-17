@@ -1,4 +1,4 @@
-import { type Meter, metrics } from "@opentelemetry/api";
+import { type Histogram, type Meter, metrics } from "@opentelemetry/api";
 
 const TRELLIS_METER_NAME = "@qlever-llc/trellis";
 const MAX_ATTRIBUTE_LENGTH = 96;
@@ -68,6 +68,47 @@ export type TrellisErrorMetricAttributes = {
   /** Static messaging operation name, when already known. */
   messagingOperation?: string;
 };
+
+/** Duration metric names accepted by {@link recordTrellisDuration}. */
+export type TrellisDurationMetricName =
+  | "trellis.connect.duration"
+  | "trellis.auth.flow.duration"
+  | "trellis.auth.approval_resolution.duration"
+  | "trellis.auth.callout.duration"
+  | "trellis.admin.workflow.duration"
+  | "trellis.contract.analysis.duration";
+
+/** Low-cardinality attributes accepted by {@link recordTrellisDuration}. */
+export type TrellisDurationMetricAttributes = {
+  /** Stable Trellis surface name, such as `rpc`, `jobs`, or `operations`. */
+  surface?: string;
+  /** Stable operation kind or method name. Do not pass IDs, subjects, or URLs. */
+  operation?: string;
+  /** Stable lifecycle phase such as `bootstrap`, `encode`, or `total`. */
+  phase?: string;
+  /** Stable outcome label such as `ok` or `error`. */
+  outcome?: string;
+  /** Participant kind such as `admin`, `client`, `service`, or `device`. */
+  participantKind?: string;
+  /** Session kind such as `user`, `service`, or `device`. */
+  sessionKind?: string;
+  /** Auth flow such as `local`, `oauth`, `device`, or `bootstrap`. */
+  authFlow?: string;
+  /** Auth approval outcome such as `approved`, `denied`, `required`, or `none`. */
+  authApproval?: string;
+  /** Whether a deployment authority is present. */
+  authorityPresent?: boolean;
+  /** Plan classification such as `install`, `update`, `migration`, `noop`, or `unknown`. */
+  planClassification?: string;
+  /** Contract kind such as `app`, `service`, `device`, `builtin`, or `unknown`. */
+  contractKind?: string;
+  /** Static messaging system name, when already known. */
+  messagingSystem?: string;
+  /** Static messaging operation name, when already known. */
+  messagingOperation?: string;
+};
+
+const DURATION_HISTOGRAM_CACHE = new Map<string, Histogram>();
 
 type SerializableErrorData = {
   type?: unknown;
@@ -161,6 +202,162 @@ export function buildTrellisErrorMetricAttributes(
   );
 
   return metricAttributes;
+}
+
+/**
+ * Builds sanitized, low-cardinality attributes for duration histograms.
+ *
+ * @internal Exported for focused tests; runtime callers should use
+ * {@link recordTrellisDuration}.
+ */
+export function buildTrellisDurationMetricAttributes(
+  attributes: TrellisDurationMetricAttributes = {},
+): Record<string, string> {
+  const metricAttributes: Record<string, string> = {};
+
+  setLowCardinalityAttribute(
+    metricAttributes,
+    "trellis.surface",
+    attributes.surface,
+  );
+  setLowCardinalityAttribute(
+    metricAttributes,
+    "trellis.operation",
+    attributes.operation,
+  );
+  setLowCardinalityAttribute(
+    metricAttributes,
+    "trellis.phase",
+    attributes.phase,
+  );
+  setLowCardinalityAttribute(
+    metricAttributes,
+    "trellis.outcome",
+    attributes.outcome,
+  );
+  setLowCardinalityAttribute(
+    metricAttributes,
+    "trellis.participant.kind",
+    attributes.participantKind,
+  );
+  setLowCardinalityAttribute(
+    metricAttributes,
+    "trellis.session.kind",
+    attributes.sessionKind,
+  );
+  setLowCardinalityAttribute(
+    metricAttributes,
+    "trellis.auth.flow",
+    attributes.authFlow,
+  );
+  setLowCardinalityAttribute(
+    metricAttributes,
+    "trellis.auth.approval",
+    attributes.authApproval,
+  );
+  setLowCardinalityAttribute(
+    metricAttributes,
+    "trellis.plan.classification",
+    attributes.planClassification,
+  );
+  setLowCardinalityAttribute(
+    metricAttributes,
+    "trellis.contract.kind",
+    attributes.contractKind,
+  );
+  setLowCardinalityAttribute(
+    metricAttributes,
+    "messaging.system",
+    attributes.messagingSystem,
+  );
+  setLowCardinalityAttribute(
+    metricAttributes,
+    "messaging.operation",
+    attributes.messagingOperation,
+  );
+
+  if (attributes.authorityPresent !== undefined) {
+    setLowCardinalityAttribute(
+      metricAttributes,
+      "trellis.authority.present",
+      String(attributes.authorityPresent),
+    );
+  }
+
+  return metricAttributes;
+}
+
+/**
+ * Records one duration measurement on the given Trellis histogram.
+ *
+ * Converts `durationMs` to seconds. Negative, NaN, and infinite values are
+ * silently ignored.
+ *
+ * Histogram instruments are cached by metric name so `createHistogram` is
+ * called at most once per metric name.
+ *
+ * @param name - The duration metric name.
+ * @param durationMs - The measured duration in milliseconds.
+ * @param attributes - Optional low-cardinality attributes. Only values that
+ *   pass sanitization are included.
+ *
+ * @example
+ * ```ts
+ * recordTrellisDuration("trellis.connect.duration", 42.5, {
+ *   phase: "nats_connect",
+ *   outcome: "ok",
+ *   participantKind: "client",
+ * });
+ * ```
+ */
+export function recordTrellisDuration(
+  name: TrellisDurationMetricName,
+  durationMs: number,
+  attributes?: TrellisDurationMetricAttributes,
+): void {
+  if (
+    typeof durationMs !== "number" ||
+    durationMs < 0 ||
+    !Number.isFinite(durationMs)
+  ) {
+    return;
+  }
+
+  const histogram = getDurationHistogram(name);
+  const metricAttributes = buildTrellisDurationMetricAttributes(attributes);
+
+  histogram.record(durationMs / 1000, metricAttributes);
+}
+
+function getDurationHistogram(
+  name: TrellisDurationMetricName,
+): Histogram {
+  let histogram = DURATION_HISTOGRAM_CACHE.get(name);
+  if (!histogram) {
+    histogram = getTrellisMeter().createHistogram(name, {
+      description: histogramDescription(name),
+      unit: "s",
+    });
+    DURATION_HISTOGRAM_CACHE.set(name, histogram);
+  }
+  return histogram;
+}
+
+function histogramDescription(name: TrellisDurationMetricName): string {
+  switch (name) {
+    case "trellis.connect.duration":
+      return "Duration of connection lifecycle phases.";
+    case "trellis.auth.flow.duration":
+      return "Duration of auth flow phases.";
+    case "trellis.auth.approval_resolution.duration":
+      return "Duration of approval resolution phases.";
+    case "trellis.auth.callout.duration":
+      return "Duration of NATS auth callout phases.";
+    case "trellis.admin.workflow.duration":
+      return "Duration of admin workflow phases.";
+    case "trellis.contract.analysis.duration":
+      return "Duration of contract analysis phases.";
+  }
 }
 
 function trellisErrorType(

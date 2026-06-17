@@ -156,7 +156,7 @@ Deno.test("local credential password rejects weak or excessive params", async ()
       ...credential,
       passwordParams: {
         ...credential.passwordParams,
-        memoryKiB: 1,
+        memoryKiB: 0,
       },
     }, "correct horse battery staple"),
   );
@@ -177,5 +177,30 @@ Deno.test("local credential password rejects weak or excessive params", async ()
         hashBytes: 8,
       },
     }, "correct horse battery staple"),
+  );
+});
+
+Deno.test("local credential password supports insecure fast test profile", async () => {
+  const credential = await createLocalCredentialPassword({
+    identityId: "idn_local_alice",
+    password: "correct horse battery staple",
+    salt: testSalt,
+    hashingProfile: "insecure-test-fast",
+  });
+
+  assertEquals(credential.passwordParams, {
+    v: 1,
+    salt: "AAECAwQFBgcICQoLDA0ODw",
+    memoryKiB: 8,
+    iterations: 1,
+    parallelism: 1,
+    hashBytes: 32,
+  });
+  assertEquals(
+    await verifyLocalCredentialPassword(
+      credential,
+      "correct horse battery staple",
+    ),
+    true,
   );
 });

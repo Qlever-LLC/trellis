@@ -13,7 +13,10 @@ import {
   users,
 } from "../../storage/schema.ts";
 import { identityIdForProviderSubject } from "../identity.ts";
-import { createLocalCredentialPassword } from "../local_credentials/passwords.ts";
+import {
+  createLocalCredentialPassword,
+  type LocalCredentialPasswordHashingProfile,
+} from "../local_credentials/passwords.ts";
 import {
   type LocalCredential,
   type LoginPortalRecord,
@@ -574,6 +577,7 @@ export class SqlLoginPortalRepository {
     userId: string;
     now?: Date;
     passwordMinLength?: number;
+    passwordHashingProfile?: LocalCredentialPasswordHashingProfile;
   }): Promise<SelfRegistrationResult> {
     const now = args.now ?? new Date();
     const identity: UserIdentity = {
@@ -593,6 +597,7 @@ export class SqlLoginPortalRepository {
       password: args.password,
       now,
       minLength: args.passwordMinLength,
+      hashingProfile: args.passwordHashingProfile,
     });
 
     return await this.#db.transaction(async (tx) => {

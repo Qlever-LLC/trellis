@@ -18,9 +18,15 @@ export {
 export { getEnv } from "./env.ts";
 export { initTelemetry } from "./init.ts";
 export {
+  buildTrellisDurationMetricAttributes,
   buildTrellisErrorMetricAttributes,
   getTrellisMeter,
+  recordTrellisDuration,
   recordTrellisError,
+} from "./metrics.ts";
+export type {
+  TrellisDurationMetricAttributes,
+  TrellisDurationMetricName,
 } from "./metrics.ts";
 export type { TrellisErrorMetricAttributes } from "./metrics.ts";
 export type { NatsHeadersLike } from "./nats.ts";

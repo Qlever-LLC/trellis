@@ -21,6 +21,7 @@ function makeConfig(): Config {
       localIdentity: {
         enabled: true,
         passwordPolicy: { minLength: 12 },
+        passwordHashing: { profile: "default" },
       },
     },
     storage: {

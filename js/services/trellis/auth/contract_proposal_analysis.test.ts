@@ -2,7 +2,10 @@ import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
 import { assertEquals, assertRejects } from "@std/assert";
 
 import { createTestContracts } from "../catalog/test_contracts.ts";
-import { analyzeContractProposal } from "./contract_proposal_analysis.ts";
+import {
+  analyzeContractProposal,
+  deriveContractContributedAvailability,
+} from "./contract_proposal_analysis.ts";
 
 function capabilityNeeds(capabilities: string[], required: boolean) {
   return capabilities.map((capability) => ({ capability, required }));
@@ -895,6 +898,18 @@ Deno.test("analyzeContractProposal derives contributed surfaces", async () => {
       },
     ],
   );
+});
+
+Deno.test("deriveContractContributedAvailability matches analyzer contributed availability", async () => {
+  const store = createTestContracts();
+  const contract = dependencyContract();
+
+  const [availability, analysis] = await Promise.all([
+    deriveContractContributedAvailability(store, contract),
+    analyzeContractProposal(store, contract),
+  ]);
+
+  assertEquals(availability, analysis.contributedAvailability);
 });
 
 Deno.test("analyzeContractProposal creates fallback definitions for owned surface capabilities", async () => {

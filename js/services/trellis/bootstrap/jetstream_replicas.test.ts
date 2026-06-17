@@ -28,6 +28,7 @@ function testConfig(replicas?: number): Config {
         passwordPolicy: {
           minLength: 12,
         },
+        passwordHashing: { profile: "default" },
       },
     },
     ttlMs: {

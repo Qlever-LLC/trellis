@@ -1,5 +1,6 @@
 import { join } from "@std/path";
 import {
+  type ClientAuthContinuation,
   type ClientOpts,
   type ContractModule,
   createAuth,
@@ -8,6 +9,7 @@ import {
   type TrellisApiLike,
   TrellisClient,
 } from "@qlever-llc/trellis";
+import { recordTrellisDuration } from "@qlever-llc/trellis/telemetry";
 import { TrellisTestAdminAutomation } from "./admin_client.ts";
 import {
   buildControlPlaneConfig,
@@ -253,6 +255,17 @@ export class TrellisTestRuntime implements AsyncDisposable {
     };
   }
 
+  /**
+   * Completes a test app/client auth flow through runtime admin automation.
+   * Used by the parallel integration runner coordinator to proxy auth flows
+   * from worker processes.
+   */
+  async completeClientAuth(
+    ctx: { loginUrl: string },
+  ): Promise<ClientAuthContinuation> {
+    return await this.#admin.completeClientAuth(ctx);
+  }
+
   /** Connects an app/client participant through the public generated client surface. */
   async connectClient<
     TContract extends TrellisTestClientContract<TrellisAPI>,
@@ -263,6 +276,7 @@ export class TrellisTestRuntime implements AsyncDisposable {
       sessionKeySeed?: string;
     },
   ): Promise<TrellisTestConnectedClient<TContract>> {
+    const startedAt = performance.now();
     const key = await this.registerClient(args);
     const auth = this.clientAuth(key);
     const client = await TrellisClient.connect({
@@ -272,6 +286,11 @@ export class TrellisTestRuntime implements AsyncDisposable {
       onAuthRequired: auth.onAuthRequired,
     }).orThrow();
     this.#clients.add(client);
+    recordTrellisDuration(
+      "trellis.connect.duration",
+      performance.now() - startedAt,
+      { participantKind: "client", phase: "total" },
+    );
     return client as TrellisTestConnectedClient<TContract>;
   }
 

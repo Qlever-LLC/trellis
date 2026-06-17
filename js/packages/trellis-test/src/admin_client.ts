@@ -13,12 +13,15 @@ import {
   type PortalFlowInsufficientCapabilitiesState,
   submitPortalApproval,
 } from "@qlever-llc/trellis/auth";
+import { recordTrellisDuration } from "@qlever-llc/trellis/telemetry";
 import { sdk as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
 import { generateSessionSeed } from "./control_plane_config.ts";
 import { waitFor } from "./wait.ts";
 import type {
   TrellisTestAuthorityPlanClassification,
   TrellisTestContractApproval,
+  TrellisTestContractLike,
+  TrellisTestServiceKey,
 } from "./types.ts";
 
 type RuntimeContract = ContractModule<
@@ -92,11 +95,20 @@ async function performLocalLogin(args: {
   flowId: string;
   password: string;
 }): Promise<void> {
-  await postJson(`${args.trellisUrl}/auth/login/local`, {
-    flowId: args.flowId,
-    username: ADMIN_USERNAME,
-    password: args.password,
-  });
+  const startedAt = performance.now();
+  try {
+    await postJson(`${args.trellisUrl}/auth/login/local`, {
+      flowId: args.flowId,
+      username: ADMIN_USERNAME,
+      password: args.password,
+    });
+  } finally {
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - startedAt,
+      { phase: "local_login", authFlow: "local" },
+    );
+  }
 }
 
 async function approveLocalFlowIfNeeded(args: {
@@ -106,20 +118,59 @@ async function approveLocalFlowIfNeeded(args: {
     state: PortalFlowInsufficientCapabilitiesState,
   ) => Promise<void>;
 }): Promise<void> {
+  const startedAt = performance.now();
   const config = { authUrl: args.trellisUrl };
+  const initialFetchStartedAt = performance.now();
   let state = await fetchPortalFlowState(config, args.flowId);
+  recordTrellisDuration(
+    "trellis.auth.flow.duration",
+    performance.now() - initialFetchStartedAt,
+    { phase: "approval_fetch" },
+  );
   if (state.status === "insufficient_capabilities") {
+    const grantStartedAt = performance.now();
     await args.grantMissingCapabilities?.(state);
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - grantStartedAt,
+      { phase: "grant_capabilities" },
+    );
+    const refetchStartedAt = performance.now();
     state = await fetchPortalFlowState(config, args.flowId);
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - refetchStartedAt,
+      { phase: "approval_fetch" },
+    );
   }
-  if (state.status === "redirect") return;
+  if (state.status === "redirect") {
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - startedAt,
+      { phase: "total" },
+    );
+    return;
+  }
   if (state.status === "approval_required") {
+    const approvalStartedAt = performance.now();
     const approved = await submitPortalApproval(
       config,
       args.flowId,
       "approved",
     );
-    if (approved.status === "redirect") return;
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - approvalStartedAt,
+      { phase: "approval_submit" },
+    );
+    if (approved.status === "redirect") {
+      recordTrellisDuration(
+        "trellis.auth.flow.duration",
+        performance.now() - startedAt,
+        { phase: "total" },
+      );
+      return;
+    }
     throw new Error(
       `Trellis auth approval did not complete; portal state is '${approved.status}'`,
     );
@@ -141,6 +192,7 @@ async function completeLocalAuthFlow(args: {
   loginUrl: string;
   password: string;
 }): Promise<ClientAuthContinuation> {
+  const startedAt = performance.now();
   const flowId = flowIdFromUrl(args.loginUrl);
   await performLocalLogin({
     trellisUrl: args.trellisUrl,
@@ -148,6 +200,11 @@ async function completeLocalAuthFlow(args: {
     password: args.password,
   });
   await approveLocalFlowIfNeeded({ trellisUrl: args.trellisUrl, flowId });
+  recordTrellisDuration(
+    "trellis.auth.flow.duration",
+    performance.now() - startedAt,
+    { phase: "total" },
+  );
   return { status: "bound", flowId };
 }
 
@@ -196,17 +253,26 @@ export class TrellisTestAdminAutomation {
 
   async #completeBootstrap(): Promise<void> {
     this.#bootstrapComplete ??= (async () => {
-      const bootstrapUrl = await this.#getBootstrapUrl();
-      const flowId = flowIdFromUrl(bootstrapUrl);
-      const response = await postJson(
-        `${this.#trellisUrl}/auth/account-flow/${
-          encodeURIComponent(flowId)
-        }/local-password`,
-        { username: ADMIN_USERNAME, password: this.#adminPassword },
-      );
-      if (!isRecord(response) || response.status !== "created") {
-        throw new Error(
-          "Trellis first-admin bootstrap returned an unexpected response",
+      const startedAt = performance.now();
+      try {
+        const bootstrapUrl = await this.#getBootstrapUrl();
+        const flowId = flowIdFromUrl(bootstrapUrl);
+        const response = await postJson(
+          `${this.#trellisUrl}/auth/account-flow/${
+            encodeURIComponent(flowId)
+          }/local-password`,
+          { username: ADMIN_USERNAME, password: this.#adminPassword },
+        );
+        if (!isRecord(response) || response.status !== "created") {
+          throw new Error(
+            "Trellis first-admin bootstrap returned an unexpected response",
+          );
+        }
+      } finally {
+        recordTrellisDuration(
+          "trellis.admin.workflow.duration",
+          performance.now() - startedAt,
+          { operation: "complete_bootstrap", phase: "total" },
         );
       }
     })();
@@ -215,26 +281,35 @@ export class TrellisTestAdminAutomation {
 
   async #client(): Promise<AdminClient> {
     this.#adminClient ??= (async () => {
-      await this.#completeBootstrap();
-      const sessionKeySeed = generateSessionSeed();
-      const client = await TrellisClient.connect({
-        trellisUrl: this.#trellisUrl,
-        name: "trellis-test-admin",
-        contract: adminContract,
-        auth: {
-          mode: "session_key",
-          sessionKeySeed,
-          redirectTo: `${this.#trellisUrl}/_trellis/test/admin-auth`,
-        },
-        onAuthRequired: (ctx: ClientAuthRequiredContext) =>
-          completeLocalAuthFlow({
-            trellisUrl: this.#trellisUrl,
-            loginUrl: ctx.loginUrl,
-            password: this.#adminPassword,
-          }),
-      }).orThrow();
-      this.#connectedAdminClient = client;
-      return client;
+      const startedAt = performance.now();
+      try {
+        await this.#completeBootstrap();
+        const sessionKeySeed = generateSessionSeed();
+        const client = await TrellisClient.connect({
+          trellisUrl: this.#trellisUrl,
+          name: "trellis-test-admin",
+          contract: adminContract,
+          auth: {
+            mode: "session_key",
+            sessionKeySeed,
+            redirectTo: `${this.#trellisUrl}/_trellis/test/admin-auth`,
+          },
+          onAuthRequired: (ctx: ClientAuthRequiredContext) =>
+            completeLocalAuthFlow({
+              trellisUrl: this.#trellisUrl,
+              loginUrl: ctx.loginUrl,
+              password: this.#adminPassword,
+            }),
+        }).orThrow();
+        this.#connectedAdminClient = client;
+        return client;
+      } finally {
+        recordTrellisDuration(
+          "trellis.admin.workflow.duration",
+          performance.now() - startedAt,
+          { operation: "register_service", phase: "connect" },
+        );
+      }
     })();
     return await this.#adminClient;
   }
@@ -247,6 +322,7 @@ export class TrellisTestAdminAutomation {
     const deployment = args.deployment ?? this.#defaultDeployment;
     const key = deploymentKey(deployment);
     if (this.#createdDeployments.has(key)) return;
+    const startedAt = performance.now();
     const client = await this.#client();
     await client.rpc.auth.deploymentsCreate({
       deploymentId: deployment,
@@ -257,12 +333,18 @@ export class TrellisTestAdminAutomation {
         : "strict",
     }).orThrow();
     this.#createdDeployments.add(key);
+    recordTrellisDuration(
+      "trellis.admin.workflow.duration",
+      performance.now() - startedAt,
+      { operation: "register_service", phase: "create_deployment" },
+    );
   }
 
   /** Completes a public app/client authentication flow as the test admin user. */
   async completeClientAuth(
     ctx: ClientAuthRequiredContext,
   ): Promise<ClientAuthContinuation> {
+    const startedAt = performance.now();
     await this.#completeBootstrap();
     const flowId = flowIdFromUrl(ctx.loginUrl);
     await performLocalLogin({
@@ -279,6 +361,11 @@ export class TrellisTestAdminAutomation {
           deployment: this.#defaultDeployment,
         }),
     });
+    recordTrellisDuration(
+      "trellis.admin.workflow.duration",
+      performance.now() - startedAt,
+      { operation: "register_client", phase: "total" },
+    );
     return { status: "bound", flowId };
   }
 
@@ -286,11 +373,24 @@ export class TrellisTestAdminAutomation {
     state: PortalFlowInsufficientCapabilitiesState;
     deployment: string;
   }): Promise<void> {
+    const startedAt = performance.now();
+    const createDeploymentStartedAt = performance.now();
     await this.createDeployment({ deployment: args.deployment });
+    recordTrellisDuration(
+      "trellis.admin.workflow.duration",
+      performance.now() - createDeploymentStartedAt,
+      { operation: "grant_client_capabilities", phase: "create_deployment" },
+    );
     const client = await this.#client();
     const missingCapabilities = [...new Set(args.state.missingCapabilities)]
       .sort();
+    const meStartedAt = performance.now();
     const me = await client.rpc.auth.sessionsMe({}).orThrow();
+    recordTrellisDuration(
+      "trellis.admin.workflow.duration",
+      performance.now() - meStartedAt,
+      { operation: "grant_client_capabilities", phase: "sessions_me" },
+    );
     if (!me.user) {
       throw new Error("Trellis test admin session did not resolve to a user");
     }
@@ -298,29 +398,51 @@ export class TrellisTestAdminAutomation {
       ...new Set([...me.user.capabilities, ...missingCapabilities]),
     ].sort();
     if (adminCapabilities.length !== me.user.capabilities.length) {
+      const updateStartedAt = performance.now();
       await client.rpc.auth.usersUpdate({
         userId: me.user.userId,
         capabilities: adminCapabilities,
       }).orThrow();
+      recordTrellisDuration(
+        "trellis.admin.workflow.duration",
+        performance.now() - updateStartedAt,
+        { operation: "grant_client_capabilities", phase: "users_update" },
+      );
     }
+    recordTrellisDuration(
+      "trellis.admin.workflow.duration",
+      performance.now() - startedAt,
+      { operation: "grant_client_capabilities", phase: "total" },
+    );
   }
 
   /** Plans, accepts, reconciles, and waits for a contract authority change. */
   async approveContract(args: {
     deployment?: string;
-    contract: RuntimeContract;
+    contract: TrellisTestContractLike;
     allowPlanClassifications?:
       readonly TrellisTestAuthorityPlanClassification[];
   }): Promise<TrellisTestContractApproval> {
+    const totalStartedAt = performance.now();
     const deployment = args.deployment ?? this.#defaultDeployment;
     await this.createDeployment({ deployment });
     const client = await this.#client();
+    const planStartedAt = performance.now();
     const planned = await client.rpc.auth.deploymentAuthorityPlan({
       deploymentId: deployment,
       contract: args.contract.CONTRACT,
-      expectedDigest: args.contract.CONTRACT_DIGEST,
+      expectedDigest: args.contract.CONTRACT_DIGEST!,
     }).orThrow();
     const classification = planned.plan.classification;
+    recordTrellisDuration(
+      "trellis.admin.workflow.duration",
+      performance.now() - planStartedAt,
+      {
+        operation: "approve_contract",
+        phase: "plan",
+        planClassification: classification,
+      },
+    );
     if (!isAuthorityPlanClassification(classification)) {
       throw new Error(
         `Trellis test runtime received unsupported authority plan classification '${classification}'`,
@@ -336,6 +458,7 @@ export class TrellisTestAdminAutomation {
         }`,
       );
     }
+    const acceptStartedAt = performance.now();
     if (classification === "update") {
       await client.rpc.auth.deploymentAuthorityAcceptUpdate({
         planId: planned.plan.planId,
@@ -347,27 +470,66 @@ export class TrellisTestAdminAutomation {
           "Approved by TrellisTestRuntime for an isolated mutable-dev integration test.",
       }).orThrow();
     }
-    await this.reconcile(deployment);
-    await this.waitReady(deployment);
+    recordTrellisDuration(
+      "trellis.admin.workflow.duration",
+      performance.now() - acceptStartedAt,
+      {
+        operation: "approve_contract",
+        phase: "accept",
+        planClassification: classification,
+      },
+    );
+    await this.reconcile(deployment, "approveContract.reconcile");
+    await this.waitReady(deployment, "approveContract.waitReady");
+    recordTrellisDuration(
+      "trellis.admin.workflow.duration",
+      performance.now() - totalStartedAt,
+      {
+        operation: "approve_contract",
+        phase: "total",
+        planClassification: classification,
+      },
+    );
     return { planId: planned.plan.planId, classification };
   }
 
   /** Triggers deployment-authority reconciliation for a service deployment. */
-  async reconcile(deployment: string): Promise<void> {
+  async reconcile(deployment: string, label = "reconcile"): Promise<void> {
+    const startedAt = performance.now();
     const client = await this.#client();
     await client.rpc.auth.deploymentAuthorityReconcile({
       deploymentId: deployment,
     }).orThrow();
+    recordTrellisDuration(
+      "trellis.admin.workflow.duration",
+      performance.now() - startedAt,
+      { operation: label, phase: "reconcile" },
+    );
   }
 
   /** Waits until materialized deployment authority is current. */
-  async waitReady(deployment: string): Promise<void> {
+  async waitReady(deployment: string, label = "waitReady"): Promise<void> {
+    const startedAt = performance.now();
+    let polls = 0;
+    let lastStatus = "missing";
+    let lastDesiredVersion = "missing";
+    let lastAuthorityVersion = "missing";
     const client = await this.#client();
     await waitFor(async () => {
+      polls += 1;
+      const pollStartedAt = performance.now();
       const result = await client.rpc.auth.deploymentAuthorityGet({
         deploymentId: deployment,
       }).orThrow();
       const materialized = result.materializedAuthority;
+      lastStatus = materialized?.status ?? "missing";
+      lastDesiredVersion = materialized?.desiredVersion ?? "missing";
+      lastAuthorityVersion = result.authority.version;
+      recordTrellisDuration(
+        "trellis.admin.workflow.duration",
+        performance.now() - pollStartedAt,
+        { operation: `${label}.poll`, phase: "wait_ready" },
+      );
       if (materialized?.status === "failed") {
         throw new Error(
           `Trellis deployment '${deployment}' reconciliation failed${
@@ -384,14 +546,20 @@ export class TrellisTestAdminAutomation {
       }
       return false;
     }, { timeoutMs: this.#reconciliationMs });
+    recordTrellisDuration(
+      "trellis.admin.workflow.duration",
+      performance.now() - startedAt,
+      { operation: label, phase: "wait_ready" },
+    );
   }
 
   /** Provisions a service instance key through `Auth.ServiceInstances.Provision`. */
   async provisionServiceInstance(args: {
     deployment?: string;
-    contract: RuntimeContract;
+    contract: TrellisTestContractLike;
     sessionKeySeed?: string;
   }): Promise<{ seed: string; sessionKey: string }> {
+    const startedAt = performance.now();
     const deployment = args.deployment ?? this.#defaultDeployment;
     await this.approveContract({ deployment, contract: args.contract });
     const seed = args.sessionKeySeed ?? generateSessionSeed();
@@ -401,23 +569,34 @@ export class TrellisTestAdminAutomation {
       deploymentId: deployment,
       instanceKey: auth.sessionKey,
     }).orThrow();
+    recordTrellisDuration(
+      "trellis.admin.workflow.duration",
+      performance.now() - startedAt,
+      { operation: "provision_service", phase: "total" },
+    );
     return { seed, sessionKey: auth.sessionKey };
   }
 
   /** Runs the full service registration sequence used by test services. */
   async registerService(args: {
     deployment?: string;
-    contract: RuntimeContract;
+    contract: TrellisTestContractLike;
     sessionKeySeed?: string;
   }): Promise<{ seed: string; sessionKey: string }> {
+    const startedAt = performance.now();
     const deployment = args.deployment ?? this.#defaultDeployment;
     const key = await this.provisionServiceInstance({
       deployment,
       contract: args.contract,
       sessionKeySeed: args.sessionKeySeed,
     });
-    await this.reconcile(deployment);
-    await this.waitReady(deployment);
+    await this.reconcile(deployment, "registerService.postProvision.reconcile");
+    await this.waitReady(deployment, "registerService.postProvision.waitReady");
+    recordTrellisDuration(
+      "trellis.admin.workflow.duration",
+      performance.now() - startedAt,
+      { operation: "register_service", phase: "total" },
+    );
     return key;
   }
 

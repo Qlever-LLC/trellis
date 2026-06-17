@@ -4,6 +4,8 @@ import { AsyncResult, isErr } from "@qlever-llc/result";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 
+import { recordTrellisDuration } from "@qlever-llc/trellis/telemetry";
+
 import { hashKey, verifyDomainSig } from "../crypto.ts";
 import {
   type PendingAuth,
@@ -89,14 +91,32 @@ export function registerFlowRoutes(
   const { pendingAuthKV } = opts.runtimeDeps;
 
   app.get("/auth/flow/:flowId", async (c) => {
+    const totalStartedAt = performance.now();
     const flowId = c.req.param("flowId");
+    const loadStartedAt = performance.now();
     const flow = await context.loadBrowserFlow(flowId);
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - loadStartedAt,
+      { phase: "approval_fetch" },
+    );
     if (!flow) {
+      recordTrellisDuration(
+        "trellis.auth.flow.duration",
+        performance.now() - totalStartedAt,
+        { phase: "approval_fetch" },
+      );
       return c.json({ status: "expired" });
     }
 
     const contract = flow.contract ?? {};
+    const portalStartedAt = performance.now();
     const selectedPortal = await context.resolveSelectedLoginPortal(flow);
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - portalStartedAt,
+      { phase: "approval_fetch" },
+    );
     const federatedProviders = context.federatedProvidersForPortal(
       selectedPortal,
     );
@@ -113,12 +133,24 @@ export function registerFlowRoutes(
     let redirectLocation = undefined;
     let returnLocation = flow.redirectTo;
     if (flow.authToken) {
+      const pendingStartedAt = performance.now();
       const pendingEntry = await pendingAuthKV.get(
         await hashKey(flow.authToken),
       ).take();
+      recordTrellisDuration(
+        "trellis.auth.flow.duration",
+        performance.now() - pendingStartedAt,
+        { phase: "approval_fetch" },
+      );
       if (!isErr(pendingEntry)) {
         const pending = pendingEntry.value as PendingAuth;
+        const resolutionStartedAt = performance.now();
         resolution = await context.requireApprovalResolution(pending);
+        recordTrellisDuration(
+          "trellis.auth.flow.duration",
+          performance.now() - resolutionStartedAt,
+          { phase: "approval_fetch" },
+        );
         returnLocation = buildRedirectLocation(pending.redirectTo, { flowId });
         if (
           resolution.effectiveApproval.answer === "approved" &&
@@ -139,28 +171,56 @@ export function registerFlowRoutes(
       ...(flow.context ? { context: flow.context } : {}),
     });
 
-    return c.json(
-      await buildPortalFlowState({
-        flowId,
-        flow,
-        app: appMeta,
-        providers: providersList,
-        portal: selectedPortal.portal,
-        registration,
-        resolution,
-        redirectLocation,
-        returnLocation,
-      }),
+    const buildStateStartedAt = performance.now();
+    const state = await buildPortalFlowState({
+      flowId,
+      flow,
+      app: appMeta,
+      providers: providersList,
+      portal: selectedPortal.portal,
+      registration,
+      resolution,
+      redirectLocation,
+      returnLocation,
+    });
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - buildStateStartedAt,
+      { phase: "approval_fetch" },
     );
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - totalStartedAt,
+      { phase: "approval_fetch" },
+    );
+    return c.json(state);
   });
 
   app.post("/auth/flow/:flowId/approval", async (c) => {
+    const totalStartedAt = performance.now();
     const flowId = c.req.param("flowId");
+    const loadStartedAt = performance.now();
     const flow = await context.loadBrowserFlow(flowId);
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - loadStartedAt,
+      { phase: "approval_submit" },
+    );
     if (!flow || !flow.authToken) {
+      recordTrellisDuration(
+        "trellis.auth.flow.duration",
+        performance.now() - totalStartedAt,
+        { phase: "approval_submit" },
+      );
       return c.json({ status: "expired" });
     }
+    const portalStartedAt = performance.now();
     const selectedPortal = await context.resolveSelectedLoginPortal(flow);
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - portalStartedAt,
+      { phase: "approval_submit" },
+    );
     context.requireSelectedPortalOrigin(
       selectedPortal,
       c.req.header("origin"),
@@ -176,13 +236,30 @@ export function registerFlowRoutes(
     }
 
     const authTokenHash = await hashKey(flow.authToken);
+    const pendingStartedAt = performance.now();
     const pendingEntry = await pendingAuthKV.get(authTokenHash).take();
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - pendingStartedAt,
+      { phase: "approval_submit" },
+    );
     if (isErr(pendingEntry)) {
+      recordTrellisDuration(
+        "trellis.auth.flow.duration",
+        performance.now() - totalStartedAt,
+        { phase: "approval_submit" },
+      );
       return c.json({ status: "expired" });
     }
     const pendingRecord = pendingEntry as PendingAuthEntry;
     const pending = pendingRecord.value as PendingAuth;
+    const resolutionStartedAt = performance.now();
     const resolution = await context.requireApprovalResolution(pending);
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - resolutionStartedAt,
+      { phase: "approval_submit" },
+    );
     const registration = context.registrationAvailability(selectedPortal);
     const providersList = buildProvidersList(
       config.auth.localIdentity.enabled,
@@ -200,18 +277,28 @@ export function registerFlowRoutes(
     });
 
     if (resolution.missingCapabilities.length > 0) {
-      return c.json(
-        await buildPortalFlowState({
-          flowId,
-          flow,
-          app: appMeta,
-          providers: providersList,
-          portal: selectedPortal.portal,
-          registration,
-          resolution,
-          returnLocation,
-        }),
+      const buildStateStartedAt = performance.now();
+      const state = await buildPortalFlowState({
+        flowId,
+        flow,
+        app: appMeta,
+        providers: providersList,
+        portal: selectedPortal.portal,
+        registration,
+        resolution,
+        returnLocation,
+      });
+      recordTrellisDuration(
+        "trellis.auth.flow.duration",
+        performance.now() - buildStateStartedAt,
+        { phase: "approval_submit" },
       );
+      recordTrellisDuration(
+        "trellis.auth.flow.duration",
+        performance.now() - totalStartedAt,
+        { phase: "approval_submit" },
+      );
+      return c.json(state);
     }
 
     if (!approved) {
@@ -238,26 +325,54 @@ export function registerFlowRoutes(
       approved,
       answeredAt: now,
     });
+    const approvalPutStartedAt = performance.now();
     await opts.contractApprovalStorage.put(updatedResolution.storedApproval);
-
-    return c.json(
-      await buildPortalFlowState({
-        flowId,
-        flow,
-        app: appMeta,
-        providers: providersList,
-        portal: selectedPortal.portal,
-        registration,
-        resolution: updatedResolution,
-        redirectLocation: buildRedirectLocation(pending.redirectTo, { flowId }),
-      }),
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - approvalPutStartedAt,
+      { phase: "approval_submit" },
     );
+
+    const buildStateStartedAt = performance.now();
+    const state = await buildPortalFlowState({
+      flowId,
+      flow,
+      app: appMeta,
+      providers: providersList,
+      portal: selectedPortal.portal,
+      registration,
+      resolution: updatedResolution,
+      redirectLocation: buildRedirectLocation(pending.redirectTo, { flowId }),
+    });
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - buildStateStartedAt,
+      { phase: "approval_submit" },
+    );
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - totalStartedAt,
+      { phase: "approval_submit" },
+    );
+    return c.json(state);
   });
 
   app.post("/auth/flow/:flowId/bind", async (c) => {
+    const totalStartedAt = performance.now();
     const flowId = c.req.param("flowId");
+    const loadStartedAt = performance.now();
     const flow = await context.loadBrowserFlow(flowId);
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - loadStartedAt,
+      { phase: "bind" },
+    );
     if (!flow || !flow.authToken) {
+      recordTrellisDuration(
+        "trellis.auth.flow.duration",
+        performance.now() - totalStartedAt,
+        { phase: "bind" },
+      );
       return c.json({ status: "expired" });
     }
 
@@ -271,9 +386,20 @@ export function registerFlowRoutes(
     }
 
     const { sessionKey, sig } = Value.Parse(FlowBindRequestSchema, body);
+    const pendingStartedAt = performance.now();
     const pendingEntry = await pendingAuthKV.get(await hashKey(flow.authToken))
       .take();
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - pendingStartedAt,
+      { phase: "bind" },
+    );
     if (isErr(pendingEntry)) {
+      recordTrellisDuration(
+        "trellis.auth.flow.duration",
+        performance.now() - totalStartedAt,
+        { phase: "bind" },
+      );
       return c.json({ status: "expired" });
     }
     const pending = pendingEntry as PendingAuthEntry;
@@ -286,8 +412,22 @@ export function registerFlowRoutes(
       throw new HTTPException(400, { message: "Invalid signature" });
     }
 
-    return c.json(
-      await context.completePendingBind({ pending, pendingValue, sessionKey }),
+    const completeStartedAt = performance.now();
+    const result = await context.completePendingBind({
+      pending,
+      pendingValue,
+      sessionKey,
+    });
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - completeStartedAt,
+      { phase: "bind" },
     );
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - totalStartedAt,
+      { phase: "bind" },
+    );
+    return c.json(result);
   });
 }

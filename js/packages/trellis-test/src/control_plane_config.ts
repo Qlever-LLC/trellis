@@ -24,6 +24,9 @@ export type TrellisControlPlaneConfig = {
       passwordPolicy: {
         minLength: number;
       };
+      passwordHashing: {
+        profile: "default" | "insecure-test-fast";
+      };
     };
   };
   ttlMs: {
@@ -107,7 +110,11 @@ export function buildControlPlaneConfig(args: {
     httpRateLimit: { windowMs: 60_000, max: 0 },
     storage: { dbPath: join(args.workdir, "trellis", "trellis.sqlite") },
     auth: {
-      localIdentity: { enabled: true, passwordPolicy: { minLength: 8 } },
+      localIdentity: {
+        enabled: true,
+        passwordPolicy: { minLength: 8 },
+        passwordHashing: { profile: "insecure-test-fast" },
+      },
     },
     ttlMs: {
       sessions: 24 * 60 * 60_000,

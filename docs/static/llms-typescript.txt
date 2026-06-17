@@ -78,6 +78,11 @@ Rules:
   `nats`; service permissions require current materialization for the accepted
   desired authority version. Stale or obsolete persisted projections are repaired
   by Trellis storage upgrade and reconciliation.
+- TypeScript telemetry helpers are exported from `@qlever-llc/trellis/telemetry`.
+  Use `recordTrellisDuration(...)` for low-cardinality OpenTelemetry duration
+  histograms and `recordTrellisError(...)` for error counters. Metric attributes
+  must not include user IDs, session keys, flow IDs, request IDs, trace IDs,
+  contract IDs, NATS subjects, URLs, or other unbounded values.
 
 ## Use surface-first APIs
 

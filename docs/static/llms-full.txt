@@ -52,6 +52,11 @@ https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt
   values. Reserve thrown exceptions or panics for unexpected boundary failures.
 - Operations support declared typed errors via `errors` on the operation descriptor,
   following the same rules as RPC errors.
+- TypeScript telemetry helpers live under `@qlever-llc/trellis/telemetry`. Use
+  `recordTrellisDuration(...)` for low-cardinality OpenTelemetry duration
+  histograms and `recordTrellisError(...)` for error counters. Metric attributes
+  must not include user IDs, session keys, flow IDs, request IDs, trace IDs,
+  contract IDs, NATS subjects, URLs, or other unbounded values.
 
 ## Contract workflow
 

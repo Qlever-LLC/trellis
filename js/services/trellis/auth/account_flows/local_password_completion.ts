@@ -4,6 +4,7 @@ import { hashKey } from "../crypto.ts";
 import { identityIdForProviderSubject } from "../identity.ts";
 import {
   createLocalCredentialPassword,
+  type LocalCredentialPasswordHashingProfile,
   validateLocalCredentialPasswordPolicy,
 } from "../local_credentials/passwords.ts";
 import type {
@@ -114,6 +115,7 @@ export type CompleteAdminBootstrapLocalPasswordOptions = {
   username?: string;
   password: string;
   passwordMinLength?: number;
+  passwordHashingProfile?: LocalCredentialPasswordHashingProfile;
   name?: string;
   email?: string;
   now?: Date;
@@ -336,6 +338,7 @@ async function completeTargetAccountLocalPassword(
     password: options.password,
     now,
     minLength: options.passwordMinLength,
+    hashingProfile: options.passwordHashingProfile,
   });
 
   if (
@@ -426,6 +429,7 @@ export async function completeAdminBootstrapLocalPassword(
     password: options.password,
     now,
     minLength: options.passwordMinLength,
+    hashingProfile: options.passwordHashingProfile,
   });
 
   if (options.accountFlowStorage.completeAdminBootstrapLocalPassword) {

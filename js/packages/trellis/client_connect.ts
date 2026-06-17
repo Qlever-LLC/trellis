@@ -66,6 +66,7 @@ import {
   observeNatsTrellisConnection,
   type TrellisConnection,
 } from "./connection.ts";
+import { recordTrellisDuration } from "./telemetry/mod.ts";
 
 type ClientContract<
   TApi extends TrellisAPI = TrellisAPI,
@@ -556,6 +557,7 @@ async function bindClientFlow(args: {
   flowId: string;
   sig: string;
 }): Promise<void> {
+  const startedAt = performance.now();
   const response = await fetch(
     `${args.trellisUrl}/auth/flow/${encodeURIComponent(args.flowId)}/bind`,
     {
@@ -620,6 +622,15 @@ async function bindClientFlow(args: {
       },
     });
   }
+  recordTrellisDuration(
+    "trellis.connect.duration",
+    performance.now() - startedAt,
+    {
+      phase: "bootstrap",
+      participantKind: "client",
+      outcome: "ok",
+    },
+  );
 }
 
 async function fetchClientBootstrap(args: {
@@ -628,6 +639,7 @@ async function fetchClientBootstrap(args: {
   bootstrapSig: string;
   iat: number;
 }): Promise<ClientBootstrapAttemptResponse> {
+  const startedAt = performance.now();
   const response = await fetch(`${args.trellisUrl}/bootstrap/client`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -663,12 +675,39 @@ async function fetchClientBootstrap(args: {
   }
 
   if (Value.Check(ClientBootstrapReadySchema, payload)) {
+    recordTrellisDuration(
+      "trellis.connect.duration",
+      performance.now() - startedAt,
+      {
+        phase: "bootstrap",
+        participantKind: "client",
+        outcome: "ok",
+      },
+    );
     return payload;
   }
   if (Value.Check(ClientBootstrapAuthRequiredSchema, payload)) {
+    recordTrellisDuration(
+      "trellis.connect.duration",
+      performance.now() - startedAt,
+      {
+        phase: "bootstrap",
+        participantKind: "client",
+        outcome: "ok",
+      },
+    );
     return payload;
   }
   if (Value.Check(ClientBootstrapNotReadySchema, payload)) {
+    recordTrellisDuration(
+      "trellis.connect.duration",
+      performance.now() - startedAt,
+      {
+        phase: "bootstrap",
+        participantKind: "client",
+        outcome: "ok",
+      },
+    );
     return payload;
   }
 
@@ -702,6 +741,7 @@ async function fetchClientBootstrapWithRetry(args: {
   offsetState: ClockOffsetState;
 }): Promise<ClientBootstrapResponse> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    const attemptStartedAt = performance.now();
     const requestStartedAtMs = args.deps.now();
     const iat = correctedIatSeconds(
       requestStartedAtMs,
@@ -714,6 +754,15 @@ async function fetchClientBootstrapWithRetry(args: {
       bootstrapSig: await args.identity.bootstrapSig(iat),
     });
     const responseReceivedAtMs = args.deps.now();
+    recordTrellisDuration(
+      "trellis.connect.duration",
+      performance.now() - attemptStartedAt,
+      {
+        phase: "bootstrap",
+        participantKind: "client",
+        outcome: "ok",
+      },
+    );
 
     updateClockOffsetFromServer({
       offsetState: args.offsetState,
@@ -965,6 +1014,7 @@ async function buildSessionKeyLoginUrl(args: {
 }): Promise<
   { status: "bound" } | { status: "flow_started"; loginUrl: string }
 > {
+  const startedAt = performance.now();
   const context = authRequestContextRecord(args.context);
   let response = await fetch(`${args.trellisUrl}/auth/requests`, {
     method: "POST",
@@ -979,6 +1029,15 @@ async function buildSessionKeyLoginUrl(args: {
     }),
   });
   if (await authStartNeedsManifest(response)) {
+    recordTrellisDuration(
+      "trellis.connect.duration",
+      performance.now() - startedAt,
+      {
+        phase: "bootstrap",
+        participantKind: "client",
+        outcome: "ok",
+      },
+    );
     response = await fetch(`${args.trellisUrl}/auth/requests`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1015,6 +1074,15 @@ async function buildSessionKeyLoginUrl(args: {
     (payload as { status?: unknown }).status === "flow_started" &&
     typeof (payload as { loginUrl?: unknown }).loginUrl === "string"
   ) {
+    recordTrellisDuration(
+      "trellis.connect.duration",
+      performance.now() - startedAt,
+      {
+        phase: "bootstrap",
+        participantKind: "client",
+        outcome: "ok",
+      },
+    );
     return {
       status: "flow_started",
       loginUrl: (payload as { loginUrl: string }).loginUrl,
@@ -1024,6 +1092,15 @@ async function buildSessionKeyLoginUrl(args: {
     payload && typeof payload === "object" &&
     (payload as { status?: unknown }).status === "bound"
   ) {
+    recordTrellisDuration(
+      "trellis.connect.duration",
+      performance.now() - startedAt,
+      {
+        phase: "bootstrap",
+        participantKind: "client",
+        outcome: "ok",
+      },
+    );
     return { status: "bound" };
   }
   throw createTransportError({
@@ -1063,6 +1140,7 @@ export async function connectClientWithDeps<
   args: ClientConnectArgsFor<TContract>,
   deps: ClientConnectDeps,
 ): Promise<Trellis<TrellisAPI, "client", RuntimeStateStores>> {
+  const totalStartedAt = performance.now();
   const trellisUrl = normalizeTrellisUrl(args.trellisUrl);
   const identity = await resolveClientIdentity(args.auth);
   const currentUrl = args.auth?.mode === "session_key"
@@ -1106,6 +1184,7 @@ export async function connectClientWithDeps<
     }
   }
 
+  const initialBootstrapStartedAt = performance.now();
   const initialBootstrap = await fetchClientBootstrapWithRetry({
     trellisUrl,
     sessionKey: identity.sessionKey,
@@ -1113,11 +1192,30 @@ export async function connectClientWithDeps<
     deps,
     offsetState,
   });
+  recordTrellisDuration(
+    "trellis.connect.duration",
+    performance.now() - initialBootstrapStartedAt,
+    {
+      phase: "bootstrap",
+      participantKind: "client",
+      outcome: "ok",
+    },
+  );
 
+  const authStartedAt = performance.now();
   const bootstrap = needsReauth(initialBootstrap) ||
       !bootstrapTargetsRequestedContract(initialBootstrap, args)
     ? await resolveAuthRequired(args, identity, currentUrl, deps, offsetState)
     : initialBootstrap;
+  recordTrellisDuration(
+    "trellis.connect.duration",
+    performance.now() - authStartedAt,
+    {
+      phase: "auth_resolution",
+      participantKind: "client",
+      outcome: "ok",
+    },
+  );
 
   if (bootstrap.status !== "ready") {
     if (bootstrap.status === "not_ready") {
@@ -1213,6 +1311,7 @@ export async function connectClientWithDeps<
   });
   let nc: NatsConnection;
   try {
+    const natsStartedAt = performance.now();
     nc = await transport.connect({
       servers: selectClientRuntimeTransportServers(
         bootstrap.connectInfo.transports,
@@ -1221,6 +1320,15 @@ export async function connectClientWithDeps<
       inboxPrefix: bootstrap.connectInfo.transport.inboxPrefix,
       authenticator: runtimeAuth.authenticators,
     });
+    recordTrellisDuration(
+      "trellis.connect.duration",
+      performance.now() - natsStartedAt,
+      {
+        phase: "nats_connect",
+        participantKind: "client",
+        outcome: "ok",
+      },
+    );
   } catch (error) {
     runtimeAuth.stop();
     throw createTransportError({
@@ -1265,7 +1373,7 @@ export async function connectClientWithDeps<
     TrellisAPI
   >["state"];
 
-  return createConnectedClient({
+  const client = createConnectedClient({
     name: clientOpts.name ?? "client",
     nc,
     connection,
@@ -1281,6 +1389,16 @@ export async function connectClientWithDeps<
       onSessionNotFound: handleSessionNotFound,
     },
   });
+  recordTrellisDuration(
+    "trellis.connect.duration",
+    performance.now() - totalStartedAt,
+    {
+      phase: "total",
+      participantKind: "client",
+      outcome: "ok",
+    },
+  );
+  return client;
 }
 
 async function resolveAuthRequired<
@@ -1339,40 +1457,82 @@ async function resolveAuthRequired<
     });
 
   if (authStart.status === "bound") {
-    return await fetchClientBootstrapWithRetry({
+    const bootstrapStartedAt = performance.now();
+    const bootstrap = await fetchClientBootstrapWithRetry({
       trellisUrl: normalizeTrellisUrl(args.trellisUrl),
       sessionKey: identity.sessionKey,
       identity,
       deps,
       offsetState,
     });
+    recordTrellisDuration(
+      "trellis.connect.duration",
+      performance.now() - bootstrapStartedAt,
+      {
+        phase: "bootstrap",
+        participantKind: "client",
+        outcome: "ok",
+      },
+    );
+    return bootstrap;
   }
 
   const loginUrl = authStart.loginUrl;
 
+  const continuationStartedAt = performance.now();
   const continuation = await args.onAuthRequired?.({
     loginUrl,
     sessionKey: identity.sessionKey,
     mode: identity.mode,
   });
+  recordTrellisDuration(
+    "trellis.connect.duration",
+    performance.now() - continuationStartedAt,
+    {
+      phase: "bootstrap",
+      participantKind: "client",
+      outcome: "ok",
+    },
+  );
   if (continuation && continuation.status === "handled") {
     throw new ClientAuthHandledError();
   }
 
   if (continuation && continuation.status === "bound") {
+    const bindStartedAt = performance.now();
     await bindClientFlow({
       trellisUrl: normalizeTrellisUrl(args.trellisUrl),
       sessionKey: identity.sessionKey,
       flowId: continuation.flowId,
       sig: await identity.bindFlowSig(continuation.flowId),
     });
-    return await fetchClientBootstrapWithRetry({
+    recordTrellisDuration(
+      "trellis.connect.duration",
+      performance.now() - bindStartedAt,
+      {
+        phase: "bootstrap",
+        participantKind: "client",
+        outcome: "ok",
+      },
+    );
+    const bootstrapStartedAt = performance.now();
+    const bootstrap = await fetchClientBootstrapWithRetry({
       trellisUrl: normalizeTrellisUrl(args.trellisUrl),
       sessionKey: identity.sessionKey,
       identity,
       deps,
       offsetState,
     });
+    recordTrellisDuration(
+      "trellis.connect.duration",
+      performance.now() - bootstrapStartedAt,
+      {
+        phase: "bootstrap",
+        participantKind: "client",
+        outcome: "ok",
+      },
+    );
+    return bootstrap;
   }
 
   if (isBrowserRuntime()) {

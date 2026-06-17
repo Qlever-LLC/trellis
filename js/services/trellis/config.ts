@@ -10,6 +10,11 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 const MIN_LOCAL_PASSWORD_LENGTH = 8;
 const DEFAULT_LOCAL_PASSWORD_LENGTH = 12;
 
+const localPasswordHashingProfileSchema = z.enum([
+  "default",
+  "insecure-test-fast",
+]);
+
 const githubProviderSchema = z.object({
   type: z.literal("github"),
   clientId: z.string(),
@@ -80,14 +85,19 @@ const rawSchema = z.object({
         minLength: z.coerce.number().int().min(MIN_LOCAL_PASSWORD_LENGTH)
           .default(DEFAULT_LOCAL_PASSWORD_LENGTH),
       }).default({ minLength: DEFAULT_LOCAL_PASSWORD_LENGTH }),
+      passwordHashing: z.object({
+        profile: localPasswordHashingProfileSchema.default("default"),
+      }).default({ profile: "default" }),
     }).default({
       enabled: true,
       passwordPolicy: { minLength: DEFAULT_LOCAL_PASSWORD_LENGTH },
+      passwordHashing: { profile: "default" },
     }),
   }).default({
     localIdentity: {
       enabled: true,
       passwordPolicy: { minLength: DEFAULT_LOCAL_PASSWORD_LENGTH },
+      passwordHashing: { profile: "default" },
     },
   }),
   ttlMs: ttlSchema.default({
@@ -205,6 +215,9 @@ export type Config = {
       enabled: boolean;
       passwordPolicy: {
         minLength: number;
+      };
+      passwordHashing: {
+        profile: z.infer<typeof localPasswordHashingProfileSchema>;
       };
     };
   };

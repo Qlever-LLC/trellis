@@ -885,6 +885,18 @@ function deriveContributedAvailability(
 }
 
 /**
+ * Validates a contract and derives only the availability contributed by its own
+ * surfaces, without resolving requested dependency authority.
+ */
+export async function deriveContractContributedAvailability(
+  contracts: Pick<ContractsModule, "validateContract">,
+  rawContract: unknown,
+): Promise<AuthorityNeedSet> {
+  const validated = await contracts.validateContract(rawContract);
+  return deriveContributedAvailability(validated.contract);
+}
+
+/**
  * Validates a raw contract and derives the reusable desired need sets for it.
  */
 export async function analyzeContractProposal(

@@ -10,6 +10,8 @@ const DEFAULT_ITERATIONS = 2;
 const DEFAULT_PARALLELISM = 1;
 const DEFAULT_HASH_BYTES = 32;
 const DEFAULT_SALT_BYTES = 16;
+const MIN_MEMORY_KIB = 8;
+const MIN_ITERATIONS = 1;
 const MAX_MEMORY_KIB = 64 * 1024;
 const MAX_ITERATIONS = 10;
 const MAX_PARALLELISM = 4;
@@ -35,18 +37,23 @@ export type CreateLocalCredentialPasswordOptions = {
   mustChangePassword?: boolean;
   salt?: Uint8Array;
   minLength?: number;
+  hashingProfile?: LocalCredentialPasswordHashingProfile;
   iterations?: number;
   memoryKiB?: number;
   parallelism?: number;
   hashBytes?: number;
 };
 
+export type LocalCredentialPasswordHashingProfile =
+  | "default"
+  | "insecure-test-fast";
+
 function isPositiveInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
 function isSupportedIterationCount(value: unknown): value is number {
-  return isPositiveInteger(value) && value >= DEFAULT_ITERATIONS &&
+  return isPositiveInteger(value) && value >= MIN_ITERATIONS &&
     value <= MAX_ITERATIONS;
 }
 
@@ -60,7 +67,7 @@ function parsePasswordParams(
   if (params.salt.length > MAX_ENCODED_SALT_LENGTH) return undefined;
   if (
     !isPositiveInteger(params.memoryKiB) ||
-    params.memoryKiB < DEFAULT_MEMORY_KIB ||
+    params.memoryKiB < MIN_MEMORY_KIB ||
     params.memoryKiB > MAX_MEMORY_KIB
   ) return undefined;
   if (!isSupportedIterationCount(params.iterations)) return undefined;
@@ -83,6 +90,15 @@ function parsePasswordParams(
 
 function makeSalt(length: number): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(length));
+}
+
+function passwordHashingProfileDefaults(
+  profile: LocalCredentialPasswordHashingProfile | undefined,
+): { memoryKiB: number; iterations: number } {
+  if (profile === "insecure-test-fast") {
+    return { memoryKiB: MIN_MEMORY_KIB, iterations: 1 };
+  }
+  return { memoryKiB: DEFAULT_MEMORY_KIB, iterations: DEFAULT_ITERATIONS };
 }
 
 /** Validates a plaintext local password against the configured local policy. */
@@ -134,8 +150,9 @@ export async function createLocalCredentialPassword(
   const now = options.now ?? new Date();
   const salt = options.salt ?? makeSalt(DEFAULT_SALT_BYTES);
   const minLength = options.minLength ?? DEFAULT_MIN_PASSWORD_LENGTH;
-  const memoryKiB = options.memoryKiB ?? DEFAULT_MEMORY_KIB;
-  const iterations = options.iterations ?? DEFAULT_ITERATIONS;
+  const defaults = passwordHashingProfileDefaults(options.hashingProfile);
+  const memoryKiB = options.memoryKiB ?? defaults.memoryKiB;
+  const iterations = options.iterations ?? defaults.iterations;
   const parallelism = options.parallelism ?? DEFAULT_PARALLELISM;
   const hashBytes = options.hashBytes ?? DEFAULT_HASH_BYTES;
 
@@ -144,7 +161,7 @@ export async function createLocalCredentialPassword(
   if (!isPositiveInteger(memoryKiB)) {
     throw new Error("Argon2id memory must be a positive integer");
   }
-  if (memoryKiB < DEFAULT_MEMORY_KIB || memoryKiB > MAX_MEMORY_KIB) {
+  if (memoryKiB < MIN_MEMORY_KIB || memoryKiB > MAX_MEMORY_KIB) {
     throw new Error("Argon2id memory is outside the supported range");
   }
   if (!isSupportedIterationCount(iterations)) {

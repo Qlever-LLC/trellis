@@ -11,6 +11,7 @@ import type {
   TrellisContractV1,
 } from "@qlever-llc/trellis/contracts";
 import { AsyncResult, isErr } from "@qlever-llc/result";
+import { recordTrellisDuration } from "@qlever-llc/trellis/telemetry";
 import type { StaticDecode } from "typebox";
 import { Value } from "typebox/value";
 
@@ -1532,6 +1533,7 @@ export function startAuthCallout(
       publish: [] as string[],
       subscribe: [] as string[],
     };
+    const principalStartedAt = performance.now();
     const principal = await resolveSessionPrincipal(session, sessionKey, {
       loadServiceInstance: loadServiceInstanceByKey,
       loadServiceDeployment,
@@ -1543,16 +1545,27 @@ export function startAuthCallout(
       deviceInstanceStorage,
       deviceDeploymentStorage,
     });
+    recordTrellisDuration(
+      "trellis.auth.callout.duration",
+      performance.now() - principalStartedAt,
+      { phase: "resolve_principal", sessionKind: session.type },
+    );
     if (!principal.ok) {
       return stageDeny(principal.error.reason);
     }
 
     const isService = session.type === "service";
+    const authorityStartedAt = performance.now();
     const serviceAuthority = principal.value.serviceState
       ? await deploymentAuthorityStorage.get(
         principal.value.serviceState.deploymentId,
       )
       : undefined;
+    recordTrellisDuration(
+      "trellis.auth.callout.duration",
+      performance.now() - authorityStartedAt,
+      { phase: "load_authority", sessionKind: session.type },
+    );
     if (isService && (!serviceAuthority || serviceAuthority.disabled)) {
       return stageDeny("service_authority_miss");
     }
@@ -1560,10 +1573,16 @@ export function startAuthCallout(
       | DeploymentAuthorityMaterialization
       | undefined;
     if (principal.value.serviceState) {
+      const materializedStartedAt = performance.now();
       const materializedAuthority = await materializedResourceBindingStorage
         .get(
           principal.value.serviceState.deploymentId,
         );
+      recordTrellisDuration(
+        "trellis.auth.callout.duration",
+        performance.now() - materializedStartedAt,
+        { phase: "load_materialized", sessionKind: session.type },
+      );
       if (
         !materializedAuthority || materializedAuthority.status !== "current" ||
         materializedAuthority.desiredVersion !== serviceAuthority?.version
@@ -1571,11 +1590,18 @@ export function startAuthCallout(
         return stageDeny("service_authority_miss");
       }
       serviceMaterializedAuthority = materializedAuthority;
+      const resourcePermissionsStartedAt = performance.now();
       const deploymentBindings = resourceBindingsForPermissions(
         materializedAuthority.resourceBindings,
       );
       resourcePermissions = getResourcePermissionGrants(deploymentBindings);
+      recordTrellisDuration(
+        "trellis.auth.callout.duration",
+        performance.now() - resourcePermissionsStartedAt,
+        { phase: "resource_permissions", sessionKind: session.type },
+      );
     }
+    const buildPermissionsStartedAt = performance.now();
     const effectiveCapabilities = isService
       ? serviceMaterializedAuthority
         ? materializedCapabilitiesForPermissions(serviceMaterializedAuthority, [
@@ -1631,9 +1657,15 @@ export function startAuthCallout(
       issuerAccount: config.nats.authCallout.target.nkey,
       sessionType: session.type,
     });
+    recordTrellisDuration(
+      "trellis.auth.callout.duration",
+      performance.now() - buildPermissionsStartedAt,
+      { phase: "build_permissions", sessionKind: session.type },
+    );
     logger.debug({ permissions }, "issuing permissions");
 
     const userJwtExp = Math.floor((Date.now() + config.ttlMs.natsJwt) / 1000);
+    const encodeUserStartedAt = performance.now();
     const userJwt = await encodeUser(
       principal.value.email,
       userNkey,
@@ -1641,22 +1673,33 @@ export function startAuthCallout(
       permissions,
       { aud: "trellis", exp: userJwtExp },
     );
-
-    return stageOk(
-      await encodeAuthorizationResponse(
-        userNkey,
-        serverIdNkey,
-        config.nats.authCallout.issuer.signing,
-        {
-          jwt: userJwt,
-          issuer_account: config.nats.authCallout.issuer.nkey,
-        },
-        { aud: "trellis" },
-      ),
+    recordTrellisDuration(
+      "trellis.auth.callout.duration",
+      performance.now() - encodeUserStartedAt,
+      { phase: "encode_user", sessionKind: session.type },
     );
+
+    const encodeResponseStartedAt = performance.now();
+    const response = await encodeAuthorizationResponse(
+      userNkey,
+      serverIdNkey,
+      config.nats.authCallout.issuer.signing,
+      {
+        jwt: userJwt,
+        issuer_account: config.nats.authCallout.issuer.nkey,
+      },
+      { aud: "trellis" },
+    );
+    recordTrellisDuration(
+      "trellis.auth.callout.duration",
+      performance.now() - encodeResponseStartedAt,
+      { phase: "encode_response", sessionKind: session.type },
+    );
+    return stageOk(response);
   }
 
   async function handleAuthCallout(message: Msg): Promise<void> {
+    const totalStartedAt = performance.now();
     logger.trace(
       { event: "AuthCallout", subject: message.subject },
       "Processing auth callout",
@@ -1667,6 +1710,7 @@ export function startAuthCallout(
     let userNkey: string | undefined;
     let serverName: string | undefined;
     let serverIdNkey: string | undefined;
+    let sessionType: string | undefined;
 
     async function deny(code: AuthCalloutDenialCode): Promise<void> {
       logger.warn(
@@ -1687,19 +1731,36 @@ export function startAuthCallout(
       });
       limiterRelease?.();
       limiterRelease = null;
+      recordTrellisDuration(
+        "trellis.auth.callout.duration",
+        performance.now() - totalStartedAt,
+        { phase: "total", outcome: "denied", sessionKind: sessionType },
+      );
     }
 
     try {
+      const decodeStartedAt = performance.now();
       const decoded = decodeAuthCalloutRequest(message);
       serverXkey = decoded.serverXkey;
       userNkey = decoded.userNkey;
       serverIdNkey = decoded.serverIdNkey;
       serverName = decoded.serverName;
+      recordTrellisDuration(
+        "trellis.auth.callout.duration",
+        performance.now() - decodeStartedAt,
+        { phase: "decode" },
+      );
 
+      const limiterStartedAt = performance.now();
       limiterRelease = await calloutLimiter.acquire({
         ip: decoded.clientIp,
         server: decoded.serverName,
       });
+      recordTrellisDuration(
+        "trellis.auth.callout.duration",
+        performance.now() - limiterStartedAt,
+        { phase: "limiter", outcome: limiterRelease ? "acquired" : "rejected" },
+      );
       if (!limiterRelease) {
         await respondAuthCalloutError({
           message,
@@ -1717,9 +1778,15 @@ export function startAuthCallout(
       }
 
       const now = new Date();
+      const validateStartedAt = performance.now();
       const validatedToken = await validateAuthToken(
         decoded.connectOpts.auth_token,
         now,
+      );
+      recordTrellisDuration(
+        "trellis.auth.callout.duration",
+        performance.now() - validateStartedAt,
+        { phase: "validate_token" },
       );
       if (!validatedToken.ok) return await deny(validatedToken.denial);
 
@@ -1735,12 +1802,24 @@ export function startAuthCallout(
         "Auth callout received",
       );
 
+      const resolveStartedAt = performance.now();
       const resolvedSession = await resolveCalloutSession(
         validatedToken.value,
         now,
       );
+      recordTrellisDuration(
+        "trellis.auth.callout.duration",
+        performance.now() - resolveStartedAt,
+        {
+          phase: "resolve_session",
+          sessionKind: resolvedSession.ok
+            ? resolvedSession.value.type
+            : undefined,
+        },
+      );
       if (!resolvedSession.ok) return await deny(resolvedSession.denial);
       const session = resolvedSession.value;
+      sessionType = session.type;
 
       const issued = await issuePrincipalPermissions(
         session,
@@ -1751,7 +1830,13 @@ export function startAuthCallout(
       if (!issued.ok) return await deny(issued.denial);
 
       if (session.type !== "user") {
+        const sessionPutStartedAt = performance.now();
         await sessionStorage.put(sessionKey, { ...session, lastAuth: now });
+        recordTrellisDuration(
+          "trellis.auth.callout.duration",
+          performance.now() - sessionPutStartedAt,
+          { phase: "session_put", sessionKind: sessionType },
+        );
       }
 
       const serverId = decoded.natsReq.server_id?.id ?? decoded.serverName;
@@ -1762,6 +1847,7 @@ export function startAuthCallout(
         ? session.userId
         : session.trellisId;
       if (serverId && typeof clientId === "number") {
+        const connectionPutStartedAt = performance.now();
         (
           await connectionsKV.put(
             connectionKey(sessionKey, sessionScope, userNkey),
@@ -1774,9 +1860,15 @@ export function startAuthCallout(
         ).inspectErr((error: unknown) =>
           logger.warn({ error }, "Failed to track connection")
         );
+        recordTrellisDuration(
+          "trellis.auth.callout.duration",
+          performance.now() - connectionPutStartedAt,
+          { phase: "connection_put", sessionKind: sessionType },
+        );
       }
 
       if (session.type !== "device") {
+        const eventStartedAt = performance.now();
         (
           await trellis.event.auth.connectionsOpened.publish({
             origin: session.type === "user"
@@ -1789,10 +1881,26 @@ export function startAuthCallout(
         ).inspectErr((error: unknown) =>
           logger.warn({ error }, "Failed to publish Auth.Connections.Opened")
         );
+        recordTrellisDuration(
+          "trellis.auth.callout.duration",
+          performance.now() - eventStartedAt,
+          { phase: "publish_connection_opened", sessionKind: sessionType },
+        );
       }
 
+      const respondStartedAt = performance.now();
       message.respond(
         xkp.seal(new TextEncoder().encode(issued.value), decoded.serverXkey),
+      );
+      recordTrellisDuration(
+        "trellis.auth.callout.duration",
+        performance.now() - respondStartedAt,
+        { phase: "respond", sessionKind: sessionType },
+      );
+      recordTrellisDuration(
+        "trellis.auth.callout.duration",
+        performance.now() - totalStartedAt,
+        { phase: "total", outcome: "ok", sessionKind: sessionType },
       );
     } catch (error) {
       logger.error(
@@ -1820,6 +1928,11 @@ export function startAuthCallout(
           "Failed to respond to auth callout error",
         );
       }
+      recordTrellisDuration(
+        "trellis.auth.callout.duration",
+        performance.now() - totalStartedAt,
+        { phase: "total", outcome: "error", sessionKind: sessionType },
+      );
     }
 
     limiterRelease?.();

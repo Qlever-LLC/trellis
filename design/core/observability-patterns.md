@@ -159,6 +159,53 @@ Error metrics:
 - expected public failures remain `Result`-modeled behavior; metrics are
   observability side effects and must not change error semantics
 
+### Latency metrics
+
+Trellis records OpenTelemetry histogram metrics for key lifecycle durations.
+
+Metric naming convention: `trellis.<surface>.<operation>.duration`
+
+Recorded histograms:
+
+- `trellis.connect.duration` — connection lifecycle timing. Attributes:
+  `trellis.participant.kind` (`admin`, `client`, `service`, `device`),
+  `trellis.phase` (`bootstrap`, `auth_resolution`, `nats_connect`, `total`),
+  `trellis.outcome`.
+
+- `trellis.auth.flow.duration` — auth flow timing (login, approval, bind).
+  Attributes: `trellis.auth.flow` (`local`, `oauth`, `device`, `bootstrap`),
+  `trellis.phase` (`start`, `local_login`, `approval_fetch`, `approval_submit`,
+  `bind`, `final_bootstrap`, `total`), `trellis.outcome`.
+
+- `trellis.auth.approval_resolution.duration` — approval-resolution planning
+  timing. Attributes: `trellis.phase` (`plan_contract`, `analyze_contract`,
+  `load_authorities`, `availability_boundaries`, `load_user`, `load_grants`,
+  `resolve_capabilities`, `grant_overrides`, `total`), `trellis.auth.approval`
+  (`approved`, `denied`, `required`, `none`), `trellis.authority.present`
+  (`true`, `false`).
+
+- `trellis.auth.callout.duration` — NATS auth callout timing. Attributes:
+  `trellis.session.kind` (`user`, `service`, `device`), `trellis.phase`
+  (`decode`, `validate_token`, `resolve_session`, `build_permissions`,
+  `encode_user`, `encode_response`, `respond`, `total`), `trellis.outcome`.
+
+- `trellis.admin.workflow.duration` — admin workflow timing (service
+  registration, contract approval, capability grants). Attributes:
+  `trellis.operation` (`register_service`, `provision_service`,
+  `approve_contract`, `grant_client_capabilities`), `trellis.phase` (`connect`,
+  `plan`, `accept`, `reconcile`, `wait_ready`, `total`),
+  `trellis.plan.classification` (`install`, `update`, `migration`),
+  `trellis.outcome`.
+
+Duration values are recorded in seconds (unit `s`). All metric attributes follow
+the same low-cardinality rules as error metrics: do not include user IDs,
+session keys, flow IDs, request IDs, trace IDs, contract IDs, NATS subjects, or
+URLs. Attributes that fail the low-cardinality check are silently dropped.
+
+Gauge instruments for point-in-time health state (such as active sessions,
+pending auth flows, connection counts, queue depth) may be added in a future
+pass.
+
 ## Request Correlation
 
 RPCs and jobs include a `requestId` for correlation and audit. Domain event

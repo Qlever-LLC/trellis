@@ -192,6 +192,7 @@ export function registerAccountFlowRoutes(
       username: request.username,
       password: request.password,
       passwordMinLength: config.auth.localIdentity.passwordPolicy.minLength,
+      passwordHashingProfile: config.auth.localIdentity.passwordHashing.profile,
       ...(request.name ? { name: request.name } : {}),
       ...(request.email ? { email: request.email } : {}),
       accountFlowStorage: opts.accountFlowStorage,

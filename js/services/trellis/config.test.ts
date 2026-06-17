@@ -120,6 +120,7 @@ Deno.test("auth config loads structured provider map from file", async () => {
       ]);
       assertEquals(cfg.web.publicOrigin, "http://localhost:3000");
       assertEquals(cfg.auth.localIdentity.passwordPolicy.minLength, 12);
+      assertEquals(cfg.auth.localIdentity.passwordHashing.profile, "default");
       assertEquals(cfg.httpRateLimit.windowMs, 1234);
       assertEquals(cfg.httpRateLimit.max, 55);
       assertEquals(cfg.storage.dbPath, "/var/lib/trellis/trellis.sqlite");
@@ -212,6 +213,58 @@ Deno.test("auth config defaults OIDC logout fields when configured", async () =>
         mode: "oidc",
         allowFederated: false,
       });
+    },
+  );
+});
+
+Deno.test("auth config loads local password hashing profile", async () => {
+  await withTempConfig(
+    `{
+      "web": {
+        "origins": ["http://localhost:3000"],
+        "publicOrigin": "http://localhost:3000"
+      },
+      "auth": {
+        "localIdentity": {
+          "enabled": true,
+          "passwordHashing": { "profile": "insecure-test-fast" }
+        }
+      },
+      "nats": {
+        "servers": "localhost",
+        "auth": { "credsPath": "/tmp/auth.creds" },
+        "system": { "credsPath": "/tmp/system.creds" },
+        "trellis": { "credsPath": "/tmp/trellis.creds" },
+        "sentinelCredsPath": "/tmp/sentinel.creds",
+        "authCallout": {
+          "issuer": {
+            "nkey": "AAAUZNB6EFNV5BTZEE3FUNQIZ2OFAD7NALJZ3RQY3TCOSFREMANAGSER",
+            "signingSeedFile": "./issuer.seed"
+          },
+          "target": {
+            "nkey": "ADQCP2XPU3CAS2PLQKLSHQXWR64JEMOXLV53ABO7ERDTDV5QHJ4RUCSY",
+            "signingSeedFile": "./target.seed"
+          },
+          "sxSeedFile": "./sx.seed"
+        }
+      },
+      "sessionKeySeedFile": "./session.seed",
+      "client": {
+        "natsServers": ["ws://localhost:8080"]
+      },
+      "oauth": {
+        "redirectBase": "http://localhost:3000/auth/callback",
+        "providers": {}
+      }
+    }`,
+    async (configPath) => {
+      const cfg = await loadAuthConfigFromFile(configPath);
+
+      assertEquals(
+        cfg.auth.localIdentity.passwordHashing.profile,
+        "insecure-test-fast",
+      );
+      assertEquals(cfg.auth.localIdentity.passwordPolicy.minLength, 12);
     },
   );
 });

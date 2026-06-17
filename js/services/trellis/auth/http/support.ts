@@ -1,8 +1,12 @@
 import { approvalCapabilityKeys } from "@qlever-llc/trellis/auth";
 import type { AsyncResult, BaseError } from "@qlever-llc/result";
+import { recordTrellisDuration } from "@qlever-llc/trellis/telemetry";
 
 import { planUserContractApproval } from "../approval/plan.ts";
-import { analyzeContractProposal } from "../contract_proposal_analysis.ts";
+import {
+  analyzeContractProposal,
+  deriveContractContributedAvailability,
+} from "../contract_proposal_analysis.ts";
 import {
   applyGrantOverrideAuthorityCapabilities,
   evaluateProposalNeedsFit,
@@ -346,19 +350,44 @@ function mergeAuthorityNeedSets(
 async function builtinAvailabilityBoundaries(
   contracts: ApprovalContracts,
 ): Promise<AuthorityNeedSet[]> {
+  const startedAt = performance.now();
   const builtinDigests = new Set(contracts.getBuiltinDigests?.() ?? []);
-  if (builtinDigests.size === 0) return [];
+  if (builtinDigests.size === 0) {
+    recordTrellisDuration(
+      "trellis.auth.approval_resolution.duration",
+      performance.now() - startedAt,
+      { phase: "availability_boundaries" },
+    );
+    return [];
+  }
 
+  const activeEntriesStartedAt = performance.now();
   const activeEntries = await contracts.getActiveEntries();
+  recordTrellisDuration(
+    "trellis.auth.approval_resolution.duration",
+    performance.now() - activeEntriesStartedAt,
+    { phase: "load_active_entries" },
+  );
   const boundaries: AuthorityNeedSet[] = [];
   for (const entry of activeEntries) {
     if (!builtinDigests.has(entry.digest)) continue;
-    const analysis = await analyzeContractProposal(
+    const deriveStartedAt = performance.now();
+    const contributedAvailability = await deriveContractContributedAvailability(
       contracts,
       entry.contract,
     );
-    boundaries.push(analysis.contributedAvailability);
+    recordTrellisDuration(
+      "trellis.auth.approval_resolution.duration",
+      performance.now() - deriveStartedAt,
+      { phase: "derive_availability" },
+    );
+    boundaries.push(contributedAvailability);
   }
+  recordTrellisDuration(
+    "trellis.auth.approval_resolution.duration",
+    performance.now() - startedAt,
+    { phase: "availability_boundaries" },
+  );
   return boundaries;
 }
 
@@ -455,12 +484,25 @@ export async function getApprovalResolution(
   pending: PendingAuth,
   deps: ApprovalResolutionDeps,
 ): Promise<ApprovalResolution> {
+  const startedAt = performance.now();
+  const planStartedAt = performance.now();
   const plan = await planUserContractApproval(contracts, pending.contract);
+  recordTrellisDuration(
+    "trellis.auth.approval_resolution.duration",
+    performance.now() - planStartedAt,
+    { phase: "plan_contract" },
+  );
+  const analyzeStartedAt = performance.now();
   const requestedAuthority = (await analyzeContractProposal(
     contracts,
     pending.contract,
     { dependencyResolution: "known" },
   )).required;
+  recordTrellisDuration(
+    "trellis.auth.approval_resolution.duration",
+    performance.now() - analyzeStartedAt,
+    { phase: "analyze_contract" },
+  );
   const identityId = pending.identity.identityId;
   const userId = pending.userId;
   const userEmail = pending.user.email ??
@@ -480,12 +522,21 @@ export async function getApprovalResolution(
   const enabledDeploymentAuthorities =
     (await deps.loadDeploymentAuthorities?.() ?? [])
       .filter((authority) => !authority.disabled);
-  const systemAvailabilityAuthority = mergeAuthorityNeedSets(
-    [
-      ...enabledDeploymentAuthorities.map(authorityNeedSetFromDesiredState),
-      ...await builtinAvailabilityBoundaries(contracts),
-    ],
+  const availabilityStartedAt = performance.now();
+  const systemAvailabilityAuthority = enabledDeploymentAuthorities.length > 0
+    ? mergeAuthorityNeedSets(
+      [
+        ...enabledDeploymentAuthorities.map(authorityNeedSetFromDesiredState),
+        ...await builtinAvailabilityBoundaries(contracts),
+      ],
+    )
+    : EMPTY_AUTHORITY_NEEDS;
+  recordTrellisDuration(
+    "trellis.auth.approval_resolution.duration",
+    performance.now() - availabilityStartedAt,
+    { phase: "availability_boundaries" },
   );
+  const overridesStartedAt = performance.now();
   const deploymentGrantOverrides = (
     await Promise.all(
       enabledDeploymentAuthorities.map((authority) =>
@@ -494,12 +545,24 @@ export async function getApprovalResolution(
       ),
     )
   ).flat();
+  recordTrellisDuration(
+    "trellis.auth.approval_resolution.duration",
+    performance.now() - overridesStartedAt,
+    { phase: "grant_overrides" },
+  );
   const existingProjection = await deps.loadUserProjection(userId);
   const existingCapabilities = existingProjection?.capabilities ?? [];
+  const resolveExistingCapabilitiesStartedAt = performance.now();
   const existingResolvedCapabilities = existingProjection
     ? await resolveCapabilities(existingProjection, deps.capabilityGroupStorage)
     : [];
+  recordTrellisDuration(
+    "trellis.auth.approval_resolution.duration",
+    performance.now() - resolveExistingCapabilitiesStartedAt,
+    { phase: "resolve_capabilities" },
+  );
   const requestedIdentityAnchor = identityAnchorForApp(app, pending.sessionKey);
+  const storedApprovalStartedAt = performance.now();
   const matchingStoredApproval =
     (await deps.loadIdentityGrantsByUser?.(userId) ?? [])
       .find((approval) =>
@@ -510,12 +573,23 @@ export async function getApprovalResolution(
       storedApprovalCoversPlan(matchingStoredApproval, plan)
     ? matchingStoredApproval
     : null;
+  recordTrellisDuration(
+    "trellis.auth.approval_resolution.duration",
+    performance.now() - storedApprovalStartedAt,
+    { phase: "load_grants", outcome: storedApproval ? "ok" : "not_found" },
+  );
   const matchedPolicies: [] = [];
+  const grantOverrideCapabilitiesStartedAt = performance.now();
   const grantOverrideCapabilities = await matchingGrantOverrideCapabilities({
     overrides: deploymentGrantOverrides,
     identity: requestedIdentity,
     capabilityGroupStorage: deps.capabilityGroupStorage,
   });
+  recordTrellisDuration(
+    "trellis.auth.approval_resolution.duration",
+    performance.now() - grantOverrideCapabilitiesStartedAt,
+    { phase: "grant_overrides" },
+  );
   const resolvedCapabilities = [
     ...new Set([
       ...existingResolvedCapabilities,
@@ -541,6 +615,11 @@ export async function getApprovalResolution(
       }).fits,
     matchedPolicies: [],
   });
+  recordTrellisDuration(
+    "trellis.auth.approval_resolution.duration",
+    performance.now() - startedAt,
+    { phase: "total" },
+  );
 
   return {
     plan,
@@ -560,9 +639,7 @@ export async function getApprovalResolution(
     effectiveApproval: resolvedApproval,
     storedApproval,
     requestedAuthority,
-    systemAvailabilityAuthority: enabledDeploymentAuthorities.length > 0
-      ? systemAvailabilityAuthority
-      : EMPTY_AUTHORITY_NEEDS,
+    systemAvailabilityAuthority,
   };
 }
 

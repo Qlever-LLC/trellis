@@ -5,6 +5,8 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { ulid } from "ulid";
 
+import { recordTrellisDuration } from "@qlever-llc/trellis/telemetry";
+
 import { planUserContractApproval } from "../approval/plan.ts";
 import {
   completeAccountFlowOAuth,
@@ -266,6 +268,7 @@ export function registerBrowserAuthRoutes(
   });
 
   app.post("/auth/requests", async (c) => {
+    const totalStartedAt = performance.now();
     const bodyResult = await AsyncResult.try(() => c.req.json());
     if (bodyResult.isErr()) {
       return c.json({ error: "Invalid JSON body" }, 400);
@@ -292,21 +295,31 @@ export function registerBrowserAuthRoutes(
     }
     const request = Value.Parse(AuthStartRequestSchema, body);
 
-    return c.json(
-      await authStartRequestHandler({
-        provider: request.provider,
-        redirectTo: redirectToResult.value,
-        sessionKey: request.sessionKey,
-        sig: request.sig,
-        ...(request.contractDigest
-          ? { contractDigest: request.contractDigest }
-          : {}),
-        ...(request.contract ? { contract: request.contract } : {}),
-        ...(request.context ? { context: request.context } : {}),
-      }, {
-        authUrl: new URL(c.req.url).origin,
-      }),
+    const handlerStartedAt = performance.now();
+    const result = await authStartRequestHandler({
+      provider: request.provider,
+      redirectTo: redirectToResult.value,
+      sessionKey: request.sessionKey,
+      sig: request.sig,
+      ...(request.contractDigest
+        ? { contractDigest: request.contractDigest }
+        : {}),
+      ...(request.contract ? { contract: request.contract } : {}),
+      ...(request.context ? { context: request.context } : {}),
+    }, {
+      authUrl: new URL(c.req.url).origin,
+    });
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - handlerStartedAt,
+      { phase: "start" },
     );
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - totalStartedAt,
+      { phase: "start" },
+    );
+    return c.json(result);
   });
 
   app.get("/auth/login/:provider", async (c) => {
@@ -386,6 +399,7 @@ export function registerBrowserAuthRoutes(
   });
 
   app.post("/auth/login/local", async (c) => {
+    const totalStartedAt = performance.now();
     if (!config.auth.localIdentity.enabled) {
       return c.json({ error: "local_identity_disabled" }, 403);
     }
@@ -400,7 +414,13 @@ export function registerBrowserAuthRoutes(
     }
 
     const request = Value.Parse(LocalLoginRequestSchema, body);
+    const loadFlowStartedAt = performance.now();
     const flow = await context.loadBrowserFlow(request.flowId);
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - loadFlowStartedAt,
+      { phase: "local_login", authFlow: "local" },
+    );
     if (!flow) {
       throw new HTTPException(404, { message: "Expired browser flow" });
     }
@@ -410,23 +430,47 @@ export function registerBrowserAuthRoutes(
     if (!flow.sessionKey) {
       throw new HTTPException(400, { message: "Invalid browser flow state" });
     }
+    const portalStartedAt = performance.now();
     const selectedPortal = await context.resolveSelectedLoginPortal(flow);
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - portalStartedAt,
+      { phase: "local_login", authFlow: "local" },
+    );
     context.requireSelectedPortalOrigin(
       selectedPortal,
       c.req.header("origin"),
     );
 
+    const identityStartedAt = performance.now();
     const identity = await opts.userIdentityStorage.getByProviderSubject(
       "local",
       request.username,
     );
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - identityStartedAt,
+      { phase: "local_login", authFlow: "local" },
+    );
     if (!identity) return invalidCredentialsResponse(c);
 
+    const accountStartedAt = performance.now();
     const account = await opts.accountStorage.get(identity.userId);
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - accountStartedAt,
+      { phase: "local_login", authFlow: "local" },
+    );
     if (!account) return invalidCredentialsResponse(c);
 
+    const credentialStartedAt = performance.now();
     const credential = await opts.localCredentialStorage.get(
       identity.identityId,
+    );
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - credentialStartedAt,
+      { phase: "local_login", authFlow: "local" },
     );
     if (!credential) return invalidCredentialsResponse(c);
     const now = new Date();
@@ -434,9 +478,15 @@ export function registerBrowserAuthRoutes(
       return invalidCredentialsResponse(c);
     }
 
+    const verifyStartedAt = performance.now();
     const passwordValid = await verifyLocalCredentialPassword(
       credential,
       request.password,
+    );
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - verifyStartedAt,
+      { phase: "local_login", authFlow: "local" },
     );
     if (!passwordValid) {
       await opts.localCredentialStorage.put(
@@ -444,16 +494,29 @@ export function registerBrowserAuthRoutes(
       );
       return invalidCredentialsResponse(c);
     }
+    const credentialPutStartedAt = performance.now();
     await opts.localCredentialStorage.put(
       resetLocalCredentialLoginFailures(credential, now),
     );
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - credentialPutStartedAt,
+      { phase: "local_login", authFlow: "local" },
+    );
     if (!account.active) return c.json({ error: "user_inactive" }, 403);
 
+    const identityPutStartedAt = performance.now();
     await opts.userIdentityStorage.put({
       ...identity,
       lastLoginAt: now.toISOString(),
     });
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - identityPutStartedAt,
+      { phase: "local_login", authFlow: "local" },
+    );
 
+    const pendingStartedAt = performance.now();
     await createPendingAuthForIdentity({
       context,
       flowId: request.flowId,
@@ -465,7 +528,17 @@ export function registerBrowserAuthRoutes(
       pendingAuthKV,
       logger,
     });
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - pendingStartedAt,
+      { phase: "local_login", authFlow: "local" },
+    );
 
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - totalStartedAt,
+      { phase: "local_login", authFlow: "local" },
+    );
     return c.json({ status: "authenticated", flowId: request.flowId });
   });
 
@@ -523,6 +596,7 @@ export function registerBrowserAuthRoutes(
       capabilityGroups: selectedPortal.defaultCapabilityGroups,
       userId: `usr_${ulid()}`,
       passwordMinLength: config.auth.localIdentity.passwordPolicy.minLength,
+      passwordHashingProfile: config.auth.localIdentity.passwordHashing.profile,
     });
     if (!result.ok) {
       if (result.error === "identity_conflict") {

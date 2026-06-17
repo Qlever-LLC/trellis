@@ -66,6 +66,11 @@ commands.
 - NATS KV outbox/inbox helpers remain non-transactional with arbitrary SQL or
   external side effects; do not use them to claim a database write and event
   enqueue committed atomically.
+- TypeScript telemetry helpers are exported from `@qlever-llc/trellis/telemetry`.
+  Use `recordTrellisDuration(...)` for low-cardinality OpenTelemetry duration
+  histograms and `recordTrellisError(...)` for error counters; never put user IDs,
+  session keys, flow IDs, request IDs, trace IDs, contract IDs, NATS subjects, or
+  URLs in metric attributes.
 - Generated TypeScript SDK event aliases are event bodies. Runtime event metadata
   is available through `PreparedTrellisEvent.header` and listener context.
 - For live event assertions in Deno-first TypeScript integration tests, start

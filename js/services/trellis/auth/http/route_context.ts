@@ -1,6 +1,7 @@
 import { HTTPException } from "@hono/hono/http-exception";
 import { isErr } from "@qlever-llc/result";
 import { approvalCapabilityKeys } from "@qlever-llc/trellis/auth";
+import { recordTrellisDuration } from "@qlever-llc/trellis/telemetry";
 import { ulid } from "ulid";
 
 import type { Config } from "../../config.ts";
@@ -349,34 +350,76 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
   } = opts.contractApprovalStorage;
   const approvalResolutionDeps = {
     loadUserProjection: async (userId: string) => {
-      return await opts.userStorage.get(userId) ?? null;
+      const startedAt = performance.now();
+      const value = await opts.userStorage.get(userId) ?? null;
+      recordTrellisDuration(
+        "trellis.auth.approval_resolution.duration",
+        performance.now() - startedAt,
+        { phase: "load_user", outcome: value ? "ok" : "not_found" },
+      );
+      return value;
     },
-    loadDeploymentAuthorities: async () =>
-      await opts.deploymentAuthorityStorage.listEnabled(),
-    loadDeploymentAuthorityGrantOverrides: async (deploymentId: string) =>
-      await opts.deploymentAuthorityGrantOverrideStorage.listByDeployment(
-        deploymentId,
-      ),
+    loadDeploymentAuthorities: async () => {
+      const startedAt = performance.now();
+      const value = await opts.deploymentAuthorityStorage.listEnabled();
+      recordTrellisDuration(
+        "trellis.auth.approval_resolution.duration",
+        performance.now() - startedAt,
+        { phase: "load_authorities" },
+      );
+      return value;
+    },
+    loadDeploymentAuthorityGrantOverrides: async (deploymentId: string) => {
+      const startedAt = performance.now();
+      const value = await opts.deploymentAuthorityGrantOverrideStorage
+        .listByDeployment(deploymentId);
+      recordTrellisDuration(
+        "trellis.auth.approval_resolution.duration",
+        performance.now() - startedAt,
+        { phase: "grant_overrides" },
+      );
+      return value;
+    },
     loadIdentityGrantsByUser: async (userId: string) => {
+      const startedAt = performance.now();
       if (contractApprovalStorage.listByUser) {
-        return await contractApprovalStorage.listByUser(userId);
+        const value = await contractApprovalStorage.listByUser(userId);
+        recordTrellisDuration(
+          "trellis.auth.approval_resolution.duration",
+          performance.now() - startedAt,
+          { phase: "load_grants" },
+        );
+        return value;
       }
       const grants = await contractApprovalStorage.listPage?.({ limit: 100 }) ??
         [];
-      return grants.filter(isIdentityGrantRecord).filter((grant) =>
+      const value = grants.filter(isIdentityGrantRecord).filter((grant) =>
         grant.userTrellisId === userId
       );
+      recordTrellisDuration(
+        "trellis.auth.approval_resolution.duration",
+        performance.now() - startedAt,
+        { phase: "load_grants" },
+      );
+      return value;
     },
     capabilityGroupStorage: opts.capabilityGroupStorage,
   };
 
   async function requireApprovalResolution(pending: PendingAuth) {
+    const startedAt = performance.now();
     try {
-      return await getApprovalResolution(
+      const resolution = await getApprovalResolution(
         opts.contracts,
         pending,
         approvalResolutionDeps,
       );
+      recordTrellisDuration(
+        "trellis.auth.approval_resolution.duration",
+        performance.now() - startedAt,
+        { phase: "total" },
+      );
+      return resolution;
     } catch (error) {
       const message = getApprovalResolutionErrorMessage(error);
       if (message) {
@@ -609,6 +652,7 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
     approvalSource?: SessionApprovalSource;
     consumePending?: () => Promise<boolean>;
   }): Promise<AuthStartBoundResponse> {
+    const startedAt = performance.now();
     const now = new Date();
     const validatedContract = await opts.contracts.validateContract(
       args.resolution.plan.contract,
@@ -719,6 +763,11 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
     }
 
     const expiresAt = new Date(now.getTime() + config.ttlMs.sessions);
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - startedAt,
+      { phase: "bind" },
+    );
 
     return {
       status: "bound",
@@ -804,9 +853,15 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
     pendingValue: PendingAuth;
     sessionKey: string;
   }) {
+    const startedAt = performance.now();
     const resolution = await requireApprovalResolution(args.pendingValue);
 
     if (resolution.missingCapabilities.length > 0) {
+      recordTrellisDuration(
+        "trellis.auth.flow.duration",
+        performance.now() - startedAt,
+        { phase: "bind", outcome: "insufficient_capabilities" },
+      );
       return {
         status: "insufficient_capabilities",
         approval: resolution.plan.approval,
@@ -831,7 +886,7 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
       throw new HTTPException(403, { message: resolutionBlocker });
     }
 
-    return bindResolvedUserSession({
+    const response = await bindResolvedUserSession({
       pendingValue: args.pendingValue,
       resolution,
       consumePending: async () => {
@@ -839,6 +894,12 @@ export function createAuthHttpRouteContext(opts: AuthHttpRouteOptions) {
         return !isErr(pendingDeleted);
       },
     });
+    recordTrellisDuration(
+      "trellis.auth.flow.duration",
+      performance.now() - startedAt,
+      { phase: "bind", outcome: "ok" },
+    );
+    return response;
   }
 
   return {
