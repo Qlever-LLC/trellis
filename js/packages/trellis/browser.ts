@@ -37,7 +37,7 @@ export {
 export type { InferSchemaType, JsonValue, TrellisAPI } from "./contracts.ts";
 export { TrellisConnection } from "./connection.ts";
 export type { TrellisConnectionStatus } from "./connection.ts";
-export { defineError } from "./contract_support/mod.ts";
+export { defineError, withTrellisValidation } from "./contract_support/mod.ts";
 export {
   buildCursorPage,
   buildPageResponse,
@@ -63,6 +63,8 @@ export type {
   RpcErrorClass,
   RuntimeRpcErrorDesc,
   SerializableErrorData,
+  TrellisValidationExtension,
+  TrellisValidationIssueHint,
 } from "./contract_support/mod.ts";
 export {
   defineAgentContract,

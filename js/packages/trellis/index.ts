@@ -53,7 +53,7 @@ export {
   runServiceHealthCheck,
   ServiceHealth,
 } from "./health.ts";
-export { defineError } from "./contract_support/mod.ts";
+export { defineError, withTrellisValidation } from "./contract_support/mod.ts";
 export {
   buildCursorPage,
   buildPageResponse,
@@ -79,6 +79,8 @@ export type {
   RpcErrorClass,
   RuntimeRpcErrorDesc,
   SerializableErrorData,
+  TrellisValidationExtension,
+  TrellisValidationIssueHint,
 } from "./contract_support/mod.ts";
 export {
   defineAgentContract,

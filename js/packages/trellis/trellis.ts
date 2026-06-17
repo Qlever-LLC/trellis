@@ -68,6 +68,7 @@ import {
   AuthError,
   BUILTIN_RPC_ERRORS,
   getBuiltinRpcError,
+  SchemaValidationError,
   type StoreError,
   TransferError,
   TransportError,
@@ -248,14 +249,14 @@ function classifyRequestTransportFailure(args: {
 function encodeRuntimeSchema(
   schema: unknown,
   data: unknown,
-): Result<string, ValidationError | UnexpectedError> {
+): Result<string, SchemaValidationError | ValidationError | UnexpectedError> {
   return encodeSchema(schema as never, data);
 }
 
 function parseRuntimeSchema(
   schema: unknown,
   data: JsonValue,
-): Result<unknown, ValidationError | UnexpectedError> {
+): Result<unknown, SchemaValidationError | ValidationError | UnexpectedError> {
   return parseUnknownSchema(
     schema as Parameters<typeof parseUnknownSchema>[0],
     data,
@@ -1228,7 +1229,12 @@ export type FeedHandlerContext<TInput, TEvent> = {
   input: TInput;
   caller: SessionCaller;
   signal: AbortSignal;
-  emit(event: TEvent): AsyncResult<void, ValidationError | UnexpectedError>;
+  emit(
+    event: TEvent,
+  ): AsyncResult<
+    void,
+    SchemaValidationError | ValidationError | UnexpectedError
+  >;
 };
 
 export type FeedRegistration<TInput, TEvent> = {
@@ -1645,7 +1651,25 @@ function validateStateValue(
   schema: unknown,
   value: JsonValue,
 ): Result<unknown, ValidationError | UnexpectedError> {
-  return parseRuntimeSchema(schema, value);
+  const result = parseRuntimeSchema(schema, value);
+  // State validation is an internal path; collapse SchemaValidationError
+  // into ValidationError to keep internal error types narrow.
+  if (result.isOk()) {
+    return result as Result<unknown, ValidationError | UnexpectedError>;
+  }
+  const resultError = result.error;
+  if (resultError instanceof SchemaValidationError) {
+    return Result.err(
+      new ValidationError({
+        errors: resultError.issues.map((i) => ({
+          path: i.path,
+          message: i.message,
+        })),
+        cause: resultError.cause,
+      }),
+    ) as Result<unknown, ValidationError | UnexpectedError>;
+  }
+  return result as Result<unknown, ValidationError | UnexpectedError>;
 }
 
 function validateStateGetResult<TStore extends RuntimeStateStoreShape>(
@@ -4591,7 +4615,10 @@ export class Trellis<
     event: EventsOf<TA>,
     ctx: EventDescriptorOf<TA, EventsOf<TA>>,
     msg: Pick<Msg, "json" | "subject">,
-  ): Result<unknown, ValidationError | UnexpectedError> {
+  ): Result<
+    unknown,
+    SchemaValidationError | ValidationError | UnexpectedError
+  > {
     const jsonData = Result.try<JsonValue>(() => msg.json());
     const json = jsonData.take();
     if (isErr(json)) {

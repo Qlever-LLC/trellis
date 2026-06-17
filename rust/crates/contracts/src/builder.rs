@@ -532,6 +532,7 @@ pub fn operation(
         input: schema_ref(input_schema),
         progress: progress_schema.map(schema_ref),
         output: output_schema.map(schema_ref),
+        errors: None,
         transfer: None,
         capabilities: None,
         cancel: None,
@@ -721,6 +722,21 @@ impl ContractOperation {
             expires_in_ms,
             max_bytes,
         });
+        self
+    }
+
+    pub fn with_error_types(
+        mut self,
+        error_types: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.errors = Some(
+            error_types
+                .into_iter()
+                .map(|error_type| ContractErrorRef {
+                    error_type: error_type.into(),
+                })
+                .collect(),
+        );
         self
     }
 

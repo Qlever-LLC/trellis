@@ -251,6 +251,8 @@ pub struct ContractOperation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<ContractSchemaRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub errors: Option<Vec<ContractErrorRef>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub transfer: Option<ContractOperationTransfer>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<OperationCapabilities>,

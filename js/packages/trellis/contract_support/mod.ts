@@ -264,6 +264,7 @@ const ContractOperationSchema = Type.Object({
   input: ContractSchemaRefSchema,
   progress: Type.Optional(ContractSchemaRefSchema),
   output: ContractSchemaRefSchema,
+  errors: Type.Optional(Type.Array(ContractErrorRefSchema)),
   transfer: Type.Optional(OperationTransferSchema),
   capabilities: Type.Optional(OperationCapabilitiesSchema),
   signals: Type.Optional(
@@ -500,9 +501,9 @@ export type ContractRpcMethod = {
   subject: string;
   input: ContractSchemaRef;
   output: ContractSchemaRef;
+  errors?: ContractErrorRef[];
   transfer?: { direction: "receive" };
   capabilities?: { call?: Capability[] };
-  errors?: ContractErrorRef[];
   internal?: boolean;
   docs?: ContractDocs;
 };
@@ -518,6 +519,7 @@ export type ContractOperation = {
   input: ContractSchemaRef;
   progress?: ContractSchemaRef;
   output: ContractSchemaRef;
+  errors?: ContractErrorRef[];
   transfer?: {
     direction: "send";
     store: string;
@@ -908,12 +910,14 @@ export type ContractSourceOperationSignal<
 
 export type ContractSourceOperation<
   TSchemaName extends string = string,
+  TErrorName extends string = string,
   TCapability extends string = Capability,
 > = {
   version: `v${number}`;
   input: ContractSchemaRef<TSchemaName>;
   progress?: ContractSchemaRef<TSchemaName>;
   output: ContractSchemaRef<TSchemaName>;
+  errors?: readonly TErrorName[];
   transfer?: {
     direction: "send";
     store: string;
@@ -1537,6 +1541,7 @@ type ProjectedOperations<
   TSchemas,
   TId,
   TCapabilities,
+  TErrors,
 > = T extends Readonly<Record<string, ContractSourceOperation>> ? {
     [K in keyof T]:
       & OperationDesc<
@@ -1570,6 +1575,11 @@ type ProjectedOperations<
           TId,
           TCapabilities
         >;
+      }
+      & {
+        errors?: T[K]["errors"];
+        runtimeErrors?: readonly RuntimeRpcErrorDesc[];
+        declaredErrorTypes?: readonly string[];
       }
       & (T[K]["transfer"] extends undefined ? {}
         : { transfer: T[K]["transfer"] })
@@ -1663,7 +1673,8 @@ export type OwnedApiFromSource<
     T["operations"],
     T["schemas"],
     T["id"],
-    T["capabilities"]
+    T["capabilities"],
+    T["errors"]
   >;
   events: ProjectedEvents<T["events"], T["schemas"]>;
   feeds: ProjectedFeeds<T["feeds"], T["schemas"]>;
@@ -4579,6 +4590,73 @@ export function defineError<
   // @ts-expect-error TypeScript cannot model the dynamically assigned payload
   // fields on the generated class instance constructor return type.
   return DefinedErrorImpl;
+}
+
+/**
+ * Hints for a single schema validation keyword failure.
+ *
+ * Provides per-keyway UX metadata that a UI can surface when a field-level
+ * validation error occurs for this schema node.
+ */
+export type TrellisValidationIssueHint = {
+  code: string;
+  message: string;
+  note?: string;
+  label?: string;
+  i18nKey?: string;
+  severity?: "error" | "warning" | "info";
+};
+
+/**
+ * Extension metadata attached to a TypeBox schema node via
+ * `withTrellisValidation`.
+ *
+ * Carries the label, note, uiPath, and per-keyword issue hints that the
+ * runtime uses to produce structured field-level validation errors.
+ */
+export type TrellisValidationExtension = {
+  label?: string;
+  note?: string;
+  uiPath?: string;
+  issues?: Record<string, TrellisValidationIssueHint>;
+};
+
+/**
+ * Attaches Trellis validation UX metadata to a TypeBox schema node.
+ *
+ * When a request fails schema validation before handler dispatch, the metadata
+ * is used to produce a `SchemaValidationError` with stable field-level issue
+ * information that UIs can use without needing service-specific error handling.
+ *
+ * @template T The schema type.
+ * @param schema The TypeBox schema to annotate.
+ * @param extension The validation extension with labels, notes, and per-keyword issue hints.
+ * @returns The same schema type with `x-trellis-validation` attached.
+ *
+ * @example
+ * ```ts
+ * const MySchema = Type.Object({
+ *   name: withTrellisValidation(Type.String({ minLength: 1 }), {
+ *     label: "Name",
+ *     issues: {
+ *       minLength: {
+ *         code: "my.name.required",
+ *         message: "Enter a name.",
+ *       },
+ *     },
+ *   }),
+ * });
+ * ```
+ */
+export function withTrellisValidation<
+  T extends TSchema,
+>(
+  schema: T,
+  extension: TrellisValidationExtension,
+): T {
+  const cloned = { ...schema } as Record<string, unknown>;
+  cloned["x-trellis-validation"] = extension;
+  return cloned as T;
 }
 
 function createUseHelper<

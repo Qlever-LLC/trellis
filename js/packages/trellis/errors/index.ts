@@ -10,6 +10,15 @@ import { AuthErrorDataSchema } from "./AuthError.ts";
 import { ValidationError } from "./ValidationError.ts";
 import type { ValidationErrorData } from "./ValidationError.ts";
 import { ValidationErrorDataSchema } from "./ValidationError.ts";
+import { SchemaValidationError } from "./SchemaValidationError.ts";
+import type {
+  SchemaValidationErrorData,
+  SchemaValidationIssue,
+} from "./SchemaValidationError.ts";
+import {
+  SchemaValidationErrorDataSchema,
+  SchemaValidationIssueSchema,
+} from "./SchemaValidationError.ts";
 import { RemoteError } from "./RemoteError.ts";
 import { KVError } from "./KVError.ts";
 import type { KVErrorData } from "./KVError.ts";
@@ -47,6 +56,7 @@ export { UnexpectedError } from "@qlever-llc/result";
 export { TrellisError } from "./TrellisError.ts";
 export { AuthError } from "./AuthError.ts";
 export { ValidationError } from "./ValidationError.ts";
+export { SchemaValidationError } from "./SchemaValidationError.ts";
 export { RemoteError } from "./RemoteError.ts";
 export { KVError } from "./KVError.ts";
 export {
@@ -65,6 +75,12 @@ export {
   type ValidationIssue,
   ValidationIssueSchema,
 } from "./ValidationError.ts";
+export {
+  type SchemaValidationErrorData,
+  SchemaValidationErrorDataSchema,
+  type SchemaValidationIssue,
+  SchemaValidationIssueSchema,
+} from "./SchemaValidationError.ts";
 export { type RemoteErrorData, RemoteErrorDataSchema } from "./RemoteError.ts";
 export { type KVErrorData, KVErrorDataSchema } from "./KVError.ts";
 export {
@@ -94,6 +110,7 @@ const TRANSPORTABLE_TRELLIS_ERRORS = {
   TransportError,
   AuthError,
   ValidationError,
+  SchemaValidationError,
   KVError,
   OperationNotFoundError,
   OperationAlreadyTerminalError,
@@ -176,6 +193,17 @@ export const BUILTIN_RPC_ERRORS = {
           path: issue.path,
           message: issue.message,
         })),
+        id: data.id,
+        context: data.context,
+      });
+    },
+  },
+  SchemaValidationError: {
+    type: "SchemaValidationError",
+    schema: schema<SchemaValidationErrorData>(SchemaValidationErrorDataSchema),
+    fromSerializable(data: SchemaValidationErrorData) {
+      return new SchemaValidationError({
+        issues: data.issues,
         id: data.id,
         context: data.context,
       });

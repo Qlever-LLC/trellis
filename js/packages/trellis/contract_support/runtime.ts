@@ -98,11 +98,18 @@ export type OperationDesc<
   I extends SchemaLike = SchemaLike,
   P extends SchemaLike | undefined = SchemaLike | undefined,
   O extends SchemaLike | undefined = SchemaLike | undefined,
+  E extends readonly string[] | undefined = readonly string[] | undefined,
+  TRuntimeErrors extends readonly RuntimeRpcErrorDesc[] | undefined =
+    | readonly RuntimeRpcErrorDesc[]
+    | undefined,
 > = {
   subject: string;
   input: I;
   progress?: P;
   output?: O;
+  errors?: E;
+  runtimeErrors?: TRuntimeErrors;
+  declaredErrorTypes?: readonly string[];
   transfer?: {
     direction: "send";
     store: string;

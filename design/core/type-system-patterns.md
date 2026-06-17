@@ -270,6 +270,43 @@ Rules:
 - use one validation library per use case instead of stacking multiple libraries
   on the same boundary
 
+### Annotated Validation Metadata
+
+Contract authors can attach UI-facing metadata to TypeBox schema nodes through
+the `x-trellis-validation` JSON Schema vendor extension key. This metadata
+surfaces in `SchemaValidationError` when a request fails pre-handler schema
+validation.
+
+The `withTrellisValidation(schema, extension)` helper from
+`@qlever-llc/trellis/contracts` attaches the extension without breaking TypeBox
+static inference:
+
+```ts
+import { withTrellisValidation } from "@qlever-llc/trellis/contracts";
+
+const InputSchema = Type.Object({
+  title: withTrellisValidation(Type.String({ minLength: 1 }), {
+    label: "Title",
+    issues: {
+      minLength: {
+        code: "documents.title.empty",
+        message: "Enter a title.",
+      },
+    },
+  }),
+});
+```
+
+Rules:
+
+- `x-trellis-validation` carries `label`, `note`, `uiPath`, and per-keyword
+  issue hints (`code`, `message`, `note`, `label`, `i18nKey`, `severity`)
+- the metadata is purely for UX and does not change validation behavior
+- when all validation failures are annotated, Trellis returns
+  `SchemaValidationError` instead of `ValidationError`
+- any structural or unannotated failure downgrades the entire response to
+  `ValidationError`
+
 ## Storage Identity
 
 SQL-backed Trellis storage separates row identity from domain identity.
@@ -326,6 +363,11 @@ Built-in error roles:
   as malformed replies, unavailable routes, bind/bootstrap failures, and other
   Trellis-owned protocol or connection problems. It should carry human-facing
   Trellis-native `message`, `code`, and `hint` values.
+- `SchemaValidationError` is returned before handler dispatch when every schema
+  validation failure is annotated with `x-trellis-validation` metadata. It
+  carries an `issues[]` array with stable, field-level UX information (path,
+  keyword, code, message, label, note, severity, params). It is a Trellis
+  runtime error, not a declared service error.
 - `UnexpectedError` remains the bucket for true internal or otherwise unexpected
   conditions, usually by wrapping an unplanned cause.
 
@@ -375,3 +417,37 @@ Wire rule:
 - the on-wire error envelope stays open
 - shared runtimes must preserve unknown error payloads for diagnostics
 - typed packages may narrow only the error types they actually know
+
+### SchemaValidationError shape
+
+Serialized shape:
+
+```json
+{
+  "type": "SchemaValidationError",
+  "message": "Schema validation failed.",
+  "issues": [
+    {
+      "path": "/title",
+      "schemaPath": "#/properties/title",
+      "keyword": "minLength",
+      "code": "documents.title.empty",
+      "message": "Enter a title.",
+      "label": "Title",
+      "params": { "limit": 1 }
+    }
+  ]
+}
+```
+
+Rules:
+
+- `ValidationError` remains for structural failures (malformed JSON, wrong type,
+  unannotated constraint failures, union/composition errors) — the handler does
+  not run in either case
+- `SchemaValidationError` is returned only when every TypeBox issue maps to a
+  supported annotated keyword on the matching schema node
+- callers receive the error as a reconstructed `SchemaValidationError` instance
+  through the same built-in error machinery as `TransportError`
+- the error is not a service-declared error and must not be listed in the
+  contract's errors registry

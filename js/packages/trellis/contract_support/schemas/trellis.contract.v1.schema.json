@@ -650,6 +650,12 @@
         "output": {
           "$ref": "#/$defs/schemaRef"
         },
+        "errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/errorRef"
+          }
+        },
         "transfer": {
           "type": "object",
           "required": ["direction", "store", "key"],

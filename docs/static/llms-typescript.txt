@@ -221,6 +221,16 @@ from the generated SDK, for example `OrdersGetHandler<ServiceDeps>`.
   `buildPageResponse(...)`. Stable ID/keyset pagination uses `CursorQuerySchema`,
   `CursorPageSchema(item)`, `CursorPageResponseSchema<TItem>`,
   `normalizeCursorQuery(...)`, and `buildCursorPage(...)`.
+- Use `withTrellisValidation(schema, extension)` from
+  `@qlever-llc/trellis/contracts` to attach UI-facing `x-trellis-validation`
+  metadata to TypeBox schema nodes. The metadata is purely for UX and does not
+  change validation behavior.
+- When every pre-handler schema validation failure is annotated, Trellis returns
+  `SchemaValidationError` instead of `ValidationError` — the handler does not
+  run in either case. `SchemaValidationError` carries an `issues[]` array with
+  stable field-level UX information (path, keyword, code, message, label, note,
+  severity, params). A single structural or unannotated failure downgrades the
+  entire response to `ValidationError`.
 - Return declared business errors through `Result` values. Use `.orThrow()` only
   at process boundaries where throwing is intentional.
 - Extracted handler aliases accept source `defineError(...)` instances when their

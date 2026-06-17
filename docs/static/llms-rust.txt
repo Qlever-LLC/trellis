@@ -178,6 +178,14 @@ Use `PostgresOutboxStore` and `PostgresInboxStore` for Postgres-backed services.
 Use `NatsKvOutboxStore` and `NatsKvInboxStore` for NATS KV durability when no SQL
 transaction must include the outbox or inbox record.
 
+## Schema validation UX
+
+The TypeScript Trellis runtime supports `SchemaValidationError` for
+contract-authored, UI-facing validation metadata through the
+`x-trellis-validation` JSON Schema vendor extension. Rust uses a different
+validation architecture; the Rust equivalent of `SchemaValidationError` is
+pending design exploration.
+
 ## Verification
 
 Use the format, clippy, test, run, and migration commands configured by the
