@@ -98,6 +98,8 @@ impl RpcDescriptor for EntityGetRpc {
     const SUBJECT: &'static str = "rpc.v1.Entity.Get";
     const CALLER_CAPABILITIES: &'static [&'static str] = &[RPC_READ_CAPABILITY];
     const ERRORS: &'static [&'static str] = &["NOT_FOUND"];
+    const INPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
+    const OUTPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
 }
 
 #[derive(Debug)]

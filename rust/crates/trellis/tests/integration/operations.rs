@@ -106,6 +106,7 @@ impl trellis_rs::client::OperationDescriptor for EntityProcessOp {
     type Input = EntityProcessInput;
     type Progress = EntityProcessProgress;
     type Output = EntityProcessOutput;
+    type Error = String;
 
     const KEY: &'static str = "Entity.Process";
     const SUBJECT: &'static str = "operations.v1.Entity.Process";
@@ -114,6 +115,7 @@ impl trellis_rs::client::OperationDescriptor for EntityProcessOp {
     const CANCEL_CAPABILITIES: &'static [&'static str] = &[];
     const CONTROL_CAPABILITIES: &'static [&'static str] = &[];
     const CANCELABLE: bool = false;
+    const ERRORS: &'static [&'static str] = &[];
 }
 
 struct AbortOnDrop<T> {

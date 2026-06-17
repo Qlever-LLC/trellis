@@ -162,6 +162,7 @@ impl trellis_rs::client::OperationDescriptor for FilesUploadOp {
     type Input = UploadInput;
     type Progress = Value;
     type Output = UploadOutput;
+    type Error = String;
 
     const KEY: &'static str = "Files.Upload";
     const SUBJECT: &'static str = "operations.v1.Files.Upload";
@@ -170,6 +171,7 @@ impl trellis_rs::client::OperationDescriptor for FilesUploadOp {
     const CANCEL_CAPABILITIES: &'static [&'static str] = &[];
     const CONTROL_CAPABILITIES: &'static [&'static str] = &[];
     const CANCELABLE: bool = false;
+    const ERRORS: &'static [&'static str] = &[];
 }
 
 impl TransferOperationDescriptor for FilesUploadOp {}

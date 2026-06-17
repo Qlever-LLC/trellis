@@ -23,6 +23,8 @@ impl FeedDescriptor for ChatFeed {
 
     const KEY: &'static str = "Chat.Live";
     const SUBJECT: &'static str = "feeds.v1.Chat.Live";
+    const INPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
+    const EVENT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
 }
 
 #[tokio::test]

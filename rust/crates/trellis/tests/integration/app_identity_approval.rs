@@ -87,6 +87,8 @@ impl RpcDescriptor for GrantPingRpc {
     const SUBJECT: &'static str = "rpc.v1.Grant.Ping";
     const CALLER_CAPABILITIES: &'static [&'static str] = &[APPROVED_PING_CAPABILITY];
     const ERRORS: &'static [&'static str] = &[];
+    const INPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
+    const OUTPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
 }
 
 struct AbortOnDrop<T> {

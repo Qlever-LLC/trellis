@@ -9,7 +9,9 @@ use std::pin::Pin;
 
 use serde_json::Value;
 
+use super::error::ValidationIssue;
 use super::request_loop::{HandlerResponse, ResponseStream};
+use super::schema_validation::validate_input_schema;
 use super::{
     control_subject, AcceptedOperation, FeedDescriptor, HandlerResult, OperationControlRequest,
     OperationDescriptor, OperationProvider, OperationSignalAccepted, OperationSnapshot,
@@ -120,10 +122,8 @@ impl Router {
                 handler: Box::new(
                 move |ctx, payload| -> BoxFuture<'static, Result<HandlerResponse, ServerError>> {
                     let handler = Arc::clone(&handler);
-                    let input =
-                        serde_json::from_slice::<D::Input>(&payload).map_err(ServerError::Json);
                     Box::pin(async move {
-                        let input = input?;
+                        let input = parse_validated_input::<D::Input>(&payload, D::INPUT_SCHEMA_JSON)?;
                         let output = handler(ctx, input).await?;
                         Ok(HandlerResponse::Frames(vec![Bytes::from(
                             serde_json::to_vec(&output)?,
@@ -150,10 +150,8 @@ impl Router {
                 handler: Box::new(
                 move |ctx, payload| -> BoxFuture<'static, Result<HandlerResponse, ServerError>> {
                     let handler = Arc::clone(&handler);
-                    let input =
-                        serde_json::from_slice::<D::Input>(&payload).map_err(ServerError::Json);
                     Box::pin(async move {
-                        let input = input?;
+                        let input = parse_validated_input::<D::Input>(&payload, D::INPUT_SCHEMA_JSON)?;
                         Ok(HandlerResponse::FeedStream(feed_response_stream(handler(
                             ctx, input,
                         ))))
@@ -332,10 +330,8 @@ impl Router {
                 handler: Box::new(
                 move |ctx, payload| -> BoxFuture<'static, Result<HandlerResponse, ServerError>> {
                     let start = Arc::clone(&start);
-                    let input =
-                        serde_json::from_slice::<D::Input>(&payload).map_err(ServerError::Json);
                     Box::pin(async move {
-                        let input = input?;
+                        let input = parse_validated_input::<D::Input>(&payload, D::INPUT_SCHEMA_JSON)?;
                         let output = start(ctx, input).await?;
                         Ok(HandlerResponse::Frames(vec![Bytes::from(
                             serde_json::to_vec(&output)?,
@@ -408,6 +404,23 @@ impl Router {
                                         action: "signal".to_string(),
                                     }
                                 })?;
+                                let signal_schemas: serde_json::Value =
+                                    serde_json::from_str(D::SIGNAL_INPUT_SCHEMAS_JSON)
+                                        .map_err(|e| ServerError::Nats(
+                                            format!("failed to parse signal schemas: {e}")
+                                        ))?;
+                                let signal_schema = signal_schemas
+                                    .get(&signal_name)
+                                    .ok_or_else(|| ServerError::InvalidOperationControlAction {
+                                        subject: D::SUBJECT.to_string(),
+                                        action: format!("signal:{signal_name}"),
+                                    })?;
+                                let signal_value = request.input.as_ref().unwrap_or(&serde_json::Value::Null);
+                                let signal_schema_str = serde_json::to_string(signal_schema)
+                                    .map_err(|e| ServerError::Nats(
+                                        format!("failed to serialize signal schema: {e}")
+                                    ))?;
+                                validate_input_schema(&signal_schema_str, signal_value)?;
                                 HandlerResponse::Frames(vec![signal_frame(
                                     signal(ctx, request.operation_id, signal_name, request.input)
                                         .await?,
@@ -524,6 +537,33 @@ impl Router {
             .ok_or_else(|| ServerError::MissingHandler(subject.to_string()))?;
         (route.handler)(context, payload).await
     }
+}
+
+/// Parse bytes into a valid JSON value, validate against JSON Schema, then
+/// deserialize into the target type.
+///
+/// JSON Schema validation failures become `ServerError::Validation` or
+/// `ServerError::SchemaValidation` before handler dispatch.
+/// Serde deserialization failures after successful validation are internal errors.
+fn parse_validated_input<T>(payload: &[u8], schema_json: &str) -> Result<T, ServerError>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let value: serde_json::Value =
+        serde_json::from_slice(payload).map_err(|error| ServerError::Validation {
+            issues: vec![ValidationIssue {
+                path: String::new(),
+                message: format!("Invalid JSON: {error}"),
+            }],
+        })?;
+
+    validate_input_schema(schema_json, &value)?;
+
+    serde_json::from_value::<T>(value).map_err(|error| {
+        ServerError::Nats(format!(
+            "validated payload failed Rust type decoding: {error}"
+        ))
+    })
 }
 
 fn feed_response_stream<TEvent>(

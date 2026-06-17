@@ -12,6 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Map, Value};
 
+use super::error::merge_context;
 use super::{AuthenticatedRouter, RequestContext, RequestValidator, Router, ServerError};
 
 static ERROR_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -314,20 +315,81 @@ pub(crate) fn encode_error_reply_with_context(
     error: &ServerError,
     annotations: &ErrorAnnotationContext,
 ) -> OutboundReply {
-    if let ServerError::DeclaredRpc(error) = error {
-        let payload = serde_json::to_vec(&error.to_payload_with_context(
-            error_id(),
-            annotations.context_map(),
-            annotations.trace_id(),
-        ))
-        .unwrap_or_else(|_| {
-            br#"{"id":"rust-server-error","type":"UnexpectedError","message":"An unexpected error has occurred"}"#.to_vec()
-        });
-        return OutboundReply {
-            reply_to,
-            payload: Bytes::from(payload),
-            is_error: true,
-        };
+    match error {
+        ServerError::DeclaredRpc(error) => {
+            let payload = serde_json::to_vec(&error.to_payload_with_context(
+                error_id(),
+                annotations.context_map(),
+                annotations.trace_id(),
+            ))
+            .unwrap_or_else(|_| {
+                br#"{"id":"rust-server-error","type":"UnexpectedError","message":"An unexpected error has occurred"}"#.to_vec()
+            });
+            return OutboundReply {
+                reply_to,
+                payload: Bytes::from(payload),
+                is_error: true,
+            };
+        }
+        ServerError::SchemaValidation { issues } => {
+            let mut payload = Map::new();
+            payload.insert("id".to_string(), Value::String(error_id()));
+            payload.insert(
+                "type".to_string(),
+                Value::String("SchemaValidationError".to_string()),
+            );
+            payload.insert(
+                "message".to_string(),
+                Value::String("Schema validation failed.".to_string()),
+            );
+            payload.insert(
+                "issues".to_string(),
+                serde_json::to_value(issues).unwrap_or_default(),
+            );
+            let context = annotations.context_map();
+            merge_context(&mut payload, context);
+            if let Some(trace_id) = annotations.trace_id() {
+                payload.insert("traceId".to_string(), Value::String(trace_id.to_string()));
+            }
+            let payload_bytes = serde_json::to_vec(&payload).unwrap_or_else(|_| {
+                br#"{"id":"rust-server-error","type":"UnexpectedError","message":"An unexpected error has occurred"}"#.to_vec()
+            });
+            return OutboundReply {
+                reply_to,
+                payload: Bytes::from(payload_bytes),
+                is_error: true,
+            };
+        }
+        ServerError::Validation { issues } => {
+            let mut payload = Map::new();
+            payload.insert("id".to_string(), Value::String(error_id()));
+            payload.insert(
+                "type".to_string(),
+                Value::String("ValidationError".to_string()),
+            );
+            payload.insert(
+                "message".to_string(),
+                Value::String("Data validation failed.".to_string()),
+            );
+            payload.insert(
+                "issues".to_string(),
+                serde_json::to_value(issues).unwrap_or_default(),
+            );
+            let context = annotations.context_map();
+            merge_context(&mut payload, context);
+            if let Some(trace_id) = annotations.trace_id() {
+                payload.insert("traceId".to_string(), Value::String(trace_id.to_string()));
+            }
+            let payload_bytes = serde_json::to_vec(&payload).unwrap_or_else(|_| {
+                br#"{"id":"rust-server-error","type":"UnexpectedError","message":"An unexpected error has occurred"}"#.to_vec()
+            });
+            return OutboundReply {
+                reply_to,
+                payload: Bytes::from(payload_bytes),
+                is_error: true,
+            };
+        }
+        _ => {}
     }
 
     #[derive(serde::Serialize)]
@@ -740,7 +802,9 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::service::{BootstrapBinding, DeclaredRpcError, ServiceHost};
+    use crate::service::{
+        BootstrapBinding, DeclaredRpcError, SchemaValidationIssue, ServiceHost, ValidationIssue,
+    };
 
     const TRACEPARENT: &str = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
     const TRACE_ID: &str = "4bf92f3577b34da6a3ce929d0e0e4736";
@@ -839,6 +903,112 @@ mod tests {
             .expect("cause message should be a string")
             .contains("request handler panicked: boom"));
         assert!(context.get("subject").is_none());
+    }
+
+    #[tokio::test]
+    async fn schema_validation_error_reply_uses_correct_type() {
+        struct SchemaValidationHandler;
+
+        impl RequestHandler for SchemaValidationHandler {
+            fn handle<'a>(
+                &'a self,
+                _subject: &'a str,
+                _payload: Bytes,
+                _context: RequestContext,
+            ) -> BoxFuture<'a, Result<Bytes, ServerError>> {
+                Box::pin(async {
+                    Err(ServerError::SchemaValidation {
+                        issues: vec![SchemaValidationIssue {
+                            path: "/items".to_string(),
+                            schema_path: Some("#/properties/items".to_string()),
+                            keyword: "minItems".to_string(),
+                            code: "test.items.required".to_string(),
+                            message: "Add at least one item.".to_string(),
+                            label: Some("Items".to_string()),
+                            note: None,
+                            i18n_key: None,
+                            severity: None,
+                            params: Some(
+                                vec![("limit".to_string(), serde_json::json!(1))]
+                                    .into_iter()
+                                    .collect(),
+                            ),
+                        }],
+                    })
+                })
+            }
+        }
+
+        let host = test_service_host(SchemaValidationHandler);
+        let replies = dispatch_all(&host, test_request("rpc.v1.Test.Validate"))
+            .await
+            .expect("dispatch should not fail")
+            .expect("reply should be encoded");
+        let payload = reply_payload(&replies[0]);
+
+        assert_eq!(payload["type"], "SchemaValidationError");
+        assert_eq!(payload["message"], "Schema validation failed.");
+
+        let issues = payload["issues"]
+            .as_array()
+            .expect("issues should be an array");
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0]["code"], "test.items.required");
+        assert_eq!(issues[0]["keyword"], "minItems");
+        assert_eq!(issues[0]["path"], "/items");
+
+        assert_eq!(payload["traceId"], TRACE_ID);
+        let context = payload["context"]
+            .as_object()
+            .expect("context should exist");
+        assert_eq!(context["requestId"], "request-123");
+        assert_eq!(context["service"], "inventory-service");
+    }
+
+    #[tokio::test]
+    async fn validation_error_reply_uses_correct_type() {
+        struct ValidationHandler;
+
+        impl RequestHandler for ValidationHandler {
+            fn handle<'a>(
+                &'a self,
+                _subject: &'a str,
+                _payload: Bytes,
+                _context: RequestContext,
+            ) -> BoxFuture<'a, Result<Bytes, ServerError>> {
+                Box::pin(async {
+                    Err(ServerError::Validation {
+                        issues: vec![ValidationIssue {
+                            path: "/name".to_string(),
+                            message: "minLength: minimum length is 3".to_string(),
+                        }],
+                    })
+                })
+            }
+        }
+
+        let host = test_service_host(ValidationHandler);
+        let replies = dispatch_all(&host, test_request("rpc.v1.Test.Validate"))
+            .await
+            .expect("dispatch should not fail")
+            .expect("reply should be encoded");
+        let payload = reply_payload(&replies[0]);
+
+        assert_eq!(payload["type"], "ValidationError");
+        assert_eq!(payload["message"], "Data validation failed.");
+
+        let issues = payload["issues"]
+            .as_array()
+            .expect("issues should be an array");
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0]["path"], "/name");
+
+        assert_eq!(payload["traceId"], TRACE_ID);
+        let context = payload["context"]
+            .as_object()
+            .expect("context should exist");
+        assert_eq!(context["requestId"], "request-123");
+        assert_eq!(context["service"], "inventory-service");
     }
 
     #[test]

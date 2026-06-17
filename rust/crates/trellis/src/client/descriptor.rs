@@ -19,6 +19,12 @@ pub trait RpcDescriptor {
 
     /// Known error variants declared by the contract.
     const ERRORS: &'static [&'static str];
+
+    /// JSON Schema for the input type.
+    const INPUT_SCHEMA_JSON: &'static str;
+
+    /// JSON Schema for the output type.
+    const OUTPUT_SCHEMA_JSON: &'static str;
 }
 
 /// Metadata required to publish one typed Trellis event.
@@ -55,4 +61,10 @@ pub trait FeedDescriptor {
 
     /// Capability requirements declared for subscribers.
     const SUBSCRIBE_CAPABILITIES: &'static [&'static str];
+
+    /// JSON Schema for the input type.
+    const INPUT_SCHEMA_JSON: &'static str;
+
+    /// JSON Schema for the event type.
+    const EVENT_SCHEMA_JSON: &'static str;
 }

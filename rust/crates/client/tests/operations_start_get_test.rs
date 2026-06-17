@@ -32,6 +32,7 @@ impl OperationDescriptor for RefundOperation {
     type Input = RefundInput;
     type Progress = RefundProgress;
     type Output = RefundOutput;
+    type Error = String;
 
     const KEY: &'static str = "Billing.Refund";
     const SUBJECT: &'static str = "operations.v1.Billing.Refund";
@@ -39,6 +40,11 @@ impl OperationDescriptor for RefundOperation {
     const OBSERVE_CAPABILITIES: &'static [&'static str] = &["billing.read"];
     const CANCEL_CAPABILITIES: &'static [&'static str] = &["billing.cancel"];
     const CANCELABLE: bool = true;
+    const ERRORS: &'static [&'static str] = &[];
+    const INPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
+    const PROGRESS_SCHEMA_JSON: Option<&'static str> = None;
+    const OUTPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
+    const SIGNAL_INPUT_SCHEMAS_JSON: &'static str = "{}";
 }
 
 struct ReceiptUploadOperation;
@@ -47,6 +53,7 @@ impl OperationDescriptor for ReceiptUploadOperation {
     type Input = RefundInput;
     type Progress = RefundProgress;
     type Output = RefundOutput;
+    type Error = String;
 
     const KEY: &'static str = "Billing.ReceiptUpload";
     const SUBJECT: &'static str = "operations.v1.Billing.ReceiptUpload";
@@ -54,6 +61,11 @@ impl OperationDescriptor for ReceiptUploadOperation {
     const OBSERVE_CAPABILITIES: &'static [&'static str] = &["billing.read"];
     const CANCEL_CAPABILITIES: &'static [&'static str] = &[];
     const CANCELABLE: bool = false;
+    const ERRORS: &'static [&'static str] = &[];
+    const INPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
+    const PROGRESS_SCHEMA_JSON: Option<&'static str> = None;
+    const OUTPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
+    const SIGNAL_INPUT_SCHEMAS_JSON: &'static str = "{}";
 }
 
 impl TransferOperationDescriptor for ReceiptUploadOperation {}

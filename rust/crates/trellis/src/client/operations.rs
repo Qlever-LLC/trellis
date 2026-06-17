@@ -129,6 +129,7 @@ pub trait OperationDescriptor {
     type Input: Serialize;
     type Progress: DeserializeOwned + Send + 'static;
     type Output: DeserializeOwned + Send + 'static;
+    type Error: Send + 'static;
 
     const KEY: &'static str;
     const SUBJECT: &'static str;
@@ -137,6 +138,12 @@ pub trait OperationDescriptor {
     const CANCEL_CAPABILITIES: &'static [&'static str];
     const CONTROL_CAPABILITIES: &'static [&'static str] = &[];
     const CANCELABLE: bool;
+    const ERRORS: &'static [&'static str] = &[];
+
+    const INPUT_SCHEMA_JSON: &'static str;
+    const PROGRESS_SCHEMA_JSON: Option<&'static str>;
+    const OUTPUT_SCHEMA_JSON: &'static str;
+    const SIGNAL_INPUT_SCHEMAS_JSON: &'static str;
 }
 
 /// Marker trait for operations that declare an upload transfer.
@@ -710,6 +717,7 @@ mod tests {
         type Input = RefundInput;
         type Progress = RefundProgress;
         type Output = RefundOutput;
+        type Error = String;
 
         const KEY: &'static str = "Billing.Refund";
         const SUBJECT: &'static str = "operations.v1.Billing.Refund";
@@ -717,6 +725,13 @@ mod tests {
         const OBSERVE_CAPABILITIES: &'static [&'static str] = &["billing.read"];
         const CANCEL_CAPABILITIES: &'static [&'static str] = &["billing.cancel"];
         const CANCELABLE: bool = true;
+        const ERRORS: &'static [&'static str] = &[];
+        const INPUT_SCHEMA_JSON: &'static str =
+            r#"{"type":"object","properties":{},"required":[]}"#;
+        const PROGRESS_SCHEMA_JSON: Option<&'static str> = None;
+        const OUTPUT_SCHEMA_JSON: &'static str =
+            r#"{"type":"object","properties":{},"required":[]}"#;
+        const SIGNAL_INPUT_SCHEMAS_JSON: &'static str = "{}";
     }
 
     impl TransferOperationDescriptor for RefundOperation {}

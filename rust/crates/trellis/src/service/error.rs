@@ -1,3 +1,4 @@
+use serde::Serialize;
 use serde_json::{Map, Value};
 
 /// Structured RPC error declared by a service contract.
@@ -56,7 +57,7 @@ impl DeclaredRpcError {
     }
 }
 
-fn merge_context(payload: &mut Map<String, Value>, context: Map<String, Value>) {
+pub(crate) fn merge_context(payload: &mut Map<String, Value>, context: Map<String, Value>) {
     if context.is_empty() {
         return;
     }
@@ -75,11 +76,50 @@ fn merge_context(payload: &mut Map<String, Value>, context: Map<String, Value>) 
     }
 }
 
+/// One structural validation issue for `ValidationError`.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ValidationIssue {
+    pub path: String,
+    pub message: String,
+}
+
+/// One annotated validation issue for `SchemaValidationError`.
+/// Carries stable field-level UX metadata from `x-trellis-validation`.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct SchemaValidationIssue {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schema_path: Option<String>,
+    pub keyword: String,
+    pub code: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub severity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
 /// Errors returned by the Trellis server runtime.
 #[derive(thiserror::Error, Debug)]
 pub enum ServerError {
     #[error("declared RPC error {0:?}")]
     DeclaredRpc(DeclaredRpcError),
+
+    /// Schema validation of caller input failed and all failures had
+    /// annotated `x-trellis-validation` metadata.
+    #[error("schema validation failed: {} issues", .issues.len())]
+    SchemaValidation { issues: Vec<SchemaValidationIssue> },
+
+    /// Schema validation of caller input failed with at least one
+    /// unannotated failure.
+    #[error("validation failed: {} issues", .issues.len())]
+    Validation { issues: Vec<ValidationIssue> },
 
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),

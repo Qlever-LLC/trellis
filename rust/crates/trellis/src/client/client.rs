@@ -1682,6 +1682,10 @@ mod tests {
         const KEY: &'static str = "Refund.Live";
         const SUBJECT: &'static str = "feeds.v1.Refund.Live";
         const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &["refunds.read"];
+        const INPUT_SCHEMA_JSON: &'static str =
+            r#"{"type":"object","properties":{},"required":[]}"#;
+        const EVENT_SCHEMA_JSON: &'static str =
+            r#"{"type":"object","properties":{},"required":[]}"#;
     }
 
     #[test]

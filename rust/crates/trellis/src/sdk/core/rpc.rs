@@ -9,6 +9,9 @@ pub struct TrellisBindingsGetRpc;
 impl RpcDescriptor for TrellisBindingsGetRpc {
     type Input = super::types::TrellisBindingsGetRequest;
     type Output = super::types::TrellisBindingsGetResponse;
+    const INPUT_SCHEMA_JSON: &'static str = super::schemas::TRELLIS_BINDINGS_GET_INPUT_SCHEMA_JSON;
+    const OUTPUT_SCHEMA_JSON: &'static str =
+        super::schemas::TRELLIS_BINDINGS_GET_OUTPUT_SCHEMA_JSON;
     const KEY: &'static str = "Trellis.Bindings.Get";
     const SUBJECT: &'static str = "rpc.v1.Trellis.Bindings.Get";
     const CALLER_CAPABILITIES: &'static [&'static str] = &["service"];
@@ -19,6 +22,8 @@ pub struct TrellisCatalogRpc;
 impl RpcDescriptor for TrellisCatalogRpc {
     type Input = Empty;
     type Output = super::types::TrellisCatalogResponse;
+    const INPUT_SCHEMA_JSON: &'static str = super::schemas::TRELLIS_CATALOG_INPUT_SCHEMA_JSON;
+    const OUTPUT_SCHEMA_JSON: &'static str = super::schemas::TRELLIS_CATALOG_OUTPUT_SCHEMA_JSON;
     const KEY: &'static str = "Trellis.Catalog";
     const SUBJECT: &'static str = "rpc.v1.Trellis.Catalog";
     const CALLER_CAPABILITIES: &'static [&'static str] = &["trellis.core::catalog.read"];
@@ -29,6 +34,9 @@ pub struct TrellisContractGetRpc;
 impl RpcDescriptor for TrellisContractGetRpc {
     type Input = super::types::TrellisContractGetRequest;
     type Output = super::types::TrellisContractGetResponse;
+    const INPUT_SCHEMA_JSON: &'static str = super::schemas::TRELLIS_CONTRACT_GET_INPUT_SCHEMA_JSON;
+    const OUTPUT_SCHEMA_JSON: &'static str =
+        super::schemas::TRELLIS_CONTRACT_GET_OUTPUT_SCHEMA_JSON;
     const KEY: &'static str = "Trellis.Contract.Get";
     const SUBJECT: &'static str = "rpc.v1.Trellis.Contract.Get";
     const CALLER_CAPABILITIES: &'static [&'static str] = &["trellis.core::contract.read"];
@@ -39,6 +47,10 @@ pub struct TrellisSurfaceStatusRpc;
 impl RpcDescriptor for TrellisSurfaceStatusRpc {
     type Input = super::types::TrellisSurfaceStatusRequest;
     type Output = super::types::TrellisSurfaceStatusResponse;
+    const INPUT_SCHEMA_JSON: &'static str =
+        super::schemas::TRELLIS_SURFACE_STATUS_INPUT_SCHEMA_JSON;
+    const OUTPUT_SCHEMA_JSON: &'static str =
+        super::schemas::TRELLIS_SURFACE_STATUS_OUTPUT_SCHEMA_JSON;
     const KEY: &'static str = "Trellis.Surface.Status";
     const SUBJECT: &'static str = "rpc.v1.Trellis.Surface.Status";
     const CALLER_CAPABILITIES: &'static [&'static str] = &["trellis.core::catalog.read"];

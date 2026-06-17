@@ -1070,6 +1070,7 @@ fn parse_bootstrap_binding(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::OperationFailure;
     use futures_util::future::ready;
     use serde::{Deserialize, Serialize};
     use std::collections::BTreeMap;
@@ -1093,6 +1094,10 @@ mod tests {
 
         const KEY: &'static str = "Ping";
         const SUBJECT: &'static str = "rpc.v1.Ping";
+        const INPUT_SCHEMA_JSON: &'static str =
+            r#"{"type":"object","properties":{},"required":[]}"#;
+        const OUTPUT_SCHEMA_JSON: &'static str =
+            r#"{"type":"object","properties":{},"required":[]}"#;
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1109,6 +1114,10 @@ mod tests {
 
         const KEY: &'static str = "Status";
         const SUBJECT: &'static str = "feed.v1.Status";
+        const INPUT_SCHEMA_JSON: &'static str =
+            r#"{"type":"object","properties":{},"required":[]}"#;
+        const EVENT_SCHEMA_JSON: &'static str =
+            r#"{"type":"object","properties":{},"required":[]}"#;
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1126,10 +1135,18 @@ mod tests {
         type Input = OperationInput;
         type Progress = OperationProgress;
         type Output = OperationOutput;
+        type Error = OperationFailure;
 
         const KEY: &'static str = "Test.Operation";
         const SUBJECT: &'static str = "op.v1.TestOperation";
         const CANCELABLE: bool = true;
+        const ERRORS: &'static [&'static str] = &[];
+        const INPUT_SCHEMA_JSON: &'static str =
+            r#"{"type":"object","properties":{},"required":[]}"#;
+        const PROGRESS_SCHEMA_JSON: Option<&'static str> = None;
+        const OUTPUT_SCHEMA_JSON: &'static str =
+            r#"{"type":"object","properties":{},"required":[]}"#;
+        const SIGNAL_INPUT_SCHEMAS_JSON: &'static str = "{}";
     }
 
     struct TestContract;

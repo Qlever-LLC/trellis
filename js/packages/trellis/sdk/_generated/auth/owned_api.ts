@@ -154,7 +154,7 @@ export const OWNED_API = {
       output: schema<Types.AuthCapabilitiesListOutput>(
         AuthCapabilitiesListResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -170,7 +170,7 @@ export const OWNED_API = {
       output: schema<Types.AuthCapabilityGroupsDeleteOutput>(
         AuthCapabilityGroupsDeleteResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -186,7 +186,7 @@ export const OWNED_API = {
       output: schema<Types.AuthCapabilityGroupsGetOutput>(
         AuthCapabilityGroupsGetResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -202,7 +202,7 @@ export const OWNED_API = {
       output: schema<Types.AuthCapabilityGroupsListOutput>(
         AuthCapabilityGroupsListResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -218,7 +218,7 @@ export const OWNED_API = {
       output: schema<Types.AuthCapabilityGroupsPutOutput>(
         AuthCapabilityGroupsPutResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -234,7 +234,7 @@ export const OWNED_API = {
       output: schema<Types.AuthCatalogIssuesResolveOutput>(
         AuthCatalogIssuesResolveResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -250,7 +250,7 @@ export const OWNED_API = {
       output: schema<Types.AuthConnectionsKickOutput>(
         AuthConnectionsKickResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -266,7 +266,7 @@ export const OWNED_API = {
       output: schema<Types.AuthConnectionsListOutput>(
         AuthConnectionsListResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -282,7 +282,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeploymentAuthorityAcceptMigrationOutput>(
         AuthDeploymentAuthorityAcceptResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -298,7 +298,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeploymentAuthorityAcceptUpdateOutput>(
         AuthDeploymentAuthorityAcceptResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -314,7 +314,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeploymentAuthorityGetOutput>(
         AuthDeploymentAuthorityGetResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -330,7 +330,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeploymentAuthorityGrantOverridesListOutput>(
         AuthDeploymentAuthorityGrantOverridesListResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -346,7 +346,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeploymentAuthorityGrantOverridesPutOutput>(
         AuthDeploymentAuthorityGrantOverridesResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -362,7 +362,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeploymentAuthorityGrantOverridesRemoveOutput>(
         AuthDeploymentAuthorityGrantOverridesResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -378,7 +378,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeploymentAuthorityListOutput>(
         AuthDeploymentAuthorityListResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -394,7 +394,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeploymentAuthorityPlanOutput>(
         AuthDeploymentAuthorityPlanResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -410,7 +410,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeploymentAuthorityPlansGetOutput>(
         AuthDeploymentAuthorityPlansGetResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -426,7 +426,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeploymentAuthorityPlansListOutput>(
         AuthDeploymentAuthorityPlansListResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError"] as const,
       declaredErrorTypes: ["AuthError", "UnexpectedError"] as const,
     },
@@ -438,7 +438,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeploymentAuthorityReconcileOutput>(
         AuthDeploymentAuthorityReconcileResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -454,7 +454,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeploymentAuthorityRejectOutput>(
         AuthDeploymentAuthorityRejectResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -470,7 +470,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeploymentsCreateOutput>(
         AuthDeploymentsCreateResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -486,7 +486,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeploymentsDisableOutput>(
         AuthDeploymentsDisableResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -502,7 +502,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeploymentsEnableOutput>(
         AuthDeploymentsEnableResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -518,7 +518,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeploymentsListOutput>(
         AuthDeploymentsListResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -534,7 +534,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeploymentsRemoveOutput>(
         AuthDeploymentsRemoveResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -550,7 +550,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeviceUserAuthoritiesListOutput>(
         AuthDeviceUserAuthoritiesListResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -566,7 +566,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeviceUserAuthoritiesReviewsDecideOutput>(
         AuthDeviceUserAuthoritiesReviewsDecideResponseSchema,
       ),
-      callerCapabilities: ["trellis.auth::device.review"],
+      callerCapabilities: ["trellis.auth::device.review"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -582,7 +582,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeviceUserAuthoritiesReviewsListOutput>(
         AuthDeviceUserAuthoritiesReviewsListResponseSchema,
       ),
-      callerCapabilities: ["trellis.auth::device.review"],
+      callerCapabilities: ["trellis.auth::device.review"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -598,7 +598,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDeviceUserAuthoritiesRevokeOutput>(
         AuthDeviceUserAuthoritiesRevokeResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -614,7 +614,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDevicesConnectInfoGetOutput>(
         AuthDevicesConnectInfoGetResponseSchema,
       ),
-      callerCapabilities: [],
+      callerCapabilities: [] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -630,7 +630,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDevicesDisableOutput>(
         AuthDevicesDisableResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -646,7 +646,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDevicesEnableOutput>(
         AuthDevicesEnableResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -660,7 +660,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDevicesListOutput>(
         AuthDevicesListResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -676,7 +676,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDevicesProvisionOutput>(
         AuthDevicesProvisionResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -692,7 +692,7 @@ export const OWNED_API = {
       output: schema<Types.AuthDevicesRemoveOutput>(
         AuthDevicesRemoveResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -704,7 +704,7 @@ export const OWNED_API = {
       subject: "rpc.v1.Auth.Health",
       input: schema<Types.AuthHealthInput>(HealthRequestSchema),
       output: schema<Types.AuthHealthOutput>(HealthResponseSchema),
-      callerCapabilities: [],
+      callerCapabilities: [] as const,
       errors: ["UnexpectedError"] as const,
       declaredErrorTypes: ["UnexpectedError"] as const,
     },
@@ -716,7 +716,7 @@ export const OWNED_API = {
       output: schema<Types.AuthIdentitiesListOutput>(
         AuthIdentitiesListResponseSchema,
       ),
-      callerCapabilities: [],
+      callerCapabilities: [] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -732,7 +732,7 @@ export const OWNED_API = {
       output: schema<Types.AuthIdentityGrantsListOutput>(
         AuthIdentityGrantsListResponseSchema,
       ),
-      callerCapabilities: [],
+      callerCapabilities: [] as const,
       errors: ["AuthError", "UnexpectedError"] as const,
       declaredErrorTypes: ["AuthError", "UnexpectedError"] as const,
     },
@@ -744,7 +744,7 @@ export const OWNED_API = {
       output: schema<Types.AuthIdentityGrantsRevokeOutput>(
         AuthIdentityGrantsRevokeResponseSchema,
       ),
-      callerCapabilities: [],
+      callerCapabilities: [] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -756,7 +756,7 @@ export const OWNED_API = {
       subject: "rpc.v1.Auth.Portals.Get",
       input: schema<Types.AuthPortalsGetInput>(AuthPortalsGetRequestSchema),
       output: schema<Types.AuthPortalsGetOutput>(AuthPortalsGetResponseSchema),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -770,7 +770,7 @@ export const OWNED_API = {
       output: schema<Types.AuthPortalsListOutput>(
         AuthPortalsListResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError"] as const,
       declaredErrorTypes: ["AuthError", "UnexpectedError"] as const,
     },
@@ -782,7 +782,7 @@ export const OWNED_API = {
       output: schema<Types.AuthPortalsLoginSettingsGetOutput>(
         AuthPortalsLoginSettingsResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -798,7 +798,7 @@ export const OWNED_API = {
       output: schema<Types.AuthPortalsLoginSettingsUpdateOutput>(
         AuthPortalsLoginSettingsResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -810,7 +810,7 @@ export const OWNED_API = {
       subject: "rpc.v1.Auth.Portals.Put",
       input: schema<Types.AuthPortalsPutInput>(AuthPortalsPutRequestSchema),
       output: schema<Types.AuthPortalsPutOutput>(AuthPortalsPutResponseSchema),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -826,7 +826,7 @@ export const OWNED_API = {
       output: schema<Types.AuthPortalsRemoveOutput>(
         AuthPortalsRemoveResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -842,7 +842,7 @@ export const OWNED_API = {
       output: schema<Types.AuthPortalsRoutesPutOutput>(
         AuthPortalsRoutesPutResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -858,7 +858,7 @@ export const OWNED_API = {
       output: schema<Types.AuthPortalsRoutesRemoveOutput>(
         AuthPortalsRoutesRemoveResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -874,7 +874,7 @@ export const OWNED_API = {
       output: schema<Types.AuthRequestsValidateOutput>(
         AuthRequestsValidateResponseSchema,
       ),
-      callerCapabilities: ["service"],
+      callerCapabilities: ["service"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -890,7 +890,7 @@ export const OWNED_API = {
       output: schema<Types.AuthServiceInstancesDisableOutput>(
         AuthServiceInstancesDisableResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -906,7 +906,7 @@ export const OWNED_API = {
       output: schema<Types.AuthServiceInstancesEnableOutput>(
         AuthServiceInstancesEnableResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -922,7 +922,7 @@ export const OWNED_API = {
       output: schema<Types.AuthServiceInstancesListOutput>(
         AuthServiceInstancesListResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -938,7 +938,7 @@ export const OWNED_API = {
       output: schema<Types.AuthServiceInstancesProvisionOutput>(
         AuthServiceInstancesProvisionResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -954,7 +954,7 @@ export const OWNED_API = {
       output: schema<Types.AuthServiceInstancesRemoveOutput>(
         AuthServiceInstancesRemoveResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -968,7 +968,7 @@ export const OWNED_API = {
       output: schema<Types.AuthSessionsListOutput>(
         AuthSessionsListResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -984,7 +984,7 @@ export const OWNED_API = {
       output: schema<Types.AuthSessionsLogoutOutput>(
         AuthSessionsLogoutResponseSchema,
       ),
-      callerCapabilities: [],
+      callerCapabilities: [] as const,
       errors: ["AuthError", "UnexpectedError"] as const,
       declaredErrorTypes: ["AuthError", "UnexpectedError"] as const,
     },
@@ -992,7 +992,7 @@ export const OWNED_API = {
       subject: "rpc.v1.Auth.Sessions.Me",
       input: schema<Types.AuthSessionsMeInput>(AuthSessionsMeRequestSchema),
       output: schema<Types.AuthSessionsMeOutput>(AuthSessionsMeResponseSchema),
-      callerCapabilities: [],
+      callerCapabilities: [] as const,
       errors: ["AuthError", "UnexpectedError"] as const,
       declaredErrorTypes: ["AuthError", "UnexpectedError"] as const,
     },
@@ -1004,7 +1004,7 @@ export const OWNED_API = {
       output: schema<Types.AuthSessionsRevokeOutput>(
         AuthSessionsRevokeResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -1020,7 +1020,7 @@ export const OWNED_API = {
       output: schema<Types.AuthUserIdentitiesListOutput>(
         AuthUserIdentitiesListResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -1036,7 +1036,7 @@ export const OWNED_API = {
       output: schema<Types.AuthUserIdentitiesUnlinkOutput>(
         AuthUserIdentitiesUnlinkResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -1050,7 +1050,7 @@ export const OWNED_API = {
       output: schema<Types.AuthUsersCreateOutput>(
         AuthUsersCreateResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -1062,7 +1062,7 @@ export const OWNED_API = {
       subject: "rpc.v1.Auth.Users.Get",
       input: schema<Types.AuthUsersGetInput>(AuthUsersGetRequestSchema),
       output: schema<Types.AuthUsersGetOutput>(AuthUsersGetResponseSchema),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -1078,7 +1078,7 @@ export const OWNED_API = {
       output: schema<Types.AuthUsersIdentityLinkCreateOutput>(
         AuthUsersAccountFlowCreateResponseSchema,
       ),
-      callerCapabilities: [],
+      callerCapabilities: [] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -1090,7 +1090,7 @@ export const OWNED_API = {
       subject: "rpc.v1.Auth.Users.List",
       input: schema<Types.AuthUsersListInput>(AuthUsersListRequestSchema),
       output: schema<Types.AuthUsersListOutput>(AuthUsersListResponseSchema),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -1106,7 +1106,7 @@ export const OWNED_API = {
       output: schema<Types.AuthUsersPasswordChangeOutput>(
         AuthUsersPasswordChangeResponseSchema,
       ),
-      callerCapabilities: [],
+      callerCapabilities: [] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -1122,7 +1122,7 @@ export const OWNED_API = {
       output: schema<Types.AuthUsersPasswordResetCreateOutput>(
         AuthUsersAccountFlowCreateResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -1136,7 +1136,7 @@ export const OWNED_API = {
       output: schema<Types.AuthUsersUpdateOutput>(
         AuthUsersUpdateResponseSchema,
       ),
-      callerCapabilities: ["admin"],
+      callerCapabilities: ["admin"] as const,
       errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: [
         "AuthError",
@@ -1157,10 +1157,10 @@ export const OWNED_API = {
       output: schema<Types.AuthDeviceUserAuthoritiesResolveOutput>(
         AuthResolveDeviceUserAuthoritiesResponseSchema,
       ),
-      callerCapabilities: [],
-      observeCapabilities: [],
-      cancelCapabilities: [],
-      controlCapabilities: [],
+      callerCapabilities: [] as const,
+      observeCapabilities: [] as const,
+      cancelCapabilities: [] as const,
+      controlCapabilities: [] as const,
     },
   },
   events: {
@@ -1169,24 +1169,24 @@ export const OWNED_API = {
       event: schema<Types.AuthConnectionsClosedEvent>(
         AuthConnectionsClosedEventSchema,
       ),
-      publishCapabilities: ["trellis.auth::events.auth"],
-      subscribeCapabilities: ["trellis.auth::events.auth"],
+      publishCapabilities: ["trellis.auth::events.auth"] as const,
+      subscribeCapabilities: ["trellis.auth::events.auth"] as const,
     },
     "Auth.Connections.Kicked": {
       subject: "events.v1.Auth.Connections.Kicked",
       event: schema<Types.AuthConnectionsKickedEvent>(
         AuthConnectionsKickedEventSchema,
       ),
-      publishCapabilities: ["trellis.auth::events.auth"],
-      subscribeCapabilities: ["trellis.auth::events.auth"],
+      publishCapabilities: ["trellis.auth::events.auth"] as const,
+      subscribeCapabilities: ["trellis.auth::events.auth"] as const,
     },
     "Auth.Connections.Opened": {
       subject: "events.v1.Auth.Connections.Opened",
       event: schema<Types.AuthConnectionsOpenedEvent>(
         AuthConnectionsOpenedEventSchema,
       ),
-      publishCapabilities: ["trellis.auth::events.auth"],
-      subscribeCapabilities: ["trellis.auth::events.auth"],
+      publishCapabilities: ["trellis.auth::events.auth"] as const,
+      subscribeCapabilities: ["trellis.auth::events.auth"] as const,
     },
     "Auth.DeviceUserAuthorities.Approved": {
       subject: "events.v1.Auth.DeviceUserAuthorities.Approved.{/deploymentId}",
@@ -1194,8 +1194,8 @@ export const OWNED_API = {
       event: schema<Types.AuthDeviceUserAuthoritiesApprovedEvent>(
         AuthDeviceUserAuthoritiesApprovedEventSchema,
       ),
-      publishCapabilities: ["trellis.auth::events.auth"],
-      subscribeCapabilities: ["trellis.auth::device.review"],
+      publishCapabilities: ["trellis.auth::events.auth"] as const,
+      subscribeCapabilities: ["trellis.auth::device.review"] as const,
     },
     "Auth.DeviceUserAuthorities.Requested": {
       subject: "events.v1.Auth.DeviceUserAuthorities.Requested.{/deploymentId}",
@@ -1203,8 +1203,8 @@ export const OWNED_API = {
       event: schema<Types.AuthDeviceUserAuthoritiesRequestedEvent>(
         AuthDeviceUserAuthoritiesRequestedEventSchema,
       ),
-      publishCapabilities: ["trellis.auth::events.auth"],
-      subscribeCapabilities: ["trellis.auth::device.review"],
+      publishCapabilities: ["trellis.auth::events.auth"] as const,
+      subscribeCapabilities: ["trellis.auth::device.review"] as const,
     },
     "Auth.DeviceUserAuthorities.Resolved": {
       subject: "events.v1.Auth.DeviceUserAuthorities.Resolved.{/deploymentId}",
@@ -1212,11 +1212,11 @@ export const OWNED_API = {
       event: schema<Types.AuthDeviceUserAuthoritiesResolvedEvent>(
         AuthDeviceUserAuthoritiesResolvedEventSchema,
       ),
-      publishCapabilities: ["trellis.auth::events.auth"],
+      publishCapabilities: ["trellis.auth::events.auth"] as const,
       subscribeCapabilities: [
         "trellis.auth::device.review",
         "trellis.auth::events.auth",
-      ],
+      ] as const,
     },
     "Auth.DeviceUserAuthorities.ReviewRequested": {
       subject:
@@ -1225,16 +1225,16 @@ export const OWNED_API = {
       event: schema<Types.AuthDeviceUserAuthoritiesReviewRequestedEvent>(
         AuthDeviceUserAuthoritiesReviewRequestedEventSchema,
       ),
-      publishCapabilities: ["trellis.auth::events.auth"],
-      subscribeCapabilities: ["trellis.auth::device.review"],
+      publishCapabilities: ["trellis.auth::events.auth"] as const,
+      subscribeCapabilities: ["trellis.auth::device.review"] as const,
     },
     "Auth.Sessions.Revoked": {
       subject: "events.v1.Auth.Sessions.Revoked",
       event: schema<Types.AuthSessionsRevokedEvent>(
         AuthSessionsRevokedEventSchema,
       ),
-      publishCapabilities: ["trellis.auth::events.auth"],
-      subscribeCapabilities: ["trellis.auth::events.auth"],
+      publishCapabilities: ["trellis.auth::events.auth"] as const,
+      subscribeCapabilities: ["trellis.auth::events.auth"] as const,
     },
   },
   feeds: {},

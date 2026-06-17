@@ -15,6 +15,7 @@ mod resources;
 mod router;
 mod runtime;
 mod runtime_facade;
+mod schema_validation;
 mod service;
 mod service_host;
 mod transfer;
@@ -28,14 +29,16 @@ pub use bindings::{
 pub use bootstrap_ports::{resolve_bootstrap_binding, BootstrapBindingInfo, CoreBootstrapPort};
 pub use core_bootstrap::{CoreBootstrapAdapter, CoreBootstrapClientPort};
 pub use descriptor::{EventDescriptor, FeedDescriptor, RpcDescriptor};
-pub use error::{DeclaredRpcError, HandlerResult, ServerError};
+pub use error::{
+    DeclaredRpcError, HandlerResult, SchemaValidationIssue, ServerError, ValidationIssue,
+};
 pub use health::{HealthCheck, HealthReport};
 pub use operations::{
     control_subject, AcceptedOperation, InMemoryOperationRuntime, OperationControl,
     OperationControlRequest, OperationDescriptor, OperationError, OperationFailure,
-    OperationProvider, OperationRefData, OperationSignal, OperationSignalAccepted,
-    OperationSnapshot, OperationSnapshotFrame, OperationState, OperationTransferProgress,
-    ServiceOperation,
+    OperationFailureLike, OperationProvider, OperationRefData, OperationSignal,
+    OperationSignalAccepted, OperationSnapshot, OperationSnapshotFrame, OperationState,
+    OperationTransferProgress, ServiceOperation,
 };
 pub use publisher::EventPublisher;
 pub use request_validator_adapter::{
@@ -54,6 +57,7 @@ pub use runtime_facade::{
     ServiceOperationWatch, ServiceRuntimeError, ServiceRuntimeRunner,
     DEFAULT_AUTHORITY_PENDING_TIMEOUT_MS, DEFAULT_RETRY_DELAY_MS, DEFAULT_TIMEOUT_MS,
 };
+pub use schema_validation::validate_input_schema;
 pub use service::{AuthenticatedRouter, RequestValidation, RequestValidator};
 pub use service_host::{bootstrap_service_host, ServiceHost};
 pub use transfer::{

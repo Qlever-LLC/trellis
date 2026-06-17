@@ -5,7 +5,7 @@ use bytes::Bytes;
 use futures_util::future::{ready, BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
 use trellis_service::{
-    AuthenticatedRouter, OperationDescriptor, RequestContext, RequestValidation, RequestValidator,
+    AuthenticatedRouter, OperationDescriptor, OperationFailure, RequestContext, RequestValidation, RequestValidator,
     Router, RpcDescriptor, ServerError,
 };
 
@@ -26,6 +26,8 @@ impl RpcDescriptor for PingRpc {
     type Output = PingOutput;
     const KEY: &'static str = "Ping";
     const SUBJECT: &'static str = "rpc.v1.Ping";
+    const INPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
+    const OUTPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
 }
 
 struct CapRpc;
@@ -36,6 +38,8 @@ impl RpcDescriptor for CapRpc {
     const KEY: &'static str = "Cap.Ping";
     const SUBJECT: &'static str = "rpc.v1.Cap.Ping";
     const CALLER_CAPABILITIES: &'static [&'static str] = &["rpc.call"];
+    const INPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
+    const OUTPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
 }
 
 struct CapOperation;
@@ -44,6 +48,7 @@ impl OperationDescriptor for CapOperation {
     type Input = PingInput;
     type Progress = PingOutput;
     type Output = PingOutput;
+    type Error = OperationFailure;
 
     const KEY: &'static str = "Cap.Operation";
     const SUBJECT: &'static str = "operations.v1.Cap.Operation";
@@ -52,6 +57,11 @@ impl OperationDescriptor for CapOperation {
     const CANCEL_CAPABILITIES: &'static [&'static str] = &["operation.cancel"];
     const CONTROL_CAPABILITIES: &'static [&'static str] = &["operation.control"];
     const CANCELABLE: bool = true;
+    const ERRORS: &'static [&'static str] = &[];
+    const INPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
+    const PROGRESS_SCHEMA_JSON: Option<&'static str> = None;
+    const OUTPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
+    const SIGNAL_INPUT_SCHEMAS_JSON: &'static str = "{}";
 }
 
 #[derive(Clone)]

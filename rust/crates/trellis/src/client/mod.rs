@@ -22,7 +22,10 @@ pub use client::{
     UserConnectOptions,
 };
 pub use descriptor::{EventDescriptor, FeedDescriptor, RpcDescriptor};
-pub use error::{RpcErrorPayload, TrellisClientError};
+pub use error::{
+    RpcErrorPayload, SchemaValidationErrorPayload, SchemaValidationIssue, TrellisClientError,
+    ValidationErrorPayload, ValidationIssue,
+};
 pub use events::{
     dispatch_outbox_once, prepare_event, prepare_event_value, EventStoreError, InboxReceipt,
     InboxStore, MemoryInboxStore, MemoryOutboxStore, NatsKvInboxStore, NatsKvOutboxStore,

@@ -99,13 +99,19 @@ mod tests {
             "cli/Cargo.toml",
             "codegen-rust/Cargo.toml",
             "codegen-ts/Cargo.toml",
+            "bootstrap/Cargo.toml",
+            "contracts/Cargo.toml",
             "core-bootstrap/Cargo.toml",
             "generate-runner/Cargo.toml",
+            "integration-harness/Cargo.toml",
             "jobs/Cargo.toml",
             "local-bootstrap/Cargo.toml",
+            "runtime/Cargo.toml",
             "service/Cargo.toml",
             "service-jobs/Cargo.toml",
             "service-runtime/Cargo.toml",
+            "trellis/Cargo.toml",
+            "trellis-test/Cargo.toml",
         ] {
             let contents = fs::read_to_string(crates_dir.join(manifest))
                 .expect("internal crate manifest should be readable");

@@ -241,6 +241,10 @@ pub fn generate_rust_sdk(opts: &GenerateRustSdkOpts) -> Result<(), CodegenRustEr
         &render_feeds_rs(&loaded),
     )?;
     write_rust_if_changed(
+        &opts.out_dir.join("src").join("schemas.rs"),
+        &render_schemas_rs(&loaded),
+    )?;
+    write_rust_if_changed(
         &opts.out_dir.join("src").join("client.rs"),
         &render_client_rs(&loaded),
     )?;
@@ -323,6 +327,10 @@ pub fn generate_rust_participant_generated_sources(
     write_rust_if_changed(
         &opts.out_dir.join("src/owned.rs"),
         &render_participant_owned_rs(&loaded, opts.owned_sdk_crate_name.as_deref()),
+    )?;
+    write_rust_if_changed(
+        &opts.out_dir.join("src/schemas.rs"),
+        &render_schemas_rs(&loaded),
     )?;
     write_rust_if_changed(
         &opts.out_dir.join("src/state.rs"),
@@ -1035,6 +1043,10 @@ fn render_participant_facade_rs(
     let mut lines = vec![
         "pub mod owned {".to_string(),
         "    include!(concat!(env!(\"OUT_DIR\"), \"/generated/src/owned.rs\"));".to_string(),
+        "}".to_string(),
+        String::new(),
+        "pub mod schemas {".to_string(),
+        "    include!(concat!(env!(\"OUT_DIR\"), \"/generated/src/schemas.rs\"));".to_string(),
         "}".to_string(),
         String::new(),
         "pub mod state {".to_string(),
@@ -1827,9 +1839,16 @@ fn render_rpc_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         lines.push(format!("/// Descriptor for `{key}`."));
         lines.push(format!("pub struct {base}Rpc;"));
         lines.push(String::new());
+        let schema_base = key_to_schema_constant_base(key);
         lines.push(format!("impl RpcDescriptor for {base}Rpc {{"));
         lines.push(format!("    type Input = {input_type};"));
         lines.push(format!("    type Output = {output_type};"));
+        lines.push(format!(
+            "    const INPUT_SCHEMA_JSON: &'static str = crate::schemas::{schema_base}_INPUT_SCHEMA_JSON;"
+        ));
+        lines.push(format!(
+            "    const OUTPUT_SCHEMA_JSON: &'static str = crate::schemas::{schema_base}_OUTPUT_SCHEMA_JSON;"
+        ));
         lines.push(format!(
             "    const KEY: &'static str = {};",
             string_literal(key)
@@ -1935,9 +1954,16 @@ fn render_feeds_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         lines.push(format!("/// Descriptor for `{key}`."));
         lines.push(format!("pub struct {base}FeedDescriptor;"));
         lines.push(String::new());
+        let schema_base = key_to_schema_constant_base(key);
         lines.push(format!("impl FeedDescriptor for {base}FeedDescriptor {{"));
         lines.push(format!("    type Input = {input_type};"));
         lines.push(format!("    type Event = {event_type};"));
+        lines.push(format!(
+            "    const INPUT_SCHEMA_JSON: &'static str = crate::schemas::{schema_base}_INPUT_SCHEMA_JSON;"
+        ));
+        lines.push(format!(
+            "    const EVENT_SCHEMA_JSON: &'static str = crate::schemas::{schema_base}_EVENT_SCHEMA_JSON;"
+        ));
         lines.push(format!(
             "    const KEY: &'static str = {};",
             string_literal(key)
@@ -1981,6 +2007,14 @@ fn render_operations_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         );
     } else {
         lines.push("use trellis_rs::client::OperationDescriptor;".to_string());
+    }
+    if loaded
+        .manifest
+        .operations
+        .values()
+        .any(|op| op.errors.as_ref().is_some_and(|e| !e.is_empty()))
+    {
+        lines.push("use trellis_rs::service::OperationFailureLike;".to_string());
     }
     lines.push(String::new());
 
@@ -2030,14 +2064,50 @@ fn render_operations_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
             .and_then(|caps| caps.control.as_ref())
             .cloned()
             .unwrap_or_default();
+        let error_types: Vec<String> = operation
+            .errors
+            .as_ref()
+            .map(|errors| errors.iter().map(|e| e.error_type.clone()).collect())
+            .unwrap_or_default();
 
         lines.push(format!("/// Descriptor for `{key}`."));
         lines.push(format!("pub struct {base}Operation;"));
         lines.push(String::new());
+        let schema_base = key_to_schema_constant_base(key);
         lines.push(format!("impl OperationDescriptor for {base}Operation {{"));
         lines.push(format!("    type Input = {input_type};"));
         lines.push(format!("    type Progress = {progress_type};"));
         lines.push(format!("    type Output = {output_type};"));
+        lines.push(format!(
+            "    type Error = {};",
+            if error_types.is_empty() {
+                "trellis_rs::service::OperationFailure".to_string()
+            } else {
+                format!("{base}OperationError")
+            }
+        ));
+        lines.push(format!(
+            "    const INPUT_SCHEMA_JSON: &'static str = crate::schemas::{schema_base}_INPUT_SCHEMA_JSON;"
+        ));
+        if operation.progress.is_some() {
+            lines.push(format!(
+                "    const PROGRESS_SCHEMA_JSON: Option<&'static str> = Some(crate::schemas::{schema_base}_PROGRESS_SCHEMA_JSON);"
+            ));
+        } else {
+            lines.push(format!(
+                "    const PROGRESS_SCHEMA_JSON: Option<&'static str> = None;"
+            ));
+        }
+        lines.push(format!(
+            "    const OUTPUT_SCHEMA_JSON: &'static str = crate::schemas::{schema_base}_OUTPUT_SCHEMA_JSON;"
+        ));
+        lines.push(format!(
+            "    const SIGNAL_INPUT_SCHEMAS_JSON: &'static str = crate::schemas::{schema_base}_SIGNAL_INPUT_SCHEMAS_JSON;"
+        ));
+        lines.push(format!(
+            "    const ERRORS: &'static [&'static str] = &[{}];",
+            join_string_literals(&error_types)
+        ));
         lines.push(format!(
             "    const KEY: &'static str = {};",
             string_literal(key)
@@ -2068,6 +2138,54 @@ fn render_operations_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
         ));
         lines.push("}".to_string());
         lines.push(String::new());
+
+        // Emit typed error enum when the operation declares errors.
+        if !error_types.is_empty() {
+            lines.push(format!("/// Errors declared by `{key}`."));
+            lines.push("#[derive(Debug, Clone)]".to_string());
+            lines.push(format!("pub enum {base}OperationError {{"));
+            for error_type in &error_types {
+                let variant = key_to_pascal(error_type);
+                lines.push(format!("    /// `{error_type}` failure."));
+                lines.push(format!("    {variant} {{"));
+                lines.push(format!("        /// Human-facing error message."));
+                lines.push(format!("        pub message: String,"));
+                lines.push(format!("    }},"));
+            }
+            lines.push(String::new());
+            lines.push("    /// Catch-all for unexpected operation failures.".to_string());
+            lines.push("    Other { message: String },".to_string());
+            lines.push("}".to_string());
+            lines.push(String::new());
+            lines.push(format!(
+                "impl trellis_rs::service::OperationFailureLike for {base}OperationError {{"
+            ));
+            lines.push("    fn error_type(&self) -> &str {".to_string());
+            lines.push("        match self {".to_string());
+            for error_type in &error_types {
+                let variant = key_to_pascal(error_type);
+                lines.push(format!(
+                    "            Self::{variant}{{ .. }} => {},",
+                    string_literal(error_type)
+                ));
+            }
+            lines.push("            Self::Other { .. } => \"UnexpectedError\",".to_string());
+            lines.push("        }".to_string());
+            lines.push("    }".to_string());
+            lines.push("    fn message(&self) -> String {".to_string());
+            lines.push("        match self {".to_string());
+            lines.push("            _ => String::new(),".to_string());
+            lines.push("        }".to_string());
+            lines.push("    }".to_string());
+            lines.push(
+                "    fn fields(&self) -> serde_json::Map<String, serde_json::Value> {".to_string(),
+            );
+            lines.push("        serde_json::Map::new()".to_string());
+            lines.push("    }".to_string());
+            lines.push("}".to_string());
+            lines.push(String::new());
+        }
+
         if operation.transfer.is_some() {
             lines.push(format!(
                 "impl TransferOperationDescriptor for {base}Operation {{}}"
@@ -3132,8 +3250,134 @@ fn render_lib_rs(loaded: &trellis_contracts::LoadedManifest, is_service: bool) -
         String::new()
     };
     format!(
-        "//! Generated Rust SDK crate for one Trellis contract.\n\npub mod client;\n{connect_module}pub mod contract;\npub mod events;\n{feeds_module}pub mod operations;\npub mod rpc;\npub mod types;\n\npub use client::{client_name};\n{connect_reexport}pub use contract::{{contract_manifest, CONTRACT_DIGEST, CONTRACT_ID, CONTRACT_JSON, CONTRACT_NAME}};\n{events_reexport}{feeds_reexport}{operations_reexport}pub use rpc::*;\npub use types::*;\n"
+        "//! Generated Rust SDK crate for one Trellis contract.\n\npub mod client;\n{connect_module}pub mod contract;\npub mod events;\n{feeds_module}pub mod operations;\npub mod rpc;\npub mod schemas;\npub mod types;\n\npub use client::{client_name};\n{connect_reexport}pub use contract::{{contract_manifest, CONTRACT_DIGEST, CONTRACT_ID, CONTRACT_JSON, CONTRACT_NAME}};\n{events_reexport}{feeds_reexport}{operations_reexport}pub use rpc::*;\npub use types::*;\n"
     )
+}
+
+fn key_to_schema_constant_base(key: &str) -> String {
+    key_to_snake(key).to_uppercase()
+}
+
+fn render_schemas_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
+    use serde_json::Value;
+
+    let mut lines = vec![
+        format!("/// JSON Schema constants for `{}`.", loaded.manifest.id),
+        String::new(),
+    ];
+
+    for (key, rpc) in &loaded.manifest.rpc {
+        let base = key_to_schema_constant_base(key);
+        let input_schema = resolve_schema_ref(loaded, &rpc.input.schema);
+        let input_json = serde_json::to_string(input_schema).expect("valid json");
+        lines.push(format!(
+            "pub const {}_INPUT_SCHEMA_JSON: &str = r#\"{}\"#;",
+            base, input_json
+        ));
+        let output_schema = resolve_schema_ref(loaded, &rpc.output.schema);
+        let output_json = serde_json::to_string(output_schema).expect("valid json");
+        lines.push(format!(
+            "pub const {}_OUTPUT_SCHEMA_JSON: &str = r#\"{}\"#;",
+            base, output_json
+        ));
+        lines.push(String::new());
+    }
+
+    for (key, operation) in &loaded.manifest.operations {
+        let base = key_to_schema_constant_base(key);
+        let input_schema = resolve_schema_ref(loaded, &operation.input.schema);
+        let input_json = serde_json::to_string(input_schema).expect("valid json");
+        lines.push(format!(
+            "pub const {}_INPUT_SCHEMA_JSON: &str = r#\"{}\"#;",
+            base, input_json
+        ));
+        match &operation.progress {
+            Some(progress) => {
+                let progress_schema = resolve_schema_ref(loaded, &progress.schema);
+                let progress_json = serde_json::to_string(progress_schema).expect("valid json");
+                lines.push(format!(
+                    "pub const {}_PROGRESS_SCHEMA_JSON: &str = r#\"{}\"#;",
+                    base, progress_json
+                ));
+            }
+            None => {
+                lines.push(format!(
+                    "pub const {}_PROGRESS_SCHEMA_JSON: Option<&str> = None;",
+                    base
+                ));
+            }
+        }
+        match &operation.output {
+            Some(output) => {
+                let output_schema = resolve_schema_ref(loaded, &output.schema);
+                let output_json = serde_json::to_string(output_schema).expect("valid json");
+                lines.push(format!(
+                    "pub const {}_OUTPUT_SCHEMA_JSON: &str = r#\"{}\"#;",
+                    base, output_json
+                ));
+            }
+            None => {
+                lines.push(format!(
+                    "pub const {}_OUTPUT_SCHEMA_JSON: &str = r#\"{{}}\"#;",
+                    base
+                ));
+            }
+        }
+        if !operation.signals.is_empty() {
+            let mut signal_map = serde_json::Map::new();
+            for (signal_name, signal) in &operation.signals {
+                let signal_schema = resolve_schema_ref(loaded, &signal.input.schema);
+                signal_map.insert(signal_name.clone(), signal_schema.clone());
+            }
+            let signal_json =
+                serde_json::to_string(&Value::Object(signal_map)).expect("valid json");
+            lines.push(format!(
+                "pub const {}_SIGNAL_INPUT_SCHEMAS_JSON: &str = r#\"{}\"#;",
+                base, signal_json
+            ));
+        } else {
+            lines.push(format!(
+                "pub const {}_SIGNAL_INPUT_SCHEMAS_JSON: &str = r#\"{{}}\"#;",
+                base
+            ));
+        }
+        lines.push(String::new());
+    }
+
+    for (key, feed) in &loaded.manifest.feeds {
+        let base = key_to_schema_constant_base(key);
+        let input_schema = resolve_schema_ref(loaded, &feed.input.schema);
+        let input_json = serde_json::to_string(input_schema).expect("valid json");
+        lines.push(format!(
+            "pub const {}_INPUT_SCHEMA_JSON: &str = r#\"{}\"#;",
+            base, input_json
+        ));
+        let event_schema = resolve_schema_ref(loaded, &feed.event.schema);
+        let event_json = serde_json::to_string(event_schema).expect("valid json");
+        lines.push(format!(
+            "pub const {}_EVENT_SCHEMA_JSON: &str = r#\"{}\"#;",
+            base, event_json
+        ));
+        lines.push(String::new());
+    }
+
+    for schema_name in &loaded.manifest.exports.schemas {
+        let base = key_to_schema_constant_base(schema_name);
+        let schema = resolve_schema_ref(loaded, schema_name);
+        let schema_json = serde_json::to_string(schema).expect("valid json");
+        lines.push(format!(
+            "pub const {}_SCHEMA_JSON: &str = r#\"{}\"#;",
+            base, schema_json
+        ));
+        lines.push(String::new());
+    }
+
+    // Ensure at least one item exists so empty-contract modules compile.
+    if lines.len() <= 2 {
+        lines.push("pub const _SCHEMA_MODULE_LOADED: bool = true;".to_string());
+    }
+
+    format!("{}\n", lines.join("\n"))
 }
 
 #[cfg(test)]
@@ -4683,6 +4927,77 @@ mod tests {
             CodegenRustError::MissingMappedFeed { alias, key }
                 if alias == "evidence" && key == "Evidence.Stream"
         ));
+
+        fs::remove_dir_all(out_dir).unwrap();
+    }
+
+    #[test]
+    fn generated_operation_descriptor_includes_error_types() {
+        let out_dir = unique_temp_dir("operation-descriptor-errors");
+        fs::create_dir_all(&out_dir).unwrap();
+
+        let manifest_path = write_remote_manifest(
+            &out_dir,
+            "ops@v1.json",
+            json!({
+                "format": "trellis.contract.v1",
+                "id": "ops@v1",
+                "displayName": "Ops With Errors",
+                "description": "Operation with declared errors.",
+                "kind": "service",
+                "schemas": {
+                    "Input": {"type":"object","properties":{},"required":[]},
+                    "Progress": {"type":"object","properties":{"step":{"type":"string"}},"required":["step"]},
+                    "Output": {"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"]}
+                },
+                "errors": {
+                    "NotFoundError": {
+                        "type": "NotFoundError",
+                        "schema": { "schema": "Input" }
+                    }
+                },
+                "operations": {
+                    "Example.Process": {
+                        "version": "v1",
+                        "subject": "operations.v1.Example.Process",
+                        "input": { "schema": "Input" },
+                        "progress": { "schema": "Progress" },
+                        "output": { "schema": "Output" },
+                        "errors": [{ "type": "NotFoundError" }]
+                    }
+                }
+            }),
+        );
+
+        generate_rust_sdk(&GenerateRustSdkOpts {
+            manifest_path: manifest_path.clone(),
+            out_dir: out_dir.join("generated"),
+            crate_name: "ops-sdk".to_string(),
+            crate_version: "0.1.0".to_string(),
+            runtime_deps: RustRuntimeDeps {
+                source: RustRuntimeSource::Registry,
+                version: "0.1.0".to_string(),
+                repo_root: None,
+            },
+            emit_service_runtime_facade: false,
+        })
+        .unwrap();
+
+        let operations_rs =
+            fs::read_to_string(out_dir.join("generated/src/operations.rs")).unwrap();
+
+        assert!(operations_rs.contains("impl OperationDescriptor for ExampleProcessOperation"));
+        assert!(operations_rs.contains("type Error = ExampleProcessOperationError;"));
+        assert!(
+            operations_rs.contains("const ERRORS: &'static [&'static str] = &[\"NotFoundError\"];")
+        );
+        assert!(operations_rs.contains("pub enum ExampleProcessOperationError {"));
+        assert!(operations_rs.contains(
+            "impl trellis_rs::service::OperationFailureLike for ExampleProcessOperationError {"
+        ));
+        assert!(operations_rs.contains("use trellis_rs::client::OperationDescriptor;"));
+        assert!(operations_rs.contains("use trellis_rs::service::OperationFailureLike;"));
+        assert!(!operations_rs.contains("TransferOperationDescriptor"));
 
         fs::remove_dir_all(out_dir).unwrap();
     }

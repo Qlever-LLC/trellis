@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use trellis_service::internal::{dispatch_one, InboundRequest};
 use trellis_service::{
-    control_subject, AcceptedOperation, OperationDescriptor, OperationProvider, OperationRefData,
+    control_subject, AcceptedOperation, OperationDescriptor, OperationFailure, OperationProvider, OperationRefData,
     OperationSnapshot, OperationState, OperationTransferProgress, RequestContext, Router,
     ServerError,
 };
@@ -31,10 +31,16 @@ impl OperationDescriptor for RefundOperation {
     type Input = RefundInput;
     type Progress = RefundProgress;
     type Output = RefundOutput;
+    type Error = OperationFailure;
 
     const KEY: &'static str = "Billing.Refund";
     const SUBJECT: &'static str = "operations.v1.Billing.Refund";
     const CANCELABLE: bool = true;
+    const ERRORS: &'static [&'static str] = &[];
+    const INPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
+    const PROGRESS_SCHEMA_JSON: Option<&'static str> = None;
+    const OUTPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
+    const SIGNAL_INPUT_SCHEMAS_JSON: &'static str = "{}";
 }
 
 struct RefundProvider;

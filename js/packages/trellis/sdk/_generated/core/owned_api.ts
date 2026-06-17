@@ -23,7 +23,7 @@ export const OWNED_API = {
       output: schema<Types.TrellisBindingsGetOutput>(
         TrellisBindingsGetResponseSchema,
       ),
-      callerCapabilities: ["service"],
+      callerCapabilities: ["service"] as const,
       errors: ["UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: ["UnexpectedError", "ValidationError"] as const,
     },
@@ -31,7 +31,7 @@ export const OWNED_API = {
       subject: "rpc.v1.Trellis.Catalog",
       input: schema<Types.TrellisCatalogInput>(TrellisCatalogRequestSchema),
       output: schema<Types.TrellisCatalogOutput>(TrellisCatalogResponseSchema),
-      callerCapabilities: ["trellis.core::catalog.read"],
+      callerCapabilities: ["trellis.core::catalog.read"] as const,
       errors: ["UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: ["UnexpectedError", "ValidationError"] as const,
     },
@@ -43,7 +43,7 @@ export const OWNED_API = {
       output: schema<Types.TrellisContractGetOutput>(
         TrellisContractGetResponseSchema,
       ),
-      callerCapabilities: ["trellis.core::contract.read"],
+      callerCapabilities: ["trellis.core::contract.read"] as const,
       errors: ["UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: ["UnexpectedError", "ValidationError"] as const,
     },
@@ -55,7 +55,7 @@ export const OWNED_API = {
       output: schema<Types.TrellisSurfaceStatusOutput>(
         TrellisSurfaceStatusResponseSchema,
       ),
-      callerCapabilities: ["trellis.core::catalog.read"],
+      callerCapabilities: ["trellis.core::catalog.read"] as const,
       errors: ["UnexpectedError", "ValidationError"] as const,
       declaredErrorTypes: ["UnexpectedError", "ValidationError"] as const,
     },

@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Structured payload returned by a remote RPC error response.
@@ -72,6 +73,74 @@ impl RpcErrorPayload {
             self.raw.clone()
         }
     }
+
+    /// Decode this payload as a `ValidationError` when the discriminator matches.
+    pub fn decode_validation(&self) -> Result<Option<ValidationErrorPayload>, serde_json::Error> {
+        self.decode_declared::<ValidationErrorPayload>("ValidationError")
+    }
+
+    /// Decode this payload as a `SchemaValidationError` when the discriminator matches.
+    pub fn decode_schema_validation(
+        &self,
+    ) -> Result<Option<SchemaValidationErrorPayload>, serde_json::Error> {
+        self.decode_declared::<SchemaValidationErrorPayload>("SchemaValidationError")
+    }
+}
+
+/// One unannotated validation issue from a remote `ValidationError`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ValidationIssue {
+    pub path: String,
+    pub message: String,
+}
+
+/// One annotated validation issue from a remote `SchemaValidationError`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SchemaValidationIssue {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schema_path: Option<String>,
+    pub keyword: String,
+    pub code: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub severity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+/// Decoded `ValidationError` remote payload.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ValidationErrorPayload {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub error_type: String,
+    pub message: String,
+    pub issues: Vec<ValidationIssue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<serde_json::Map<String, serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+}
+
+/// Decoded `SchemaValidationError` remote payload.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SchemaValidationErrorPayload {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub error_type: String,
+    pub message: String,
+    pub issues: Vec<SchemaValidationIssue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<serde_json::Map<String, serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
 }
 
 fn format_json_value(value: &Value) -> String {
@@ -303,6 +372,43 @@ mod tests {
             error.to_string(),
             "rpc returned error: deploymentId: service deployment not found (deploymentId=demo)"
         );
+    }
+
+    #[test]
+    fn decode_schema_validation_returns_typed_payload() {
+        let raw = r#"{"id":"err-1","type":"SchemaValidationError","message":"Schema validation failed.","issues":[{"path":"/items","keyword":"minItems","code":"test.items.required","message":"Add at least one item.","label":"Items"}],"context":{"requestId":"r1"}}"#;
+        let payload = RpcErrorPayload::from_json_slice(raw.as_bytes()).unwrap();
+
+        let decoded = payload.decode_schema_validation().unwrap();
+        assert!(decoded.is_some(), "expected Some payload");
+        let sv = decoded.unwrap();
+        assert_eq!(sv.error_type, "SchemaValidationError");
+        assert_eq!(sv.issues.len(), 1);
+        assert_eq!(sv.issues[0].code, "test.items.required");
+        assert_eq!(sv.issues[0].keyword, "minItems");
+        assert_eq!(sv.issues[0].label.as_deref(), Some("Items"));
+    }
+
+    #[test]
+    fn decode_validation_returns_typed_payload() {
+        let raw = r#"{"id":"err-2","type":"ValidationError","message":"Validation failed.","issues":[{"path":"/name","message":"minLength failed"}]}"#;
+        let payload = RpcErrorPayload::from_json_slice(raw.as_bytes()).unwrap();
+
+        let decoded = payload.decode_validation().unwrap();
+        assert!(decoded.is_some(), "expected Some payload");
+        let v = decoded.unwrap();
+        assert_eq!(v.error_type, "ValidationError");
+        assert_eq!(v.issues.len(), 1);
+        assert_eq!(v.issues[0].path, "/name");
+    }
+
+    #[test]
+    fn decode_validation_returns_none_for_wrong_type() {
+        let raw = r#"{"id":"err-3","type":"UnexpectedError","message":"Something broke"}"#;
+        let payload = RpcErrorPayload::from_json_slice(raw.as_bytes()).unwrap();
+
+        assert!(payload.decode_validation().unwrap().is_none());
+        assert!(payload.decode_schema_validation().unwrap().is_none());
     }
 
     #[test]

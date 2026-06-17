@@ -11,8 +11,8 @@ export const OWNED_API = {
     "Health.Heartbeat": {
       subject: "events.v1.Health.Heartbeat",
       event: schema<Types.HealthHeartbeatEvent>(HealthHeartbeatSchema),
-      publishCapabilities: [],
-      subscribeCapabilities: [],
+      publishCapabilities: [] as const,
+      subscribeCapabilities: [] as const,
     },
   },
   feeds: {},

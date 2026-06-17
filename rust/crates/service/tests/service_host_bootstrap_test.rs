@@ -25,6 +25,8 @@ impl RpcDescriptor for PingRpc {
     type Output = PingOutput;
     const KEY: &'static str = "Ping";
     const SUBJECT: &'static str = "rpc.v1.Ping";
+    const INPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
+    const OUTPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
 }
 
 #[derive(Clone)]

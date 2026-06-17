@@ -16,6 +16,9 @@ pub trait RpcDescriptor {
 
     /// Capability requirements declared for callers.
     const CALLER_CAPABILITIES: &'static [&'static str] = &[];
+
+    const INPUT_SCHEMA_JSON: &'static str;
+    const OUTPUT_SCHEMA_JSON: &'static str;
 }
 
 impl<D> RpcDescriptor for D
@@ -30,6 +33,8 @@ where
     const KEY: &'static str = D::KEY;
     const SUBJECT: &'static str = D::SUBJECT;
     const CALLER_CAPABILITIES: &'static [&'static str] = D::CALLER_CAPABILITIES;
+    const INPUT_SCHEMA_JSON: &'static str = D::INPUT_SCHEMA_JSON;
+    const OUTPUT_SCHEMA_JSON: &'static str = D::OUTPUT_SCHEMA_JSON;
 }
 
 /// Metadata required to publish one typed Trellis event.
@@ -71,6 +76,9 @@ pub trait FeedDescriptor {
 
     /// Capability requirements declared for subscribers.
     const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &[];
+
+    const INPUT_SCHEMA_JSON: &'static str;
+    const EVENT_SCHEMA_JSON: &'static str;
 }
 
 impl<D> FeedDescriptor for D
@@ -85,4 +93,6 @@ where
     const KEY: &'static str = D::KEY;
     const SUBJECT: &'static str = D::SUBJECT;
     const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = D::SUBSCRIBE_CAPABILITIES;
+    const INPUT_SCHEMA_JSON: &'static str = D::INPUT_SCHEMA_JSON;
+    const EVENT_SCHEMA_JSON: &'static str = D::EVENT_SCHEMA_JSON;
 }

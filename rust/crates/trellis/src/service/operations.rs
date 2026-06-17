@@ -95,10 +95,32 @@ pub struct OperationError {
     pub message: String,
 }
 
+/// A typed operation failure payload that can be serialized into the operation snapshot.
+pub trait OperationFailureLike: Send + 'static {
+    /// The wire error type discriminator (e.g. "NotFoundError").
+    fn error_type(&self) -> &str;
+    /// Human-facing error message.
+    fn message(&self) -> String;
+    /// Additional structured fields for the error payload.
+    fn fields(&self) -> serde_json::Map<String, Value>;
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct OperationFailure {
     pub message: String,
+}
+
+impl OperationFailureLike for OperationFailure {
+    fn error_type(&self) -> &str {
+        "OperationFailure"
+    }
+    fn message(&self) -> String {
+        self.message.clone()
+    }
+    fn fields(&self) -> serde_json::Map<String, Value> {
+        serde_json::Map::new()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -169,6 +191,7 @@ pub trait OperationDescriptor {
     type Input: DeserializeOwned + Send + 'static;
     type Progress: Serialize + Send + 'static;
     type Output: Serialize + Send + 'static;
+    type Error: OperationFailureLike + Send + 'static;
 
     const KEY: &'static str;
     const SUBJECT: &'static str;
@@ -177,6 +200,11 @@ pub trait OperationDescriptor {
     const CANCEL_CAPABILITIES: &'static [&'static str] = &[];
     const CONTROL_CAPABILITIES: &'static [&'static str] = &[];
     const CANCELABLE: bool;
+    const ERRORS: &'static [&'static str] = &[];
+    const INPUT_SCHEMA_JSON: &'static str;
+    const PROGRESS_SCHEMA_JSON: Option<&'static str>;
+    const OUTPUT_SCHEMA_JSON: &'static str;
+    const SIGNAL_INPUT_SCHEMAS_JSON: &'static str;
 }
 
 impl<D> OperationDescriptor for D
@@ -185,10 +213,12 @@ where
     D::Input: DeserializeOwned + Send + 'static,
     D::Progress: Serialize + Send + 'static,
     D::Output: Serialize + Send + 'static,
+    D::Error: OperationFailureLike,
 {
     type Input = D::Input;
     type Progress = D::Progress;
     type Output = D::Output;
+    type Error = D::Error;
 
     const KEY: &'static str = D::KEY;
     const SUBJECT: &'static str = D::SUBJECT;
@@ -197,6 +227,11 @@ where
     const CANCEL_CAPABILITIES: &'static [&'static str] = D::CANCEL_CAPABILITIES;
     const CONTROL_CAPABILITIES: &'static [&'static str] = D::CONTROL_CAPABILITIES;
     const CANCELABLE: bool = D::CANCELABLE;
+    const ERRORS: &'static [&'static str] = D::ERRORS;
+    const INPUT_SCHEMA_JSON: &'static str = D::INPUT_SCHEMA_JSON;
+    const PROGRESS_SCHEMA_JSON: Option<&'static str> = D::PROGRESS_SCHEMA_JSON;
+    const OUTPUT_SCHEMA_JSON: &'static str = D::OUTPUT_SCHEMA_JSON;
+    const SIGNAL_INPUT_SCHEMAS_JSON: &'static str = D::SIGNAL_INPUT_SCHEMAS_JSON;
 }
 
 /// Provider-style operation handler for generated service helpers.
@@ -711,18 +746,21 @@ where
         .await
     }
 
-    /// Fail the operation with a failure payload.
+    /// Fail the operation with a typed failure payload.
     pub async fn fail(
         &self,
-        error: OperationFailure,
-    ) -> Result<OperationSnapshot<D::Progress, D::Output>, ServerError> {
+        error: D::Error,
+    ) -> Result<OperationSnapshot<D::Progress, D::Output>, ServerError>
+    where
+        D::Error: OperationFailureLike,
+    {
         self.update(
             OperationState::Failed,
             None,
             None,
             Some(OperationError {
-                error_type: "OperationFailure".to_string(),
-                message: error.message,
+                error_type: error.error_type().to_string(),
+                message: error.message(),
             }),
         )
         .await
