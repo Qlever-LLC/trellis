@@ -119,7 +119,7 @@ The GitHub `Release` workflow runs the same Rust release tooling used locally:
 - `release check-metadata` checks release metadata before expensive verification
 - `release write-notes` extracts the matching `CHANGELOG.md` section for GitHub release notes
 
-The normal release path is a `release/vX.Y.Z` or `release/vX.Y.Z-rc.1` branch marker. The workflow prepares the release workspace once, uploads it as an artifact, and reuses it for formatting checks, Rust tests, Deno checks and tests, the peer JS and Rust integration suites, npm and JSR package checks, CLI binary builds, image dry-runs, and publish jobs. After the release gate passes, GitHub Actions creates an unsigned lightweight release tag on the marked commit and publishes from the already verified artifacts. If the gate fails, no release tag is created and the same version can be retried.
+The normal release path is a `release/vX.Y.Z` or `release/vX.Y.Z-rc.1` branch marker. The workflow prepares the release workspace once, uploads it as an artifact, and reuses it for formatting checks, Rust tests, Deno checks and tests, the peer JS and Rust integration suites, npm and JSR package checks, CLI binary builds, image dry-runs, and publish jobs. After the release gate passes, GitHub Actions creates an unsigned lightweight release tag on the marked commit and publishes from the already verified artifacts. If the gate fails, no release tag is created and the same version can be retried. Pull request runs keep the formatting, package, unit, and integration test coverage, but skip the release artifact matrix jobs for CLI binaries and image dry-runs unless a release tag is being verified.
 
 Release CI intentionally keeps both the pre-`release prepare` generator bootstrap and the post-`release prepare` generator pass. Removing the first pass is a follow-up optimization only after a generated-artifact freshness check proves `release prepare` no longer depends on bootstrapped artifacts.
 
@@ -265,8 +265,11 @@ deno task -c js/deno.json test:prepared:packages
 deno task -c js/deno.json test:prepared:service:catalog-state
 deno task -c js/deno.json test:prepared:service:auth
 deno task -c js/deno.json test:prepared:ui-tools
-deno task -c js/deno.json test:prepared:packaging
-cargo test --manifest-path rust/Cargo.toml --workspace
+deno task -c js/deno.json packages:build:npm
+deno task -c js/deno.json test:prepared:packaging:built
+cargo test --manifest-path rust/Cargo.toml --workspace --exclude trellis-rs
+cargo test --manifest-path rust/Cargo.toml -p trellis-rs --lib
+cargo test --manifest-path rust/Cargo.toml -p trellis-rs --doc
 cargo test --manifest-path rust/tools/generate/Cargo.toml
 cargo test --manifest-path rust/xtask/Cargo.toml
 cargo test --manifest-path xtask/Cargo.toml
@@ -282,7 +285,8 @@ deno task -c js/deno.json test:prepared:packages
 deno task -c js/deno.json test:prepared:service:catalog-state
 deno task -c js/deno.json test:prepared:service:auth
 deno task -c js/deno.json test:prepared:ui-tools
-deno task -c js/deno.json test:prepared:packaging
+deno task -c js/deno.json packages:build:npm
+deno task -c js/deno.json test:prepared:packaging:built
 ```
 
 The prepared partitions are the non-integration Deno release-test set. Keep JS client-library integration coverage in `deno task -c js/deno.json test:integration` so containerized integration tests run only in the intended integration suite.
@@ -360,7 +364,7 @@ The unified `Release` workflow publishes in gated stages:
 
 - `resolve-release` derives the final release tag from the `release/v*` branch and rejects already-used tags
 - `prepare-release` rewrites publishable versions, verifies release metadata, generates SDK artifacts, writes release notes, and uploads the prepared workspace
-- `verify-format`, `verify-rust`, `verify-js`, `verify-js-integration`, `verify-rust-integration`, `build-cli`, and `verify-images` validate the release before publication
+- `verify-format`, `verify-rust`, `verify-js`, `verify-js-integration`, `verify-rust-integration`, `build-cli`, and `verify-images` validate the release before publication; pull request runs skip the `build-cli` and `verify-images` release artifact matrix jobs while keeping the test jobs
 - `create-release-tag` creates the release tag after the release gate passes
 - `github-release` publishes CLI archives and checksums first
 - `publish-crates`, `publish-npm`, and `publish-images` publish downstream artifacts after the GitHub release exists

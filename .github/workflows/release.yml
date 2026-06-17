@@ -254,12 +254,16 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${RELEASE_TAG}" ]; then
-            time cargo test --manifest-path rust/Cargo.toml --workspace
+            time cargo test --manifest-path rust/Cargo.toml --workspace --exclude trellis-rs
+            time cargo test --manifest-path rust/Cargo.toml -p trellis-rs --lib
+            time cargo test --manifest-path rust/Cargo.toml -p trellis-rs --doc
             time cargo test --manifest-path rust/tools/generate/Cargo.toml
             time cargo test --manifest-path rust/xtask/Cargo.toml
             time cargo test --manifest-path xtask/Cargo.toml
           else
-            time cargo test --manifest-path rust/Cargo.toml --workspace --locked
+            time cargo test --manifest-path rust/Cargo.toml --workspace --exclude trellis-rs --locked
+            time cargo test --manifest-path rust/Cargo.toml -p trellis-rs --lib --locked
+            time cargo test --manifest-path rust/Cargo.toml -p trellis-rs --doc --locked
             time cargo test --manifest-path rust/tools/generate/Cargo.toml --locked
             time cargo test --manifest-path rust/xtask/Cargo.toml --locked
             time cargo test --manifest-path xtask/Cargo.toml --locked
@@ -350,7 +354,7 @@ jobs:
           time deno task -c js/deno.json test:prepared:service:catalog-state
           time deno task -c js/deno.json test:prepared:service:auth
           time deno task -c js/deno.json test:prepared:ui-tools
-          time deno task -c js/deno.json test:prepared:packaging
+          time deno task -c js/deno.json test:prepared:packaging:built
 
       - name: Smoke test packed npm packages
         run: time deno task smoke:npm
@@ -406,6 +410,7 @@ jobs:
 
   build-cli:
     name: Build ${{ matrix.target }} CLI
+    if: needs.prepare-release.outputs.release-tag != ''
     needs: prepare-release
     runs-on: ${{ matrix.runner }}
     env:
@@ -506,6 +511,7 @@ jobs:
 
   verify-images:
     name: Verify ${{ matrix.image }} image
+    if: needs.prepare-release.outputs.release-tag != ''
     needs: prepare-release
     runs-on: ubuntu-latest
     env:
@@ -623,11 +629,12 @@ jobs:
             rust/tools/generate -> target
 
       - name: Run Rust integration tests
-        run: time cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration -- --ignored --nocapture
+        run: time cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration -- --nocapture
 
   release-gate:
     name: Release gate
     needs:
+      - prepare-release
       - verify-format
       - verify-rust
       - verify-js
@@ -635,6 +642,17 @@ jobs:
       - verify-images
       - verify-js-integration
       - verify-rust-integration
+    if: >-
+      always()
+      && needs.verify-format.result == 'success'
+      && needs.verify-rust.result == 'success'
+      && needs.verify-js.result == 'success'
+      && needs.verify-js-integration.result == 'success'
+      && needs.verify-rust-integration.result == 'success'
+      && (
+        needs.prepare-release.outputs.release-tag == ''
+        || (needs.build-cli.result == 'success' && needs.verify-images.result == 'success')
+      )
     runs-on: ubuntu-latest
 
     steps:

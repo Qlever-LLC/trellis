@@ -1355,11 +1355,49 @@ fn verify_command_specs(
         ),
         CommandSpec::new(
             "deno",
-            vec!["task", "-c", "js/deno.json", "test:prepared:packaging"],
+            vec!["task", "-c", "js/deno.json", "packages:build:npm"],
+        ),
+        CommandSpec::new(
+            "deno",
+            vec![
+                "task",
+                "-c",
+                "js/deno.json",
+                "test:prepared:packaging:built",
+            ],
         ),
         CommandSpec::new(
             "cargo",
-            vec!["test", "--manifest-path", "rust/Cargo.toml", "--workspace"],
+            vec![
+                "test",
+                "--manifest-path",
+                "rust/Cargo.toml",
+                "--workspace",
+                "--exclude",
+                "trellis-rs",
+            ],
+        ),
+        CommandSpec::new(
+            "cargo",
+            vec![
+                "test",
+                "--manifest-path",
+                "rust/Cargo.toml",
+                "-p",
+                "trellis-rs",
+                "--lib",
+            ],
+        ),
+        CommandSpec::new(
+            "cargo",
+            vec![
+                "test",
+                "--manifest-path",
+                "rust/Cargo.toml",
+                "-p",
+                "trellis-rs",
+                "--doc",
+            ],
         ),
         CommandSpec::new(
             "cargo",
@@ -1396,7 +1434,6 @@ fn verify_command_specs(
             "--test".to_string(),
             "integration".to_string(),
             "--".to_string(),
-            "--ignored".to_string(),
             "--nocapture".to_string(),
         ];
         if keep_workdir {
@@ -1877,14 +1914,26 @@ mod tests {
             commands.contains(&"deno task -c js/deno.json test:prepared:service:auth".to_string())
         );
         assert!(commands.contains(&"deno task -c js/deno.json test:prepared:ui-tools".to_string()));
-        assert!(commands.contains(&"deno task -c js/deno.json test:prepared:packaging".to_string()));
+        assert!(commands.contains(&"deno task -c js/deno.json packages:build:npm".to_string()));
+        assert!(commands
+            .contains(&"deno task -c js/deno.json test:prepared:packaging:built".to_string()));
+        assert!(commands.contains(
+            &"cargo test --manifest-path rust/Cargo.toml --workspace --exclude trellis-rs"
+                .to_string()
+        ));
+        assert!(commands.contains(
+            &"cargo test --manifest-path rust/Cargo.toml -p trellis-rs --lib".to_string()
+        ));
+        assert!(commands.contains(
+            &"cargo test --manifest-path rust/Cargo.toml -p trellis-rs --doc".to_string()
+        ));
         assert_eq!(
             &commands[commands.len() - 2],
             "deno task -c js/deno.json test:integration"
         );
         assert_eq!(
             commands.last().expect("last release verify command"),
-            "cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration -- --ignored --nocapture"
+            "cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration -- --nocapture"
         );
     }
 
@@ -1901,7 +1950,7 @@ mod tests {
         );
         assert_eq!(
             commands.last().expect("last release verify command"),
-            "env TRELLIS_TEST_KEEP_WORKDIR=1 cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration -- --ignored --nocapture"
+            "env TRELLIS_TEST_KEEP_WORKDIR=1 cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration -- --nocapture"
         );
     }
 
@@ -2041,7 +2090,7 @@ mod tests {
 
     #[test]
     fn rewrite_cargo_manifest_for_release_updates_generated_sdk_dependencies() {
-        let original = "[workspace.package]\nversion = \"0.8.2\"\n\n[dependencies]\ntrellis-rs = { path = \"../trellis\", version = \"0.8.2\" }\ntrellis-local-bootstrap = { path = \"../local-bootstrap\", version = \"0.8.2\" }\ntrellis-sdk-health = { path = \"../generated/packages/cargo/health\", version = \"0.8.2\" }\ntrellis-sdk-state = { path = \"../generated/packages/cargo/state\", version = \"0.8.2\" }\nserde = { version = \"1.0\" }\n";
+        let original = "[workspace.package]\nversion = \"0.8.2\"\n\n[dependencies]\ntrellis-rs = { path = \"../trellis\", version = \"0.8.2\" }\ntrellis-bootstrap = { path = \"../bootstrap\", version = \"0.8.2\" }\ntrellis-sdk-health = { path = \"../generated/packages/cargo/health\", version = \"0.8.2\" }\ntrellis-sdk-state = { path = \"../generated/packages/cargo/state\", version = \"0.8.2\" }\nserde = { version = \"1.0\" }\n";
         let updated = rewrite_cargo_manifest_versions_for_release(
             original,
             "0.8.2-rc.1",
@@ -2051,7 +2100,7 @@ mod tests {
         .expect("rewrite cargo release versions");
         assert_eq!(
             updated,
-            "[workspace.package]\nversion = \"0.8.2-rc.1\"\n\n[dependencies]\ntrellis-rs = { path = \"../trellis\", version = \"0.8.2-rc.1\" }\ntrellis-local-bootstrap = { path = \"../local-bootstrap\", version = \"0.8.2-rc.1\" }\ntrellis-sdk-health = { path = \"../generated/packages/cargo/health\", version = \"0.8.2-rc.1\" }\ntrellis-sdk-state = { path = \"../generated/packages/cargo/state\", version = \"0.8.2-rc.1\" }\nserde = { version = \"1.0\" }\n"
+            "[workspace.package]\nversion = \"0.8.2-rc.1\"\n\n[dependencies]\ntrellis-rs = { path = \"../trellis\", version = \"0.8.2-rc.1\" }\ntrellis-bootstrap = { path = \"../bootstrap\", version = \"0.8.2-rc.1\" }\ntrellis-sdk-health = { path = \"../generated/packages/cargo/health\", version = \"0.8.2-rc.1\" }\ntrellis-sdk-state = { path = \"../generated/packages/cargo/state\", version = \"0.8.2-rc.1\" }\nserde = { version = \"1.0\" }\n"
         );
     }
 
