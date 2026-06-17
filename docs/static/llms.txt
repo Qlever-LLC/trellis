@@ -52,9 +52,9 @@ commands.
   rules as RPC errors on the operation descriptor.
 - Model expected public failures with declared errors or `Result`-style values.
 - TypeScript services use `service.createSqlOutbox(...)` for SQL transactional
-  event enqueue. Close over the outbox object as a plain dependency, use
-  `outbox.transaction(...)` around all DB work and `event.*.*.enqueue(...)` calls
-  that must commit atomically, and do not create local outbox wrappers or manual
+  event enqueue and job submission. Close over the outbox object as a plain dependency, use
+  `outbox.transaction(...)` around all DB work and `event.*.*.enqueue(...)` or
+  `job.*.*.create/submit(...)` calls that must commit atomically, and do not create local outbox wrappers or manual
   `SqlOutboxRepository` handler wiring. Normal event facades expose `prepare`,
   `publish`, and `listen`, not `enqueue`.
 - Configure TypeScript SQL outbox with generic `executor` and `transaction`

@@ -1,14 +1,26 @@
-import { type AsyncResult, type BaseError, isErr } from "@qlever-llc/result";
+import { type AsyncResult, type BaseError, isErr, UnexpectedError } from "@qlever-llc/result";
 import { type StaticDecode, Type } from "typebox";
-import type { PreparedTrellisEvent, Trellis } from "../trellis.ts";
+import type { PreparedTrellisEvent } from "../trellis.ts";
 import { TypedKV } from "../kv.ts";
 import { recordTrellisError } from "../telemetry/mod.ts";
 
 export type OutboxMessageState = "pending" | "dispatched" | "failed";
 
+export type OutboxRecordKind = "event.publish" | "job.create" | "job.submit";
+
+export type PreparedOutboxRecord = {
+  readonly id: string;
+  readonly kind: OutboxRecordKind;
+  readonly name: string;
+  readonly subject: string;
+  readonly payload: string;
+  readonly headers: Readonly<Record<string, string>>;
+};
+
 export type OutboxMessage = {
   id: string;
-  event: string;
+  kind: OutboxRecordKind;
+  name: string;
   subject: string;
   payload: string;
   headers: Record<string, string>;
@@ -18,6 +30,7 @@ export type OutboxMessage = {
   updatedAt: string;
   nextAttemptAt?: string;
   lastError?: string;
+  outcome?: unknown;
 };
 
 export type OutboxDispatchResult = {
@@ -39,10 +52,21 @@ export type OutboxDispatcherOptions = {
   onError?: (error: unknown) => void;
 };
 
+export type OutboxDispatchRuntime = {
+  /** Dispatches an event-publish outbox record. Returns Void on success, err on transient failure. */
+  publishPreparedEvent(
+    event: PreparedTrellisEvent,
+  ): AsyncResult<void, UnexpectedError>;
+  /** Dispatches a job create/submit outbox record. Stub until Phase 3. */
+  dispatchJobSubmission?(
+    message: OutboxMessage,
+  ): AsyncResult<void, BaseError>;
+};
+
 export type OutboxRepository = {
-  enqueue(event: PreparedTrellisEvent): Promise<OutboxMessage>;
+  enqueue(record: PreparedOutboxRecord): Promise<OutboxMessage>;
   claimDue(limit: number, now: Date): Promise<OutboxMessage[]>;
-  markDispatched(id: string, now: Date): Promise<void>;
+  markDispatched(id: string, now: Date, outcome?: unknown): Promise<void>;
   markFailed(
     id: string,
     failure: { error: string; nextAttemptAt: Date; now: Date },
@@ -178,7 +202,7 @@ export function createSqliteOutboxSchema(
 ): readonly string[] {
   const sqlTables = validateSqlOutboxTables(tables);
   return [
-    `CREATE TABLE IF NOT EXISTS ${sqlTables.outbox} (id TEXT PRIMARY KEY, event TEXT NOT NULL, subject TEXT NOT NULL, payload TEXT NOT NULL, headers TEXT NOT NULL, state TEXT NOT NULL, attempts INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, next_attempt_at TEXT, last_error TEXT)`,
+    `CREATE TABLE IF NOT EXISTS ${sqlTables.outbox} (id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, subject TEXT NOT NULL, payload TEXT NOT NULL, headers TEXT NOT NULL, state TEXT NOT NULL, attempts INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, next_attempt_at TEXT, last_error TEXT, outcome TEXT)`,
     `CREATE INDEX IF NOT EXISTS ${sqlTables.outbox}_due_idx ON ${sqlTables.outbox} (state, next_attempt_at)`,
     `CREATE TABLE IF NOT EXISTS ${sqlTables.inbox} (message_id TEXT PRIMARY KEY, received_at TEXT NOT NULL)`,
   ];
@@ -190,7 +214,7 @@ export function createPostgresOutboxSchema(
 ): readonly string[] {
   const sqlTables = validateSqlOutboxTables(tables);
   return [
-    `CREATE TABLE IF NOT EXISTS ${sqlTables.outbox} (id text PRIMARY KEY, event text NOT NULL, subject text NOT NULL, payload text NOT NULL, headers jsonb NOT NULL, state text NOT NULL, attempts integer NOT NULL, created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL, next_attempt_at timestamptz, last_error text)`,
+    `CREATE TABLE IF NOT EXISTS ${sqlTables.outbox} (id text PRIMARY KEY, kind text NOT NULL, name text NOT NULL, subject text NOT NULL, payload text NOT NULL, headers jsonb NOT NULL, state text NOT NULL, attempts integer NOT NULL, created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL, next_attempt_at timestamptz, last_error text, outcome jsonb)`,
     `CREATE INDEX IF NOT EXISTS ${sqlTables.outbox}_due_idx ON ${sqlTables.outbox} (state, next_attempt_at)`,
     `CREATE TABLE IF NOT EXISTS ${sqlTables.inbox} (message_id text PRIMARY KEY, received_at timestamptz NOT NULL)`,
   ];
@@ -261,17 +285,18 @@ function fnv1a64Hex(input: string): string {
 export class MemoryOutboxRepository implements OutboxRepository {
   #messages = new Map<string, OutboxMessage>();
 
-  async enqueue(event: PreparedTrellisEvent): Promise<OutboxMessage> {
+  async enqueue(record: PreparedOutboxRecord): Promise<OutboxMessage> {
     const now = new Date().toISOString();
-    const id = messageId(event);
+    const id = record.id;
     const existing = this.#messages.get(id);
     if (existing) return existing;
     const message: OutboxMessage = {
       id,
-      event: event.event,
-      subject: event.subject,
-      payload: event.encodedPayload,
-      headers: { ...event.headers },
+      kind: record.kind,
+      name: record.name,
+      subject: record.subject,
+      payload: record.payload,
+      headers: { ...record.headers },
       state: "pending",
       attempts: 0,
       createdAt: now,
@@ -297,7 +322,7 @@ export class MemoryOutboxRepository implements OutboxRepository {
     return claimed;
   }
 
-  async markDispatched(id: string, now: Date): Promise<void> {
+  async markDispatched(id: string, now: Date, outcome?: unknown): Promise<void> {
     const message = this.#messages.get(id);
     if (!message) return;
     this.#messages.set(id, {
@@ -306,6 +331,7 @@ export class MemoryOutboxRepository implements OutboxRepository {
       updatedAt: now.toISOString(),
       nextAttemptAt: undefined,
       lastError: undefined,
+      outcome: outcome ?? message.outcome,
     });
   }
 
@@ -356,14 +382,15 @@ export class SqlOutboxRepository implements OutboxRepository {
     this.tables = validateSqlOutboxTables(tables);
   }
 
-  async enqueue(event: PreparedTrellisEvent): Promise<OutboxMessage> {
+  async enqueue(record: PreparedOutboxRecord): Promise<OutboxMessage> {
     const now = new Date().toISOString();
     const message: OutboxMessage = {
-      id: messageId(event),
-      event: event.event,
-      subject: event.subject,
-      payload: event.encodedPayload,
-      headers: { ...event.headers },
+      id: record.id,
+      kind: record.kind,
+      name: record.name,
+      subject: record.subject,
+      payload: record.payload,
+      headers: { ...record.headers },
       state: "pending",
       attempts: 0,
       createdAt: now,
@@ -374,12 +401,13 @@ export class SqlOutboxRepository implements OutboxRepository {
       ? "ON CONFLICT (id) DO NOTHING"
       : "ON CONFLICT(id) DO NOTHING";
     await this.executor.execute(
-      `INSERT INTO ${this.tables.outbox} (id, event, subject, payload, headers, state, attempts, created_at, updated_at, next_attempt_at, last_error) VALUES (${
-        placeholders(this.dialect, 11)
+      `INSERT INTO ${this.tables.outbox} (id, kind, name, subject, payload, headers, state, attempts, created_at, updated_at, next_attempt_at, last_error, outcome) VALUES (${
+        placeholders(this.dialect, 13)
       }) ${conflict}`,
       [
         message.id,
-        message.event,
+        message.kind,
+        message.name,
         message.subject,
         message.payload,
         headers,
@@ -389,6 +417,7 @@ export class SqlOutboxRepository implements OutboxRepository {
         message.updatedAt,
         null,
         null,
+        null,
       ],
     );
     return message;
@@ -396,7 +425,7 @@ export class SqlOutboxRepository implements OutboxRepository {
 
   async claimDue(limit: number, now: Date): Promise<OutboxMessage[]> {
     const rows = await this.executor.query(
-      `SELECT id, event, subject, payload, headers, state, attempts, created_at, updated_at, next_attempt_at, last_error FROM ${this.tables.outbox} WHERE state != ${
+      `SELECT id, kind, name, subject, payload, headers, state, attempts, created_at, updated_at, next_attempt_at, last_error, outcome FROM ${this.tables.outbox} WHERE state != ${
         placeholder(this.dialect, 1)
       } AND (next_attempt_at IS NULL OR next_attempt_at <= ${
         placeholder(this.dialect, 2)
@@ -406,16 +435,17 @@ export class SqlOutboxRepository implements OutboxRepository {
     return rows.map(rowToOutboxMessage);
   }
 
-  async markDispatched(id: string, now: Date): Promise<void> {
+  async markDispatched(id: string, now: Date, outcome?: unknown): Promise<void> {
+    const outcomeJson = outcome !== undefined ? JSON.stringify(outcome) : null;
     await this.executor.execute(
       `UPDATE ${this.tables.outbox} SET state = ${
         placeholder(this.dialect, 1)
       }, updated_at = ${
         placeholder(this.dialect, 2)
-      }, next_attempt_at = NULL, last_error = NULL WHERE id = ${
+      }, next_attempt_at = NULL, last_error = NULL, outcome = ${
         placeholder(this.dialect, 3)
-      }`,
-      ["dispatched", now.toISOString(), id],
+      } WHERE id = ${placeholder(this.dialect, 4)}`,
+      ["dispatched", now.toISOString(), outcomeJson, id],
     );
   }
 
@@ -491,7 +521,8 @@ type KvInboxRecord = StaticDecode<typeof KvInboxRecordSchema>;
 
 export const KvOutboxRecordSchema = Type.Object({
   id: Type.String(),
-  event: Type.String(),
+  kind: Type.String(),
+  name: Type.String(),
   subject: Type.String(),
   payload: Type.String(),
   headers: Type.Record(Type.String(), Type.String()),
@@ -506,6 +537,7 @@ export const KvOutboxRecordSchema = Type.Object({
   updatedAt: Type.String(),
   nextAttemptAt: Type.Optional(Type.String()),
   lastError: Type.Optional(Type.String()),
+  outcome: Type.Optional(Type.String()),
 });
 
 export type KvOutboxRecord = StaticDecode<typeof KvOutboxRecordSchema>;
@@ -514,14 +546,15 @@ export type KvOutboxRecord = StaticDecode<typeof KvOutboxRecordSchema>;
 export class NatsKvOutboxRepository implements OutboxRepository {
   constructor(readonly kv: OutboxKvStore) {}
 
-  async enqueue(event: PreparedTrellisEvent): Promise<OutboxMessage> {
+  async enqueue(rec: PreparedOutboxRecord): Promise<OutboxMessage> {
     const now = new Date().toISOString();
     const record: KvOutboxRecord = {
-      id: messageId(event),
-      event: event.event,
-      subject: event.subject,
-      payload: event.encodedPayload,
-      headers: { ...event.headers },
+      id: rec.id,
+      kind: rec.kind,
+      name: rec.name,
+      subject: rec.subject,
+      payload: rec.payload,
+      headers: { ...rec.headers },
       state: "pending",
       attempts: 0,
       createdAt: now,
@@ -574,18 +607,20 @@ export class NatsKvOutboxRepository implements OutboxRepository {
     return claimed;
   }
 
-  async markDispatched(id: string, now: Date): Promise<void> {
+  async markDispatched(id: string, now: Date, outcome?: unknown): Promise<void> {
     const loaded = await this.kv.get(id).take();
     if (isErr(loaded)) {
       if (hasKvReason(loaded.error, "not found")) return;
       throw loaded.error;
     }
+    const outcomeStr = outcome !== undefined ? JSON.stringify(outcome) : undefined;
     const stored = await loaded.put({
       ...loaded.value,
       state: "dispatched",
       updatedAt: now.toISOString(),
       nextAttemptAt: undefined,
       lastError: undefined,
+      outcome: outcomeStr ?? loaded.value.outcome,
     }, true).take();
     if (isErr(stored)) throw stored.error;
   }
@@ -640,7 +675,7 @@ export class NatsKvInboxRepository implements InboxRepository {
  */
 export class OutboxDispatcher {
   readonly #repository: OutboxRepository;
-  readonly #runtime: Pick<Trellis, "publishPrepared">;
+  readonly #runtime: OutboxDispatchRuntime;
   readonly #options: OutboxDispatcherOptions;
   #wakeTimer: ReturnType<typeof setTimeout> | undefined;
   #retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -653,7 +688,7 @@ export class OutboxDispatcher {
   /** Creates a dispatcher over an existing outbox repository and runtime. */
   constructor(
     repository: OutboxRepository,
-    runtime: Pick<Trellis, "publishPrepared">,
+    runtime: OutboxDispatchRuntime,
     options: OutboxDispatcherOptions = {},
   ) {
     this.#repository = repository;
@@ -784,10 +819,10 @@ export class OutboxDispatcher {
   }
 }
 
-/** Dispatches due outbox messages through a Trellis runtime publisher. */
+/** Dispatches due outbox messages through a dispatch runtime. */
 export async function dispatchOutbox(
   repository: OutboxRepository,
-  runtime: Pick<Trellis, "publishPrepared">,
+  runtime: OutboxDispatchRuntime,
   options: { limit?: number; now?: Date; retryDelayMs?: number } = {},
 ): Promise<OutboxDispatchResult> {
   const now = options.now ?? new Date();
@@ -796,40 +831,90 @@ export async function dispatchOutbox(
   let dispatched = 0;
   let failed = 0;
   for (const message of messages) {
-    const result = await runtime.publishPrepared(
-      outboxMessageToPrepared(message),
-    );
-    const value = result.take();
-    if (isErr(value)) {
-      recordTrellisError(value.error, {
+    if (message.kind === "event.publish") {
+      const result = await runtime.publishPreparedEvent(
+        outboxMessageToPreparedEvent(message),
+      );
+      const value = result.take();
+      if (isErr(value)) {
+        recordTrellisError(value.error, {
+          surface: "outbox",
+          direction: "dispatcher",
+          operation: message.name,
+          phase: "publish",
+          messagingSystem: "nats",
+        });
+        failed += 1;
+        await repository.markFailed(message.id, {
+          error: value.error.message,
+          nextAttemptAt: new Date(now.getTime() + retryDelayMs),
+          now,
+        });
+        continue;
+      }
+      dispatched += 1;
+      await repository.markDispatched(message.id, now);
+    } else if (
+      message.kind === "job.create" || message.kind === "job.submit"
+    ) {
+      if (runtime.dispatchJobSubmission) {
+        const result = await runtime.dispatchJobSubmission(message);
+        const value = result.take();
+        if (isErr(value)) {
+          recordTrellisError(value.error, {
+            surface: "outbox",
+            direction: "dispatcher",
+            operation: message.name,
+            phase: "job.dispatch",
+          });
+          failed += 1;
+          await repository.markFailed(message.id, {
+            error: value.error.message,
+            nextAttemptAt: new Date(now.getTime() + retryDelayMs),
+            now,
+          });
+          continue;
+        }
+        dispatched += 1;
+        await repository.markDispatched(message.id, now);
+      } else {
+        recordTrellisError(new Error(`job dispatch not supported`), {
+          surface: "outbox",
+          direction: "dispatcher",
+          operation: message.name,
+          phase: "dispatch",
+        });
+        await repository.markDispatched(message.id, now, {
+          error: "job dispatch not supported",
+        });
+      }
+    } else {
+      const error = `Unknown outbox record kind: ${message.kind}`;
+      recordTrellisError(new Error(error), {
         surface: "outbox",
         direction: "dispatcher",
-        operation: message.event,
-        phase: "publish",
-        messagingSystem: "nats",
+        operation: message.name,
+        phase: "dispatch",
       });
-      failed += 1;
-      await repository.markFailed(message.id, {
-        error: value.error.message,
-        nextAttemptAt: new Date(now.getTime() + retryDelayMs),
-        now,
-      });
-      continue;
+      await repository.markDispatched(message.id, now, { error });
     }
-    dispatched += 1;
-    await repository.markDispatched(message.id, now);
   }
   return { dispatched, failed };
 }
 
-/** Rehydrates a persisted outbox row into a prepared event. */
-export function outboxMessageToPrepared(
+/** Rehydrates a persisted outbox event row into a prepared event. */
+export function outboxMessageToPreparedEvent(
   message: OutboxMessage,
 ): PreparedTrellisEvent {
+  if (message.kind !== "event.publish") {
+    throw new Error(
+      `Expected event.publish kind, got ${message.kind}`,
+    );
+  }
   const payload = JSON.parse(message.payload) as Record<string, unknown>;
   const header = eventHeaderFromMessage(message.headers);
   return Object.freeze({
-    event: message.event,
+    event: message.name,
     subject: message.subject,
     header: Object.freeze(header),
     payload: Object.freeze(payload),
@@ -838,9 +923,18 @@ export function outboxMessageToPrepared(
   });
 }
 
-function messageId(event: PreparedTrellisEvent): string {
-  return event.headers["Nats-Msg-Id"] ?? event.headers["nats-msg-id"] ??
-    event.header.id;
+/** Adapts a prepared Trellis event into a generic outbox record. */
+export function preparedTrellisEventToOutboxRecord(
+  event: PreparedTrellisEvent,
+): PreparedOutboxRecord {
+  return {
+    id: event.headers["Nats-Msg-Id"] ?? event.header.id,
+    kind: "event.publish",
+    name: event.event,
+    subject: event.subject,
+    payload: event.encodedPayload,
+    headers: event.headers,
+  };
 }
 
 function eventHeaderFromMessage(
@@ -857,7 +951,8 @@ function eventHeaderFromMessage(
 function rowToOutboxMessage(row: SqlRow): OutboxMessage {
   return {
     id: stringField(row, "id"),
-    event: stringField(row, "event"),
+    kind: kindField(row, "kind"),
+    name: stringField(row, "name"),
     subject: stringField(row, "subject"),
     payload: stringField(row, "payload"),
     headers: parseHeaders(row["headers"]),
@@ -867,13 +962,15 @@ function rowToOutboxMessage(row: SqlRow): OutboxMessage {
     updatedAt: stringField(row, "updated_at"),
     nextAttemptAt: optionalStringField(row, "next_attempt_at"),
     lastError: optionalStringField(row, "last_error"),
+    outcome: optionalStringField(row, "outcome"),
   };
 }
 
 function kvRecordToOutboxMessage(record: KvOutboxRecord): OutboxMessage {
   return {
     id: record.id,
-    event: record.event,
+    kind: record.kind as OutboxRecordKind,
+    name: record.name,
     subject: record.subject,
     payload: record.payload,
     headers: { ...record.headers },
@@ -883,6 +980,7 @@ function kvRecordToOutboxMessage(record: KvOutboxRecord): OutboxMessage {
     updatedAt: record.updatedAt,
     nextAttemptAt: record.nextAttemptAt,
     lastError: record.lastError,
+    outcome: record.outcome,
   };
 }
 
@@ -946,6 +1044,17 @@ function numberField(row: SqlRow, field: string): number {
     throw new Error(`Expected SQL field ${field} to be a number`);
   }
   return value;
+}
+
+function kindField(row: SqlRow, field: string): OutboxRecordKind {
+  const value = stringField(row, field);
+  if (
+    value === "event.publish" || value === "job.create" ||
+    value === "job.submit"
+  ) {
+    return value;
+  }
+  throw new Error(`Expected SQL field ${field} to be an outbox record kind`);
 }
 
 function stateField(row: SqlRow, field: string): OutboxMessageState {

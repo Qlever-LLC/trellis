@@ -1,7 +1,7 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import type { SQL } from "drizzle-orm";
 import { CasingCache } from "npm:drizzle-orm@0.44.7/casing";
-import type { PreparedTrellisEvent } from "../trellis.ts";
+import type { PreparedOutboxRecord } from "../service/outbox_inbox.ts";
 import { createSqlOutboxAdapter, type SqlRow } from "../service/mod.ts";
 import {
   bindDrizzleSqlStatement,
@@ -13,19 +13,18 @@ import {
 
 const casing = new CasingCache();
 
-function prepared(id: string): PreparedTrellisEvent {
-  const payload = Object.freeze({
-    header: Object.freeze({ id, time: "2026-05-25T00:00:00.000Z" }),
-    value: "test",
-  });
-  return Object.freeze({
-    event: "Thing.Changed",
+function prepared(id: string): PreparedOutboxRecord {
+  return {
+    id,
+    kind: "event.publish",
+    name: "Thing.Changed",
     subject: "events.v1.Thing.Changed",
-    header: Object.freeze({ id, time: "2026-05-25T00:00:00.000Z" }),
-    payload,
-    encodedPayload: JSON.stringify(payload),
-    headers: Object.freeze({ "Nats-Msg-Id": id }),
-  });
+    payload: JSON.stringify({
+      header: { id, time: "2026-05-25T00:00:00.000Z" },
+      value: "test",
+    }),
+    headers: { "Nats-Msg-Id": id },
+  };
 }
 
 function toSqliteQuery(query: SQL) {
@@ -164,7 +163,7 @@ Deno.test("Drizzle SQL executor works with sqlite outbox adapter", async () => {
 
   const insert = toSqliteQuery(single(database.runQueries));
   assertEquals(insert.params[0], "drizzle_outbox");
-  assertEquals(insert.params.length, 11);
+  assertEquals(insert.params.length, 13);
 
   const claim = toSqliteQuery(single(database.allQueries));
   assertEquals(claim.sql.includes("FROM trellis_outbox"), true);

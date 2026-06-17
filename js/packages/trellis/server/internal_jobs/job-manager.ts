@@ -113,6 +113,17 @@ export type JobManagerSubmitOutcome<TPayload, TResult> =
     job: Job<TPayload, TResult>;
   };
 
+export type PreparedJobSubmission<TPayload = unknown> = {
+  readonly submissionId: string;
+  readonly mode: "create" | "submit";
+  readonly service: string;
+  readonly queue: string;
+  readonly jobId: string;
+  readonly payload: TPayload;
+  readonly createdAt: string;
+  readonly context: JobContext;
+};
+
 export class JobManager<TPayload = unknown, TResult = unknown> {
   readonly #context: JobManagerContext;
 
@@ -139,9 +150,10 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
     type: string,
     jobId: string,
     event: JobEvent<TPayload, TResult>,
+    stableMessageId?: string,
   ): Promise<void> {
     const binding = this.#getQueueBinding(type);
-    const headers = headersFromJobContext(event.context);
+    const headers = headersFromJobContext(event.context, stableMessageId);
     try {
       await this.#context.nc.publish(
         `${binding.publishPrefix}.${jobId}.${event.eventType}`,
@@ -204,22 +216,91 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
     return await this.#submit(type, payload, false);
   }
 
+  async createPrepared(
+    submission: PreparedJobSubmission<TPayload>,
+  ): Promise<Job<TPayload, TResult>> {
+    const outcome = await this.#submitPrepared(submission, true, true);
+    if (outcome.kind === "accepted") {
+      return outcome.job;
+    }
+    if (outcome.kind === "coalesced") {
+      throw new JobNotEnqueuedError({
+        reason: "coalesced",
+        key: outcome.key,
+        active: 0,
+        queued: 1,
+        limit: 0,
+        existingJobId: outcome.existing.id,
+      });
+    }
+    if (outcome.kind === "replaced") {
+      throw new JobNotEnqueuedError({
+        reason: "queue-depth",
+        key: outcome.key,
+        active: 0,
+        queued: 1,
+        limit: 0,
+        existingJobId: outcome.replaced.id,
+      });
+    }
+    throw new JobNotEnqueuedError({
+      reason: outcome.reason,
+      key: outcome.key,
+      active: outcome.active,
+      queued: outcome.queued,
+      limit: outcome.limit,
+    });
+  }
+
+  async submitPrepared(
+    submission: PreparedJobSubmission<TPayload>,
+  ): Promise<JobManagerSubmitOutcome<TPayload, TResult>> {
+    return await this.#submitPrepared(submission, false, true);
+  }
+
   async #submit(
     type: string,
     payload: TPayload,
     strictCreate: boolean,
   ): Promise<JobManagerSubmitOutcome<TPayload, TResult>> {
-    const binding = this.#getQueueBinding(type);
     const meta = this.#meta();
-
     const now = meta.nowIso();
     const id = meta.nextJobId();
     const context = createJobContext();
     const namespace = this.#context.jobs!.namespace;
+
+    const submission: PreparedJobSubmission<TPayload> = {
+      submissionId: id,
+      mode: strictCreate ? "create" : "submit",
+      service: namespace,
+      queue: type,
+      jobId: id,
+      payload,
+      createdAt: now,
+      context,
+    };
+
+    return await this.#submitPrepared(submission, strictCreate);
+  }
+
+  async #submitPrepared(
+    submission: PreparedJobSubmission<TPayload>,
+    strictCreate: boolean,
+    stableMessageIds?: boolean,
+  ): Promise<JobManagerSubmitOutcome<TPayload, TResult>> {
+    const {
+      queue: type,
+      jobId: id,
+      createdAt: now,
+      context,
+      service,
+      payload,
+    } = submission;
+    const binding = this.#getQueueBinding(type);
     const deadline = computeDeadline(now, binding.defaultDeadlineMs);
     const job: Job<TPayload, TResult> = {
       id,
-      service: namespace,
+      service,
       type,
       state: "pending",
       context,
@@ -232,7 +313,7 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
     };
     const event: JobEvent<TPayload, TResult> = {
       jobId: id,
-      service: job.service,
+      service,
       jobType: type,
       eventType: "created",
       state: "pending",
@@ -252,6 +333,7 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
         event,
         policy: keyedPolicy,
         strictCreate,
+        submissionId: submission.submissionId,
       });
       if (admission.kind !== "accepted" && admission.kind !== "replaced") {
         return admission;
@@ -261,6 +343,7 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
           job,
           admission.replaced,
           keyedPolicy,
+          submission.submissionId,
         );
         return {
           kind: "rejected",
@@ -273,18 +356,30 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
       }
       if (admission.kind === "replaced") {
         try {
-          await this.#publishSkipped(type, admission.replaced, now);
+          const skippedMsgId = stableMessageIds
+            ? `trellis-job-skipped:${submission.submissionId}:${admission.replaced.id}`
+            : undefined;
+          await this.#publishSkipped(
+            type,
+            admission.replaced,
+            now,
+            skippedMsgId,
+          );
         } catch (error) {
           await this.#restoreReplacedKeyedReservation(
             job,
             admission.replaced,
             keyedPolicy,
+            submission.submissionId,
           );
           throw error;
         }
       }
       try {
-        await this.#publishJobEvent(type, id, event);
+        const createdMsgId = stableMessageIds
+          ? `trellis-job-created:${submission.submissionId}`
+          : undefined;
+        await this.#publishJobEvent(type, id, event, createdMsgId);
       } catch (error) {
         await this.#removeQueuedKeyedReservation(job, keyedPolicy);
         throw error;
@@ -304,7 +399,10 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
       return { kind: "accepted", job, key: admission.key };
     }
 
-    await this.#publishJobEvent(type, id, event);
+    const createdMsgId = stableMessageIds
+      ? `trellis-job-created:${submission.submissionId}`
+      : undefined;
+    await this.#publishJobEvent(type, id, event, createdMsgId);
 
     return { kind: "accepted", job };
   }
@@ -315,6 +413,7 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
     event: JobEvent<TPayload, TResult>;
     policy: NormalizedJobKeyPolicy;
     strictCreate: boolean;
+    submissionId?: string;
   }): Promise<JobAdmissionOutcome> {
     const coordinator = this.#context.keyCoordinator;
     if (!coordinator) {
@@ -331,6 +430,7 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
       createdAt: args.event.timestamp,
       policy: args.policy,
       strictCreate: args.strictCreate,
+      ...(args.submissionId ? { submissionId: args.submissionId } : {}),
     });
   }
 
@@ -361,6 +461,7 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
     job: Job<TPayload, TResult>,
     replaced: ReplacedQueuedJob,
     policy: NormalizedJobKeyPolicy,
+    submissionId?: string,
   ): Promise<void> {
     const coordinator = this.#context.keyCoordinator;
     if (!coordinator) return;
@@ -372,6 +473,7 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
       payload: job.payload,
       now: this.#meta().nowIso(),
       policy,
+      ...(submissionId ? { submissionId } : {}),
     });
   }
 
@@ -379,6 +481,7 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
     type: string,
     replaced: { id: string; context: JobContext },
     timestamp: string,
+    stableMessageId?: string,
   ): Promise<void> {
     await this.#publishJobEvent(type, replaced.id, {
       jobId: replaced.id,
@@ -391,7 +494,7 @@ export class JobManager<TPayload = unknown, TResult = unknown> {
       tries: 0,
       error: "replaced by newer keyed job",
       timestamp,
-    });
+    }, stableMessageId);
   }
 
   process(
@@ -845,7 +948,7 @@ function computeDeadline(now: string, deadlineMs?: number): string | undefined {
   return timestamp.toISOString();
 }
 
-function createJobContext(): JobContext {
+export function createJobContext(): JobContext {
   const carrier = createMapCarrier();
   injectTraceContext(carrier);
   const inheritedTraceparent = carrier.get("traceparent");
@@ -862,12 +965,18 @@ function createJobContext(): JobContext {
   };
 }
 
-function headersFromJobContext(context: JobContext): MsgHdrs {
+function headersFromJobContext(
+  context: JobContext,
+  stableMessageId?: string,
+): MsgHdrs {
   const headers = natsHeaders();
   headers.set("request-id", context.requestId);
   headers.set("traceparent", context.traceparent);
   if (context.tracestate) {
     headers.set("tracestate", context.tracestate);
+  }
+  if (stableMessageId) {
+    headers.set("Nats-Msg-Id", stableMessageId);
   }
   return headers;
 }

@@ -114,7 +114,9 @@ import {
   JobWorkerHostAdapter,
   type TerminalJob,
 } from "../jobs.ts";
+import { ulid } from "ulid";
 import {
+  createJobContext,
   JobManager as InternalJobManager,
   JobProcessError as InternalJobProcessError,
 } from "./internal_jobs/job-manager.ts";
@@ -143,11 +145,15 @@ import {
   type TrellisConnection,
 } from "../connection.ts";
 import { initTelemetry } from "../telemetry/init.ts";
+import { recordTrellisDuration } from "../telemetry/mod.ts";
 import {
   defaultSqlOutboxTables,
   OutboxDispatcher,
   type OutboxDispatcherOptions,
+  type OutboxDispatchRuntime,
   type OutboxMessage,
+  type PreparedOutboxRecord,
+  preparedTrellisEventToOutboxRecord,
   type SqlDialect,
   type SqlExecutor,
   SqlOutboxRepository,
@@ -1269,28 +1275,52 @@ export type SqlOutboxEventEnqueueFacade<
   };
 };
 
+/** Returned by outbox.job.<queue>.create/submit inside a transaction. */
+export type SqlOutboxJobSubmission = {
+  readonly submissionId: string;
+  readonly jobId: string;
+  readonly queue: string;
+  readonly mode: "create" | "submit";
+};
+
+/** Transaction-scoped facade for enqueuing job creation/submission intents. */
+export type SqlOutboxJobEnqueueFacade<TJobs extends ContractJobsMetadata> = {
+  readonly [K in keyof TJobs]: {
+    create(
+      payload: TJobs[K]["payload"],
+    ): AsyncResult<SqlOutboxJobSubmission, ValidationError | UnexpectedError>;
+    submit(
+      payload: TJobs[K]["payload"],
+    ): AsyncResult<SqlOutboxJobSubmission, ValidationError | UnexpectedError>;
+  };
+};
+
 /** Context supplied to `outbox.transaction(...)` work callbacks. */
 export type SqlOutboxTransactionContext<
   TTx,
   TEventApi extends TrellisAPI = TrellisAPI,
+  TJobs extends ContractJobsMetadata = ContractJobsMetadata,
 > = {
   /** Service-owned transaction object supplied by the configured runner. */
   readonly tx: TTx;
   /** Transaction-scoped typed event enqueue facade. */
   readonly event: SqlOutboxEventEnqueueFacade<TEventApi>;
+  /** Transaction-scoped typed job enqueue facade. */
+  readonly job: SqlOutboxJobEnqueueFacade<TJobs>;
 };
 
-/** Startup-created SQL outbox dependency for transactional event enqueue. */
+/** Startup-created SQL outbox dependency for transactional event/job enqueue. */
 export type SqlOutbox<
   TTx,
   TEventApi extends TrellisAPI = TrellisAPI,
+  TJobs extends ContractJobsMetadata = ContractJobsMetadata,
 > = {
   /**
-   * Runs service DB work and typed event enqueue operations in one SQL
+   * Runs service DB work and typed event/job enqueue operations in one SQL
    * transaction, notifying the dispatcher once after a successful commit.
    */
   transaction<TResult>(
-    work: (context: SqlOutboxTransactionContext<TTx, TEventApi>) =>
+    work: (context: SqlOutboxTransactionContext<TTx, TEventApi, TJobs>) =>
       | Promise<TResult>
       | TResult,
   ): AsyncResult<TResult, ValidationError | UnexpectedError>;
@@ -1896,8 +1926,9 @@ function createSqlOutboxEventEnqueueFacade<TEventApi extends TrellisAPI>(args: {
           AsyncResult.from((async () => {
             const prepared = leaf.prepare(payload).take();
             if (isErr(prepared)) return Result.err(prepared.error);
+            const record = preparedTrellisEventToOutboxRecord(prepared);
             try {
-              const message = await args.repository.enqueue(prepared);
+              const message = await args.repository.enqueue(record);
               args.onEnqueued();
               return Result.ok(message);
             } catch (cause) {
@@ -1914,6 +1945,123 @@ function createSqlOutboxEventEnqueueFacade<TEventApi extends TrellisAPI>(args: {
   }
 
   return facade as SqlOutboxEventEnqueueFacade<TEventApi>;
+}
+
+function createSqlOutboxJobEnqueueFacade<TJobs extends ContractJobsMetadata>(
+  args: {
+    serviceName: string;
+    contractJobs: TJobs;
+    jobsBinding?: ResourceBindingJobs;
+    repository: SqlOutboxRepository;
+    onEnqueued(): void;
+  },
+): SqlOutboxJobEnqueueFacade<TJobs> {
+  const facade: Record<string, Record<string, unknown>> = {};
+
+  for (
+    const queueType of Object.keys(args.contractJobs as Record<string, unknown>)
+  ) {
+    const queueBinding = args.jobsBinding?.queues[queueType];
+    const queue = queueType;
+    facade[queue] = {
+      create: (payload: unknown) => {
+        if (!queueBinding) {
+          return AsyncResult.err(
+            new ValidationError({
+              errors: [{
+                path: "/",
+                message: `Jobs binding unavailable for queue '${queue}'`,
+              }],
+            }),
+          );
+        }
+        const submissionId = ulid();
+        const jobId = ulid();
+        const context = createJobContext();
+
+        const record: PreparedOutboxRecord = {
+          id: submissionId,
+          kind: "job.create",
+          name: queue,
+          subject: `${queueBinding.publishPrefix}.${jobId}.created`,
+          payload: JSON.stringify({
+            ...(payload as Record<string, unknown>),
+            jobId,
+            submissionId,
+          }),
+          headers: {
+            "request-id": context.requestId,
+            "traceparent": context.traceparent,
+            ...(context.tracestate ? { "tracestate": context.tracestate } : {}),
+          },
+        };
+
+        return AsyncResult.from((async () => {
+          try {
+            await args.repository.enqueue(record);
+            args.onEnqueued();
+            return Result.ok({
+              submissionId,
+              jobId,
+              queue,
+              mode: "create",
+            });
+          } catch (cause) {
+            return Result.err(toUnexpectedError(cause));
+          }
+        })());
+      },
+      submit: (payload: unknown) => {
+        if (!queueBinding) {
+          return AsyncResult.err(
+            new ValidationError({
+              errors: [{
+                path: "/",
+                message: `Jobs binding unavailable for queue '${queue}'`,
+              }],
+            }),
+          );
+        }
+        const submissionId = ulid();
+        const jobId = ulid();
+        const context = createJobContext();
+
+        const record: PreparedOutboxRecord = {
+          id: submissionId,
+          kind: "job.submit",
+          name: queue,
+          subject: `${queueBinding.publishPrefix}.${jobId}.created`,
+          payload: JSON.stringify({
+            ...(payload as Record<string, unknown>),
+            jobId,
+            submissionId,
+          }),
+          headers: {
+            "request-id": context.requestId,
+            "traceparent": context.traceparent,
+            ...(context.tracestate ? { "tracestate": context.tracestate } : {}),
+          },
+        };
+
+        return AsyncResult.from((async () => {
+          try {
+            await args.repository.enqueue(record);
+            args.onEnqueued();
+            return Result.ok({
+              submissionId,
+              jobId,
+              queue,
+              mode: "submit",
+            });
+          } catch (cause) {
+            return Result.err(toUnexpectedError(cause));
+          }
+        })());
+      },
+    };
+  }
+
+  return facade as SqlOutboxJobEnqueueFacade<TJobs>;
 }
 
 function serializeJobHandlerError(error: BaseError): string {
@@ -2688,6 +2836,7 @@ export function connectTrellisServiceWithRuntimeDeps<
   TransportError | UnexpectedError
 > {
   return AsyncResult.from((async () => {
+    const totalStartedAt = performance.now();
     try {
       type TOwnedApi = ContractOwnedApi<TContract>;
       type TTrellisApi = ContractTrellisApi<TContract>;
@@ -2701,6 +2850,7 @@ export function connectTrellisServiceWithRuntimeDeps<
       }
       const auth = await createAuth({ sessionKeySeed: args.sessionKeySeed });
       const bootstrapLog = resolveServiceLogger(args.server?.log);
+      const bootstrapStartedAt = performance.now();
       const bootstrap = await fetchServiceBootstrapInfo({
         trellisUrl: args.trellisUrl,
         serviceName: args.name,
@@ -2710,6 +2860,15 @@ export function connectTrellisServiceWithRuntimeDeps<
         auth,
         log: bootstrapLog,
       });
+      recordTrellisDuration(
+        "trellis.connect.duration",
+        performance.now() - bootstrapStartedAt,
+        {
+          phase: "bootstrap",
+          participantKind: "service",
+          outcome: "ok",
+        },
+      );
       const { authenticator: authTokenAuthenticator, inboxPrefix } = await auth
         .natsConnectOptions({
           contractDigest: args.contract.CONTRACT_DIGEST,
@@ -2717,6 +2876,7 @@ export function connectTrellisServiceWithRuntimeDeps<
 
       let nc: NatsConnection;
       try {
+        const natsStartedAt = performance.now();
         nc = await runtimeDeps.connect({
           servers: selectRuntimeTransportServers(
             bootstrap.connectInfo.transports,
@@ -2734,6 +2894,15 @@ export function connectTrellisServiceWithRuntimeDeps<
             ),
           ],
         });
+        recordTrellisDuration(
+          "trellis.connect.duration",
+          performance.now() - natsStartedAt,
+          {
+            phase: "nats_connect",
+            participantKind: "service",
+            outcome: "ok",
+          },
+        );
       } catch (cause) {
         throw new TransportError({
           code: "trellis.runtime.connect_failed",
@@ -2761,31 +2930,39 @@ export function connectTrellisServiceWithRuntimeDeps<
             api: args.contract.API.owned,
           };
 
-        return Result.ok(
-          await createConnectedService<
-            TOwnedApi,
-            TTrellisApi,
-            ContractJobsOf<TContract>,
-            ContractKvOf<TContract>
-          >({
-            name: args.name,
-            auth,
-            nc,
-            contractId: args.contract.CONTRACT_ID,
-            contractDigest: args.contract.CONTRACT_DIGEST,
-            contractJobs:
-              (args.contract[CONTRACT_JOBS_METADATA] ?? {}) as ContractJobsOf<
-                TContract
-              >,
-            contractKv:
-              (args.contract[CONTRACT_KV_METADATA] ?? {}) as ContractKvOf<
-                TContract
-              >,
-            contractEventConsumers: args.contract.CONTRACT.eventConsumers,
-            server,
-            bindings: bootstrap.binding.resources,
-          }),
+        const service = await createConnectedService<
+          TOwnedApi,
+          TTrellisApi,
+          ContractJobsOf<TContract>,
+          ContractKvOf<TContract>
+        >({
+          name: args.name,
+          auth,
+          nc,
+          contractId: args.contract.CONTRACT_ID,
+          contractDigest: args.contract.CONTRACT_DIGEST,
+          contractJobs:
+            (args.contract[CONTRACT_JOBS_METADATA] ?? {}) as ContractJobsOf<
+              TContract
+            >,
+          contractKv:
+            (args.contract[CONTRACT_KV_METADATA] ?? {}) as ContractKvOf<
+              TContract
+            >,
+          contractEventConsumers: args.contract.CONTRACT.eventConsumers,
+          server,
+          bindings: bootstrap.binding.resources,
+        });
+        recordTrellisDuration(
+          "trellis.connect.duration",
+          performance.now() - totalStartedAt,
+          {
+            phase: "total",
+            participantKind: "service",
+            outcome: "ok",
+          },
         );
+        return Result.ok(service);
       } catch (cause) {
         await closeFailedServiceBootstrapConnection(nc);
         throw cause;
@@ -2821,6 +2998,8 @@ export class TrellisService<
   readonly #operationTransfer: ServiceTransfer;
   readonly #stopHealthPublishing: () => Promise<void>;
   readonly #managedJobWorkers: ManagedJobWorkers;
+  readonly #contractJobs: TJobs;
+  readonly #jobsBinding?: ResourceBindingJobs;
   readonly #ownedOutboxDispatchers = new Set<OutboxDispatcher>();
   #waitPromise?: Promise<void>;
   #stopPromise?: Promise<void>;
@@ -2878,6 +3057,8 @@ export class TrellisService<
     });
     this.jobs = jobs;
     this.#managedJobWorkers = jobs[MANAGED_JOB_WORKERS];
+    this.#contractJobs = contractJobs;
+    this.#jobsBinding = bindings.jobs;
     this.health = health;
     this.handle = this.#createHandleFacade() as TypedServiceHandleFacade<
       TOwnedApi,
@@ -2895,7 +3076,7 @@ export class TrellisService<
    */
   createSqlOutbox<TTx>(
     options: TrellisServiceSqlOutboxExecutorOptions<TTx>,
-  ): SqlOutbox<TTx, TTrellisApi> {
+  ): SqlOutbox<TTx, TTrellisApi, TJobs> {
     const binding = this.#createSqlOutboxBinding(options);
     return this.#createSqlOutbox(binding);
   }
@@ -2987,9 +3168,14 @@ export class TrellisService<
       options.dialect,
       tables,
     );
+    const dispatchRuntime: OutboxDispatchRuntime = {
+      publishPreparedEvent: (event) =>
+        this.#handlerTrellis.publishPrepared(event),
+      // dispatchJobSubmission: stub — filled in by Phase 3
+    };
     const dispatcher = new OutboxDispatcher(
       repository,
-      this.#handlerTrellis,
+      dispatchRuntime,
       options.dispatcher,
     );
     this.#ownedOutboxDispatchers.add(dispatcher);
@@ -3006,11 +3192,11 @@ export class TrellisService<
     readonly tables: SqlOutboxTables;
     readonly transaction: SqlOutboxTransactionRunner<TTx>;
     readonly dispatcher: OutboxDispatcher;
-  }): SqlOutbox<TTx, TTrellisApi> {
+  }): SqlOutbox<TTx, TTrellisApi, TJobs> {
     return {
       transaction: <TResult>(
         work: (
-          context: SqlOutboxTransactionContext<TTx, TTrellisApi>,
+          context: SqlOutboxTransactionContext<TTx, TTrellisApi, TJobs>,
         ) => Promise<TResult> | TResult,
       ) =>
         AsyncResult.from((() => {
@@ -3041,7 +3227,16 @@ export class TrellisService<
                   enqueued += 1;
                 },
               });
-              return work({ tx, event });
+              const job = createSqlOutboxJobEnqueueFacade({
+                serviceName: this.name,
+                contractJobs: this.#contractJobs,
+                jobsBinding: this.#jobsBinding,
+                repository,
+                onEnqueued: () => {
+                  enqueued += 1;
+                },
+              });
+              return work({ tx, event, job });
             });
           } catch (cause) {
             return Promise.resolve(toResultError(cause));

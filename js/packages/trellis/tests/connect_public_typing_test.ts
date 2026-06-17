@@ -508,6 +508,24 @@ async function typecheckServiceSqlOutboxSurface() {
       // @ts-expect-error transaction-scoped enqueue must validate payload shape
       await event.service.changed.enqueue({ id: "missing-value" }).orThrow();
     }).orThrow();
+
+    await deps.outbox.transaction(async ({ tx, event, job }) => {
+      tx.writes.push(input.value);
+      const submission = await job.sync.create({ id: input.value }).orThrow();
+
+      const id: string = submission.submissionId;
+      const jobId: string = submission.jobId;
+      const queue: string = submission.queue;
+      const mode: "create" | "submit" = submission.mode;
+
+      await job.sync.submit({ id: "other" }).orThrow();
+
+      void { id, jobId, queue, mode };
+
+      // @ts-expect-error bad payload shape
+      await job.sync.create({ wrongField: true }).orThrow();
+    }).orThrow();
+
     return Result.ok({ ok: true });
   });
   await service.handle.rpc.service.ping(generatedStylePingHandler);

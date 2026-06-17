@@ -342,6 +342,41 @@ export const jsIntegrationCases: readonly JsIntegrationCase[] = [
       "device-activation.activated-device-authority-is-listed appears in authority list",
     runtime: "live-trellis",
   },
+  {
+    id: "outbox.commits-event-through-sql-outbox",
+    file: "outbox/outbox.integration_test.ts",
+    testName:
+      "outbox.commits-event-through-sql-outbox publishes event after SQL commit",
+    runtime: "live-trellis",
+  },
+  {
+    id: "outbox.rollback-does-not-publish",
+    file: "outbox/outbox.integration_test.ts",
+    testName:
+      "outbox.rollback-does-not-publish suppresses event on transaction rollback",
+    runtime: "live-trellis",
+  },
+  {
+    id: "outbox.multiple-events-in-one-transaction",
+    file: "outbox/outbox.integration_test.ts",
+    testName:
+      "outbox.multiple-events-in-one-transaction publishes all after commit",
+    runtime: "live-trellis",
+  },
+  {
+    id: "outbox.listener-derives-event",
+    file: "outbox/outbox.integration_test.ts",
+    testName:
+      "outbox.listener-derives-event through SQL outbox and publishes to NATS",
+    runtime: "live-trellis",
+  },
+  {
+    id: "outbox.sql-row-state-is-dispatched",
+    file: "outbox/outbox.integration_test.ts",
+    testName:
+      "outbox.sql-row-state-is-dispatched after successful commit",
+    runtime: "live-trellis",
+  },
 ];
 
 /** Returns local JS integration case IDs selected by fixture prefix. */

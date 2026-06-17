@@ -292,7 +292,7 @@ const outbox = service.createSqlOutbox(sqlOutbox);
 const deps = { ordersRepo, auditRepo, outbox };
 
 await service.handle.rpc.orders.ship(async ({ input }) => {
-  await deps.outbox.transaction(async ({ tx, event }) => {
+  await deps.outbox.transaction(async ({ tx, event, job }) => {
     await deps.ordersRepo.markShipped(tx, input.orderId);
     await deps.auditRepo.insert(tx, { entityId: input.orderId });
 
@@ -305,6 +305,10 @@ await service.handle.rpc.orders.ship(async ({ input }) => {
       entityId: input.orderId,
       action: "order.shipped",
     }).orThrow();
+
+    await job.syncCustomer.create({
+      customerId: input.customerId,
+    }).orThrow();
   }).orThrow();
 
   return Result.ok({ accepted: true });
@@ -315,11 +319,12 @@ Rules for agents:
 
 - close over the outbox object as a plain dependency when handlers need
   transactional enqueue; handlers do not receive `outbox` as an injected argument
-- wrap all service DB writes and all event enqueues that must be atomic in
-  `outbox.transaction(...)`
-- use transaction-scoped `event.*.*.enqueue(...)` only inside that callback;
-  normal event facades expose `prepare`, `publish`, and `listen`, not `enqueue`
-- multiple DB writes and multiple event enqueues in one transaction are supported
+- wrap all service DB writes, event enqueues, and job submission intents that
+  must be atomic in `outbox.transaction(...)`
+- use transaction-scoped `event.*.*.enqueue(...)` and `job.*.*.create/submit(...)`
+  only inside that callback; normal event facades expose `prepare`, `publish`,
+  and `listen`, not `enqueue`
+- multiple DB writes, event enqueues, and job submissions in one transaction are supported
 - do not generate ad hoc local outbox wrappers, manual `SqlOutboxRepository` /
   `OutboxDispatcher` handler wiring, or per-handler Drizzle transaction wrappers
 

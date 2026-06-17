@@ -937,6 +937,11 @@ Public runtime rules:
 - a generic string-based queue lookup helper, if present, is a low-level escape
   hatch and MUST NOT be the primary public service-author API
 
+When the service uses SQL outbox, the transaction context also exposes
+`job.<queue>.create(payload)` and `job.<queue>.submit(payload)` for
+atomic-with-SQL job submission intents. The actual job admission and lifecycle
+publish happen asynchronously after the SQL transaction commits.
+
 Language runtimes may realize this with different concrete APIs as long as they
 preserve the normative behavior and public API constraints defined in this
 document.

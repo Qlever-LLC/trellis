@@ -10,7 +10,7 @@ import { AsyncResult, err } from "@qlever-llc/result";
 import type { NatsConnection } from "@nats-io/nats-core";
 import { Type } from "typebox";
 import { AuthError, UnexpectedError } from "../errors/index.ts";
-import type { PreparedTrellisEvent } from "../trellis.ts";
+import type { PreparedOutboxRecord } from "../service/outbox_inbox.ts";
 
 const exporter = new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE);
 const reader = new PeriodicExportingMetricReader({
@@ -198,7 +198,7 @@ Deno.test("dispatchOutbox records failed publish hook", async () => {
   await repository.enqueue(prepared("evt_failed"));
 
   await dispatchOutbox(repository, {
-    publishPrepared: () =>
+    publishPreparedEvent: () =>
       AsyncResult.from(Promise.resolve(
         err(new UnexpectedError({ cause: new Error("user 123 failed") })),
       )),
@@ -272,19 +272,19 @@ function fakeNatsConnection(): NatsConnection & {
   };
 }
 
-function prepared(id: string): PreparedTrellisEvent {
-  const payload = Object.freeze({
-    header: Object.freeze({ id, time: "2026-05-25T00:00:00.000Z" }),
+function prepared(id: string): PreparedOutboxRecord {
+  const payload = JSON.stringify({
+    header: { id, time: "2026-05-25T00:00:00.000Z" },
     value: "test",
   });
-  return Object.freeze({
-    event: "Thing.Changed",
+  return {
+    id,
+    kind: "event.publish",
+    name: "Thing.Changed",
     subject: "events.v1.Thing.Changed.user.123",
-    header: Object.freeze({ id, time: "2026-05-25T00:00:00.000Z" }),
     payload,
-    encodedPayload: JSON.stringify(payload),
-    headers: Object.freeze({ "Nats-Msg-Id": id }),
-  });
+    headers: { "Nats-Msg-Id": id },
+  };
 }
 
 type MetricDataPoint = {

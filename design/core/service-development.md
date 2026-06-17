@@ -247,6 +247,25 @@ function createPartnerUpdateHandler(deps: ServiceDeps): PartnerUpdateHandler {
 await service.handle.rpc.partner.update(createPartnerUpdateHandler(deps));
 ```
 
+**With job creation:**
+```ts
+async ({ input, deps }) => {
+  const updated = await deps.outbox.transaction(async ({ tx, event, job }) => {
+    await deps.partnerRepo.update(tx, input.partner);
+
+    const submission = await job.partnerSync.create({
+      partnerId: input.partner.id,
+    }).orThrow();
+
+    await event.partner.changed.enqueue({ id: input.partner.id }).orThrow();
+
+    return { updated: true, submissionId: submission.submissionId };
+  }).orThrow();
+
+  return Result.ok(updated);
+};
+```
+
 ### Minimal installable service example
 
 ```ts

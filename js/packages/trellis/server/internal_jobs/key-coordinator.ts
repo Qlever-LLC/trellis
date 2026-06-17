@@ -52,6 +52,7 @@ export type JobKeyQueued = {
   createdAt: string;
   requestId: string;
   context: JobContext;
+  submissionId?: string;
 };
 
 export type JobKeyActiveSlot = {
@@ -77,6 +78,11 @@ export type JobKeyState = {
   queued: JobKeyQueued[];
   staleTakeoverCount: number;
   updatedAt: string;
+  coalescedBySubmissionId?: Record<
+    string,
+    { existingJobId: string; reason: "queue-full" | "active-limit" }
+  >;
+  replacedBySubmissionId?: Record<string, ReplacedQueuedJob>;
 };
 
 export type JobKeyIdentity = {
@@ -100,6 +106,7 @@ export type JobAdmissionRequest = {
   createdAt: string;
   policy: NormalizedJobKeyPolicy;
   strictCreate: boolean;
+  submissionId?: string;
 };
 
 export type JobAdmissionOutcome =
@@ -182,6 +189,7 @@ export type JobKeyCoordinator = {
     payload: unknown;
     now: string;
     policy: NormalizedJobKeyPolicy;
+    submissionId?: string;
   }): Promise<QueuedJobRestoreOutcome>;
   removeQueuedJob(args: {
     service: string;
@@ -296,6 +304,49 @@ export function reduceAdmission(args: {
     now: args.request.createdAt,
     policy: args.policy,
   });
+
+  // Idempotent retry: if the same submissionId has already produced an outcome,
+  // return it without modifying state again.
+  const submissionId = args.request.submissionId;
+  if (submissionId) {
+    const replacedEntry = state.replacedBySubmissionId?.[submissionId];
+    if (replacedEntry) {
+      return {
+        kind: "replaced",
+        key: state.key,
+        keyHash: state.keyHash,
+        replaced: replacedEntry,
+        state,
+      };
+    }
+
+    const coalescedEntry = state.coalescedBySubmissionId?.[submissionId];
+    if (coalescedEntry) {
+      return {
+        kind: "coalesced",
+        key: state.key,
+        existing: {
+          service: state.service,
+          jobType: state.jobType,
+          id: coalescedEntry.existingJobId,
+        },
+        reason: coalescedEntry.reason,
+      };
+    }
+
+    const alreadyQueued = state.queued.some((entry) =>
+      entry.submissionId === submissionId
+    );
+    if (alreadyQueued) {
+      return {
+        kind: "accepted",
+        key: state.key,
+        keyHash: state.keyHash,
+        state,
+      };
+    }
+  }
+
   const active = state.active.length;
   const queued = state.queued.length;
   const queueLimit = args.policy.queue.maxQueuedPerKey +
@@ -327,7 +378,14 @@ export function reduceAdmission(args: {
   if (args.policy.queue.whenFull === "coalesce") {
     const existing = state.queued[0] ?? state.active[0];
     if (existing) {
-      return {
+      const reason = state.queued[0] ? "queue-full" : "active-limit";
+      const outcome: {
+        kind: "coalesced";
+        key: string;
+        existing: JobKeyIdentity;
+        reason: "queue-full" | "active-limit";
+        state?: JobKeyState;
+      } = {
         kind: "coalesced",
         key: state.key,
         existing: {
@@ -335,30 +393,49 @@ export function reduceAdmission(args: {
           jobType: state.jobType,
           id: existing.jobId,
         },
-        reason: state.queued[0] ? "queue-full" : "active-limit",
+        reason,
       };
+      if (submissionId) {
+        outcome.state = {
+          ...state,
+          coalescedBySubmissionId: {
+            ...state.coalescedBySubmissionId,
+            [submissionId]: { existingJobId: existing.jobId, reason },
+          },
+          updatedAt: args.request.createdAt,
+        };
+      }
+      return outcome;
     }
   }
 
   if (args.policy.queue.whenFull === "replace-oldest" && state.queued[0]) {
     const [replaced, ...remaining] = state.queued;
+    const replacedEntry: ReplacedQueuedJob = {
+      service: state.service,
+      jobType: state.jobType,
+      id: replaced.jobId,
+      createdAt: replaced.createdAt,
+      requestId: replaced.requestId,
+      context: replaced.context,
+    };
+    const nextState = appendQueued(
+      { ...state, queued: remaining },
+      args.request,
+      args.policy,
+    );
+    if (submissionId) {
+      nextState.replacedBySubmissionId = {
+        ...state.replacedBySubmissionId,
+        [submissionId]: replacedEntry,
+      };
+    }
     return {
       kind: "replaced",
       key: state.key,
       keyHash: state.keyHash,
-      replaced: {
-        service: state.service,
-        jobType: state.jobType,
-        id: replaced.jobId,
-        createdAt: replaced.createdAt,
-        requestId: replaced.requestId,
-        context: replaced.context,
-      },
-      state: appendQueued(
-        { ...state, queued: remaining },
-        args.request,
-        args.policy,
-      ),
+      replaced: replacedEntry,
+      state: nextState,
     };
   }
 
@@ -383,6 +460,7 @@ export function reduceRestoreReplacedQueuedJob(args: {
   replaced: ReplacedQueuedJob;
   now: string;
   policy: NormalizedJobKeyPolicy;
+  submissionId?: string;
 }): QueuedJobRestoreOutcome {
   const base = args.state ?? emptyState({
     service: args.replaced.service,
@@ -405,6 +483,12 @@ export function reduceRestoreReplacedQueuedJob(args: {
     requestId: args.replaced.requestId,
     context: args.replaced.context,
   }, ...queuedWithoutReplacement];
+
+  const replacedBySubmissionId = { ...base.replacedBySubmissionId };
+  if (args.submissionId) {
+    delete replacedBySubmissionId[args.submissionId];
+  }
+
   return {
     kind: "restored",
     state: {
@@ -412,6 +496,9 @@ export function reduceRestoreReplacedQueuedJob(args: {
       maxActive: args.policy.maxActive,
       maxQueuedPerKey: args.policy.queue.maxQueuedPerKey,
       queued: restoredQueued,
+      replacedBySubmissionId: Object.keys(replacedBySubmissionId).length > 0
+        ? replacedBySubmissionId
+        : undefined,
       updatedAt: args.now,
     },
   };
@@ -647,6 +734,7 @@ export function createNatsJobKeyCoordinator(
             replaced: args.replaced,
             now: args.now,
             policy: args.policy,
+            submissionId: args.submissionId,
           }),
       );
     },
@@ -753,6 +841,7 @@ function appendQueued(
         createdAt: request.createdAt,
         requestId: request.context.requestId,
         context: request.context,
+        ...(request.submissionId ? { submissionId: request.submissionId } : {}),
       },
     ],
     updatedAt: request.createdAt,
@@ -891,7 +980,42 @@ export function isJobKeyState(value: unknown): value is JobKeyState {
     Array.isArray(state.active) && state.active.every(isJobKeyActiveSlot) &&
     Array.isArray(state.queued) && state.queued.every(isJobKeyQueued) &&
     isNonNegativeInteger(state.staleTakeoverCount) &&
-    isValidIsoTimestamp(state.updatedAt);
+    isValidIsoTimestamp(state.updatedAt) &&
+    (state.coalescedBySubmissionId === undefined ||
+      isRecordOfCoalesced(state.coalescedBySubmissionId)) &&
+    (state.replacedBySubmissionId === undefined ||
+      isRecordOfReplaced(state.replacedBySubmissionId));
+}
+
+function isRecordOfCoalesced(
+  value: unknown,
+): value is Record<
+  string,
+  { existingJobId: string; reason: "queue-full" | "active-limit" }
+> {
+  if (value === null || typeof value !== "object") return false;
+  return Object.values(value).every((entry) => {
+    if (entry === null || typeof entry !== "object") return false;
+    const e = entry as Record<string, unknown>;
+    return isNonEmptyString(e.existingJobId) &&
+      (e.reason === "queue-full" || e.reason === "active-limit");
+  });
+}
+
+function isRecordOfReplaced(
+  value: unknown,
+): value is Record<string, ReplacedQueuedJob> {
+  if (value === null || typeof value !== "object") return false;
+  return Object.values(value).every((entry) => {
+    if (entry === null || typeof entry !== "object") return false;
+    const r = entry as Partial<ReplacedQueuedJob>;
+    return isNonEmptyString(r.service) &&
+      isNonEmptyString(r.jobType) &&
+      isNonEmptyString(r.id) &&
+      isValidIsoTimestamp(r.createdAt) &&
+      isNonEmptyString(r.requestId) &&
+      isJobContext(r.context);
+  });
 }
 
 function isJobKeyQueued(value: unknown): value is JobKeyQueued {
@@ -899,7 +1023,8 @@ function isJobKeyQueued(value: unknown): value is JobKeyQueued {
   const entry = value as Partial<JobKeyQueued>;
   return isNonEmptyString(entry.jobId) &&
     isValidIsoTimestamp(entry.createdAt) &&
-    isNonEmptyString(entry.requestId) && isJobContext(entry.context);
+    isNonEmptyString(entry.requestId) && isJobContext(entry.context) &&
+    (entry.submissionId === undefined || isNonEmptyString(entry.submissionId));
 }
 
 function isJobKeyActiveSlot(value: unknown): value is JobKeyActiveSlot {

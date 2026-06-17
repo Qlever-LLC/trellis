@@ -1642,6 +1642,179 @@
           "the list includes the activated device entry"
         ]
       }
+    },
+    {
+      "id": "outbox.commits-event-through-sql-outbox",
+      "fixture": "outbox",
+      "title": "SQL outbox commits event through service-owned database transaction and delivers to NATS",
+      "coverage": [
+        "service-sql-outbox",
+        "outbox-event-delivery",
+        "observability-trace-matrix"
+      ],
+      "description": "A service handler uses createSqlOutbox in an RPC handler, enqueues an event inside the transaction, and the event is published to NATS after the SQL transaction commits. The event is observable through a live event capture.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.outbox-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.outbox-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected with real SQLite and SQL outbox configured",
+          "the service RPC handler uses outbox.transaction to enqueue an event"
+        ],
+        "when": [
+          "the client calls Documents.Process"
+        ],
+        "then": [
+          "the RPC response includes the expected documentId",
+          "the event is captured by a live event subscriber"
+        ]
+      }
+    },
+    {
+      "id": "outbox.rollback-does-not-publish",
+      "fixture": "outbox",
+      "title": "SQL outbox suppresses events when the service transaction rolls back",
+      "coverage": [
+        "service-sql-outbox",
+        "outbox-rollback-behavior"
+      ],
+      "description": "A service handler starts an outbox transaction, enqueues an event, then throws. The rollback ensures no event is published to NATS.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.outbox-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.outbox-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected with real SQLite and SQL outbox configured",
+          "the service RPC handler throws inside outbox.transaction"
+        ],
+        "when": [
+          "the client calls Documents.ProcessWithRollback"
+        ],
+        "then": [
+          "no event is captured by a live event subscriber"
+        ]
+      }
+    },
+    {
+      "id": "outbox.multiple-events-in-one-transaction",
+      "fixture": "outbox",
+      "title": "SQL outbox publishes multiple events from a single transaction commit",
+      "coverage": [
+        "service-sql-outbox",
+        "outbox-multi-event-delivery"
+      ],
+      "description": "A service handler enqueues two different events in the same outbox transaction. Both events are published to NATS after the SQL transaction commits.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.outbox-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.outbox-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected with real SQLite and SQL outbox configured",
+          "the service RPC handler enqueues two events in one outbox.transaction"
+        ],
+        "when": [
+          "the client calls Documents.ProcessMultiEvent"
+        ],
+        "then": [
+          "both Document.Processed and Document.Audited events are captured",
+          "each event has the expected documentId payload"
+        ]
+      }
+    },
+    {
+      "id": "outbox.listener-derives-event",
+      "fixture": "outbox",
+      "title": "Event listener derives a new event through SQL outbox",
+      "coverage": [
+        "service-sql-outbox",
+        "outbox-listener-derivation"
+      ],
+      "description": "A service registers an ephemeral event listener that uses outbox.transaction to enqueue a derived audit event. Both the original and derived events are published to NATS.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.outbox-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.outbox-service@v1"
+          }
+        ],
+        "given": [
+          "a service with an ephemeral event listener that derives an audited event through SQL outbox"
+        ],
+        "when": [
+          "the client calls Documents.Process"
+        ],
+        "then": [
+          "the Document.Processed event is captured",
+          "the Document.Audited event derived by the listener is captured"
+        ]
+      }
+    },
+    {
+      "id": "outbox.sql-row-state-is-dispatched",
+      "fixture": "outbox",
+      "title": "Outbox SQL row is marked dispatched after successful commit",
+      "coverage": [
+        "service-sql-outbox",
+        "outbox-row-state"
+      ],
+      "description": "After a successful outbox transaction commit, the outbox SQL row is marked with state 'dispatched' and kind 'event.publish'.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.outbox-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.outbox-service@v1"
+          }
+        ],
+        "given": [
+          "a service with SQL outbox configured and real SQLite"
+        ],
+        "when": [
+          "the client calls Documents.Process"
+        ],
+        "then": [
+          "the SQL outbox row has state 'dispatched'",
+          "the SQL outbox row has kind 'event.publish'"
+        ]
+      }
     }
   ]
 }
