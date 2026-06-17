@@ -1161,6 +1161,12 @@ export const OWNED_API = {
       observeCapabilities: [] as const,
       cancelCapabilities: [] as const,
       controlCapabilities: [] as const,
+      errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
+      declaredErrorTypes: [
+        "AuthError",
+        "UnexpectedError",
+        "ValidationError",
+      ] as const,
     },
   },
   events: {

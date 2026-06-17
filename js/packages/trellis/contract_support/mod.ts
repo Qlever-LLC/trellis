@@ -2667,6 +2667,12 @@ function collectReachableSchemaNames(contract: TrellisContractV1): Set<string> {
     for (const signal of Object.values(operation.signals ?? {})) {
       collectSchemaRef(reachableSchemas, signal.input);
     }
+    for (const error of operation.errors ?? []) {
+      const declaration = Object.values(contract.errors ?? {}).find((decl) =>
+        decl.type === error.type
+      );
+      collectSchemaRef(reachableSchemas, declaration?.schema);
+    }
   }
 
   for (const event of Object.values(contract.events ?? {})) {
@@ -2714,6 +2720,26 @@ function projectRpcDeclaredErrors(
   const declaredErrorTypes = new Set<string>();
   for (const method of Object.values(contract.rpc ?? {})) {
     for (const error of method.errors ?? []) {
+      declaredErrorTypes.add(error.type);
+    }
+  }
+
+  const entries = Object.entries(contract.errors).filter(([, error]) =>
+    declaredErrorTypes.has(error.type)
+  );
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function projectOperationDeclaredErrors(
+  contract: TrellisContractV1,
+): Record<string, ContractErrorDecl> | undefined {
+  if (!contract.errors) {
+    return undefined;
+  }
+
+  const declaredErrorTypes = new Set<string>();
+  for (const operation of Object.values(contract.operations ?? {})) {
+    for (const error of operation.errors ?? []) {
       declaredErrorTypes.add(error.type);
     }
   }
@@ -2906,6 +2932,12 @@ function projectDigestOperations(
                   ? { control: sortedUnique(operation.capabilities.control) }
                   : {}),
               },
+            }
+            : {}),
+          ...(operation.errors
+            ? {
+              errors: sortedUnique(operation.errors.map((error) => error.type))
+                .map((type) => ({ type })),
             }
             : {}),
         } satisfies ContractOperation,
@@ -3507,7 +3539,10 @@ export function projectContractDigestManifest(
   contract: TrellisContractV1,
 ): JsonValue {
   const schemas = projectReachableSchemas(contract);
-  const errors = projectRpcDeclaredErrors(contract);
+  const rpcDeclaredErrors = projectRpcDeclaredErrors(contract);
+  const operationDeclaredErrors = projectOperationDeclaredErrors(contract);
+  const combinedErrors = { ...rpcDeclaredErrors, ...operationDeclaredErrors };
+  const errors = Object.keys(combinedErrors).length > 0 ? combinedErrors : undefined;
   const state = projectDigestState(contract.state);
   const resources = projectDigestResources(contract.resources);
   const jobs = projectDigestJobs(contract.jobs);
@@ -3986,6 +4021,13 @@ function emitContract(source: TrellisContractSource): TrellisContractV1 {
         if (operation.docs) {
           emitted.docs = contractDocs(operation.docs);
         }
+        if (operation.errors && operation.errors.length > 0) {
+          emitted.errors = sortedUnique(
+            operation.errors.map((errorName) =>
+              source.errors?.[errorName]?.type ?? errorName
+            ),
+          ).map((type) => ({ type }));
+        }
         return [name, emitted];
       }),
     )
@@ -4260,6 +4302,14 @@ function buildOwnedApi(source: TrellisContractSource): ApiShape {
           `operation '${name}' control capabilities`,
         ) ?? [],
         cancel: operation.cancel,
+        errors: operation.errors,
+        declaredErrorTypes: operation.errors?.map((errorName) =>
+          source.errors?.[errorName]?.type ?? errorName
+        ),
+        runtimeErrors: operation.errors?.flatMap((errorName) => {
+          const runtimeError = localRuntimeErrors[errorName];
+          return runtimeError ? [runtimeError] : [];
+        }),
       },
     ]),
   ) as Record<string, OperationDesc>;

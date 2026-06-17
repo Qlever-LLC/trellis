@@ -91,6 +91,9 @@ Descriptor rules:
 
 - `subject` SHOULD default to `operations.<version>.<LogicalName>` when omitted
 - `input` and `output` are required schema references
+- `errors` enumerates known typed error payloads but does not close the wire
+  format to unknown future error types; error refs use the same
+  `ContractErrorRef` shape as RPC error refs
 - `progress` is optional; if omitted, the operation does not emit typed progress
   payloads
 - `capabilities.call` gates initial invocation

@@ -301,10 +301,10 @@ The digest projection includes:
 
 - `format`, `id`, and `kind`
 - top-level `capabilities`
-- reachable schemas referenced by state, RPCs, operations, operation signals,
-  events, feeds, jobs, schema-backed KV resources, and declared RPC error
-  schemas
-- state, `uses`, RPCs, operations, events, feeds, jobs, `eventConsumers`,
+- reachable schemas referenced by state, RPCs, operations, operation errors,
+  operation signals, events, feeds, jobs, schema-backed KV resources, and
+  declared RPC error schemas
+- state, `uses`, RPCs, operations (including operation errors), events, feeds, jobs, `eventConsumers`,
   declared RPC errors, and KV/store resource requests
 - sorted and deduplicated capability and `uses` selector lists
 
@@ -822,6 +822,8 @@ Rules:
 - operations are durable async contracts, not raw jobs and not unary RPCs
 - services own operation-level authorization for specific operation ids; the
   contract only declares the coarse capability gates
+- `errors` enumerates known typed error payloads; uses the same
+  `ContractErrorRef` schema as RPC error refs
 
 ### 8) Event descriptor
 

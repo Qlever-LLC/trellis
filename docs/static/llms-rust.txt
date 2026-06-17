@@ -186,6 +186,12 @@ contract-authored, UI-facing validation metadata through the
 validation architecture; the Rust equivalent of `SchemaValidationError` is
 pending design exploration.
 
+## Operation Typed Errors
+- `OperationDescriptor` requires `type Error: OperationFailureLike + Send + 'static`
+- `OperationDescriptor` carries `const ERRORS: &'static [&'static str]`
+- Generated operation descriptors emit `{Base}OperationError` enums with `OperationFailureLike` impl
+- Operations without declared errors use `type Error = OperationFailure`
+
 ## Verification
 
 Use the format, clippy, test, run, and migration commands configured by the

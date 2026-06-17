@@ -199,6 +199,32 @@ fn collect_reachable_schema_names(contract: &Value) -> std::collections::BTreeSe
                 object(Some(signal)).and_then(|value| value.get("input")),
             );
         }
+        // NEW: collect error schemas (mirror RPC error collection)
+        for error in array(operation.and_then(|value| value.get("errors")))
+            .into_iter()
+            .flatten()
+        {
+            let Some(error_type) = object(Some(error))
+                .and_then(|value| value.get("type"))
+                .and_then(Value::as_str)
+            else {
+                continue;
+            };
+            let declaration = object(contract.get("errors"))
+                .and_then(|errors| {
+                    errors.values().find(|declaration| {
+                        object(Some(declaration))
+                            .and_then(|value| value.get("type"))
+                            .and_then(Value::as_str)
+                            == Some(error_type)
+                    })
+                })
+                .and_then(|value| object(Some(value)));
+            collect_schema_ref(
+                &mut reachable,
+                declaration.and_then(|value| value.get("schema")),
+            );
+        }
     }
 
     for event in object(contract.get("events"))
@@ -291,6 +317,39 @@ fn project_rpc_declared_errors(contract: &Value) -> Option<Value> {
         .flatten()
     {
         for error in array(object(Some(method)).and_then(|value| value.get("errors")))
+            .into_iter()
+            .flatten()
+        {
+            if let Some(error_type) = object(Some(error))
+                .and_then(|value| value.get("type"))
+                .and_then(Value::as_str)
+            {
+                declared.insert(error_type.to_string());
+            }
+        }
+    }
+    let projected = errors
+        .iter()
+        .filter(|(_, error)| {
+            object(Some(error))
+                .and_then(|value| value.get("type"))
+                .and_then(Value::as_str)
+                .is_some_and(|error_type| declared.contains(error_type))
+        })
+        .map(|(name, error)| (name.clone(), error.clone()))
+        .collect::<serde_json::Map<_, _>>();
+    (!projected.is_empty()).then_some(Value::Object(projected))
+}
+
+fn project_operation_declared_errors(contract: &Value) -> Option<Value> {
+    let errors = object(contract.get("errors"))?;
+    let mut declared = std::collections::BTreeSet::new();
+    for operation in object(contract.get("operations"))
+        .map(|value| value.values())
+        .into_iter()
+        .flatten()
+    {
+        for error in array(object(Some(operation)).and_then(|value| value.get("errors")))
             .into_iter()
             .flatten()
         {
@@ -510,6 +569,33 @@ fn project_operations(operations: Option<&Value>) -> Option<Value> {
         ) {
             projected.insert("capabilities".to_string(), capabilities);
         }
+        if let Some(errors) = array(operation_object.get("errors")) {
+            let sorted = sorted_unique_strings(&Value::Array(
+                errors
+                    .iter()
+                    .filter_map(|error| {
+                        object(Some(error))
+                            .and_then(|value| value.get("type"))
+                            .cloned()
+                    })
+                    .collect(),
+            ));
+            if let Some(Value::Array(types)) = sorted {
+                projected.insert(
+                    "errors".to_string(),
+                    Value::Array(
+                        types
+                            .into_iter()
+                            .map(|error_type| {
+                                let mut error = serde_json::Map::new();
+                                error.insert("type".to_string(), error_type);
+                                Value::Object(error)
+                            })
+                            .collect(),
+                    ),
+                );
+            }
+        }
         projected_operations.insert(name.clone(), Value::Object(projected));
     }
     Some(Value::Object(projected_operations))
@@ -599,11 +685,21 @@ pub fn project_contract_digest_manifest(contract: &Value) -> Value {
         "feeds",
         project_feeds(contract.get("feeds")),
     );
-    insert_if_present(
-        &mut projected,
-        "errors",
-        project_rpc_declared_errors(contract),
-    );
+    let rpc_declared = project_rpc_declared_errors(contract);
+    let operation_declared = project_operation_declared_errors(contract);
+    let merged = match (rpc_declared, operation_declared) {
+        (Some(rpc_errors), None) => Some(rpc_errors),
+        (None, Some(op_errors)) => Some(op_errors),
+        (Some(rpc_errors), Some(op_errors)) => {
+            let mut merged = rpc_errors.as_object().cloned().unwrap_or_default();
+            if let Some(obj) = op_errors.as_object() {
+                merged.extend(obj.iter().map(|(k, v)| (k.clone(), v.clone())));
+            }
+            (!merged.is_empty()).then_some(Value::Object(merged))
+        }
+        (None, None) => None,
+    };
+    insert_if_present(&mut projected, "errors", merged);
     if let Some(jobs) = contract.get("jobs") {
         projected.insert("jobs".to_string(), project_map_without_docs(jobs));
     }

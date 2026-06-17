@@ -91,7 +91,8 @@ export type TrellisServiceRuntimeFor<TA extends AnyTrellisAPI = TrellisAPI> =
       OperationInputOf<TA, O>,
       OperationProgressOf<TA, O>,
       OperationOutputOf<TA, O>,
-      OperationTransferContextOf<TA, O>
+      OperationTransferContextOf<TA, O>,
+      BaseError
     >;
   };
 
@@ -505,7 +506,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
     operation: string,
     ctx: RegisteredRuntimeOperationDesc,
     operationId: string,
-  ): AsyncResult<OperationRuntimeHandle<unknown, unknown>, BaseError> {
+  ): AsyncResult<OperationRuntimeHandle<unknown, unknown, BaseError>, BaseError> {
     return AsyncResult.from((async () => {
       const runtime = await this.#resolveOperation(operationId);
       if (!runtime) {
@@ -524,7 +525,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
   #makeControlledOperation(
     runtime: RuntimeOperationRecord,
     ctx: RegisteredRuntimeOperationDesc,
-  ): OperationRuntimeHandle<unknown, unknown> {
+  ): OperationRuntimeHandle<unknown, unknown, BaseError> {
     return {
       id: runtime.id,
       started: () =>
@@ -586,7 +587,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
   #makeAcceptedOperation(
     runtime: RuntimeOperationRecord,
     ctx: RegisteredRuntimeOperationDesc,
-  ): AcceptedOperation<unknown, unknown> {
+  ): AcceptedOperation<unknown, unknown, BaseError> {
     return {
       id: runtime.id,
       ref: {
@@ -763,7 +764,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
     operation: string,
     ctx: RegisteredRuntimeOperationDesc,
     sessionKey: string,
-  ): Promise<Result<AcceptedOperation<unknown, unknown>, UnexpectedError>> {
+  ): Promise<Result<AcceptedOperation<unknown, unknown, BaseError>, UnexpectedError>> {
     const createdAt = new Date().toISOString();
     const operationId = ulid();
     const runtime: RuntimeOperationRecord = {
@@ -1176,7 +1177,7 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
 
   override operationHandle(
     operation: string,
-  ): OperationRegistration<unknown, unknown, unknown> {
+  ): OperationRegistration<unknown, unknown, unknown, undefined, BaseError> {
     const ctx = this.api["operations"]
       ?.[operation as keyof typeof this.api.operations] as
         | RegisteredRuntimeOperationDesc
@@ -1215,7 +1216,8 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
             unknown,
             unknown,
             unknown,
-            OperationTransferHandle | undefined
+            OperationTransferHandle | undefined,
+            BaseError
           >,
         ) => unknown | Promise<unknown>,
       ) => {

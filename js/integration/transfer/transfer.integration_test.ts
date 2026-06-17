@@ -6,8 +6,11 @@ import {
 } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import { Type } from "typebox";
-import { withTrellisRuntime } from "../_support/runtime.ts";
-import type { TrellisTestRuntime } from "@qlever-llc/trellis-test";
+import {
+  liveTrellisTest,
+  runtimeScopeForFixture,
+} from "../_support/runtime.ts";
+import type { LiveTrellisRuntime } from "../_support/runtime.ts";
 
 const transferSchemas = {
   UploadInput: Type.Object({
@@ -63,6 +66,7 @@ const transferServiceContract = defineServiceContract(
         subject: "operations.v1.Files.Upload",
         input: ref.schema("UploadInput"),
         output: ref.schema("UploadOutput"),
+        errors: [ref.error("UnexpectedError")],
         transfer: {
           direction: "send",
           store: "uploads",
@@ -104,66 +108,67 @@ const transferClientContract = defineAppContract(() => ({
 }));
 
 async function withTransferFixture(
+  runtime: LiveTrellisRuntime,
   fn: (
-    ctx: { runtime: TrellisTestRuntime; service: TrellisService },
+    ctx: { runtime: LiveTrellisRuntime; service: TrellisService },
   ) => Promise<void>,
 ) {
-  await withTrellisRuntime(async (runtime) => {
-    const serviceKey = await runtime.registerService({
-      name: "transfer-fixture-service",
-      contract: transferServiceContract,
-    });
-    const service = await TrellisService.connect({
-      trellisUrl: runtime.trellisUrl,
-      contract: transferServiceContract,
-      name: "transfer-fixture-service",
-      sessionKeySeed: serviceKey.seed,
-      telemetry: false,
-      server: {},
-    }).orThrow();
-
-    try {
-      await service.handle.operation.files.upload(
-        async ({ input, op, transfer }) => {
-          const transferred = await transfer.completed().orThrow();
-          await op.started().orThrow();
-          return Result.ok({
-            key: input.key,
-            size: transferred.size,
-            ...(input.contentType ? { contentType: input.contentType } : {}),
-          });
-        },
-      );
-
-      await service.handle.rpc.files.download(
-        async ({ input, context, client }) => {
-          const payload = new TextEncoder().encode(`download:${input.key}`);
-          const store = await client.store.uploads.open().orThrow();
-          await store.put(input.key, payload, { contentType: "text/plain" })
-            .orThrow();
-          const grant = await service.createTransfer({
-            direction: "receive",
-            store: "uploads",
-            key: input.key,
-            sessionKey: context.sessionKey,
-            expiresInMs: 60000,
-          }).orThrow();
-          return Result.ok(grant);
-        },
-      );
-
-      await fn({ runtime, service });
-    } finally {
-      await service.stop();
-    }
+  const serviceKey = await runtime.registerService({
+    name: "transfer-fixture-service",
+    contract: transferServiceContract,
   });
+  const service = await TrellisService.connect({
+    trellisUrl: runtime.trellisUrl,
+    contract: transferServiceContract,
+    name: "transfer-fixture-service",
+    sessionKeySeed: serviceKey.seed,
+    telemetry: false,
+    server: {},
+  }).orThrow();
+
+  try {
+    await service.handle.operation.files.upload(
+      async ({ input, op, transfer }) => {
+        const transferred = await transfer.completed().orThrow();
+        await op.started().orThrow();
+        return Result.ok({
+          key: input.key,
+          size: transferred.size,
+          ...(input.contentType ? { contentType: input.contentType } : {}),
+        });
+      },
+    );
+
+    await service.handle.rpc.files.download(
+      async ({ input, context, client }) => {
+        const payload = new TextEncoder().encode(`download:${input.key}`);
+        const store = await client.store.uploads.open().orThrow();
+        await store.put(input.key, payload, { contentType: "text/plain" })
+          .orThrow();
+        const grant = await service.createTransfer({
+          direction: "receive",
+          store: "uploads",
+          key: input.key,
+          sessionKey: context.sessionKey,
+          expiresInMs: 60000,
+        }).orThrow();
+        return Result.ok(grant);
+      },
+    );
+
+    await fn({ runtime, service });
+  } finally {
+    await service.stop();
+  }
 }
 
-Deno.test(
-  "transfer.client-uploads-file-via-operation uploads bytes through a transfer operation",
-  async () => {
-    await withTransferFixture(async ({ runtime }) => {
-      const client = await runtime.connectClient({
+liveTrellisTest({
+  name:
+    "transfer.client-uploads-file-via-operation uploads bytes through a transfer operation",
+  scope: runtimeScopeForFixture("transfer"),
+  async fn(runtime) {
+    await withTransferFixture(runtime, async ({ runtime: rt }) => {
+      const client = await rt.connectClient({
         name: "transfer-fixture-client",
         contract: transferClientContract,
       });
@@ -186,13 +191,15 @@ Deno.test(
       });
     });
   },
-);
+});
 
-Deno.test(
-  "transfer.client-downloads-file-via-receive-grant downloads bytes through a receive grant",
-  async () => {
-    await withTransferFixture(async ({ runtime }) => {
-      const client = await runtime.connectClient({
+liveTrellisTest({
+  name:
+    "transfer.client-downloads-file-via-receive-grant downloads bytes through a receive grant",
+  scope: runtimeScopeForFixture("transfer"),
+  async fn(runtime) {
+    await withTransferFixture(runtime, async ({ runtime: rt }) => {
+      const client = await rt.connectClient({
         name: "transfer-fixture-client",
         contract: transferClientContract,
       });
@@ -211,13 +218,15 @@ Deno.test(
       );
     });
   },
-);
+});
 
-Deno.test(
-  "transfer.download-grant-is-session-bound rejects cross-session grant usage",
-  async () => {
-    await withTransferFixture(async ({ runtime }) => {
-      const clientA = await runtime.connectClient({
+liveTrellisTest({
+  name:
+    "transfer.download-grant-is-session-bound rejects cross-session grant usage",
+  scope: runtimeScopeForFixture("transfer"),
+  async fn(runtime) {
+    await withTransferFixture(runtime, async ({ runtime: rt }) => {
+      const clientA = await rt.connectClient({
         name: "transfer-fixture-client-A",
         contract: transferClientContract,
       });
@@ -226,7 +235,7 @@ Deno.test(
       const grant = await clientA.rpc.files.download({ key: downloadKey })
         .orThrow();
 
-      const clientB = await runtime.connectClient({
+      const clientB = await rt.connectClient({
         name: "transfer-fixture-client-B",
         contract: transferClientContract,
       });
@@ -235,4 +244,4 @@ Deno.test(
       assertEquals(result.isOk(), false);
     });
   },
-);
+});

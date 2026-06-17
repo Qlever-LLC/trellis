@@ -187,6 +187,7 @@ export type {
   MapStateStoreClient,
   OperationHandlerContext,
   OperationRegistration,
+  OperationHandlerErrorOf,
   OperationRuntimeHandle,
   OperationTransferContextOf,
   OperationTransferHandle,

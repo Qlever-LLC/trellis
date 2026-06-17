@@ -21,14 +21,20 @@
         "Output": {
           "type": "object",
           "properties": {
-            "value": { "type": "string" }
+            "value": {
+              "type": "string"
+            }
           },
-          "required": ["value"]
+          "required": [
+            "value"
+          ]
         },
         "Unused": {
           "type": "object",
           "properties": {
-            "ignored": { "type": "number" }
+            "ignored": {
+              "type": "number"
+            }
           }
         }
       },
@@ -36,18 +42,80 @@
         "Conformance.Read": {
           "version": "v1",
           "subject": "rpc.v1.Conformance.Read",
-          "input": { "schema": "Input" },
-          "output": { "schema": "Output" },
+          "input": {
+            "schema": "Input"
+          },
+          "output": {
+            "schema": "Output"
+          },
           "capabilities": {
-            "call": ["conformance.capabilities::read"]
+            "call": [
+              "conformance.capabilities::read"
+            ]
           }
         }
       },
       "exports": {
-        "schemas": ["Unused"]
+        "schemas": [
+          "Unused"
+        ]
       },
       "unknownFutureField": true
     },
     "digest": "u7h2fJxPcd9HDsSh0GzM3zjFrfS8btaLSh1nx9JV-9s"
+  },
+  {
+    "name": "operation with declared errors",
+    "input": {
+      "format": "trellis.contract.v1",
+      "id": "conformance.operation-errors@v1",
+      "displayName": "Conformance",
+      "description": "Contract digest conformance vector for operation errors.",
+      "kind": "service",
+      "schemas": {
+        "Input": {
+          "type": "object",
+          "properties": {}
+        },
+        "Output": {
+          "type": "object",
+          "properties": {}
+        },
+        "ErrorData": {
+          "type": "object",
+          "properties": {
+            "detail": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "errors": {
+        "NotFoundError": {
+          "type": "NotFoundError",
+          "schema": {
+            "schema": "ErrorData"
+          }
+        }
+      },
+      "operations": {
+        "Example.Process": {
+          "version": "v1",
+          "subject": "operations.v1.Example.Process",
+          "input": {
+            "schema": "Input"
+          },
+          "output": {
+            "schema": "Output"
+          },
+          "errors": [
+            {
+              "type": "NotFoundError"
+            }
+          ]
+        }
+      }
+    },
+    "digest": "ilQ0lQC7HkmaMcl1H2XihHIxX6kbEN2t2x7YZec_eWk"
   }
 ]

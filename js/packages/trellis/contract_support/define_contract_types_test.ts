@@ -600,6 +600,35 @@ if (false) {
       },
     }),
   );
+  defineServiceContract(
+    {
+      schemas: {
+        Empty: EmptySchema,
+      },
+      errors: {
+        BuilderFailed,
+      },
+    },
+    (ref) => ({
+      id: "trellis.invalid-operation-error@v1",
+      displayName: "Invalid Operation Error",
+      description: "Should fail type checking.",
+      operations: {
+        "Example.Run": {
+          version: "v1",
+          input: ref.schema("Empty"),
+          output: ref.schema("Empty"),
+          errors: [
+            ref.error("BuilderFailed"),
+            // @ts-expect-error operation error refs must use local or builtin error names
+            ref.error("MissingError"),
+          ],
+          capabilities: { call: [] },
+        },
+      },
+    }),
+  );
+
 
   defineAppContract(() => ({
     id: "trellis.invalid-app@v1",

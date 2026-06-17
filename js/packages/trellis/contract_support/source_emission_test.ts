@@ -1,4 +1,4 @@
-import { assertEquals, assertNotEquals, assertThrows } from "@std/assert";
+import { assert, assertEquals, assertNotEquals, assertThrows } from "@std/assert";
 import { Type } from "typebox";
 
 import {
@@ -750,6 +750,54 @@ Deno.test("defineServiceContract emits RPC error refs using declared wire types"
     { type: "UnexpectedError" },
   ]);
 });
+Deno.test("defineServiceContract emits operation error refs using declared wire types", () => {
+  const NotFoundError = defineError({
+    type: "NotFoundError",
+    fields: {},
+    message: "Not found",
+  });
+
+  const contract = defineServiceContract(
+    {
+      schemas: {
+        Empty: EmptySchema,
+      },
+      errors: {
+        NotFoundError,
+      },
+    },
+    (ref) => ({
+      id: "local-errors.example@v1",
+      displayName: "Local Errors Example",
+      description: "Verify operation error refs emit declared error types.",
+      operations: {
+        "Example.Process": {
+          version: "v1",
+          input: ref.schema("Empty"),
+          output: ref.schema("Empty"),
+          errors: [ref.error("NotFoundError"), ref.error("UnexpectedError")],
+          capabilities: { call: [] },
+        },
+      },
+    }),
+  );
+
+  // Assert emitted manifest
+  const emitted = contract.CONTRACT.operations?.["Example.Process"];
+  assertEquals(emitted?.errors, [
+    { type: "NotFoundError" },
+    { type: "UnexpectedError" },
+  ]);
+
+  // Assert runtime API metadata
+  const api = contract.API.owned.operations["Example.Process"];
+  assertEquals(api.declaredErrorTypes, ["NotFoundError", "UnexpectedError"]);
+  assert(api.runtimeErrors !== undefined);
+  assertEquals(api.runtimeErrors.length, 1);
+  assertEquals(api.runtimeErrors[0].type, "NotFoundError");
+  assertEquals(api.errors, ["NotFoundError", "UnexpectedError"]);
+});
+
 
 Deno.test("defineAppContract emits top-level named state declarations", async () => {
   const dashboardSchemas = {

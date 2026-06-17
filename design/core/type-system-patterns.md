@@ -412,6 +412,10 @@ RPC rule:
 - `RemoteError` is a fallback for undeclared or unknown remote error payloads,
   not the preferred shape for declared contract errors
 
+Operation rule:
+- declared operation errors follow the same rules as declared RPC errors;
+  local-or-builtin enforcement, wire open format, reconstructable class instances
+
 Wire rule:
 
 - the on-wire error envelope stays open

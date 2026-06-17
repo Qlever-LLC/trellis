@@ -13,7 +13,7 @@ const CONTRACT_MODULE_METADATA = Symbol.for(
 
 export const CONTRACT_ID = "trellis.auth@v1" as const;
 export const CONTRACT_DIGEST =
-  "9lVBR9oyfFwuD9gvT9xR6GPK56QGUjwlvVqmVAkB7ZA" as const;
+  "1YrFqkuEcvzJykFCGnDkhNE4ot_Lbt0T1QBDHabTHMo" as const;
 export const CONTRACT = {
   "capabilities": {
     "trellis.auth::device.review": {
@@ -163,6 +163,9 @@ export const CONTRACT = {
           "Runs the asynchronous workflow that resolves requested user authorities for a device.",
         "summary": "Resolve device authorities.",
       },
+      "errors": [{ "type": "AuthError" }, { "type": "UnexpectedError" }, {
+        "type": "ValidationError",
+      }],
       "input": { "schema": "AuthResolveDeviceUserAuthoritiesRequest" },
       "output": { "schema": "AuthResolveDeviceUserAuthoritiesResponse" },
       "progress": { "schema": "AuthResolveDeviceUserAuthoritiesProgress" },

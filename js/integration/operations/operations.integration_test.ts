@@ -7,7 +7,10 @@ import {
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import { assertOperationCompleted } from "@qlever-llc/trellis-test";
 import { Type } from "typebox";
-import { withTrellisRuntime } from "../_support/runtime.ts";
+import {
+  liveTrellisTest,
+  runtimeScopeForFixture,
+} from "../_support/runtime.ts";
 
 const operationSchemas = {
   OperationInput: Type.Object({ message: Type.String() }),
@@ -40,6 +43,7 @@ const operationsServiceContract = defineServiceContract(
         input: ref.schema("OperationInput"),
         progress: ref.schema("OperationProgress"),
         output: ref.schema("OperationOutput"),
+        errors: [ref.error("UnexpectedError")],
         capabilities: { call: ["process"], observe: ["process"] },
         cancel: false,
       },
@@ -72,8 +76,11 @@ const operationsUnauthorizedClientContract = defineAppContract(() => ({
   },
 }));
 
-Deno.test("operations.client-starts-operation starts an operation and receives an operation ref", async () => {
-  await withTrellisRuntime(async (runtime) => {
+liveTrellisTest({
+  name:
+    "operations.client-starts-operation starts an operation and receives an operation ref",
+  scope: runtimeScopeForFixture("operations"),
+  async fn(runtime) {
     const serviceKey = await runtime.registerService({
       name: "operations-fixture-service",
       contract: operationsServiceContract,
@@ -108,11 +115,14 @@ Deno.test("operations.client-starts-operation starts an operation and receives a
     } finally {
       await service.stop();
     }
-  });
+  },
 });
 
-Deno.test("operations.client-watches-progress observes progress events on an operation stream", async () => {
-  await withTrellisRuntime(async (runtime) => {
+liveTrellisTest({
+  name:
+    "operations.client-watches-progress observes progress events on an operation stream",
+  scope: runtimeScopeForFixture("operations"),
+  async fn(runtime) {
     const serviceKey = await runtime.registerService({
       name: "operations-fixture-service",
       contract: operationsServiceContract,
@@ -156,11 +166,14 @@ Deno.test("operations.client-watches-progress observes progress events on an ope
     } finally {
       await service.stop();
     }
-  });
+  },
 });
 
-Deno.test("operations.client-waits-for-completion observes completion on an operation watch", async () => {
-  await withTrellisRuntime(async (runtime) => {
+liveTrellisTest({
+  name:
+    "operations.client-waits-for-completion observes completion on an operation watch",
+  scope: runtimeScopeForFixture("operations"),
+  async fn(runtime) {
     const serviceKey = await runtime.registerService({
       name: "operations-fixture-service",
       contract: operationsServiceContract,
@@ -210,11 +223,14 @@ Deno.test("operations.client-waits-for-completion observes completion on an oper
     } finally {
       await service.stop();
     }
-  });
+  },
 });
 
-Deno.test("operations.denies-start-without-call-authority rejects an unauthorized operation start", async () => {
-  await withTrellisRuntime(async (runtime) => {
+liveTrellisTest({
+  name:
+    "operations.denies-start-without-call-authority rejects an unauthorized operation start",
+  scope: runtimeScopeForFixture("operations"),
+  async fn(runtime) {
     await runtime.contracts.approve({ contract: operationsServiceContract });
 
     const client = await runtime.connectClient({
@@ -223,5 +239,5 @@ Deno.test("operations.denies-start-without-call-authority rejects an unauthorize
     });
 
     assert((client.operation as Record<string, unknown>).entity === undefined);
-  });
+  },
 });

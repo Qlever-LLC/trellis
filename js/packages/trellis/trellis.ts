@@ -480,6 +480,40 @@ type RequestErrorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
 type HandlerErrorOf<TA extends AnyTrellisAPI, M extends MethodsOf<TA>> =
   | MethodDeclaredErrorOf<TA, M>
   | TrellisErrorInstance;
+
+type OperationDescriptorOf<
+  TA extends AnyTrellisAPI,
+  O extends OperationsOf<TA>,
+> = TA["operations"][O] extends {
+  input: infer TInput;
+  progress?: infer TProgress;
+  output?: infer TOutput;
+  errors?: infer TErrors;
+  runtimeErrors?: infer TRuntimeErrors;
+  declaredErrorTypes?: infer TDeclaredErrorTypes;
+} ? {
+    input: TInput;
+    progress?: TProgress;
+    output?: TOutput;
+    errors?: TErrors;
+    runtimeErrors?: TRuntimeErrors;
+    declaredErrorTypes?: TDeclaredErrorTypes;
+  } & TA["operations"][O]
+  : never;
+
+type OperationDeclaredErrorOf<
+  TA extends AnyTrellisAPI,
+  O extends OperationsOf<TA>,
+> = OperationDescriptorOf<TA, O> extends {
+  errors?: infer TErrors;
+  runtimeErrors?: infer TRuntimeErrors;
+} ? DeclaredBuiltinErrorOf<TErrors> | DeclaredRuntimeErrorOf<TRuntimeErrors>
+  : never;
+
+export type OperationHandlerErrorOf<
+  TA extends AnyTrellisAPI,
+  O extends OperationsOf<TA>,
+> = OperationDeclaredErrorOf<TA, O> | TrellisErrorInstance;
 type EventMessageOf<TA extends AnyTrellisAPI, E extends EventsOf<TA>> =
   TA["events"][E] extends EventDesc<infer TEvent> ? InferSchemaType<TEvent>
     : never;
@@ -553,7 +587,11 @@ export type OperationOutputOf<
 > = TA["operations"][O] extends { output?: infer TOutput }
   ? TOutput extends undefined ? unknown : InferSchemaType<NonNullable<TOutput>>
   : unknown;
-export type OperationRuntimeHandle<TProgress = unknown, TOutput = unknown> = {
+export type OperationRuntimeHandle<
+  TProgress,
+  TOutput,
+  TError extends BaseError,
+> = {
   id: string;
   started(): AsyncResult<RuntimeOperationSnapshot, BaseError>;
   progress(
@@ -563,7 +601,7 @@ export type OperationRuntimeHandle<TProgress = unknown, TOutput = unknown> = {
     value: TOutput,
   ): AsyncResult<RuntimeOperationSnapshot, BaseError>;
   fail(
-    error: BaseError,
+    error: TError,
   ): AsyncResult<RuntimeOperationSnapshot, BaseError>;
   cancel(): AsyncResult<RuntimeOperationSnapshot, BaseError>;
   attach(
@@ -589,8 +627,12 @@ export function isOperationDeferred(
   return !!value && typeof value === "object" &&
     "kind" in value && value.kind === "deferred";
 }
-export type AcceptedOperation<TProgress = unknown, TOutput = unknown> =
-  & OperationRuntimeHandle<TProgress, TOutput>
+export type AcceptedOperation<
+  TProgress,
+  TOutput,
+  TError extends BaseError,
+> =
+  & OperationRuntimeHandle<TProgress, TOutput, TError>
   & {
     ref: OperationRefData;
     snapshot: RuntimeOperationSnapshot & {
@@ -701,33 +743,35 @@ export type StateFacade<TState extends RuntimeStateStores> = {
 };
 export type OperationHandlerContext<
   TInput,
-  TProgress = unknown,
-  TOutput = unknown,
-  TTransfer = undefined,
+  TProgress,
+  TOutput,
+  TTransfer,
+  TError extends BaseError,
 > = {
   input: TInput;
-  op: OperationRuntimeHandle<TProgress, TOutput>;
+  op: OperationRuntimeHandle<TProgress, TOutput, TError>;
   caller: SessionCaller;
 } & (TTransfer extends undefined ? {} : { transfer: TTransfer });
 export type OperationRegistration<
   TInput,
-  TProgress = unknown,
-  TOutput = unknown,
-  TTransfer = undefined,
+  TProgress,
+  TOutput,
+  TTransfer,
+  TError extends BaseError,
 > = {
   accept(args: {
     sessionKey: string;
-  }): AsyncResult<AcceptedOperation<TProgress, TOutput>, UnexpectedError>;
+  }): AsyncResult<AcceptedOperation<TProgress, TOutput, TError>, UnexpectedError>;
   /**
    * Loads an existing operation by id and returns a service-side control handle.
    * The operation must belong to this service and registration name.
    */
   control(
     operationId: string,
-  ): AsyncResult<OperationRuntimeHandle<TProgress, TOutput>, BaseError>;
+  ): AsyncResult<OperationRuntimeHandle<TProgress, TOutput, TError>, BaseError>;
   handle(
     handler: (
-      context: OperationHandlerContext<TInput, TProgress, TOutput, TTransfer>,
+      context: OperationHandlerContext<TInput, TProgress, TOutput, TTransfer, TError>,
     ) => unknown | Promise<unknown>,
   ): Promise<void>;
 };
@@ -746,7 +790,8 @@ export type OperationSurface<
     OperationInputOf<TA, O>,
     OperationProgressOf<TA, O>,
     OperationOutputOf<TA, O>,
-    OperationTransferContextOf<TA, O>
+    OperationTransferContextOf<TA, O>,
+    OperationHandlerErrorOf<TA, O>
   >
   : OperationInvoker<TA["operations"][O] & RuntimeOperationDesc>;
 

@@ -1694,3 +1694,90 @@ fn manifest_validation_rejects_raw_subjects() {
     };
     assert!(details.contains("subjects"));
 }
+
+#[test]
+fn manifest_operation_errors_normalize_and_affect_digest() {
+    let manifest = json!({
+        "format": "trellis.contract.v1",
+        "id": "test.ops@v1",
+        "displayName": "Test",
+        "description": "Test",
+        "kind": "service",
+        "schemas": {
+            "Input": { "type": "object", "properties": {} },
+            "Output": { "type": "object", "properties": {} },
+            "ErrorPayload": { "type": "object", "properties": { "detail": { "type": "string" } } }
+        },
+        "errors": {
+            "NotFoundError": {
+                "type": "NotFoundError",
+                "schema": { "schema": "ErrorPayload" }
+            }
+        },
+        "operations": {
+            "Example.Process": {
+                "version": "v1",
+                "subject": "operations.v1.Example.Process",
+                "input": { "schema": "Input" },
+                "output": { "schema": "Output" },
+                "errors": [{ "type": "NotFoundError" }]
+            }
+        }
+    });
+
+    let normalized = normalize_manifest_value(manifest.clone())
+        .expect("should normalize manifest with operation errors");
+    let errors = normalized["operations"]["Example.Process"]["errors"]
+        .as_array()
+        .expect("operation errors should be preserved after normalization");
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0]["type"], "NotFoundError");
+
+    let digest_projection = project_contract_digest_manifest(&normalized);
+    assert!(
+        digest_projection["operations"]["Example.Process"]["errors"].is_array(),
+        "operation errors should appear in digest projection"
+    );
+
+    assert!(
+        normalized["schemas"]["ErrorPayload"].is_object(),
+        "operation error schemas should be reachable"
+    );
+}
+
+#[test]
+fn manifest_operation_errors_without_schema_normalize() {
+    let manifest = json!({
+        "format": "trellis.contract.v1",
+        "id": "test.ops-no-schema@v1",
+        "displayName": "Test",
+        "description": "Test",
+        "kind": "service",
+        "schemas": {
+            "Input": { "type": "object", "properties": {} },
+            "Output": { "type": "object", "properties": {} }
+        },
+        "errors": {
+            "UnexpectedError": {
+                "type": "UnexpectedError"
+            }
+        },
+        "operations": {
+            "Example.Process": {
+                "version": "v1",
+                "subject": "operations.v1.Example.Process",
+                "input": { "schema": "Input" },
+                "output": { "schema": "Output" },
+                "errors": [{ "type": "UnexpectedError" }]
+            }
+        }
+    });
+
+    let normalized = normalize_manifest_value(manifest)
+        .expect("should normalize");
+    let errors = normalized["operations"]["Example.Process"]["errors"]
+        .as_array()
+        .expect("operation errors should be present");
+    assert_eq!(errors.len(), 1);
+}
+
