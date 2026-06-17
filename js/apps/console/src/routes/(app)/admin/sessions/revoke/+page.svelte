@@ -1,6 +1,7 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
   import type { AuthSessionsRevokeInput } from "@qlever-llc/trellis/sdk/auth";
+  import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
   import { onMount } from "svelte";
@@ -52,7 +53,7 @@
       const response = await trellis.request("Auth.Sessions.Revoke", { sessionKey: selectedSession.sessionKey } satisfies AuthSessionsRevokeInput).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       notifications.success(`Session revoked for ${summary.title}.`, "Revoked");
-      await load();
+      await goto(resolve("/admin/sessions"));
     } catch (e) {
       error = errorMessage(e);
     } finally {

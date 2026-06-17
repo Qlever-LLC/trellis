@@ -127,7 +127,14 @@
       <EmptyState title="No sessions" description="No sessions match the current filter." />
     {:else}
       <Panel title="Sessions" eyebrow="Primary table">
-      <DataTable>
+        <DataTable fixed tableClass="w-full">
+          <colgroup>
+            <col class="w-[42%]" />
+            <col class="w-28" />
+            <col class="w-36" />
+            <col class="w-52" />
+            <col class="w-16" />
+          </colgroup>
           <thead>
             <tr>
               <th>Principal</th>
@@ -141,10 +148,10 @@
             {#each sessions as session (session.key)}
               {@const summary = describeSessionPrincipal(session)}
               <tr>
-                <td>
-                  <div class="font-medium">{summary.title}</div>
+                <td class="min-w-0">
+                  <div class="truncate font-medium" title={summary.title}>{summary.title}</div>
                   {#if summary.details}
-                    <div class="text-xs text-base-content/60">{summary.details}</div>
+                    <div class="truncate text-xs text-base-content/60" title={summary.details}>{summary.details}</div>
                   {/if}
                 </td>
                 <td>
@@ -159,13 +166,13 @@
                 </td>
                 <td class="text-right">
                   <ActionMenu menuClass="z-10" widthClass="w-48">
-                      <li><a class="text-error" href={resolve(`/admin/sessions/revoke?sessionKey=${encodeURIComponent(session.sessionKey)}`)}>Revoke</a></li>
+                    <li><a class="text-error" href={resolve(`/admin/sessions/revoke?sessionKey=${encodeURIComponent(session.sessionKey)}`)}>Revoke</a></li>
                   </ActionMenu>
                 </td>
               </tr>
             {/each}
           </tbody>
-      </DataTable>
+        </DataTable>
       <p class="text-xs text-base-content/50">{sessions.length} session{sessions.length !== 1 ? "s" : ""}</p>
       </Panel>
     {/if}

@@ -2,7 +2,6 @@
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
   import { goto, replaceState } from "$app/navigation";
-  import { resolve } from "$app/paths";
   import { page } from "$app/state";
   import {
     getCanonicalLoopbackRedirectUrl,
@@ -42,7 +41,7 @@
       nextUrl.searchParams.delete("flowId");
       nextUrl.searchParams.delete("authError");
       replaceState(
-        resolve(...([`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`] as never)),
+        `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`,
         page.state,
       );
     }
@@ -68,12 +67,12 @@
       cleanupCallbackUrl();
 
       if (!result) {
-        await goto(resolve(...([targetPath()] as never)));
+        await goto(targetPath());
         return;
       }
 
       if (result.status === "bound") {
-        await goto(resolve(...([targetPath()] as never)));
+        await goto(targetPath());
         return;
       }
 
