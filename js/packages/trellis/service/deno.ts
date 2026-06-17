@@ -1,5 +1,4 @@
 export {
-  type BoundTrellisService,
   type HealthCheckHandler,
   type HealthInfoHandler,
   type JobQueue,

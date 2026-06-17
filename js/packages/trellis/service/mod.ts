@@ -33,8 +33,6 @@ export {
   HealthRpcSchema,
 } from "../server/health_schemas.ts";
 export {
-  type BoundTrellisService,
-  type HandlerSqlOutbox,
   type HealthCheckHandler,
   type HealthInfoHandler,
   type JobQueue,
@@ -44,10 +42,10 @@ export {
   type RpcHandler,
   type ServiceContract,
   type ServiceEventHandler,
+  type SqlOutbox,
   type SqlOutboxEventEnqueueFacade,
   type SqlOutboxTransactionContext,
   type SqlOutboxTransactionRunner,
-  type SqlOutboxTrellisService,
   StoreHandle,
   type Trellis,
   TrellisService,

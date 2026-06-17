@@ -8,7 +8,7 @@ import {
   TransferError,
 } from "@qlever-llc/trellis";
 import type { FieldOpsDeps } from "../../deps.ts";
-import { downloadEvidence } from "./downloadEvidence.ts";
+import { createDownloadEvidenceHandler } from "./downloadEvidence.ts";
 
 const rpcContext = {
   caller: {
@@ -85,10 +85,9 @@ Deno.test("downloadEvidence adds root-cause context for missing evidence keys", 
     },
   });
 
-  const result = await downloadEvidence({
+  const result = await createDownloadEvidenceHandler(deps)({
     input: { key: "evidence/missing.jpg" },
     context: rpcContext,
-    deps,
   });
 
   const value = result.take();
@@ -129,10 +128,9 @@ Deno.test("downloadEvidence retries when a key appears after the first miss", as
     },
   });
 
-  const result = await downloadEvidence({
+  const result = await createDownloadEvidenceHandler(deps)({
     input: { key: "evidence/racy.jpg" },
     context: rpcContext,
-    deps,
   });
 
   const value = result.take();

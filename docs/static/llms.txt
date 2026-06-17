@@ -36,6 +36,9 @@ commands.
   alias, and `eventConsumers.<group>.self` selects events owned by the same
   contract. Dependency durable consumption remains authority-backed by top-level
   `uses`; runtime durable consumers are Trellis-provisioned only.
+- Trellis does not provide application dependency injection. Handler arguments
+  contain only Trellis-owned runtime data. Application resources are supplied by
+  normal JavaScript closure or factory patterns.
 - Trellis libraries do not expose raw NATS connection handles as application API.
   Use generated surfaces, service resource handles, and `TrellisConnection` for
   lifecycle status and shutdown.
@@ -45,16 +48,18 @@ commands.
   job `keyConcurrency` instead of building ad hoc scheduler dedupe. Defaults
   should fail clearly (`stalePolicy: "fail-stale"`, `whenFull: "reject"`);
   coalescing or replacing queued work must be explicit.
+- Operations support declared typed errors, following the same error-declaration
+  rules as RPC errors on the operation descriptor.
 - Model expected public failures with declared errors or `Result`-style values.
-- TypeScript services use `service.withSqlOutbox(...)` for SQL transactional
-  event enqueue. Register handlers through that wrapper, use handler-injected
+- TypeScript services use `service.createSqlOutbox(...)` for SQL transactional
+  event enqueue. Close over the outbox object as a plain dependency, use
   `outbox.transaction(...)` around all DB work and `event.*.*.enqueue(...)` calls
   that must commit atomically, and do not create local outbox wrappers or manual
   `SqlOutboxRepository` handler wiring. Normal event facades expose `prepare`,
   `publish`, and `listen`, not `enqueue`.
 - Configure TypeScript SQL outbox with generic `executor` and `transaction`
   options. Drizzle remains optional through `@qlever-llc/trellis/service/drizzle`
-  adapter helpers, but do not generate direct `withSqlOutbox({ drizzle })` sugar
+  adapter helpers, but do not generate direct `createSqlOutbox({ drizzle })` sugar
   or per-handler Drizzle wrapping. Trellis owns helper-table migration artifacts
   from `getSqlOutboxMigrations(...)`; services run them with their normal
   migration tool.
@@ -96,9 +101,9 @@ commands.
 - Wrap TypeScript Trellis generation in `deno task prepare`.
 - In TypeScript services, run prepare/generation after contract changes before
   typing extracted handlers. Import generated SDK aliases such as
-  `OrdersCreateHandler<ServiceDeps>` for extracted RPC/event/feed/operation/job
-  handlers and `ServiceWithDeps<ServiceDeps>` for exported bound wrappers. Inline
-  `service.handle...` handlers still infer at the registration site.
+  `OrdersCreateHandler` for extracted RPC/event/feed/operation/job
+  handlers. Inline `service.handle...` handlers still infer at the registration
+  site.
 - TypeScript handlers may return source `defineError(...)` instances when their
   serialized data matches the declared generated SDK error data; generated SDK
   aliases type those returns structurally on the handler side.

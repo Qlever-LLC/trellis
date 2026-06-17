@@ -14,7 +14,6 @@ import type {
 
 import type { Api } from "./api.ts";
 
-type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
 export type HandlerClient = HandlerTrellis<Api>;
 
 export const CONTRACT_ID = "trellis.auth@v1" as const;
@@ -2342,19 +2341,19 @@ export type AuthDeviceUserAuthoritiesResolveOutput = {
   instanceId: string;
   status: "activated";
 } | { reason?: string; status: "rejected" };
-
-export type AuthDeviceUserAuthoritiesResolveOperationHandler<
-  TDeps = undefined,
-> = (
+export type AuthDeviceUserAuthoritiesResolveOperationHandlerError =
+  TrellisErrorInstance;
+export type AuthDeviceUserAuthoritiesResolveOperationHandler = (
   args: {
     input: AuthDeviceUserAuthoritiesResolveInput;
     op: OperationRuntimeHandle<
       AuthDeviceUserAuthoritiesResolveProgress,
-      AuthDeviceUserAuthoritiesResolveOutput
+      AuthDeviceUserAuthoritiesResolveOutput,
+      AuthDeviceUserAuthoritiesResolveOperationHandlerError
     >;
     caller: SessionCaller;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => unknown | Promise<unknown>;
 
 export type AuthConnectionsClosedEvent = {
@@ -2366,12 +2365,12 @@ export type AuthConnectionsClosedEvent = {
 export type AuthConnectionsClosedEventMessage = TrellisEventMessage<
   AuthConnectionsClosedEvent
 >;
-export type AuthConnectionsClosedEventHandler<TDeps = undefined> = (
+export type AuthConnectionsClosedEventHandler = (
   args: {
     event: AuthConnectionsClosedEvent;
     context: EventListenerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => MaybeAsync<void, BaseError>;
 
 export type AuthConnectionsKickedEvent = {
@@ -2383,12 +2382,12 @@ export type AuthConnectionsKickedEvent = {
 export type AuthConnectionsKickedEventMessage = TrellisEventMessage<
   AuthConnectionsKickedEvent
 >;
-export type AuthConnectionsKickedEventHandler<TDeps = undefined> = (
+export type AuthConnectionsKickedEventHandler = (
   args: {
     event: AuthConnectionsKickedEvent;
     context: EventListenerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => MaybeAsync<void, BaseError>;
 
 export type AuthConnectionsOpenedEvent = {
@@ -2400,12 +2399,12 @@ export type AuthConnectionsOpenedEvent = {
 export type AuthConnectionsOpenedEventMessage = TrellisEventMessage<
   AuthConnectionsOpenedEvent
 >;
-export type AuthConnectionsOpenedEventHandler<TDeps = undefined> = (
+export type AuthConnectionsOpenedEventHandler = (
   args: {
     event: AuthConnectionsOpenedEvent;
     context: EventListenerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => MaybeAsync<void, BaseError>;
 
 export type AuthDeviceUserAuthoritiesApprovedEvent = {
@@ -2430,12 +2429,12 @@ export type AuthDeviceUserAuthoritiesApprovedEvent = {
 export type AuthDeviceUserAuthoritiesApprovedEventMessage = TrellisEventMessage<
   AuthDeviceUserAuthoritiesApprovedEvent
 >;
-export type AuthDeviceUserAuthoritiesApprovedEventHandler<TDeps = undefined> = (
+export type AuthDeviceUserAuthoritiesApprovedEventHandler = (
   args: {
     event: AuthDeviceUserAuthoritiesApprovedEvent;
     context: EventListenerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => MaybeAsync<void, BaseError>;
 
 export type AuthDeviceUserAuthoritiesRequestedEvent = {
@@ -2452,14 +2451,13 @@ export type AuthDeviceUserAuthoritiesRequestedEvent = {
 };
 export type AuthDeviceUserAuthoritiesRequestedEventMessage =
   TrellisEventMessage<AuthDeviceUserAuthoritiesRequestedEvent>;
-export type AuthDeviceUserAuthoritiesRequestedEventHandler<TDeps = undefined> =
-  (
-    args: {
-      event: AuthDeviceUserAuthoritiesRequestedEvent;
-      context: EventListenerContext;
-      client: HandlerClient;
-    } & WithDeps<TDeps>,
-  ) => MaybeAsync<void, BaseError>;
+export type AuthDeviceUserAuthoritiesRequestedEventHandler = (
+  args: {
+    event: AuthDeviceUserAuthoritiesRequestedEvent;
+    context: EventListenerContext;
+    client: HandlerClient;
+  },
+) => MaybeAsync<void, BaseError>;
 
 export type AuthDeviceUserAuthoritiesResolvedEvent = {
   deploymentId: string;
@@ -2477,12 +2475,12 @@ export type AuthDeviceUserAuthoritiesResolvedEvent = {
 export type AuthDeviceUserAuthoritiesResolvedEventMessage = TrellisEventMessage<
   AuthDeviceUserAuthoritiesResolvedEvent
 >;
-export type AuthDeviceUserAuthoritiesResolvedEventHandler<TDeps = undefined> = (
+export type AuthDeviceUserAuthoritiesResolvedEventHandler = (
   args: {
     event: AuthDeviceUserAuthoritiesResolvedEvent;
     context: EventListenerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => MaybeAsync<void, BaseError>;
 
 export type AuthDeviceUserAuthoritiesReviewRequestedEvent = {
@@ -2500,14 +2498,12 @@ export type AuthDeviceUserAuthoritiesReviewRequestedEvent = {
 };
 export type AuthDeviceUserAuthoritiesReviewRequestedEventMessage =
   TrellisEventMessage<AuthDeviceUserAuthoritiesReviewRequestedEvent>;
-export type AuthDeviceUserAuthoritiesReviewRequestedEventHandler<
-  TDeps = undefined,
-> = (
+export type AuthDeviceUserAuthoritiesReviewRequestedEventHandler = (
   args: {
     event: AuthDeviceUserAuthoritiesReviewRequestedEvent;
     context: EventListenerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => MaybeAsync<void, BaseError>;
 
 export type AuthSessionsRevokedEvent = {
@@ -2519,12 +2515,12 @@ export type AuthSessionsRevokedEvent = {
 export type AuthSessionsRevokedEventMessage = TrellisEventMessage<
   AuthSessionsRevokedEvent
 >;
-export type AuthSessionsRevokedEventHandler<TDeps = undefined> = (
+export type AuthSessionsRevokedEventHandler = (
   args: {
     event: AuthSessionsRevokedEvent;
     context: EventListenerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => MaybeAsync<void, BaseError>;
 
 export interface RpcMap {
@@ -2790,12 +2786,12 @@ export type AuthCapabilitiesListHandlerResult = Result<
   AuthCapabilitiesListOutput,
   AuthCapabilitiesListHandlerError
 >;
-export type AuthCapabilitiesListHandler<TDeps = undefined> = (
+export type AuthCapabilitiesListHandler = (
   args: {
     input: AuthCapabilitiesListInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthCapabilitiesListHandlerResult
   | Promise<AuthCapabilitiesListHandlerResult>;
@@ -2804,12 +2800,12 @@ export type AuthCapabilityGroupsDeleteHandlerResult = Result<
   AuthCapabilityGroupsDeleteOutput,
   AuthCapabilityGroupsDeleteHandlerError
 >;
-export type AuthCapabilityGroupsDeleteHandler<TDeps = undefined> = (
+export type AuthCapabilityGroupsDeleteHandler = (
   args: {
     input: AuthCapabilityGroupsDeleteInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthCapabilityGroupsDeleteHandlerResult
   | Promise<AuthCapabilityGroupsDeleteHandlerResult>;
@@ -2818,12 +2814,12 @@ export type AuthCapabilityGroupsGetHandlerResult = Result<
   AuthCapabilityGroupsGetOutput,
   AuthCapabilityGroupsGetHandlerError
 >;
-export type AuthCapabilityGroupsGetHandler<TDeps = undefined> = (
+export type AuthCapabilityGroupsGetHandler = (
   args: {
     input: AuthCapabilityGroupsGetInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthCapabilityGroupsGetHandlerResult
   | Promise<AuthCapabilityGroupsGetHandlerResult>;
@@ -2832,12 +2828,12 @@ export type AuthCapabilityGroupsListHandlerResult = Result<
   AuthCapabilityGroupsListOutput,
   AuthCapabilityGroupsListHandlerError
 >;
-export type AuthCapabilityGroupsListHandler<TDeps = undefined> = (
+export type AuthCapabilityGroupsListHandler = (
   args: {
     input: AuthCapabilityGroupsListInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthCapabilityGroupsListHandlerResult
   | Promise<AuthCapabilityGroupsListHandlerResult>;
@@ -2846,12 +2842,12 @@ export type AuthCapabilityGroupsPutHandlerResult = Result<
   AuthCapabilityGroupsPutOutput,
   AuthCapabilityGroupsPutHandlerError
 >;
-export type AuthCapabilityGroupsPutHandler<TDeps = undefined> = (
+export type AuthCapabilityGroupsPutHandler = (
   args: {
     input: AuthCapabilityGroupsPutInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthCapabilityGroupsPutHandlerResult
   | Promise<AuthCapabilityGroupsPutHandlerResult>;
@@ -2860,12 +2856,12 @@ export type AuthCatalogIssuesResolveHandlerResult = Result<
   AuthCatalogIssuesResolveOutput,
   AuthCatalogIssuesResolveHandlerError
 >;
-export type AuthCatalogIssuesResolveHandler<TDeps = undefined> = (
+export type AuthCatalogIssuesResolveHandler = (
   args: {
     input: AuthCatalogIssuesResolveInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthCatalogIssuesResolveHandlerResult
   | Promise<AuthCatalogIssuesResolveHandlerResult>;
@@ -2874,12 +2870,12 @@ export type AuthConnectionsKickHandlerResult = Result<
   AuthConnectionsKickOutput,
   AuthConnectionsKickHandlerError
 >;
-export type AuthConnectionsKickHandler<TDeps = undefined> = (
+export type AuthConnectionsKickHandler = (
   args: {
     input: AuthConnectionsKickInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthConnectionsKickHandlerResult
   | Promise<AuthConnectionsKickHandlerResult>;
@@ -2888,12 +2884,12 @@ export type AuthConnectionsListHandlerResult = Result<
   AuthConnectionsListOutput,
   AuthConnectionsListHandlerError
 >;
-export type AuthConnectionsListHandler<TDeps = undefined> = (
+export type AuthConnectionsListHandler = (
   args: {
     input: AuthConnectionsListInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthConnectionsListHandlerResult
   | Promise<AuthConnectionsListHandlerResult>;
@@ -2903,12 +2899,12 @@ export type AuthDeploymentAuthorityAcceptMigrationHandlerResult = Result<
   AuthDeploymentAuthorityAcceptMigrationOutput,
   AuthDeploymentAuthorityAcceptMigrationHandlerError
 >;
-export type AuthDeploymentAuthorityAcceptMigrationHandler<TDeps = undefined> = (
+export type AuthDeploymentAuthorityAcceptMigrationHandler = (
   args: {
     input: AuthDeploymentAuthorityAcceptMigrationInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDeploymentAuthorityAcceptMigrationHandlerResult
   | Promise<AuthDeploymentAuthorityAcceptMigrationHandlerResult>;
@@ -2918,12 +2914,12 @@ export type AuthDeploymentAuthorityAcceptUpdateHandlerResult = Result<
   AuthDeploymentAuthorityAcceptUpdateOutput,
   AuthDeploymentAuthorityAcceptUpdateHandlerError
 >;
-export type AuthDeploymentAuthorityAcceptUpdateHandler<TDeps = undefined> = (
+export type AuthDeploymentAuthorityAcceptUpdateHandler = (
   args: {
     input: AuthDeploymentAuthorityAcceptUpdateInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDeploymentAuthorityAcceptUpdateHandlerResult
   | Promise<AuthDeploymentAuthorityAcceptUpdateHandlerResult>;
@@ -2932,12 +2928,12 @@ export type AuthDeploymentAuthorityGetHandlerResult = Result<
   AuthDeploymentAuthorityGetOutput,
   AuthDeploymentAuthorityGetHandlerError
 >;
-export type AuthDeploymentAuthorityGetHandler<TDeps = undefined> = (
+export type AuthDeploymentAuthorityGetHandler = (
   args: {
     input: AuthDeploymentAuthorityGetInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDeploymentAuthorityGetHandlerResult
   | Promise<AuthDeploymentAuthorityGetHandlerResult>;
@@ -2947,14 +2943,12 @@ export type AuthDeploymentAuthorityGrantOverridesListHandlerResult = Result<
   AuthDeploymentAuthorityGrantOverridesListOutput,
   AuthDeploymentAuthorityGrantOverridesListHandlerError
 >;
-export type AuthDeploymentAuthorityGrantOverridesListHandler<
-  TDeps = undefined,
-> = (
+export type AuthDeploymentAuthorityGrantOverridesListHandler = (
   args: {
     input: AuthDeploymentAuthorityGrantOverridesListInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDeploymentAuthorityGrantOverridesListHandlerResult
   | Promise<AuthDeploymentAuthorityGrantOverridesListHandlerResult>;
@@ -2964,30 +2958,27 @@ export type AuthDeploymentAuthorityGrantOverridesPutHandlerResult = Result<
   AuthDeploymentAuthorityGrantOverridesPutOutput,
   AuthDeploymentAuthorityGrantOverridesPutHandlerError
 >;
-export type AuthDeploymentAuthorityGrantOverridesPutHandler<TDeps = undefined> =
-  (
-    args: {
-      input: AuthDeploymentAuthorityGrantOverridesPutInput;
-      context: RpcHandlerContext;
-      client: HandlerClient;
-    } & WithDeps<TDeps>,
-  ) =>
-    | AuthDeploymentAuthorityGrantOverridesPutHandlerResult
-    | Promise<AuthDeploymentAuthorityGrantOverridesPutHandlerResult>;
+export type AuthDeploymentAuthorityGrantOverridesPutHandler = (
+  args: {
+    input: AuthDeploymentAuthorityGrantOverridesPutInput;
+    context: RpcHandlerContext;
+    client: HandlerClient;
+  },
+) =>
+  | AuthDeploymentAuthorityGrantOverridesPutHandlerResult
+  | Promise<AuthDeploymentAuthorityGrantOverridesPutHandlerResult>;
 export type AuthDeploymentAuthorityGrantOverridesRemoveHandlerError =
   TrellisErrorInstance;
 export type AuthDeploymentAuthorityGrantOverridesRemoveHandlerResult = Result<
   AuthDeploymentAuthorityGrantOverridesRemoveOutput,
   AuthDeploymentAuthorityGrantOverridesRemoveHandlerError
 >;
-export type AuthDeploymentAuthorityGrantOverridesRemoveHandler<
-  TDeps = undefined,
-> = (
+export type AuthDeploymentAuthorityGrantOverridesRemoveHandler = (
   args: {
     input: AuthDeploymentAuthorityGrantOverridesRemoveInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDeploymentAuthorityGrantOverridesRemoveHandlerResult
   | Promise<AuthDeploymentAuthorityGrantOverridesRemoveHandlerResult>;
@@ -2996,12 +2987,12 @@ export type AuthDeploymentAuthorityListHandlerResult = Result<
   AuthDeploymentAuthorityListOutput,
   AuthDeploymentAuthorityListHandlerError
 >;
-export type AuthDeploymentAuthorityListHandler<TDeps = undefined> = (
+export type AuthDeploymentAuthorityListHandler = (
   args: {
     input: AuthDeploymentAuthorityListInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDeploymentAuthorityListHandlerResult
   | Promise<AuthDeploymentAuthorityListHandlerResult>;
@@ -3010,12 +3001,12 @@ export type AuthDeploymentAuthorityPlanHandlerResult = Result<
   AuthDeploymentAuthorityPlanOutput,
   AuthDeploymentAuthorityPlanHandlerError
 >;
-export type AuthDeploymentAuthorityPlanHandler<TDeps = undefined> = (
+export type AuthDeploymentAuthorityPlanHandler = (
   args: {
     input: AuthDeploymentAuthorityPlanInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDeploymentAuthorityPlanHandlerResult
   | Promise<AuthDeploymentAuthorityPlanHandlerResult>;
@@ -3024,12 +3015,12 @@ export type AuthDeploymentAuthorityPlansGetHandlerResult = Result<
   AuthDeploymentAuthorityPlansGetOutput,
   AuthDeploymentAuthorityPlansGetHandlerError
 >;
-export type AuthDeploymentAuthorityPlansGetHandler<TDeps = undefined> = (
+export type AuthDeploymentAuthorityPlansGetHandler = (
   args: {
     input: AuthDeploymentAuthorityPlansGetInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDeploymentAuthorityPlansGetHandlerResult
   | Promise<AuthDeploymentAuthorityPlansGetHandlerResult>;
@@ -3038,12 +3029,12 @@ export type AuthDeploymentAuthorityPlansListHandlerResult = Result<
   AuthDeploymentAuthorityPlansListOutput,
   AuthDeploymentAuthorityPlansListHandlerError
 >;
-export type AuthDeploymentAuthorityPlansListHandler<TDeps = undefined> = (
+export type AuthDeploymentAuthorityPlansListHandler = (
   args: {
     input: AuthDeploymentAuthorityPlansListInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDeploymentAuthorityPlansListHandlerResult
   | Promise<AuthDeploymentAuthorityPlansListHandlerResult>;
@@ -3052,12 +3043,12 @@ export type AuthDeploymentAuthorityReconcileHandlerResult = Result<
   AuthDeploymentAuthorityReconcileOutput,
   AuthDeploymentAuthorityReconcileHandlerError
 >;
-export type AuthDeploymentAuthorityReconcileHandler<TDeps = undefined> = (
+export type AuthDeploymentAuthorityReconcileHandler = (
   args: {
     input: AuthDeploymentAuthorityReconcileInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDeploymentAuthorityReconcileHandlerResult
   | Promise<AuthDeploymentAuthorityReconcileHandlerResult>;
@@ -3066,12 +3057,12 @@ export type AuthDeploymentAuthorityRejectHandlerResult = Result<
   AuthDeploymentAuthorityRejectOutput,
   AuthDeploymentAuthorityRejectHandlerError
 >;
-export type AuthDeploymentAuthorityRejectHandler<TDeps = undefined> = (
+export type AuthDeploymentAuthorityRejectHandler = (
   args: {
     input: AuthDeploymentAuthorityRejectInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDeploymentAuthorityRejectHandlerResult
   | Promise<AuthDeploymentAuthorityRejectHandlerResult>;
@@ -3080,12 +3071,12 @@ export type AuthDeploymentsCreateHandlerResult = Result<
   AuthDeploymentsCreateOutput,
   AuthDeploymentsCreateHandlerError
 >;
-export type AuthDeploymentsCreateHandler<TDeps = undefined> = (
+export type AuthDeploymentsCreateHandler = (
   args: {
     input: AuthDeploymentsCreateInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDeploymentsCreateHandlerResult
   | Promise<AuthDeploymentsCreateHandlerResult>;
@@ -3094,12 +3085,12 @@ export type AuthDeploymentsDisableHandlerResult = Result<
   AuthDeploymentsDisableOutput,
   AuthDeploymentsDisableHandlerError
 >;
-export type AuthDeploymentsDisableHandler<TDeps = undefined> = (
+export type AuthDeploymentsDisableHandler = (
   args: {
     input: AuthDeploymentsDisableInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDeploymentsDisableHandlerResult
   | Promise<AuthDeploymentsDisableHandlerResult>;
@@ -3108,12 +3099,12 @@ export type AuthDeploymentsEnableHandlerResult = Result<
   AuthDeploymentsEnableOutput,
   AuthDeploymentsEnableHandlerError
 >;
-export type AuthDeploymentsEnableHandler<TDeps = undefined> = (
+export type AuthDeploymentsEnableHandler = (
   args: {
     input: AuthDeploymentsEnableInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDeploymentsEnableHandlerResult
   | Promise<AuthDeploymentsEnableHandlerResult>;
@@ -3122,12 +3113,12 @@ export type AuthDeploymentsListHandlerResult = Result<
   AuthDeploymentsListOutput,
   AuthDeploymentsListHandlerError
 >;
-export type AuthDeploymentsListHandler<TDeps = undefined> = (
+export type AuthDeploymentsListHandler = (
   args: {
     input: AuthDeploymentsListInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDeploymentsListHandlerResult
   | Promise<AuthDeploymentsListHandlerResult>;
@@ -3136,12 +3127,12 @@ export type AuthDeploymentsRemoveHandlerResult = Result<
   AuthDeploymentsRemoveOutput,
   AuthDeploymentsRemoveHandlerError
 >;
-export type AuthDeploymentsRemoveHandler<TDeps = undefined> = (
+export type AuthDeploymentsRemoveHandler = (
   args: {
     input: AuthDeploymentsRemoveInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDeploymentsRemoveHandlerResult
   | Promise<AuthDeploymentsRemoveHandlerResult>;
@@ -3150,12 +3141,12 @@ export type AuthDeviceUserAuthoritiesListHandlerResult = Result<
   AuthDeviceUserAuthoritiesListOutput,
   AuthDeviceUserAuthoritiesListHandlerError
 >;
-export type AuthDeviceUserAuthoritiesListHandler<TDeps = undefined> = (
+export type AuthDeviceUserAuthoritiesListHandler = (
   args: {
     input: AuthDeviceUserAuthoritiesListInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDeviceUserAuthoritiesListHandlerResult
   | Promise<AuthDeviceUserAuthoritiesListHandlerResult>;
@@ -3165,12 +3156,12 @@ export type AuthDeviceUserAuthoritiesReviewsDecideHandlerResult = Result<
   AuthDeviceUserAuthoritiesReviewsDecideOutput,
   AuthDeviceUserAuthoritiesReviewsDecideHandlerError
 >;
-export type AuthDeviceUserAuthoritiesReviewsDecideHandler<TDeps = undefined> = (
+export type AuthDeviceUserAuthoritiesReviewsDecideHandler = (
   args: {
     input: AuthDeviceUserAuthoritiesReviewsDecideInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDeviceUserAuthoritiesReviewsDecideHandlerResult
   | Promise<AuthDeviceUserAuthoritiesReviewsDecideHandlerResult>;
@@ -3180,12 +3171,12 @@ export type AuthDeviceUserAuthoritiesReviewsListHandlerResult = Result<
   AuthDeviceUserAuthoritiesReviewsListOutput,
   AuthDeviceUserAuthoritiesReviewsListHandlerError
 >;
-export type AuthDeviceUserAuthoritiesReviewsListHandler<TDeps = undefined> = (
+export type AuthDeviceUserAuthoritiesReviewsListHandler = (
   args: {
     input: AuthDeviceUserAuthoritiesReviewsListInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDeviceUserAuthoritiesReviewsListHandlerResult
   | Promise<AuthDeviceUserAuthoritiesReviewsListHandlerResult>;
@@ -3194,12 +3185,12 @@ export type AuthDeviceUserAuthoritiesRevokeHandlerResult = Result<
   AuthDeviceUserAuthoritiesRevokeOutput,
   AuthDeviceUserAuthoritiesRevokeHandlerError
 >;
-export type AuthDeviceUserAuthoritiesRevokeHandler<TDeps = undefined> = (
+export type AuthDeviceUserAuthoritiesRevokeHandler = (
   args: {
     input: AuthDeviceUserAuthoritiesRevokeInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDeviceUserAuthoritiesRevokeHandlerResult
   | Promise<AuthDeviceUserAuthoritiesRevokeHandlerResult>;
@@ -3208,12 +3199,12 @@ export type AuthDevicesConnectInfoGetHandlerResult = Result<
   AuthDevicesConnectInfoGetOutput,
   AuthDevicesConnectInfoGetHandlerError
 >;
-export type AuthDevicesConnectInfoGetHandler<TDeps = undefined> = (
+export type AuthDevicesConnectInfoGetHandler = (
   args: {
     input: AuthDevicesConnectInfoGetInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDevicesConnectInfoGetHandlerResult
   | Promise<AuthDevicesConnectInfoGetHandlerResult>;
@@ -3222,48 +3213,48 @@ export type AuthDevicesDisableHandlerResult = Result<
   AuthDevicesDisableOutput,
   AuthDevicesDisableHandlerError
 >;
-export type AuthDevicesDisableHandler<TDeps = undefined> = (
+export type AuthDevicesDisableHandler = (
   args: {
     input: AuthDevicesDisableInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => AuthDevicesDisableHandlerResult | Promise<AuthDevicesDisableHandlerResult>;
 export type AuthDevicesEnableHandlerError = TrellisErrorInstance;
 export type AuthDevicesEnableHandlerResult = Result<
   AuthDevicesEnableOutput,
   AuthDevicesEnableHandlerError
 >;
-export type AuthDevicesEnableHandler<TDeps = undefined> = (
+export type AuthDevicesEnableHandler = (
   args: {
     input: AuthDevicesEnableInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => AuthDevicesEnableHandlerResult | Promise<AuthDevicesEnableHandlerResult>;
 export type AuthDevicesListHandlerError = TrellisErrorInstance;
 export type AuthDevicesListHandlerResult = Result<
   AuthDevicesListOutput,
   AuthDevicesListHandlerError
 >;
-export type AuthDevicesListHandler<TDeps = undefined> = (
+export type AuthDevicesListHandler = (
   args: {
     input: AuthDevicesListInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => AuthDevicesListHandlerResult | Promise<AuthDevicesListHandlerResult>;
 export type AuthDevicesProvisionHandlerError = TrellisErrorInstance;
 export type AuthDevicesProvisionHandlerResult = Result<
   AuthDevicesProvisionOutput,
   AuthDevicesProvisionHandlerError
 >;
-export type AuthDevicesProvisionHandler<TDeps = undefined> = (
+export type AuthDevicesProvisionHandler = (
   args: {
     input: AuthDevicesProvisionInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthDevicesProvisionHandlerResult
   | Promise<AuthDevicesProvisionHandlerResult>;
@@ -3272,48 +3263,48 @@ export type AuthDevicesRemoveHandlerResult = Result<
   AuthDevicesRemoveOutput,
   AuthDevicesRemoveHandlerError
 >;
-export type AuthDevicesRemoveHandler<TDeps = undefined> = (
+export type AuthDevicesRemoveHandler = (
   args: {
     input: AuthDevicesRemoveInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => AuthDevicesRemoveHandlerResult | Promise<AuthDevicesRemoveHandlerResult>;
 export type AuthHealthHandlerError = TrellisErrorInstance;
 export type AuthHealthHandlerResult = Result<
   AuthHealthOutput,
   AuthHealthHandlerError
 >;
-export type AuthHealthHandler<TDeps = undefined> = (
+export type AuthHealthHandler = (
   args: {
     input: AuthHealthInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => AuthHealthHandlerResult | Promise<AuthHealthHandlerResult>;
 export type AuthIdentitiesListHandlerError = TrellisErrorInstance;
 export type AuthIdentitiesListHandlerResult = Result<
   AuthIdentitiesListOutput,
   AuthIdentitiesListHandlerError
 >;
-export type AuthIdentitiesListHandler<TDeps = undefined> = (
+export type AuthIdentitiesListHandler = (
   args: {
     input: AuthIdentitiesListInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => AuthIdentitiesListHandlerResult | Promise<AuthIdentitiesListHandlerResult>;
 export type AuthIdentityGrantsListHandlerError = TrellisErrorInstance;
 export type AuthIdentityGrantsListHandlerResult = Result<
   AuthIdentityGrantsListOutput,
   AuthIdentityGrantsListHandlerError
 >;
-export type AuthIdentityGrantsListHandler<TDeps = undefined> = (
+export type AuthIdentityGrantsListHandler = (
   args: {
     input: AuthIdentityGrantsListInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthIdentityGrantsListHandlerResult
   | Promise<AuthIdentityGrantsListHandlerResult>;
@@ -3322,12 +3313,12 @@ export type AuthIdentityGrantsRevokeHandlerResult = Result<
   AuthIdentityGrantsRevokeOutput,
   AuthIdentityGrantsRevokeHandlerError
 >;
-export type AuthIdentityGrantsRevokeHandler<TDeps = undefined> = (
+export type AuthIdentityGrantsRevokeHandler = (
   args: {
     input: AuthIdentityGrantsRevokeInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthIdentityGrantsRevokeHandlerResult
   | Promise<AuthIdentityGrantsRevokeHandlerResult>;
@@ -3336,36 +3327,36 @@ export type AuthPortalsGetHandlerResult = Result<
   AuthPortalsGetOutput,
   AuthPortalsGetHandlerError
 >;
-export type AuthPortalsGetHandler<TDeps = undefined> = (
+export type AuthPortalsGetHandler = (
   args: {
     input: AuthPortalsGetInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => AuthPortalsGetHandlerResult | Promise<AuthPortalsGetHandlerResult>;
 export type AuthPortalsListHandlerError = TrellisErrorInstance;
 export type AuthPortalsListHandlerResult = Result<
   AuthPortalsListOutput,
   AuthPortalsListHandlerError
 >;
-export type AuthPortalsListHandler<TDeps = undefined> = (
+export type AuthPortalsListHandler = (
   args: {
     input: AuthPortalsListInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => AuthPortalsListHandlerResult | Promise<AuthPortalsListHandlerResult>;
 export type AuthPortalsLoginSettingsGetHandlerError = TrellisErrorInstance;
 export type AuthPortalsLoginSettingsGetHandlerResult = Result<
   AuthPortalsLoginSettingsGetOutput,
   AuthPortalsLoginSettingsGetHandlerError
 >;
-export type AuthPortalsLoginSettingsGetHandler<TDeps = undefined> = (
+export type AuthPortalsLoginSettingsGetHandler = (
   args: {
     input: AuthPortalsLoginSettingsGetInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthPortalsLoginSettingsGetHandlerResult
   | Promise<AuthPortalsLoginSettingsGetHandlerResult>;
@@ -3374,12 +3365,12 @@ export type AuthPortalsLoginSettingsUpdateHandlerResult = Result<
   AuthPortalsLoginSettingsUpdateOutput,
   AuthPortalsLoginSettingsUpdateHandlerError
 >;
-export type AuthPortalsLoginSettingsUpdateHandler<TDeps = undefined> = (
+export type AuthPortalsLoginSettingsUpdateHandler = (
   args: {
     input: AuthPortalsLoginSettingsUpdateInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthPortalsLoginSettingsUpdateHandlerResult
   | Promise<AuthPortalsLoginSettingsUpdateHandlerResult>;
@@ -3388,36 +3379,36 @@ export type AuthPortalsPutHandlerResult = Result<
   AuthPortalsPutOutput,
   AuthPortalsPutHandlerError
 >;
-export type AuthPortalsPutHandler<TDeps = undefined> = (
+export type AuthPortalsPutHandler = (
   args: {
     input: AuthPortalsPutInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => AuthPortalsPutHandlerResult | Promise<AuthPortalsPutHandlerResult>;
 export type AuthPortalsRemoveHandlerError = TrellisErrorInstance;
 export type AuthPortalsRemoveHandlerResult = Result<
   AuthPortalsRemoveOutput,
   AuthPortalsRemoveHandlerError
 >;
-export type AuthPortalsRemoveHandler<TDeps = undefined> = (
+export type AuthPortalsRemoveHandler = (
   args: {
     input: AuthPortalsRemoveInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => AuthPortalsRemoveHandlerResult | Promise<AuthPortalsRemoveHandlerResult>;
 export type AuthPortalsRoutesPutHandlerError = TrellisErrorInstance;
 export type AuthPortalsRoutesPutHandlerResult = Result<
   AuthPortalsRoutesPutOutput,
   AuthPortalsRoutesPutHandlerError
 >;
-export type AuthPortalsRoutesPutHandler<TDeps = undefined> = (
+export type AuthPortalsRoutesPutHandler = (
   args: {
     input: AuthPortalsRoutesPutInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthPortalsRoutesPutHandlerResult
   | Promise<AuthPortalsRoutesPutHandlerResult>;
@@ -3426,12 +3417,12 @@ export type AuthPortalsRoutesRemoveHandlerResult = Result<
   AuthPortalsRoutesRemoveOutput,
   AuthPortalsRoutesRemoveHandlerError
 >;
-export type AuthPortalsRoutesRemoveHandler<TDeps = undefined> = (
+export type AuthPortalsRoutesRemoveHandler = (
   args: {
     input: AuthPortalsRoutesRemoveInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthPortalsRoutesRemoveHandlerResult
   | Promise<AuthPortalsRoutesRemoveHandlerResult>;
@@ -3440,12 +3431,12 @@ export type AuthRequestsValidateHandlerResult = Result<
   AuthRequestsValidateOutput,
   AuthRequestsValidateHandlerError
 >;
-export type AuthRequestsValidateHandler<TDeps = undefined> = (
+export type AuthRequestsValidateHandler = (
   args: {
     input: AuthRequestsValidateInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthRequestsValidateHandlerResult
   | Promise<AuthRequestsValidateHandlerResult>;
@@ -3454,12 +3445,12 @@ export type AuthServiceInstancesDisableHandlerResult = Result<
   AuthServiceInstancesDisableOutput,
   AuthServiceInstancesDisableHandlerError
 >;
-export type AuthServiceInstancesDisableHandler<TDeps = undefined> = (
+export type AuthServiceInstancesDisableHandler = (
   args: {
     input: AuthServiceInstancesDisableInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthServiceInstancesDisableHandlerResult
   | Promise<AuthServiceInstancesDisableHandlerResult>;
@@ -3468,12 +3459,12 @@ export type AuthServiceInstancesEnableHandlerResult = Result<
   AuthServiceInstancesEnableOutput,
   AuthServiceInstancesEnableHandlerError
 >;
-export type AuthServiceInstancesEnableHandler<TDeps = undefined> = (
+export type AuthServiceInstancesEnableHandler = (
   args: {
     input: AuthServiceInstancesEnableInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthServiceInstancesEnableHandlerResult
   | Promise<AuthServiceInstancesEnableHandlerResult>;
@@ -3482,12 +3473,12 @@ export type AuthServiceInstancesListHandlerResult = Result<
   AuthServiceInstancesListOutput,
   AuthServiceInstancesListHandlerError
 >;
-export type AuthServiceInstancesListHandler<TDeps = undefined> = (
+export type AuthServiceInstancesListHandler = (
   args: {
     input: AuthServiceInstancesListInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthServiceInstancesListHandlerResult
   | Promise<AuthServiceInstancesListHandlerResult>;
@@ -3496,12 +3487,12 @@ export type AuthServiceInstancesProvisionHandlerResult = Result<
   AuthServiceInstancesProvisionOutput,
   AuthServiceInstancesProvisionHandlerError
 >;
-export type AuthServiceInstancesProvisionHandler<TDeps = undefined> = (
+export type AuthServiceInstancesProvisionHandler = (
   args: {
     input: AuthServiceInstancesProvisionInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthServiceInstancesProvisionHandlerResult
   | Promise<AuthServiceInstancesProvisionHandlerResult>;
@@ -3510,12 +3501,12 @@ export type AuthServiceInstancesRemoveHandlerResult = Result<
   AuthServiceInstancesRemoveOutput,
   AuthServiceInstancesRemoveHandlerError
 >;
-export type AuthServiceInstancesRemoveHandler<TDeps = undefined> = (
+export type AuthServiceInstancesRemoveHandler = (
   args: {
     input: AuthServiceInstancesRemoveInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthServiceInstancesRemoveHandlerResult
   | Promise<AuthServiceInstancesRemoveHandlerResult>;
@@ -3524,60 +3515,60 @@ export type AuthSessionsListHandlerResult = Result<
   AuthSessionsListOutput,
   AuthSessionsListHandlerError
 >;
-export type AuthSessionsListHandler<TDeps = undefined> = (
+export type AuthSessionsListHandler = (
   args: {
     input: AuthSessionsListInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => AuthSessionsListHandlerResult | Promise<AuthSessionsListHandlerResult>;
 export type AuthSessionsLogoutHandlerError = TrellisErrorInstance;
 export type AuthSessionsLogoutHandlerResult = Result<
   AuthSessionsLogoutOutput,
   AuthSessionsLogoutHandlerError
 >;
-export type AuthSessionsLogoutHandler<TDeps = undefined> = (
+export type AuthSessionsLogoutHandler = (
   args: {
     input: AuthSessionsLogoutInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => AuthSessionsLogoutHandlerResult | Promise<AuthSessionsLogoutHandlerResult>;
 export type AuthSessionsMeHandlerError = TrellisErrorInstance;
 export type AuthSessionsMeHandlerResult = Result<
   AuthSessionsMeOutput,
   AuthSessionsMeHandlerError
 >;
-export type AuthSessionsMeHandler<TDeps = undefined> = (
+export type AuthSessionsMeHandler = (
   args: {
     input: AuthSessionsMeInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => AuthSessionsMeHandlerResult | Promise<AuthSessionsMeHandlerResult>;
 export type AuthSessionsRevokeHandlerError = TrellisErrorInstance;
 export type AuthSessionsRevokeHandlerResult = Result<
   AuthSessionsRevokeOutput,
   AuthSessionsRevokeHandlerError
 >;
-export type AuthSessionsRevokeHandler<TDeps = undefined> = (
+export type AuthSessionsRevokeHandler = (
   args: {
     input: AuthSessionsRevokeInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => AuthSessionsRevokeHandlerResult | Promise<AuthSessionsRevokeHandlerResult>;
 export type AuthUserIdentitiesListHandlerError = TrellisErrorInstance;
 export type AuthUserIdentitiesListHandlerResult = Result<
   AuthUserIdentitiesListOutput,
   AuthUserIdentitiesListHandlerError
 >;
-export type AuthUserIdentitiesListHandler<TDeps = undefined> = (
+export type AuthUserIdentitiesListHandler = (
   args: {
     input: AuthUserIdentitiesListInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthUserIdentitiesListHandlerResult
   | Promise<AuthUserIdentitiesListHandlerResult>;
@@ -3586,12 +3577,12 @@ export type AuthUserIdentitiesUnlinkHandlerResult = Result<
   AuthUserIdentitiesUnlinkOutput,
   AuthUserIdentitiesUnlinkHandlerError
 >;
-export type AuthUserIdentitiesUnlinkHandler<TDeps = undefined> = (
+export type AuthUserIdentitiesUnlinkHandler = (
   args: {
     input: AuthUserIdentitiesUnlinkInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthUserIdentitiesUnlinkHandlerResult
   | Promise<AuthUserIdentitiesUnlinkHandlerResult>;
@@ -3600,36 +3591,36 @@ export type AuthUsersCreateHandlerResult = Result<
   AuthUsersCreateOutput,
   AuthUsersCreateHandlerError
 >;
-export type AuthUsersCreateHandler<TDeps = undefined> = (
+export type AuthUsersCreateHandler = (
   args: {
     input: AuthUsersCreateInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => AuthUsersCreateHandlerResult | Promise<AuthUsersCreateHandlerResult>;
 export type AuthUsersGetHandlerError = TrellisErrorInstance;
 export type AuthUsersGetHandlerResult = Result<
   AuthUsersGetOutput,
   AuthUsersGetHandlerError
 >;
-export type AuthUsersGetHandler<TDeps = undefined> = (
+export type AuthUsersGetHandler = (
   args: {
     input: AuthUsersGetInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => AuthUsersGetHandlerResult | Promise<AuthUsersGetHandlerResult>;
 export type AuthUsersIdentityLinkCreateHandlerError = TrellisErrorInstance;
 export type AuthUsersIdentityLinkCreateHandlerResult = Result<
   AuthUsersIdentityLinkCreateOutput,
   AuthUsersIdentityLinkCreateHandlerError
 >;
-export type AuthUsersIdentityLinkCreateHandler<TDeps = undefined> = (
+export type AuthUsersIdentityLinkCreateHandler = (
   args: {
     input: AuthUsersIdentityLinkCreateInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthUsersIdentityLinkCreateHandlerResult
   | Promise<AuthUsersIdentityLinkCreateHandlerResult>;
@@ -3638,24 +3629,24 @@ export type AuthUsersListHandlerResult = Result<
   AuthUsersListOutput,
   AuthUsersListHandlerError
 >;
-export type AuthUsersListHandler<TDeps = undefined> = (
+export type AuthUsersListHandler = (
   args: {
     input: AuthUsersListInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => AuthUsersListHandlerResult | Promise<AuthUsersListHandlerResult>;
 export type AuthUsersPasswordChangeHandlerError = TrellisErrorInstance;
 export type AuthUsersPasswordChangeHandlerResult = Result<
   AuthUsersPasswordChangeOutput,
   AuthUsersPasswordChangeHandlerError
 >;
-export type AuthUsersPasswordChangeHandler<TDeps = undefined> = (
+export type AuthUsersPasswordChangeHandler = (
   args: {
     input: AuthUsersPasswordChangeInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthUsersPasswordChangeHandlerResult
   | Promise<AuthUsersPasswordChangeHandlerResult>;
@@ -3664,12 +3655,12 @@ export type AuthUsersPasswordResetCreateHandlerResult = Result<
   AuthUsersPasswordResetCreateOutput,
   AuthUsersPasswordResetCreateHandlerError
 >;
-export type AuthUsersPasswordResetCreateHandler<TDeps = undefined> = (
+export type AuthUsersPasswordResetCreateHandler = (
   args: {
     input: AuthUsersPasswordResetCreateInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | AuthUsersPasswordResetCreateHandlerResult
   | Promise<AuthUsersPasswordResetCreateHandlerResult>;
@@ -3678,12 +3669,12 @@ export type AuthUsersUpdateHandlerResult = Result<
   AuthUsersUpdateOutput,
   AuthUsersUpdateHandlerError
 >;
-export type AuthUsersUpdateHandler<TDeps = undefined> = (
+export type AuthUsersUpdateHandler = (
   args: {
     input: AuthUsersUpdateInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => AuthUsersUpdateHandlerResult | Promise<AuthUsersUpdateHandlerResult>;
 
 export interface EventMap {

@@ -48,14 +48,12 @@ repositories.
 - Prefer generated `client.rpc`, `client.event`, `client.feed`, and
   `client.operation` for outbound calls.
 - Register handlers with `service.handle`.
-- Use `service.with(deps)` once during startup when handlers need
-  application-owned dependencies such as databases, loggers, clocks, or domain
-  clients. Register bound RPC, feed, operation, job, event, and health handlers
-  from the returned wrapper and read dependencies from `args.deps`. After
-  contract changes, run the repository's Trellis generation command before
-  typing extracted handlers. Use generated SDK aliases such as
-  `OrdersCreateHandler<ServiceDeps>` for extracted handlers and
-  `ServiceWithDeps<ServiceDeps>` for exported bound-wrapper aliases.
+- Trellis does not provide application dependency injection. Handler arguments
+  contain only Trellis-owned runtime data. Use normal JavaScript closures or
+  factory patterns for application-owned dependencies such as databases,
+  loggers, clocks, or domain clients. After contract changes, run the
+  repository's Trellis generation command before typing extracted handlers. Use
+  generated SDK aliases such as `OrdersCreateHandler` for extracted handlers.
 - Register event listeners during startup with `service.event`, never inside
   handlers.
 - Inside handlers, use the scoped `client` argument for outbound calls; event

@@ -34,8 +34,7 @@ Common packages are:
 
 Generated SDKs include contract metadata, TypeScript schema-derived types,
 `use(...)` helpers for consumers, concrete handler aliases for extracted service
-handlers, and `client.ts` facade types such as `Client`, `Service`, and
-`ServiceWithDeps`.
+handlers, and `client.ts` facade types such as `Client` and `Service`.
 
 ## Connect as an app or CLI
 
@@ -295,12 +294,12 @@ const shipped = await capture.waitFor(
 console.log(shipped.payload, shipped.context.id, shipped.receivedAt);
 ```
 
-Use `service.withSqlOutbox(...)` when an event enqueue must commit atomically with
-service-local SQL state. The wrapper injects an `outbox` helper into handlers
-registered through it. Put every database write and every event enqueue that must
+Use `service.createSqlOutbox(...)` when an event enqueue must commit atomically with
+service-local SQL state. The outbox object is a plain dependency that handlers
+close over. Put every database write and every event enqueue that must
 share the commit inside `outbox.transaction(...)`.
 
-Configure the wrapper once at service startup with a generic SQL executor for
+Configure the outbox once at service startup with a generic SQL executor for
 dispatcher work and a transaction runner that supplies both your service-owned
 transaction object and a transaction-scoped Trellis `SqlExecutor`.
 
@@ -330,10 +329,11 @@ function createTransactionExecutor(tx: AppTransaction): SqlExecutor {
   };
 }
 
-const app = service.withSqlOutbox(sqlOutbox).with({ ordersRepo, auditRepo });
+const outbox = service.createSqlOutbox(sqlOutbox);
+const deps = { ordersRepo, auditRepo, outbox };
 
-await app.handle.rpc.orders.ship(async ({ input, deps, outbox }) => {
-  await outbox.transaction(async ({ tx, event }) => {
+await service.handle.rpc.orders.ship(async ({ input }) => {
+  await deps.outbox.transaction(async ({ tx, event }) => {
     await deps.ordersRepo.markShipped(tx, input.orderId);
     await deps.auditRepo.insert(tx, {
       entityId: input.orderId,
@@ -363,14 +363,13 @@ transaction executor. The normal event facade still exposes only `prepare`,
 event enqueues in one transaction are supported. Trellis notifies the
 process-local dispatcher after the transaction runner resolves successfully.
 
-Handlers registered through the SQL outbox wrapper receive `outbox` for RPC,
-feed, operation, event listener, and job handlers. Register the handler through
-the wrapper (`service.withSqlOutbox(...)` or a wrapper returned from `.with(...)`)
-instead of creating local outbox wrappers in each handler.
+RPC, feed, operation, event listener, and job handlers that need transactional
+enqueue close over the outbox object rather than receiving it as an injected
+argument.
 
 Trellis owns the SQL outbox/inbox helper-table schema as versioned migration
 artifacts. Services choose table names and run those artifacts with their normal
-database migration tool; `TrellisService.connect(...)` and `withSqlOutbox(...)` do
+database migration tool; `TrellisService.connect(...)` and `createSqlOutbox(...)` do
 not run service migrations.
 
 ```ts
@@ -396,7 +395,7 @@ for (const migration of migrations) {
 
 Drizzle remains optional. The `@qlever-llc/trellis/service/drizzle` subpath
 provides adapter helpers for advanced startup integration, but there is no direct
-`withSqlOutbox({ drizzle })` option. If you use Drizzle, adapt it into the same
+`createSqlOutbox({ drizzle })` option. If you use Drizzle, adapt it into the same
 generic `executor` and `transaction` options at startup; do not wrap Drizzle
 transactions by hand inside each handler. The low-level
 `createDrizzleSqlExecutor(...)` helper is for adapter code, not the normal
@@ -408,7 +407,7 @@ import {
   runDrizzleSqlTransaction,
 } from "@qlever-llc/trellis/service/drizzle";
 
-const app = service.withSqlOutbox({
+const outbox = service.createSqlOutbox({
   dialect: "sqlite",
   executor: createDrizzleSqlExecutor(db),
   transaction: (work) =>
@@ -416,7 +415,8 @@ const app = service.withSqlOutbox({
       db,
       transaction: (database, txWork) => database.transaction(txWork),
     }, work),
-}).with({ ordersRepo });
+});
+const deps = { ordersRepo, outbox };
 ```
 
 Use an inbox only for handlers that are not naturally idempotent. If replaying a
@@ -488,23 +488,18 @@ Services register handlers through `service.handle`. The handler receives typed
 input, request context, and a typed outbound `client` for the service's allowed
 dependencies.
 
-Bind application-owned dependencies once with `service.with(deps)` when handlers
-need local repositories, loggers, clocks, or projections. Trellis keeps those
-dependencies separate from request context and passes them as `args.deps`.
+Use normal JavaScript closures for application-owned dependencies when handlers
+need local repositories, loggers, clocks, or projections. Trellis does not
+provide application dependency injection; handler arguments contain only
+Trellis-owned runtime data.
 
 ```ts
 import { Result } from "@qlever-llc/trellis";
-import type {
-  OrdersGetHandler,
-  ServiceWithDeps,
-} from "@my-org/orders-service-sdk";
+import type { OrdersGetHandler } from "@my-org/orders-service-sdk";
 
-type ServiceDeps = { db: Db; logger: Logger; clock: Clock; orders: Orders };
-export type OrdersApp = ServiceWithDeps<ServiceDeps>;
+const deps = { db, logger, clock, orders };
 
-const app = service.with({ db, logger, clock, orders });
-
-await app.handle.rpc.orders.get(async ({ input, context, client, deps }) => {
+await service.handle.rpc.orders.get(async ({ input, context, client }) => {
   deps.logger.info({ caller: context.caller }, "loading order");
   const entry = await client.kv.orders.get(input.orderId);
   if (entry.isErr()) return Result.err(entry.error);
@@ -512,10 +507,7 @@ await app.handle.rpc.orders.get(async ({ input, context, client, deps }) => {
   return Result.ok(entry.value.value);
 });
 
-export const getOrder: OrdersGetHandler<ServiceDeps> = async ({
-  input,
-  deps,
-}) => {
+export const getOrder: OrdersGetHandler = async ({ input }) => {
   const order = await deps.orders.get(input.orderId);
   return Result.ok(order);
 };
@@ -528,7 +520,9 @@ before typing extracted handlers so the alias matches the current generated SDK.
 Feed handlers receive an `emit(...)` helper and an abort signal.
 
 ```ts
-await app.handle.feed.orders.live(async ({ input, emit, signal, deps }) => {
+const deps = { orders: createOrdersProjection() };
+
+await service.handle.feed.orders.live(async ({ input, emit, signal }) => {
   while (!signal.aborted) {
     const update = await deps.orders.nextVisibleUpdate(input.customerId, signal);
     if (!update) break;
@@ -542,7 +536,9 @@ started, publish progress if useful, then complete, fail, cancel, attach work, o
 defer completion to another durable path.
 
 ```ts
-await app.handle.operation.orders.process(async ({ input, op, deps }) => {
+const deps = { orders: createOrdersProcessor() };
+
+await service.handle.operation.orders.process(async ({ input, op }) => {
   await op.started().orThrow();
   await op.progress({ step: "queued", message: "Queued" }).orThrow();
 
@@ -551,8 +547,8 @@ await app.handle.operation.orders.process(async ({ input, op, deps }) => {
 });
 ```
 
-The same binding applies to `app.jobs.<queue>.handle(...)` and
-`app.event.<group>.<leaf>.listen(...)`. Registration options such as event
+The same pattern applies to `service.jobs.<queue>.handle(...)` and
+`service.event.<group>.<leaf>.listen(...)`. Registration options such as event
 subject data and listener options stay in their existing argument positions; do
 not pass dependencies as a settings object.
 

@@ -102,7 +102,7 @@ That prints the changed paths, the watch decision, and the reason.
 
 Regenerate these artifacts whenever the contract changes. For TypeScript services,
 run prepare before typing extracted handlers so aliases such as
-`OrdersCreateHandler<TDeps>` match the current contract. If only handler
+`OrdersCreateHandler` match the current contract. If only handler
 implementation changed, you usually do not need a prepare run.
 
 {/snippet}

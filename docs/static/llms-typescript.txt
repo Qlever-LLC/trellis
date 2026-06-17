@@ -144,7 +144,10 @@ needs to inspect accepted/rejected/coalesced/replaced outcomes.
 ## Register handlers with `service.handle`
 
 Register providers through the generated `service.handle` tree. Handler code
-receives typed input and a scoped `client` for allowed outbound calls.
+receives typed input and a scoped `client` for allowed outbound calls. Trellis
+does not provide application dependency injection; handler arguments contain only
+Trellis-owned runtime data. Application resources are supplied by normal
+JavaScript closure or factory patterns.
 
 ```ts
 import { Result } from "@qlever-llc/trellis";
@@ -165,22 +168,15 @@ await service.handle.rpc.orders.get(async ({ input, client }) => {
 The scoped `client` represents the service's allowed outbound dependencies.
 Register event listeners during service startup with `service.event`.
 
-When handlers need application-owned dependencies, bind them once during startup
-with `service.with(deps)` and register through the returned wrapper:
+When handlers need application-owned dependencies, capture them in a closure:
 
 ```ts
 import { Result } from "@qlever-llc/trellis";
-import type {
-  OrdersGetHandler,
-  ServiceWithDeps,
-} from "@my-org/orders-service-sdk";
+import type { OrdersGetHandler } from "@my-org/orders-service-sdk";
 
-type ServiceDeps = { db: Db; logger: Logger };
-export type OrdersApp = ServiceWithDeps<ServiceDeps>;
+const deps = { db, logger };
 
-const app = service.with({ db, logger });
-
-await app.handle.rpc.orders.get(async ({ input, client, deps }) => {
+await service.handle.rpc.orders.get(async ({ input, client }) => {
   const row = await deps.db.orders.get(input.orderId);
   if (!row) return Result.err(orderNotFound(input.orderId));
 
@@ -190,11 +186,7 @@ await app.handle.rpc.orders.get(async ({ input, client, deps }) => {
   return Result.ok(row);
 });
 
-export const getOrder: OrdersGetHandler<ServiceDeps> = async ({
-  input,
-  client,
-  deps,
-}) => {
+export const getOrder: OrdersGetHandler = async ({ input, client }) => {
   const row = await deps.db.orders.get(input.orderId);
   if (!row) return Result.err(orderNotFound(input.orderId));
 
@@ -205,7 +197,7 @@ export const getOrder: OrdersGetHandler<ServiceDeps> = async ({
 
 Inline handlers infer from the `service.handle...` registration site. Extracted
 RPC, event, feed, operation, and job handlers should use concrete handler aliases
-from the generated SDK, for example `OrdersGetHandler<ServiceDeps>`.
+from the generated SDK, for example `OrdersGetHandler`.
 
 ## Schemas and errors
 
@@ -237,6 +229,12 @@ from the generated SDK, for example `OrdersGetHandler<ServiceDeps>`.
   serialized data matches the generated declared error data. Client-side SDKs
   still reconstruct declared errors as generated SDK classes.
 
+## Operation Typed Errors
+- Operations support declared expected errors: `errors: [ref.error(...)]`
+- Declared operation errors narrow `op.fail(error)` to the declared error union plus Trellis runtime errors
+- Generated SDK types include `{Base}OperationHandlerError` aliases
+- Manifest: operation descriptors carry `errors: [{ type: "..." }]`
+
 ## Prepared events and outbox/inbox
 
 Direct publish is the default when no local transaction must be coupled to the
@@ -259,11 +257,11 @@ For integration tests that must observe a published live event, start
 Assert the capture record's decoded `payload` and metadata instead of subscribing
 to raw NATS subjects or relying only on outbox rows.
 
-Use `service.withSqlOutbox(...)` when a service-local SQL transaction and event
+Use `service.createSqlOutbox(...)` when a service-local SQL transaction and event
 enqueue must commit or roll back together. Configure it once during startup with
 a generic SQL `executor` for dispatcher work and a `transaction` runner that
 provides the service transaction object plus a transaction-scoped Trellis
-`SqlExecutor`.
+`SqlExecutor`. The outbox object is a plain dependency that handlers close over.
 
 ```ts
 import {
@@ -290,10 +288,11 @@ function createTransactionExecutor(tx: AppTransaction): SqlExecutor {
   };
 }
 
-const app = service.withSqlOutbox(sqlOutbox).with({ ordersRepo, auditRepo });
+const outbox = service.createSqlOutbox(sqlOutbox);
+const deps = { ordersRepo, auditRepo, outbox };
 
-await app.handle.rpc.orders.ship(async ({ input, deps, outbox }) => {
-  await outbox.transaction(async ({ tx, event }) => {
+await service.handle.rpc.orders.ship(async ({ input }) => {
+  await deps.outbox.transaction(async ({ tx, event }) => {
     await deps.ordersRepo.markShipped(tx, input.orderId);
     await deps.auditRepo.insert(tx, { entityId: input.orderId });
 
@@ -314,9 +313,8 @@ await app.handle.rpc.orders.ship(async ({ input, deps, outbox }) => {
 
 Rules for agents:
 
-- register RPC, feed, operation, event-listener, and job handlers through the SQL
-  outbox wrapper when they need transactional enqueue; those handlers receive
-  `outbox`
+- close over the outbox object as a plain dependency when handlers need
+  transactional enqueue; handlers do not receive `outbox` as an injected argument
 - wrap all service DB writes and all event enqueues that must be atomic in
   `outbox.transaction(...)`
 - use transaction-scoped `event.*.*.enqueue(...)` only inside that callback;
@@ -347,11 +345,10 @@ for (const migration of migrations) {
 ```
 
 Drizzle remains optional through `@qlever-llc/trellis/service/drizzle` adapter
-helpers. There is intentionally no direct `withSqlOutbox({ drizzle })` sugar in
-the current service wrapper. If a service uses Drizzle, adapt it into the generic
-`executor` and `transaction` options at startup; treat
-`createDrizzleSqlExecutor(...)` as advanced/adapter usage, not a normal
-per-handler pattern.
+helpers. There is intentionally no direct `createSqlOutbox({ drizzle })` sugar.
+If a service uses Drizzle, adapt it into the generic `executor` and `transaction`
+options at startup; treat `createDrizzleSqlExecutor(...)` as advanced/adapter
+usage, not a normal per-handler pattern.
 
 Use `SqlInboxRepository` only when replaying a message would repeat a
 non-idempotent side effect. Register the listener during service startup, not

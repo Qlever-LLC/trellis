@@ -19,7 +19,6 @@ import { API as CORE_API, type Client as CoreClient } from "../sdk/core.ts";
 import type { Client as HealthClient } from "../sdk/health.ts";
 import type {
   HandlerClient as HealthHandlerClient,
-  ServiceWithDeps as HealthServiceWithDeps,
 } from "../../../../generated/packages/jsr/health/client.ts";
 import { sdk as jobs } from "../sdk/jobs.ts";
 import { TrellisService } from "../service/deno.ts";
@@ -180,7 +179,6 @@ const generatedStyleOwnedApi = {
   subjects: serviceContract.API.owned.subjects,
 } satisfies TrellisAPI;
 
-type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
 type GeneratedOptionalOperationProgress<TDesc> = TDesc extends {
   progress: infer TProgress;
 } ? { progress?: TProgress }
@@ -218,20 +216,21 @@ type GeneratedServicePingHandlerResult = Result<
   { ok: boolean },
   TrellisErrorInstance
 >;
-type GeneratedServicePingHandler<TDeps = undefined> = (
+type GeneratedServicePingHandler = (
   args: {
     input: { value: string };
     context: RpcHandlerContext;
     client: GeneratedHandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | GeneratedServicePingHandlerResult
   | Promise<GeneratedServicePingHandlerResult>;
 
-const generatedStylePingHandler: GeneratedServicePingHandler<{
-  label: string;
-}> = ({ input, client, deps }) => {
-  const id = `${deps.label}:${input.value}`;
+const label = "bound";
+const generatedStylePingHandler: GeneratedServicePingHandler = (
+  { input, client },
+) => {
+  const id = `${label}:${input.value}`;
   void client.operation.service.rebuild.start({ id });
   return Result.ok({ ok: id.length > 0 });
 };
@@ -458,29 +457,27 @@ async function typecheckServiceConnectSurface() {
     return Result.ok({ ok: true });
   });
 
-  const bound = service.with({ label: "bound" });
-  // @ts-expect-error bound services do not expose raw NATS handles
-  const boundRawNats = bound.nc;
-  await bound.handle.rpc.service.ping(({ input, deps, client }) => {
+  const deps = { label: "bound" };
+  await service.handle.rpc.service.ping(({ input, client }) => {
     const value: string = input.value;
     const label: string = deps.label;
     client.event.service.changed.prepare({ id: "one", value: label });
     return Result.ok({ ok: value.length > 0 });
   });
-  await bound.handle.rpc.service.ping(generatedStylePingHandler);
-  await bound.event.service.changed.listen(
-    ({ event, context, client, deps }) => {
+  await service.handle.rpc.service.ping(generatedStylePingHandler);
+  await service.event.service.changed.listen(
+    (event, context) => {
       const id: string = event.id;
       const subject: string = context.subject;
-      const label: string = deps.label;
-      client.event.service.changed.prepare({ id, value: label });
+      const label = deps.label;
+      void { id, subject, label };
       return Result.ok(subject.length > 0 ? undefined : undefined);
     },
     {},
     { mode: "ephemeral" },
   );
 
-  return { boundRawNats, rawNats, serviceName: service.name };
+  return { rawNats, serviceName: service.name };
 }
 
 async function typecheckServiceSqlOutboxSurface() {
@@ -498,27 +495,28 @@ async function typecheckServiceSqlOutboxSurface() {
       await work({ tx: { writes: [] }, executor: sqlExecutor }),
   };
 
-  await service.withSqlOutbox(sqlOutbox).with({ label: "bound" })
-    .handle.rpc.service.ping(async ({ input, deps, outbox }) => {
-      await outbox.transaction(async ({ tx, event }) => {
-        tx.writes.push(input.value);
-        await event.service.changed.enqueue({
-          id: "one",
-          value: deps.label,
-        }).orThrow();
-        // @ts-expect-error transaction-scoped enqueue must validate payload shape
-        await event.service.changed.enqueue({ id: "missing-value" }).orThrow();
-      }).orThrow();
-      return Result.ok({ ok: true });
-    });
-  await service.withSqlOutbox(sqlOutbox).with({ label: "bound" })
-    .handle.rpc.service.ping(generatedStylePingHandler);
+  const outbox = service.createSqlOutbox(sqlOutbox);
+  const deps = { label: "bound", outbox };
 
-  await service.withSqlOutbox(sqlOutbox).with({ label: "bound" })
-    .event.service.changed.listen(async ({ event, context, deps, outbox }) => {
+  await service.handle.rpc.service.ping(async ({ input, client }) => {
+    await deps.outbox.transaction(async ({ tx, event }) => {
+      tx.writes.push(input.value);
+      await event.service.changed.enqueue({
+        id: "one",
+        value: deps.label,
+      }).orThrow();
+      // @ts-expect-error transaction-scoped enqueue must validate payload shape
+      await event.service.changed.enqueue({ id: "missing-value" }).orThrow();
+    }).orThrow();
+    return Result.ok({ ok: true });
+  });
+  await service.handle.rpc.service.ping(generatedStylePingHandler);
+
+  await service.event.service.changed.listen(
+    async (event, context) => {
       const id: string = event.id;
       const subject: string = context.subject;
-      await outbox.transaction(async ({ tx, event }) => {
+      await deps.outbox.transaction(async ({ tx, event }) => {
         tx.writes.push(`${id}:${subject}`);
         await event.service.changed.enqueue({
           id,
@@ -526,25 +524,20 @@ async function typecheckServiceSqlOutboxSurface() {
         }).orThrow();
       }).orThrow();
       return Result.ok(undefined);
-    });
+    },
+  );
 
-  service.withSqlOutbox(sqlOutbox).jobs.sync.handle(async ({ job, outbox }) => {
+  service.jobs.sync.handle(async ({ job, client }) => {
     const id: string = job.payload.id;
-    await outbox.transaction(async ({ tx, event }) => {
+    await deps.outbox.transaction(async ({ tx, event }) => {
       tx.writes.push(id);
       await event.service.changed.enqueue({ id, value: "job" }).orThrow();
     }).orThrow();
     return Result.ok({ ok: true });
   });
 
-  service.withSqlOutbox({
-    dialect: "sqlite",
-    // @ts-expect-error direct Drizzle config sugar is deferred for this packet
-    drizzle: { db: sqlExecutor },
-  });
-
-  // @ts-expect-error wrapper event facade must not expose durable enqueue
-  await service.withSqlOutbox(sqlOutbox).event.service.changed.enqueue({
+  // @ts-expect-error event facade must not expose durable enqueue
+  await service.event.service.changed.enqueue({
     id: "one",
     value: "two",
   });
@@ -566,28 +559,6 @@ function typecheckGeneratedServiceHandlerClientSurface(
   const listen = handlerClient.event.health.heartbeat.listen;
 
   return { prepare, publish, listen };
-}
-
-function typecheckGeneratedServiceWithDepsSurface(
-  service: HealthServiceWithDeps<{ prefix: string }>,
-) {
-  void service.event.health.heartbeat.listen(
-    ({ event, context, client, deps }) => {
-      const prefix: string = deps.prefix;
-      const eventService = event.service;
-      const eventId: string = context.id;
-      const eventTime: Date = context.time;
-      const prepared = client.event.health.heartbeat.prepare({
-        status: "healthy",
-        service: eventService,
-        checks: [],
-      });
-      void { prefix, eventId, eventTime, prepared };
-      return Result.ok(undefined);
-    },
-  );
-
-  return service.handle;
 }
 
 function typecheckResolvedRuntimeBindingsAreNotPublicAuthoringSurface() {
@@ -634,7 +605,6 @@ void typecheckDeviceConnectRequestSurface;
 void typecheckDeviceActivationSurface;
 void typecheckServiceConnectSurface;
 void typecheckServiceSqlOutboxSurface;
-void typecheckGeneratedServiceWithDepsSurface;
 void typecheckResolvedRuntimeBindingsAreNotPublicAuthoringSurface;
 void typecheckGeneratedCoreInternalRpcSurface;
 

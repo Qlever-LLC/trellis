@@ -104,7 +104,12 @@ export type NotifyWarehouseResult = Static<typeof NotifyWarehouseResultSchema>;
 Update the `Orders.Create` handler in `main.ts` to enqueue a fulfillment job after saving the order:
 
 ```ts
-await app.handle.rpc.orders.create(async ({ input, client, deps }) => {
+const deps = {
+  id: () => crypto.randomUUID(),
+  clock: () => new Date(),
+};
+
+await service.handle.rpc.orders.create(async ({ input, client }) => {
   const orderId = deps.id();
   const order = {
     orderId,
@@ -129,13 +134,18 @@ await app.handle.rpc.orders.create(async ({ input, client, deps }) => {
 
 Register workers for each job type before calling `service.wait()`. Handler registration is synchronous; the connected service owns worker startup and shutdown as part of its lifecycle:
 
-Use the `service.jobs` handle returned by `TrellisService.connect(...)`, or the
-bound `app.jobs` wrapper when job handlers need application dependencies. Jobs
+Use the `service.jobs` handle returned by `TrellisService.connect(...)`. Jobs
 bindings are Trellis runtime internals, not values service code should fetch with
 `Trellis.Bindings.Get` or pass into `Trellis` constructors.
 
 ```ts
-app.jobs.reserveInventory.handle(async ({ job, client, deps }) => {
+const deps = {
+  id: () => crypto.randomUUID(),
+  clock: () => new Date(),
+  log: console,
+};
+
+service.jobs.reserveInventory.handle(async ({ job, client }) => {
   console.info(
     `reserveInventory job ${job.ref.id} request=${job.context.requestId} trace=${job.context.traceId}`,
   );
@@ -163,7 +173,7 @@ app.jobs.reserveInventory.handle(async ({ job, client, deps }) => {
   return Result.ok({ reserved: true });
 });
 
-app.jobs.chargePayment.handle(async ({ job, client, deps }) => {
+service.jobs.chargePayment.handle(async ({ job, client }) => {
   await job.progress({ step: "charging", message: "Processing payment" });
 
   if (job.cancelled) {
@@ -182,7 +192,7 @@ app.jobs.chargePayment.handle(async ({ job, client, deps }) => {
   return Result.ok({ chargeId });
 });
 
-app.jobs.notifyWarehouse.handle(async ({ job, client, deps }) => {
+service.jobs.notifyWarehouse.handle(async ({ job, client }) => {
   await job.progress({ step: "notifying", message: "Notifying warehouse" });
 
   if (job.cancelled) {
@@ -226,7 +236,7 @@ To prevent retry for a specific job type, set `maxDeliver: 1` in the contract qu
 If a job may run longer than the configured `ackWaitMs` (default 5 minutes), call `job.heartbeat()` periodically to extend the deadline:
 
 ```ts
-app.jobs.chargePayment.handle(async ({ job }) => {
+service.jobs.chargePayment.handle(async ({ job }) => {
   while (processing) {
     await job.heartbeat();
     // continue work

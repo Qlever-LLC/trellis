@@ -51,8 +51,8 @@ import { Value } from "typebox/value";
 import {
   type HealthCheckFn,
   ServiceHealth,
-  type ServiceHealthCheck,
-  type ServiceHealthInfo,
+  type ServiceHealthCheckFn,
+  type ServiceHealthInfoFn,
 } from "./health.ts";
 import { mountStandardHealthRpc } from "./health_rpc.ts";
 import type { EventDesc, RPCDesc } from "../contracts.ts";
@@ -67,6 +67,7 @@ import type {
   FeedRegistration as RootFeedRegistration,
   HandlerTrellis,
   OperationHandlerContext,
+  OperationHandlerErrorOf,
   OperationOutputOf,
   OperationProgressOf,
   OperationRegistration as RootOperationRegistration,
@@ -1088,21 +1089,6 @@ type ContractOperationName<
   >,
 > = keyof ContractOwnedApi<TContract>["operations"] & string;
 
-type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
-
-type WithHandlerSqlOutbox<TTx, TEventApi extends TrellisAPI> = {
-  outbox: HandlerSqlOutbox<TTx, TEventApi>;
-};
-
-type WithOptionalDepsAndSqlOutbox<
-  TDeps,
-  TTx,
-  TEventApi extends TrellisAPI,
-> = WithDeps<TDeps> & WithHandlerSqlOutbox<TTx, TEventApi>;
-
-type SqlOutboxServiceHealth<TDeps> = [TDeps] extends [undefined] ? ServiceHealth
-  : BoundServiceHealth<TDeps>;
-
 /** Typed RPC handler function for an extracted Trellis service handler. */
 export type RpcHandler<
   TContract extends ServiceContract<
@@ -1112,7 +1098,6 @@ export type RpcHandler<
     ContractKvMetadata
   >,
   M extends RpcMethodName<ContractOwnedApi<TContract>>,
-  TDeps = undefined,
 > = ({
   input,
   context,
@@ -1125,7 +1110,7 @@ export type RpcHandler<
     ContractKvOf<TContract>,
     ContractJobsOf<TContract>
   >;
-} & WithDeps<TDeps>) =>
+}) =>
   | Promise<
     Result<
       RpcMethodOutput<ContractOwnedApi<TContract>, M>,
@@ -1146,7 +1131,6 @@ export type ServiceEventHandler<
     ContractKvMetadata
   >,
   E extends ContractEventName<TContract>,
-  TDeps = undefined,
 > = (
   args: {
     event: ServiceEventOf<ContractTrellisApi<TContract>, E>;
@@ -1156,7 +1140,7 @@ export type ServiceEventHandler<
       ContractKvOf<TContract>,
       ContractJobsOf<TContract>
     >;
-  } & WithDeps<TDeps>,
+  },
 ) => MaybeAsync<void, BaseError>;
 
 /** Typed operation handler function for an extracted Trellis service handler. */
@@ -1168,14 +1152,14 @@ export type OperationHandler<
     ContractKvMetadata
   >,
   O extends ContractOperationName<TContract>,
-  TDeps = undefined,
 > = (
   args:
     & OperationHandlerContext<
       InferSchemaType<ContractOwnedApi<TContract>["operations"][O]["input"]>,
       OperationProgressOf<ContractOwnedApi<TContract>, O>,
       OperationOutputOf<ContractOwnedApi<TContract>, O>,
-      OperationTransferContextOf<ContractOwnedApi<TContract>, O>
+      OperationTransferContextOf<ContractOwnedApi<TContract>, O>,
+      OperationHandlerErrorOf<ContractOwnedApi<TContract>, O>
     >
     & {
       client: Trellis<
@@ -1183,19 +1167,14 @@ export type OperationHandler<
         ContractKvOf<TContract>,
         ContractJobsOf<TContract>
       >;
-    }
-    & WithDeps<TDeps>,
+    },
 ) => unknown | Promise<unknown>;
 
-/** Typed health info function for an extracted bound service health handler. */
-export type HealthInfoHandler<TDeps = undefined> = (
-  args: WithDeps<TDeps>,
-) => ServiceHealthInfo | undefined | Promise<ServiceHealthInfo | undefined>;
+/** Typed health info function for an extracted service health handler. */
+export type HealthInfoHandler = ServiceHealthInfoFn;
 
-/** Typed health check function for an extracted bound service health handler. */
-export type HealthCheckHandler<TDeps = undefined> = (
-  args: WithDeps<TDeps>,
-) => ServiceHealthCheck | Promise<ServiceHealthCheck>;
+/** Typed health check function for an extracted service health handler. */
+export type HealthCheckHandler = ServiceHealthCheckFn;
 
 export type JobQueue<
   TPayload,
@@ -1301,8 +1280,8 @@ export type SqlOutboxTransactionContext<
   readonly event: SqlOutboxEventEnqueueFacade<TEventApi>;
 };
 
-/** Handler-injected SQL outbox facade for transactional event enqueue. */
-export type HandlerSqlOutbox<
+/** Startup-created SQL outbox dependency for transactional event enqueue. */
+export type SqlOutbox<
   TTx,
   TEventApi extends TrellisAPI = TrellisAPI,
 > = {
@@ -1316,614 +1295,6 @@ export type HandlerSqlOutbox<
       | TResult,
   ): AsyncResult<TResult, ValidationError | UnexpectedError>;
 };
-
-type BoundEventHandleFn<
-  TEventApi extends TrellisAPI,
-  TTrellisApi extends TrellisAPI,
-  E extends ServiceEventName<TEventApi>,
-  TKv extends ContractKvMetadata,
-  TJobs extends ContractJobsMetadata,
-  TDeps,
-> = (args: {
-  event: ServiceEventPayloadOf<TEventApi, E>;
-  context: EventListenerContext;
-  client: Trellis<TTrellisApi, TKv, TJobs>;
-  deps: TDeps;
-}) => MaybeAsync<void, BaseError>;
-
-type BoundActiveEventFacade<
-  TEventApi extends TrellisAPI,
-  TTrellisApi extends TrellisAPI,
-  TKv extends ContractKvMetadata,
-  TJobs extends ContractJobsMetadata,
-  TDeps,
-> = {
-  readonly [TGroup in SurfaceGroupName<ServiceEventName<TEventApi>>]: {
-    readonly [
-      E in SurfaceKeysForGroup<
-        ServiceEventName<TEventApi>,
-        TGroup
-      > as SurfaceLeafName<E>
-    ]: {
-      prepare(
-        event: ServiceEventPayloadOf<TEventApi, E>,
-      ): Result<
-        PreparedTrellisEvent<ServiceEventPayloadOf<TEventApi, E>>,
-        ValidationError | UnexpectedError
-      >;
-      publish(
-        event: ServiceEventPayloadOf<TEventApi, E>,
-      ): AsyncResult<void, ValidationError | UnexpectedError>;
-      listen(
-        handler: BoundEventHandleFn<
-          TEventApi,
-          TTrellisApi,
-          E,
-          TKv,
-          TJobs,
-          TDeps
-        >,
-        subjectData?: Record<string, unknown>,
-        opts?: EventOpts,
-      ): AsyncResult<void, ValidationError | UnexpectedError>;
-    };
-  };
-};
-
-type SqlOutboxEventHandleFn<
-  TEventApi extends TrellisAPI,
-  TTrellisApi extends TrellisAPI,
-  E extends ServiceEventName<TEventApi>,
-  TKv extends ContractKvMetadata,
-  TJobs extends ContractJobsMetadata,
-  TTx,
-  TDeps,
-> = (
-  args: {
-    event: ServiceEventPayloadOf<TEventApi, E>;
-    context: EventListenerContext;
-    client: Trellis<TTrellisApi, TKv, TJobs>;
-  } & WithOptionalDepsAndSqlOutbox<TDeps, TTx, TTrellisApi>,
-) => MaybeAsync<void, BaseError>;
-
-type SqlOutboxActiveEventFacade<
-  TEventApi extends TrellisAPI,
-  TTrellisApi extends TrellisAPI,
-  TKv extends ContractKvMetadata,
-  TJobs extends ContractJobsMetadata,
-  TTx,
-  TDeps,
-> = {
-  readonly [TGroup in SurfaceGroupName<ServiceEventName<TEventApi>>]: {
-    readonly [
-      E in SurfaceKeysForGroup<
-        ServiceEventName<TEventApi>,
-        TGroup
-      > as SurfaceLeafName<E>
-    ]: {
-      prepare(
-        event: ServiceEventPayloadOf<TEventApi, E>,
-      ): Result<
-        PreparedTrellisEvent<ServiceEventPayloadOf<TEventApi, E>>,
-        ValidationError | UnexpectedError
-      >;
-      publish(
-        event: ServiceEventPayloadOf<TEventApi, E>,
-      ): AsyncResult<void, ValidationError | UnexpectedError>;
-      listen(
-        handler: SqlOutboxEventHandleFn<
-          TEventApi,
-          TTrellisApi,
-          E,
-          TKv,
-          TJobs,
-          TTx,
-          TDeps
-        >,
-        subjectData?: Record<string, unknown>,
-        opts?: EventOpts,
-      ): AsyncResult<void, ValidationError | UnexpectedError>;
-    };
-  };
-};
-
-type BoundRpcHandleFn<
-  TOwnedApi extends TrellisAPI,
-  TTrellisApi extends TrellisAPI,
-  M extends RpcMethodName<TOwnedApi>,
-  TKv extends ContractKvMetadata,
-  TJobs extends ContractJobsMetadata,
-  TDeps,
-> = (args: {
-  input: RpcMethodInput<TOwnedApi, M>;
-  context: RpcHandlerContext;
-  client: Trellis<TTrellisApi, TKv, TJobs>;
-  deps: TDeps;
-}) =>
-  | Promise<
-    Result<RpcMethodOutput<TOwnedApi, M>, RpcHandlerErrorOf<TOwnedApi, M>>
-  >
-  | Result<RpcMethodOutput<TOwnedApi, M>, RpcHandlerErrorOf<TOwnedApi, M>>;
-
-type BoundFeedHandleFn<
-  TOwnedApi extends TrellisAPI,
-  TTrellisApi extends TrellisAPI,
-  F extends keyof TOwnedApi["feeds"] & string,
-  TKv extends ContractKvMetadata,
-  TJobs extends ContractJobsMetadata,
-  TDeps,
-> = (context: {
-  input: FeedInputOf<TOwnedApi, F>;
-  caller: unknown;
-  signal: AbortSignal;
-  emit(
-    event: FeedEventOf<TOwnedApi, F>,
-  ): AsyncResult<void, ValidationError | UnexpectedError>;
-  client: Trellis<TTrellisApi, TKv, TJobs>;
-  deps: TDeps;
-}) => unknown | Promise<unknown>;
-
-type BoundOperationHandleFn<
-  TOwnedApi extends TrellisAPI,
-  TTrellisApi extends TrellisAPI,
-  O extends keyof TOwnedApi["operations"] & string,
-  TKv extends ContractKvMetadata,
-  TJobs extends ContractJobsMetadata,
-  TDeps,
-> =
-  & ((
-    handler: (
-      context:
-        & OperationHandlerContext<
-          InferSchemaType<TOwnedApi["operations"][O]["input"]>,
-          OperationProgressOf<TOwnedApi, O>,
-          OperationOutputOf<TOwnedApi, O>,
-          OperationTransferContextOf<TOwnedApi, O>
-        >
-        & {
-          client: Trellis<TTrellisApi, TKv, TJobs>;
-          deps: TDeps;
-        },
-    ) => unknown | Promise<unknown>,
-  ) => Promise<void>)
-  & Pick<
-    OperationHandleFn<TOwnedApi, TTrellisApi, O, TKv, TJobs>,
-    "accept" | "control"
-  >;
-
-type BoundTypedServiceHandleFacade<
-  TOwnedApi extends TrellisAPI,
-  TTrellisApi extends TrellisAPI,
-  TKv extends ContractKvMetadata,
-  TJobs extends ContractJobsMetadata,
-  TDeps,
-> = {
-  readonly rpc: {
-    readonly [TGroup in SurfaceGroupName<RpcMethodName<TOwnedApi>>]: {
-      readonly [
-        M in SurfaceKeysForGroup<
-          RpcMethodName<TOwnedApi>,
-          TGroup
-        > as SurfaceLeafName<M>
-      ]: (
-        handler: BoundRpcHandleFn<TOwnedApi, TTrellisApi, M, TKv, TJobs, TDeps>,
-      ) => Promise<void>;
-    };
-  };
-  readonly feed: {
-    readonly [TGroup in SurfaceGroupName<keyof TOwnedApi["feeds"] & string>]: {
-      readonly [
-        F in SurfaceKeysForGroup<
-          keyof TOwnedApi["feeds"] & string,
-          TGroup
-        > as SurfaceLeafName<F>
-      ]: (
-        handler: BoundFeedHandleFn<
-          TOwnedApi,
-          TTrellisApi,
-          F,
-          TKv,
-          TJobs,
-          TDeps
-        >,
-      ) => Promise<void>;
-    };
-  };
-  readonly operation: {
-    readonly [
-      TGroup in SurfaceGroupName<keyof TOwnedApi["operations"] & string>
-    ]: {
-      readonly [
-        O in SurfaceKeysForGroup<
-          keyof TOwnedApi["operations"] & string,
-          TGroup
-        > as SurfaceLeafName<O>
-      ]: BoundOperationHandleFn<TOwnedApi, TTrellisApi, O, TKv, TJobs, TDeps>;
-    };
-  };
-};
-
-type SqlOutboxRpcHandleFn<
-  TOwnedApi extends TrellisAPI,
-  TTrellisApi extends TrellisAPI,
-  M extends RpcMethodName<TOwnedApi>,
-  TKv extends ContractKvMetadata,
-  TJobs extends ContractJobsMetadata,
-  TTx,
-  TDeps,
-> = (
-  args: {
-    input: RpcMethodInput<TOwnedApi, M>;
-    context: RpcHandlerContext;
-    client: Trellis<TTrellisApi, TKv, TJobs>;
-  } & WithOptionalDepsAndSqlOutbox<TDeps, TTx, TTrellisApi>,
-) =>
-  | Promise<
-    Result<RpcMethodOutput<TOwnedApi, M>, RpcHandlerErrorOf<TOwnedApi, M>>
-  >
-  | Result<RpcMethodOutput<TOwnedApi, M>, RpcHandlerErrorOf<TOwnedApi, M>>;
-
-type SqlOutboxFeedHandleFn<
-  TOwnedApi extends TrellisAPI,
-  TTrellisApi extends TrellisAPI,
-  F extends keyof TOwnedApi["feeds"] & string,
-  TKv extends ContractKvMetadata,
-  TJobs extends ContractJobsMetadata,
-  TTx,
-  TDeps,
-> = (
-  context: {
-    input: FeedInputOf<TOwnedApi, F>;
-    caller: unknown;
-    signal: AbortSignal;
-    emit(
-      event: FeedEventOf<TOwnedApi, F>,
-    ): AsyncResult<void, ValidationError | UnexpectedError>;
-    client: Trellis<TTrellisApi, TKv, TJobs>;
-  } & WithOptionalDepsAndSqlOutbox<TDeps, TTx, TTrellisApi>,
-) =>
-  | unknown
-  | Promise<unknown>;
-
-type SqlOutboxOperationHandleFn<
-  TOwnedApi extends TrellisAPI,
-  TTrellisApi extends TrellisAPI,
-  O extends keyof TOwnedApi["operations"] & string,
-  TKv extends ContractKvMetadata,
-  TJobs extends ContractJobsMetadata,
-  TTx,
-  TDeps,
-> =
-  & ((
-    handler: (
-      context:
-        & OperationHandlerContext<
-          InferSchemaType<TOwnedApi["operations"][O]["input"]>,
-          OperationProgressOf<TOwnedApi, O>,
-          OperationOutputOf<TOwnedApi, O>,
-          OperationTransferContextOf<TOwnedApi, O>
-        >
-        & {
-          client: Trellis<TTrellisApi, TKv, TJobs>;
-        }
-        & WithOptionalDepsAndSqlOutbox<TDeps, TTx, TTrellisApi>,
-    ) => unknown | Promise<unknown>,
-  ) => Promise<void>)
-  & Pick<
-    OperationHandleFn<TOwnedApi, TTrellisApi, O, TKv, TJobs>,
-    "accept" | "control"
-  >;
-
-type SqlOutboxServiceHandleFacade<
-  TOwnedApi extends TrellisAPI,
-  TTrellisApi extends TrellisAPI,
-  TKv extends ContractKvMetadata,
-  TJobs extends ContractJobsMetadata,
-  TTx,
-  TDeps,
-> = {
-  readonly rpc: {
-    readonly [TGroup in SurfaceGroupName<RpcMethodName<TOwnedApi>>]: {
-      readonly [
-        M in SurfaceKeysForGroup<
-          RpcMethodName<TOwnedApi>,
-          TGroup
-        > as SurfaceLeafName<M>
-      ]: (
-        handler: SqlOutboxRpcHandleFn<
-          TOwnedApi,
-          TTrellisApi,
-          M,
-          TKv,
-          TJobs,
-          TTx,
-          TDeps
-        >,
-      ) => Promise<void>;
-    };
-  };
-  readonly feed: {
-    readonly [TGroup in SurfaceGroupName<keyof TOwnedApi["feeds"] & string>]: {
-      readonly [
-        F in SurfaceKeysForGroup<
-          keyof TOwnedApi["feeds"] & string,
-          TGroup
-        > as SurfaceLeafName<F>
-      ]: (
-        handler: SqlOutboxFeedHandleFn<
-          TOwnedApi,
-          TTrellisApi,
-          F,
-          TKv,
-          TJobs,
-          TTx,
-          TDeps
-        >,
-      ) => Promise<void>;
-    };
-  };
-  readonly operation: {
-    readonly [
-      TGroup in SurfaceGroupName<keyof TOwnedApi["operations"] & string>
-    ]: {
-      readonly [
-        O in SurfaceKeysForGroup<
-          keyof TOwnedApi["operations"] & string,
-          TGroup
-        > as SurfaceLeafName<O>
-      ]: SqlOutboxOperationHandleFn<
-        TOwnedApi,
-        TTrellisApi,
-        O,
-        TKv,
-        TJobs,
-        TTx,
-        TDeps
-      >;
-    };
-  };
-};
-
-type BoundJobQueue<
-  TPayload,
-  TResult,
-  TTrellisApi extends TrellisAPI,
-  TKv extends ContractKvMetadata,
-  TJobs extends ContractJobsMetadata,
-  TDeps,
-> = {
-  create(payload: TPayload): AsyncResult<JobRef<TPayload, TResult>, BaseError>;
-  submit(
-    payload: TPayload,
-  ): AsyncResult<JobSubmitOutcome<TPayload, TResult>, BaseError>;
-  handle(
-    handler: (args: {
-      job: PublicActiveJob<TPayload, TResult>;
-      client: Trellis<TTrellisApi, TKv, TJobs>;
-      deps: TDeps;
-    }) => Promise<Result<TResult, BaseError>>,
-  ): void;
-};
-
-type BoundJobsFacadeOf<
-  TJobs extends ContractJobsMetadata,
-  TTrellisApi extends TrellisAPI,
-  TKv extends ContractKvMetadata,
-  TDeps,
-> = {
-  [K in keyof TJobs]: BoundJobQueue<
-    TJobs[K]["payload"],
-    TJobs[K]["result"],
-    TTrellisApi,
-    TKv,
-    TJobs,
-    TDeps
-  >;
-};
-
-type SqlOutboxJobQueue<
-  TPayload,
-  TResult,
-  TTrellisApi extends TrellisAPI,
-  TKv extends ContractKvMetadata,
-  TJobs extends ContractJobsMetadata,
-  TTx,
-  TDeps,
-> = {
-  create(payload: TPayload): AsyncResult<JobRef<TPayload, TResult>, BaseError>;
-  submit(
-    payload: TPayload,
-  ): AsyncResult<JobSubmitOutcome<TPayload, TResult>, BaseError>;
-  handle(
-    handler: (
-      args: {
-        job: PublicActiveJob<TPayload, TResult>;
-        client: Trellis<TTrellisApi, TKv, TJobs>;
-      } & WithOptionalDepsAndSqlOutbox<TDeps, TTx, TTrellisApi>,
-    ) => Promise<Result<TResult, BaseError>>,
-  ): void;
-};
-
-type SqlOutboxJobsFacadeOf<
-  TJobs extends ContractJobsMetadata,
-  TTrellisApi extends TrellisAPI,
-  TKv extends ContractKvMetadata,
-  TTx,
-  TDeps,
-> = {
-  [K in keyof TJobs]: SqlOutboxJobQueue<
-    TJobs[K]["payload"],
-    TJobs[K]["result"],
-    TTrellisApi,
-    TKv,
-    TJobs,
-    TTx,
-    TDeps
-  >;
-};
-
-type BoundServiceHealth<TDeps> = Omit<ServiceHealth, "add" | "setInfo"> & {
-  setInfo(info: ServiceHealthInfo | HealthInfoHandler<TDeps>): void;
-  add(
-    name: string,
-    check: HealthCheckHandler<TDeps>,
-  ): () => void;
-};
-
-/** Service wrapper returned by `TrellisService.with(deps)`. */
-export type BoundTrellisService<
-  TOwnedApi extends TrellisAPI = TrellisAPI,
-  TTrellisApi extends TrellisAPI = TOwnedApi,
-  TJobs extends ContractJobsMetadata = {},
-  TKv extends ContractKvMetadata = ContractKvMetadata,
-  TDeps = unknown,
-> =
-  & Pick<
-    TrellisService<TOwnedApi, TTrellisApi, TJobs, TKv>,
-    | "name"
-    | "auth"
-    | "kv"
-    | "store"
-    | "connection"
-    | "createTransfer"
-    | "completeOperation"
-    | "publishPrepared"
-    | "wait"
-    | "stop"
-  >
-  & {
-    readonly event: BoundActiveEventFacade<
-      TTrellisApi,
-      TTrellisApi,
-      TKv,
-      TJobs,
-      TDeps
-    >;
-    readonly health: BoundServiceHealth<TDeps>;
-    readonly jobs: BoundJobsFacadeOf<TJobs, TTrellisApi, TKv, TDeps>;
-    readonly handle: BoundTypedServiceHandleFacade<
-      TOwnedApi,
-      TTrellisApi,
-      TKv,
-      TJobs,
-      TDeps
-    >;
-    /** Returns a new bound wrapper that injects the provided dependencies. */
-    with<TNextDeps>(deps: TNextDeps): BoundTrellisService<
-      TOwnedApi,
-      TTrellisApi,
-      TJobs,
-      TKv,
-      TNextDeps
-    >;
-    /** Returns a SQL outbox wrapper that also injects the bound dependencies. */
-    withSqlOutbox<TTx>(
-      options: TrellisServiceSqlOutboxExecutorOptions<TTx>,
-    ): SqlOutboxTrellisService<
-      TOwnedApi,
-      TTrellisApi,
-      TJobs,
-      TKv,
-      TTx,
-      TDeps
-    >;
-  };
-
-/** Service wrapper returned by `TrellisService.withSqlOutbox(...)`. */
-export type SqlOutboxTrellisService<
-  TOwnedApi extends TrellisAPI = TrellisAPI,
-  TTrellisApi extends TrellisAPI = TOwnedApi,
-  TJobs extends ContractJobsMetadata = {},
-  TKv extends ContractKvMetadata = ContractKvMetadata,
-  TTx = unknown,
-  TDeps = undefined,
-> =
-  & Pick<
-    TrellisService<TOwnedApi, TTrellisApi, TJobs, TKv>,
-    | "name"
-    | "auth"
-    | "kv"
-    | "store"
-    | "connection"
-    | "createTransfer"
-    | "completeOperation"
-    | "publishPrepared"
-    | "wait"
-    | "stop"
-  >
-  & {
-    readonly event: SqlOutboxActiveEventFacade<
-      TTrellisApi,
-      TTrellisApi,
-      TKv,
-      TJobs,
-      TTx,
-      TDeps
-    >;
-    readonly health: SqlOutboxServiceHealth<TDeps>;
-    readonly jobs: SqlOutboxJobsFacadeOf<
-      TJobs,
-      TTrellisApi,
-      TKv,
-      TTx,
-      TDeps
-    >;
-    readonly handle: SqlOutboxServiceHandleFacade<
-      TOwnedApi,
-      TTrellisApi,
-      TKv,
-      TJobs,
-      TTx,
-      TDeps
-    >;
-    /** Returns a new SQL outbox wrapper with injected application deps. */
-    with<TNextDeps>(deps: TNextDeps): SqlOutboxTrellisService<
-      TOwnedApi,
-      TTrellisApi,
-      TJobs,
-      TKv,
-      TTx,
-      TNextDeps
-    >;
-  };
-
-type ContractApiLike = {
-  rpc: Record<string, unknown>;
-  operations: Record<string, unknown>;
-  events: Record<string, unknown>;
-  feeds?: Record<string, unknown>;
-  subjects: Record<string, unknown>;
-};
-
-type BoundServiceContractLike = {
-  API: {
-    owned: ContractApiLike;
-    trellis?: ContractApiLike | undefined;
-  };
-  readonly [CONTRACT_JOBS_METADATA]?: ContractJobsMetadata;
-  readonly [CONTRACT_KV_METADATA]?: ContractKvMetadata;
-};
-
-type BoundServiceOwnedApi<TContract extends BoundServiceContractLike> =
-  & TContract["API"]["owned"]
-  & TrellisAPI;
-
-type BoundServiceTrellisApi<TContract extends BoundServiceContractLike> =
-  [NonNullable<TContract["API"]["trellis"]>] extends [never]
-    ? BoundServiceOwnedApi<TContract>
-    : NonNullable<TContract["API"]["trellis"]> extends ContractApiLike
-      ? NonNullable<TContract["API"]["trellis"]> & TrellisAPI
-    : BoundServiceOwnedApi<TContract>;
-
-type BoundServiceJobsOf<TContract extends BoundServiceContractLike> =
-  NonNullable<TContract[typeof CONTRACT_JOBS_METADATA]> extends
-    ContractJobsMetadata ? NonNullable<TContract[typeof CONTRACT_JOBS_METADATA]>
-    : {};
-
-type BoundServiceKvOf<TContract extends BoundServiceContractLike> =
-  NonNullable<TContract[typeof CONTRACT_KV_METADATA]> extends ContractKvMetadata
-    ? NonNullable<TContract[typeof CONTRACT_KV_METADATA]>
-    : ContractKvMetadata;
 
 const MANAGED_JOB_WORKERS = Symbol("trellis.managedJobWorkers");
 
@@ -1945,10 +1316,16 @@ type ServiceHandleOperationLeaf =
   & {
     accept(
       args: { sessionKey: string },
-    ): AsyncResult<AcceptedOperation, UnexpectedError>;
+    ): AsyncResult<
+      AcceptedOperation<unknown, unknown, BaseError>,
+      UnexpectedError
+    >;
     control(
       operationId: string,
-    ): AsyncResult<OperationRuntimeHandle, BaseError>;
+    ): AsyncResult<
+      OperationRuntimeHandle<unknown, unknown, BaseError>,
+      BaseError
+    >;
   };
 
 type ServiceHandleFacade = {
@@ -1981,19 +1358,6 @@ type ServiceEventLeaf = ServiceEventPublishLeaf & {
       event: unknown,
       context: EventListenerContext,
     ) => MaybeAsync<void, BaseError>,
-    subjectData?: Record<string, unknown>,
-    opts?: EventOpts,
-  ): AsyncResult<void, ValidationError | UnexpectedError>;
-};
-
-type BoundServiceEventLeaf<TDeps> = ServiceEventPublishLeaf & {
-  listen(
-    handler: (args: {
-      event: unknown;
-      context: EventListenerContext;
-      client: unknown;
-      deps: TDeps;
-    }) => MaybeAsync<void, BaseError>,
     subjectData?: Record<string, unknown>,
     opts?: EventOpts,
   ): AsyncResult<void, ValidationError | UnexpectedError>;
@@ -2133,7 +1497,8 @@ type OperationHandleFn<
           InferSchemaType<TOwnedApi["operations"][O]["input"]>,
           OperationProgressOf<TOwnedApi, O>,
           OperationOutputOf<TOwnedApi, O>,
-          OperationTransferContextOf<TOwnedApi, O>
+          OperationTransferContextOf<TOwnedApi, O>,
+          OperationHandlerErrorOf<TOwnedApi, O>
         >
         & { client: Trellis<TTrellisApi, TKv, TJobs> },
     ) => unknown | Promise<unknown>,
@@ -2142,14 +1507,16 @@ type OperationHandleFn<
     accept(args: { sessionKey: string }): AsyncResult<
       AcceptedOperation<
         OperationProgressOf<TOwnedApi, O>,
-        OperationOutputOf<TOwnedApi, O>
+        OperationOutputOf<TOwnedApi, O>,
+        OperationHandlerErrorOf<TOwnedApi, O>
       >,
       UnexpectedError
     >;
     control(operationId: string): AsyncResult<
       OperationRuntimeHandle<
         OperationProgressOf<TOwnedApi, O>,
-        OperationOutputOf<TOwnedApi, O>
+        OperationOutputOf<TOwnedApi, O>,
+        OperationHandlerErrorOf<TOwnedApi, O>
       >,
       BaseError
     >;
@@ -2167,7 +1534,8 @@ export type OperationRegistration<
   }): AsyncResult<
     AcceptedOperation<
       OperationProgressOf<TOwnedApi, O>,
-      OperationOutputOf<TOwnedApi, O>
+      OperationOutputOf<TOwnedApi, O>,
+      OperationHandlerErrorOf<TOwnedApi, O>
     >,
     UnexpectedError
   >;
@@ -2180,7 +1548,8 @@ export type OperationRegistration<
   ): AsyncResult<
     OperationRuntimeHandle<
       OperationProgressOf<TOwnedApi, O>,
-      OperationOutputOf<TOwnedApi, O>
+      OperationOutputOf<TOwnedApi, O>,
+      OperationHandlerErrorOf<TOwnedApi, O>
     >,
     BaseError
   >;
@@ -2191,7 +1560,8 @@ export type OperationRegistration<
           InferSchemaType<TOwnedApi["operations"][O]["input"]>,
           OperationProgressOf<TOwnedApi, O>,
           OperationOutputOf<TOwnedApi, O>,
-          OperationTransferContextOf<TOwnedApi, O>
+          OperationTransferContextOf<TOwnedApi, O>,
+          OperationHandlerErrorOf<TOwnedApi, O>
         >
         & { client: Trellis<TTrellisApi, TKv, TJobs> },
     ) => unknown | Promise<unknown>,
@@ -3291,98 +2661,6 @@ function createJobsFacade<
   return jobsFacade as ManagedJobsFacade<TJobs, TTrellisApi, TKv>;
 }
 
-function createBoundJobsFacade<
-  TJobs extends ContractJobsMetadata,
-  TTrellisApi extends TrellisAPI,
-  TKv extends ContractKvMetadata,
-  TDeps,
->(args: {
-  jobs: JobsFacadeOf<TJobs, TTrellisApi, TKv>;
-  deps: TDeps;
-}): BoundJobsFacadeOf<TJobs, TTrellisApi, TKv, TDeps> {
-  const boundJobs: Record<string, unknown> = {};
-  const jobs = args.jobs as Record<
-    string,
-    JobQueue<unknown, unknown, TTrellisApi, TKv, TJobs>
-  >;
-
-  for (const queueType of Object.keys(jobs)) {
-    const queue = jobs[queueType];
-    if (!queue) continue;
-    boundJobs[queueType] = {
-      create: (payload) => queue.create(payload),
-      submit: (payload) => queue.submit(payload),
-      handle: (handler) =>
-        queue.handle(({ job, client }) =>
-          handler({
-            job,
-            client,
-            deps: args.deps,
-          })
-        ),
-    } satisfies BoundJobQueue<
-      unknown,
-      unknown,
-      TTrellisApi,
-      TKv,
-      TJobs,
-      TDeps
-    >;
-  }
-
-  return boundJobs as BoundJobsFacadeOf<TJobs, TTrellisApi, TKv, TDeps>;
-}
-
-function createSqlOutboxJobsFacade<
-  TJobs extends ContractJobsMetadata,
-  TTrellisApi extends TrellisAPI,
-  TKv extends ContractKvMetadata,
-  TTx,
-  TDeps,
->(args: {
-  jobs: JobsFacadeOf<TJobs, TTrellisApi, TKv>;
-  extras(): WithOptionalDepsAndSqlOutbox<TDeps, TTx, TTrellisApi>;
-}): SqlOutboxJobsFacadeOf<TJobs, TTrellisApi, TKv, TTx, TDeps> {
-  const outboxJobs: Record<string, unknown> = {};
-  const jobs = args.jobs as Record<
-    string,
-    JobQueue<unknown, unknown, TTrellisApi, TKv, TJobs>
-  >;
-
-  for (const queueType of Object.keys(jobs)) {
-    const queue = jobs[queueType];
-    if (!queue) continue;
-    outboxJobs[queueType] = {
-      create: (payload) => queue.create(payload),
-      submit: (payload) => queue.submit(payload),
-      handle: (handler) =>
-        queue.handle(({ job, client }) =>
-          handler({
-            job,
-            client,
-            ...args.extras(),
-          })
-        ),
-    } satisfies SqlOutboxJobQueue<
-      unknown,
-      unknown,
-      TTrellisApi,
-      TKv,
-      TJobs,
-      TTx,
-      TDeps
-    >;
-  }
-
-  return outboxJobs as SqlOutboxJobsFacadeOf<
-    TJobs,
-    TTrellisApi,
-    TKv,
-    TTx,
-    TDeps
-  >;
-}
-
 /**
  * Connects a service with caller-supplied runtime dependencies for tests and
  * Trellis-owned internals. This helper is intentionally not re-exported from
@@ -3612,58 +2890,14 @@ export class TrellisService<
   }
 
   /**
-   * Returns a service wrapper that injects application dependencies into
-   * service-owned handler argument objects as `args.deps`.
+   * Creates an explicit SQL outbox helper for service-owned transactions.
+   * Services should create this at startup and close over it in handlers.
    */
-  with<TDeps>(
-    deps: TDeps,
-  ): BoundTrellisService<TOwnedApi, TTrellisApi, TJobs, TKv, TDeps> {
-    return {
-      name: this.name,
-      auth: this.auth,
-      event: this.#createBoundEventFacade(deps),
-      kv: this.kv,
-      store: this.store,
-      jobs: createBoundJobsFacade({ jobs: this.jobs, deps }),
-      health: this.#createBoundHealth(deps),
-      handle: this.#createBoundHandleFacade(deps),
-      connection: this.connection,
-      createTransfer: (args) => this.createTransfer(args),
-      completeOperation: (operationId, output) =>
-        this.completeOperation(operationId, output),
-      publishPrepared: (event) => this.publishPrepared(event),
-      wait: () => this.wait(),
-      stop: () => this.stop(),
-      with: (nextDeps) => this.with(nextDeps),
-      withSqlOutbox: (options) => this.#createSqlOutboxWrapper(options, deps),
-    };
-  }
-
-  /**
-   * Returns a service wrapper that injects a SQL outbox facade into supported
-   * service-owned handler argument objects as `args.outbox`.
-   */
-  withSqlOutbox<TTx>(
+  createSqlOutbox<TTx>(
     options: TrellisServiceSqlOutboxExecutorOptions<TTx>,
-  ): SqlOutboxTrellisService<
-    TOwnedApi,
-    TTrellisApi,
-    TJobs,
-    TKv,
-    TTx,
-    undefined
-  >;
-  withSqlOutbox<TTx>(
-    options: TrellisServiceSqlOutboxOptions<TTx>,
-  ): SqlOutboxTrellisService<
-    TOwnedApi,
-    TTrellisApi,
-    TJobs,
-    TKv,
-    TTx,
-    undefined
-  > {
-    return this.#createSqlOutboxWrapper(options, undefined);
+  ): SqlOutbox<TTx, TTrellisApi> {
+    const binding = this.#createSqlOutboxBinding(options);
+    return this.#createSqlOutbox(binding);
   }
 
   /** Publishes a prepared event through the service runtime connection. */
@@ -3671,77 +2905,6 @@ export class TrellisService<
     event: PreparedTrellisEvent,
   ): AsyncResult<void, UnexpectedError> {
     return this.#handlerTrellis.publishPrepared(event);
-  }
-
-  #createBoundHealth<TDeps>(deps: TDeps): BoundServiceHealth<TDeps> {
-    const health = this.health;
-    return {
-      serviceName: health.serviceName,
-      kind: health.kind,
-      instanceId: health.instanceId,
-      contractId: health.contractId,
-      contractDigest: health.contractDigest,
-      startedAt: health.startedAt,
-      publishIntervalMs: health.publishIntervalMs,
-      setInfo(info) {
-        if (typeof info !== "function") {
-          health.setInfo(info);
-          return;
-        }
-
-        health.setInfo(() => info({ deps }));
-      },
-      add(name, check) {
-        return health.add(name, () => check({ deps }));
-      },
-      checks: () => health.checks(),
-      response: () => health.response(),
-      heartbeat: () => health.heartbeat(),
-    };
-  }
-
-  #createBoundEventFacade<TDeps>(
-    deps: TDeps,
-  ): BoundActiveEventFacade<TTrellisApi, TTrellisApi, TKv, TJobs, TDeps> {
-    const event = {} as BoundActiveEventFacade<
-      TTrellisApi,
-      TTrellisApi,
-      TKv,
-      TJobs,
-      TDeps
-    >;
-    const source = this.event as Record<
-      string,
-      Record<string, ServiceEventLeaf>
-    >;
-    for (const [groupName, leaves] of Object.entries(source)) {
-      const group: Record<string, BoundServiceEventLeaf<TDeps>> = {};
-      for (const [leafName, leaf] of Object.entries(leaves)) {
-        group[leafName] = {
-          prepare: (payload) => leaf.prepare(payload),
-          publish: (payload) => leaf.publish(payload),
-          listen: (handler, subjectData, opts) =>
-            leaf.listen(
-              (payload, context) =>
-                handler({
-                  event: payload,
-                  context,
-                  client: this.#handlerTrellis,
-                  deps,
-                }),
-              subjectData,
-              opts,
-            ),
-        };
-      }
-      Object.defineProperty(event, groupName, {
-        value: group,
-        enumerable: true,
-        configurable: true,
-      });
-    }
-
-    return event;
   }
 
   #createHandleFacade(): ServiceHandleFacade {
@@ -3809,82 +2972,6 @@ export class TrellisService<
     return { rpc, feed, operation };
   }
 
-  #createBoundHandleFacade<TDeps>(
-    deps: TDeps,
-  ): BoundTypedServiceHandleFacade<TOwnedApi, TTrellisApi, TKv, TJobs, TDeps> {
-    const rpc: ServiceHandleFacade["rpc"] = {};
-    for (const method of Object.keys(this.#server.api.rpc ?? {})) {
-      addSurfaceLeaf(rpc, method, (handler) =>
-        this.#server.mountRuntime(
-          method,
-          async ({ input, context }) =>
-            await Promise.resolve(
-              (handler as (
-                args: unknown,
-              ) =>
-                | Promise<Result<unknown, BaseError>>
-                | Result<unknown, BaseError>)({
-                  input,
-                  context,
-                  client: this.#handlerTrellis,
-                  deps,
-                }),
-            ),
-        ));
-    }
-
-    const feed: ServiceHandleFacade["feed"] = {};
-    for (const feedName of Object.keys(this.#server.api.feeds ?? {})) {
-      addSurfaceLeaf(
-        feed,
-        feedName,
-        (handler) =>
-          this.#server.feedHandle(feedName).handle((context) =>
-            (handler as (args: unknown) => unknown | Promise<unknown>)({
-              ...context,
-              client: this.#handlerTrellis,
-              deps,
-            })
-          ),
-      );
-    }
-
-    const operation: Record<
-      string,
-      Record<string, ServiceHandleOperationLeaf>
-    > = {};
-    for (
-      const operationName of Object.keys(this.#server.api.operations ?? {})
-    ) {
-      const registration = this.#operation(
-        operationName as keyof TOwnedApi["operations"] & string,
-      );
-      const leaf = Object.assign(
-        (handler: (context: unknown) => unknown) =>
-          registration.handle((context) =>
-            handler({
-              ...context,
-              client: this.#handlerTrellis,
-              deps,
-            })
-          ),
-        {
-          accept: (args: { sessionKey: string }) => registration.accept(args),
-          control: (operationId: string) => registration.control(operationId),
-        },
-      ) as ServiceHandleOperationLeaf;
-      addSurfaceLeaf(operation, operationName, leaf);
-    }
-
-    return { rpc, feed, operation } as BoundTypedServiceHandleFacade<
-      TOwnedApi,
-      TTrellisApi,
-      TKv,
-      TJobs,
-      TDeps
-    >;
-  }
-
   #createSqlOutboxBinding<TTx>(
     options: TrellisServiceSqlOutboxOptions<TTx>,
   ): {
@@ -3914,12 +3001,12 @@ export class TrellisService<
     };
   }
 
-  #createHandlerSqlOutbox<TTx>(binding: {
+  #createSqlOutbox<TTx>(binding: {
     readonly dialect: SqlDialect;
     readonly tables: SqlOutboxTables;
     readonly transaction: SqlOutboxTransactionRunner<TTx>;
     readonly dispatcher: OutboxDispatcher;
-  }): HandlerSqlOutbox<TTx, TTrellisApi> {
+  }): SqlOutbox<TTx, TTrellisApi> {
     return {
       transaction: <TResult>(
         work: (
@@ -3964,227 +3051,6 @@ export class TrellisService<
             return Result.ok(result);
           }, toResultError);
         })()),
-    };
-  }
-
-  #sqlOutboxHandlerExtras<TTx, TDeps>(
-    outbox: HandlerSqlOutbox<TTx, TTrellisApi>,
-    deps: TDeps,
-  ): WithOptionalDepsAndSqlOutbox<TDeps, TTx, TTrellisApi> {
-    const extras = deps === undefined ? { outbox } : { deps, outbox };
-    return extras as WithOptionalDepsAndSqlOutbox<TDeps, TTx, TTrellisApi>;
-  }
-
-  #createSqlOutboxHandleFacade<TTx, TDeps>(
-    binding: {
-      readonly dialect: SqlDialect;
-      readonly tables: SqlOutboxTables;
-      readonly transaction: SqlOutboxTransactionRunner<TTx>;
-      readonly dispatcher: OutboxDispatcher;
-    },
-    deps: TDeps,
-  ): SqlOutboxServiceHandleFacade<
-    TOwnedApi,
-    TTrellisApi,
-    TKv,
-    TJobs,
-    TTx,
-    TDeps
-  > {
-    const outbox = this.#createHandlerSqlOutbox(binding);
-    const extras = () => this.#sqlOutboxHandlerExtras(outbox, deps);
-    const rpc: ServiceHandleFacade["rpc"] = {};
-    for (const method of Object.keys(this.#server.api.rpc ?? {})) {
-      addSurfaceLeaf(rpc, method, (handler) =>
-        this.#server.mountRuntime(
-          method,
-          async ({ input, context }) =>
-            await Promise.resolve(
-              (handler as (
-                args: unknown,
-              ) =>
-                | Promise<Result<unknown, BaseError>>
-                | Result<unknown, BaseError>)({
-                  input,
-                  context,
-                  client: this.#handlerTrellis,
-                  ...extras(),
-                }),
-            ),
-        ));
-    }
-
-    const feed: ServiceHandleFacade["feed"] = {};
-    for (const feedName of Object.keys(this.#server.api.feeds ?? {})) {
-      addSurfaceLeaf(
-        feed,
-        feedName,
-        (handler) =>
-          this.#server.feedHandle(feedName).handle((context) =>
-            (handler as (args: unknown) => unknown | Promise<unknown>)({
-              ...context,
-              client: this.#handlerTrellis,
-              ...extras(),
-            })
-          ),
-      );
-    }
-
-    const operation: Record<
-      string,
-      Record<string, ServiceHandleOperationLeaf>
-    > = {};
-    for (
-      const operationName of Object.keys(this.#server.api.operations ?? {})
-    ) {
-      const registration = this.#operation(
-        operationName as keyof TOwnedApi["operations"] & string,
-      );
-      const leaf = Object.assign(
-        (handler: (context: unknown) => unknown) =>
-          registration.handle((context) =>
-            handler({
-              ...context,
-              client: this.#handlerTrellis,
-              ...extras(),
-            })
-          ),
-        {
-          accept: (args: { sessionKey: string }) => registration.accept(args),
-          control: (operationId: string) => registration.control(operationId),
-        },
-      ) as ServiceHandleOperationLeaf;
-      addSurfaceLeaf(operation, operationName, leaf);
-    }
-
-    return { rpc, feed, operation } as SqlOutboxServiceHandleFacade<
-      TOwnedApi,
-      TTrellisApi,
-      TKv,
-      TJobs,
-      TTx,
-      TDeps
-    >;
-  }
-
-  #createSqlOutboxEventFacade<TTx, TDeps>(
-    outbox: HandlerSqlOutbox<TTx, TTrellisApi>,
-    deps: TDeps,
-  ): SqlOutboxActiveEventFacade<
-    TTrellisApi,
-    TTrellisApi,
-    TKv,
-    TJobs,
-    TTx,
-    TDeps
-  > {
-    const event = {} as SqlOutboxActiveEventFacade<
-      TTrellisApi,
-      TTrellisApi,
-      TKv,
-      TJobs,
-      TTx,
-      TDeps
-    >;
-    const extras = () => this.#sqlOutboxHandlerExtras(outbox, deps);
-    const source = this.event as Record<
-      string,
-      Record<string, ServiceEventLeaf>
-    >;
-    for (const [groupName, leaves] of Object.entries(source)) {
-      const group: Record<
-        string,
-        ServiceEventPublishLeaf & {
-          listen(
-            handler: (args: unknown) => MaybeAsync<void, BaseError>,
-            subjectData?: Record<string, unknown>,
-            opts?: EventOpts,
-          ): AsyncResult<void, ValidationError | UnexpectedError>;
-        }
-      > = {};
-      for (const [leafName, leaf] of Object.entries(leaves)) {
-        group[leafName] = {
-          prepare: (payload) => leaf.prepare(payload),
-          publish: (payload) => leaf.publish(payload),
-          listen: (handler, subjectData, opts) =>
-            leaf.listen(
-              (payload, context) =>
-                handler({
-                  event: payload,
-                  context,
-                  client: this.#handlerTrellis,
-                  ...extras(),
-                }),
-              subjectData,
-              opts,
-            ),
-        };
-      }
-      Object.defineProperty(event, groupName, {
-        value: group,
-        enumerable: true,
-        configurable: true,
-      });
-    }
-
-    return event;
-  }
-
-  #createSqlOutboxWrapper<TTx, TDeps>(
-    options: TrellisServiceSqlOutboxOptions<TTx>,
-    deps: TDeps,
-  ): SqlOutboxTrellisService<
-    TOwnedApi,
-    TTrellisApi,
-    TJobs,
-    TKv,
-    TTx,
-    TDeps
-  > {
-    const binding = this.#createSqlOutboxBinding(options);
-    return this.#createSqlOutboxWrapperForBinding(binding, deps);
-  }
-
-  #createSqlOutboxWrapperForBinding<TTx, TDeps>(
-    binding: {
-      readonly dialect: SqlDialect;
-      readonly tables: SqlOutboxTables;
-      readonly transaction: SqlOutboxTransactionRunner<TTx>;
-      readonly dispatcher: OutboxDispatcher;
-    },
-    deps: TDeps,
-  ): SqlOutboxTrellisService<
-    TOwnedApi,
-    TTrellisApi,
-    TJobs,
-    TKv,
-    TTx,
-    TDeps
-  > {
-    const outbox = this.#createHandlerSqlOutbox(binding);
-    const extras = () => this.#sqlOutboxHandlerExtras(outbox, deps);
-    const health =
-      (deps === undefined
-        ? this.health
-        : this.#createBoundHealth(deps)) as SqlOutboxServiceHealth<TDeps>;
-    return {
-      name: this.name,
-      auth: this.auth,
-      event: this.#createSqlOutboxEventFacade(outbox, deps),
-      kv: this.kv,
-      store: this.store,
-      jobs: createSqlOutboxJobsFacade({ jobs: this.jobs, extras }),
-      health,
-      handle: this.#createSqlOutboxHandleFacade(binding, deps),
-      connection: this.connection,
-      createTransfer: (args) => this.createTransfer(args),
-      completeOperation: (operationId, output) =>
-        this.completeOperation(operationId, output),
-      publishPrepared: (event) => this.publishPrepared(event),
-      wait: () => this.wait(),
-      stop: () => this.stop(),
-      with: (nextDeps) =>
-        this.#createSqlOutboxWrapperForBinding(binding, nextDeps),
     };
   }
 
@@ -4322,7 +3188,8 @@ export class TrellisService<
       InferSchemaType<TOwnedApi["operations"][O]["input"]>,
       OperationProgressOf<TOwnedApi, O>,
       OperationOutputOf<TOwnedApi, O>,
-      OperationTransferContextOf<TOwnedApi, O>
+      OperationTransferContextOf<TOwnedApi, O>,
+      BaseError
     >;
 
     return {
@@ -4335,7 +3202,8 @@ export class TrellisService<
               InferSchemaType<TOwnedApi["operations"][O]["input"]>,
               OperationProgressOf<TOwnedApi, O>,
               OperationOutputOf<TOwnedApi, O>,
-              OperationTransferContextOf<TOwnedApi, O>
+              OperationTransferContextOf<TOwnedApi, O>,
+              BaseError
             >
             & { client: Trellis<TTrellisApi, TKv, TJobs> },
         ) => unknown | Promise<unknown>,

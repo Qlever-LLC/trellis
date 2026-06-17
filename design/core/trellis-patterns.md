@@ -84,10 +84,10 @@ Rules:
 - event handlers must be idempotent because delivery is at-least-once
 - direct event publish is the default; use a SQL outbox only when event
   publication must be coupled to service-local SQL state
-- TypeScript services configure SQL outbox behavior through
-  `service.withSqlOutbox(...)`; handlers mounted through that wrapper receive an
-  `outbox` helper and enqueue events only through its transaction-scoped event
-  facade
+- TypeScript services create a SQL outbox helper with
+  `service.createSqlOutbox(...)`; the returned object is a plain dependency
+  that handlers close over at registration rather than receiving it through
+  handler arguments
 - outbox dispatch MAY use a process-local wakeup helper to reduce latency, but
   the wakeup MUST happen after the outbox transaction commits; enqueueing a row
   inside a transaction must not directly publish work that can later roll back

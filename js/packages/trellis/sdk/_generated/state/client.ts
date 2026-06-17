@@ -33,8 +33,6 @@ import type { API, Api } from "./api.ts";
 import type * as Types from "./types.ts";
 import type * as HealthSdk from "../health/mod.ts";
 
-type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
-
 type EventCallback<TMessage> = {
   bivarianceHack(
     message: TMessage,
@@ -42,10 +40,8 @@ type EventCallback<TMessage> = {
   ): MaybeAsync<void, BaseError>;
 }["bivarianceHack"];
 
-type DependencyServiceEventHandler<TEvent, TDeps = undefined> = (
-  args:
-    & { event: TEvent; context: EventListenerContext; client: HandlerClient }
-    & WithDeps<TDeps>,
+type DependencyServiceEventHandler<TEvent> = (
+  args: { event: TEvent; context: EventListenerContext; client: HandlerClient },
 ) => MaybeAsync<void, BaseError>;
 
 export type TrellisStateState = {};
@@ -118,16 +114,9 @@ export interface TrellisStateClient {
 
 export interface Service extends TrellisStateClient {
   readonly handle: ServiceHandle;
-  with<TDeps>(deps: TDeps): ServiceWithDeps<TDeps>;
 }
 
-export type ServiceWithDeps<TDeps> = Omit<TrellisStateClient, "event"> & {
-  readonly event: ServiceEventSurface<TDeps>;
-  readonly handle: ServiceHandle<TDeps>;
-  with<TNextDeps>(deps: TNextDeps): ServiceWithDeps<TNextDeps>;
-};
-
-export interface ServiceEventSurface<TDeps> {
+export interface ServiceEventSurface {
   readonly health: {
     heartbeat: {
       publish(
@@ -140,10 +129,7 @@ export interface ServiceEventSurface<TDeps> {
         ValidationError | UnexpectedError
       >;
       listen(
-        handler: DependencyServiceEventHandler<
-          HealthSdk.HealthHeartbeatEvent,
-          TDeps
-        >,
+        handler: DependencyServiceEventHandler<HealthSdk.HealthHeartbeatEvent>,
         subjectData?: Record<string, unknown>,
         opts?: EventOpts,
       ): AsyncResult<void, ValidationError | UnexpectedError>;
@@ -151,16 +137,16 @@ export interface ServiceEventSurface<TDeps> {
   };
 }
 
-export interface ServiceHandle<TDeps = undefined> {
+export interface ServiceHandle {
   readonly rpc: {
     readonly state: {
-      adminDelete(handler: Types.StateAdminDeleteHandler<TDeps>): Promise<void>;
-      adminGet(handler: Types.StateAdminGetHandler<TDeps>): Promise<void>;
-      adminList(handler: Types.StateAdminListHandler<TDeps>): Promise<void>;
-      delete(handler: Types.StateDeleteHandler<TDeps>): Promise<void>;
-      get(handler: Types.StateGetHandler<TDeps>): Promise<void>;
-      list(handler: Types.StateListHandler<TDeps>): Promise<void>;
-      put(handler: Types.StatePutHandler<TDeps>): Promise<void>;
+      adminDelete(handler: Types.StateAdminDeleteHandler): Promise<void>;
+      adminGet(handler: Types.StateAdminGetHandler): Promise<void>;
+      adminList(handler: Types.StateAdminListHandler): Promise<void>;
+      delete(handler: Types.StateDeleteHandler): Promise<void>;
+      get(handler: Types.StateGetHandler): Promise<void>;
+      list(handler: Types.StateListHandler): Promise<void>;
+      put(handler: Types.StatePutHandler): Promise<void>;
     };
   };
   readonly feed: {};

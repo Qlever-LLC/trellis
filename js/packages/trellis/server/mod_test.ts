@@ -11,6 +11,7 @@ import {
   CONTRACT_JOBS_METADATA,
   CONTRACT_KV_METADATA,
 } from "../contract_support/mod.ts";
+import { UnexpectedError } from "../errors/index.ts";
 import type { StoreError } from "@qlever-llc/trellis";
 import type { TypedKV } from "../kv.ts";
 import type { TypedStore } from "../store.ts";
@@ -158,6 +159,7 @@ const operationsTypeTestContract = defineServiceContract(
         input: ref.schema("RunInput"),
         progress: ref.schema("RunProgress"),
         output: ref.schema("RunOutput"),
+        errors: [ref.error("UnexpectedError")],
       },
     },
     resources: {
@@ -381,52 +383,49 @@ Deno.test("bound service wrapper injects deps across handler surfaces", () => {
     DepsJobs,
     DepsKv
   >;
-  type Deps = { prefix: string };
 
   function expectBoundService(service: DepsService) {
-    const bound = service.with({ prefix: "dep" });
+    const prefix = "dep";
 
-    void bound.handle.rpc.test.ping(({ input, context, client, deps }) => {
+    void service.handle.rpc.test.ping(({ input, context, client }) => {
       const value: string = input.value;
       const sessionKey: string = context.sessionKey;
-      const prefix: string = deps.prefix;
       assertExists(client.kv.items);
       assertExists(value);
       assertExists(sessionKey);
       return Result.ok({ ok: prefix.length > 0 });
     });
 
-    void bound.handle.feed.test.stream(
-      ({ input, emit, client, deps }) => {
+    void service.handle.feed.test.stream(
+      ({ input, emit, client }) => {
         assertExists(client.kv.items);
-        assertExists(emit({ value: `${deps.prefix}:${input.value}` }));
+        assertExists(emit({ value: `${prefix}:${input.value}` }));
       },
     );
 
-    void bound.handle.operation.test.run(({ input, op, client, deps }) => {
+    void service.handle.operation.test.run(({ input, op, client }) => {
       assertExists(op.started());
       assertExists(client.kv.items);
-      assertEquals(`${deps.prefix}:${input.value}`.length > 0, true);
+      assertEquals(`${prefix}:${input.value}`.length > 0, true);
     });
 
-    void bound.jobs.refresh.handle(async ({ job, client, deps }) => {
+    void service.jobs.refresh.handle(async ({ job, client }) => {
       assertExists(client.kv.items);
-      return Result.ok({ value: `${deps.prefix}:${job.payload.value}` });
+      return Result.ok({ value: `${prefix}:${job.payload.value}` });
     });
 
-    void bound.event.test.changed.listen(
-      ({ event, context, client, deps }) => {
+    void service.event.test.changed.listen(
+      (event, context) => {
         const value: string = event.value;
         const subject: string = context.subject;
-        assertExists(client.kv.items);
-        assertExists(`${deps.prefix}:${value}:${subject}`);
+        assertExists(`${prefix}:${value}:${subject}`);
         return Result.ok(undefined);
       },
       {},
       { mode: "ephemeral" },
     );
 
-    return bound.name;
+    return service.name;
   }
 
   assertExists(expectBoundService);
@@ -453,24 +452,6 @@ Deno.test("server RPC helper types support extracted handlers", () => {
 
 Deno.test("service handler aliases expose narrow client object args", () => {
   type PingRpcHandler = RpcHandler<typeof typeTestContract, "Test.Ping">;
-  type Deps = { readonly prefix: string };
-  type BoundPingRpcHandler = RpcHandler<
-    typeof depsTypeTestContract,
-    "Test.Ping",
-    Deps
-  >;
-  type BoundEventHandler = ServiceEventHandler<
-    typeof depsTypeTestContract,
-    "Test.Changed",
-    Deps
-  >;
-  type BoundOperationHandler = OperationHandler<
-    typeof depsTypeTestContract,
-    "Test.Run",
-    Deps
-  >;
-  type BoundHealthInfoHandler = HealthInfoHandler<Deps>;
-  type BoundHealthCheckHandler = HealthCheckHandler<Deps>;
   type PingOperationHandler = OperationHandler<
     typeof operationsTypeTestContract,
     "Test.Run"
@@ -492,37 +473,41 @@ Deno.test("service handler aliases expose narrow client object args", () => {
     });
   };
 
-  const boundRpcHandler: BoundPingRpcHandler = ({ input, deps }) => {
-    const prefix: string = deps.prefix;
+  const prefix = "dep";
+  const boundRpcHandler: RpcHandler<
+    typeof depsTypeTestContract,
+    "Test.Ping"
+  > = ({ input }) => {
     return Result.ok({ ok: input.value.startsWith(prefix) });
   };
 
-  const boundEventHandler: BoundEventHandler = (
-    { event, context, client, deps },
-  ) => {
+  const boundEventHandler: ServiceEventHandler<
+    typeof depsTypeTestContract,
+    "Test.Changed"
+  > = ({ event, context, client }) => {
     const value: string = event.value;
     const subject: string = context.subject;
-    const prefix: string = deps.prefix;
     assertExists(client.kv.items);
     assertExists(`${prefix}:${value}:${subject}`);
     return Result.ok(undefined);
   };
 
-  const boundOperationHandler: BoundOperationHandler = async (
-    { input, op, client, deps },
-  ) => {
-    assertEquals(input.value.startsWith(deps.prefix), false);
+  const boundOperationHandler: OperationHandler<
+    typeof depsTypeTestContract,
+    "Test.Run"
+  > = async ({ input, op, client }) => {
+    assertEquals(input.value.startsWith(prefix), false);
     assertExists(op.started());
     assertExists(client.kv.items);
     return Result.ok(undefined);
   };
 
-  const boundHealthInfoHandler: BoundHealthInfoHandler = ({ deps }) => ({
-    version: deps.prefix,
+  const boundHealthInfoHandler: HealthInfoHandler = () => ({
+    version: prefix,
   });
 
-  const boundHealthCheckHandler: BoundHealthCheckHandler = ({ deps }) => ({
-    status: deps.prefix.length > 0 ? "ok" : "failed",
+  const boundHealthCheckHandler: HealthCheckHandler = () => ({
+    status: prefix.length > 0 ? "ok" : "failed",
   });
 
   const operationHandler: PingOperationHandler = async (
@@ -541,4 +526,21 @@ Deno.test("service handler aliases expose narrow client object args", () => {
   assertExists(boundHealthInfoHandler);
   assertExists(boundHealthCheckHandler);
   assertExists(operationHandler);
+});
+
+Deno.test("op.fail accepts declared operation errors", () => {
+  type TestOpHandler = OperationHandler<
+    typeof operationsTypeTestContract,
+    "Test.Run"
+  >;
+
+  const handler: TestOpHandler = async ({ input, op, client }) => {
+    assertEquals(input.value, "run");
+    await op.started().orThrow();
+    // This should work — UnexpectedError is declared
+    await op.fail(new UnexpectedError({})).orThrow();
+    return Result.ok(undefined);
+  };
+
+  assertExists(handler);
 });

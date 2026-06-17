@@ -132,41 +132,33 @@ Rules:
   wait for listener drain before exiting rather than waiting indefinitely on
   long-lived keep-alive or streaming connections
 
-### Application dependency binding
+### Application dependencies
 
-Services MAY bind application-owned dependencies once with `service.with(deps)`
-and register handlers through the returned wrapper:
+Trellis does not inject application dependencies into handlers. Handler
+arguments contain only Trellis-owned runtime data. Application resources
+such as databases, loggers, repositories, schedulers, search indexes, and
+SQL outbox instances are supplied by normal JavaScript closure or factory
+patterns. Trellis runtime context remains separate from application
+dependencies — do not merge app dependencies into `context`, and do not
+pass dependency bags as handler registration options.
+
+Example:
 
 ```ts
-const app = service.with({ db, logger });
+type ServiceDeps = {
+  db: Db;
+  logger: Logger;
+};
 
-await app.handle.rpc.entity.list(async ({ input, context, client, deps }) => {
-  deps.logger.info({ caller: context.caller }, "listing entities");
-  return Result.ok(await listEntities(deps.db, input));
-});
+export function createEntityListHandler(deps: ServiceDeps): EntityListHandler {
+  return async ({ input, context, client }) => {
+    deps.logger.info({ caller: context.caller }, "listing entities");
+    return Result.ok(await listEntities(deps.db, input));
+  };
+}
+
+await service.handle.rpc.entity.list(createEntityListHandler(deps));
 ```
-
-Bound dependencies are passed as `args.deps` in service-owned handler contexts,
-including RPC, feed, operation, job, event listener, and health check/info
-handlers. Trellis runtime context remains separate from application
-dependencies: do not merge app dependencies into `context`, and do not pass
-dependency bags as handler registration options.
-
-Rules:
-
-- `service.with(deps)` is optional; unbound service handler registration remains
-  valid
-- Trellis passes the dependency object through but does not own its lifecycle,
-  clone it, initialize it, or dispose it
-- multiple wrappers created from the same service keep independent dependency
-  bindings
-- the second and third arguments to registration methods remain surface-specific
-  Trellis options such as event subject data and event listener options, not app
-  dependency slots
-- registration settings such as handler `timeoutMs`, registration-level
-  cancellation, `onError`, middleware, or custom validation are deferred until
-  the runtime has clear enforcement and interception semantics; do not expose
-  fake settings that have no runtime behavior
 
 ### Service-local storage
 
@@ -189,38 +181,35 @@ Rules:
   and domain identifiers remain separate columns
 - direct event publish remains the default; use SQL outbox only when event
   publication must be coupled to service-local SQL state
-- TypeScript services configure SQL outbox behavior with
-  `service.withSqlOutbox(...)` using generic SQL executor and transaction-runner
-  options; Trellis delegates transaction creation to that service-owned runner
-- handlers mounted through the SQL outbox wrapper receive `outbox` in RPC, feed,
-  operation, event-listener, and job handler args
-- `outbox.transaction(...)` is the boundary for application SQL writes and all
-  event enqueues that must commit atomically; service code owns the database
-  lifecycle and transaction boundaries
+- TypeScript services create a SQL outbox helper with
+  `service.createSqlOutbox(...)` using generic SQL executor and
+  transaction-runner options; the returned object is a plain dependency
+  that handlers close over at registration
+- handlers receive Trellis-owned args only; SQL outbox access comes from
+  the closed-over dependency
+- `outbox.transaction(...)` is the boundary for application SQL writes and
+  all event enqueues that must commit atomically; service code owns the
+  database lifecycle and transaction boundaries
 - transaction-scoped `event.*.*.enqueue(...)` prepares and validates events,
   then writes prepared event rows into Trellis helper tables through the
   transaction-scoped executor
-- Trellis owns the SQL outbox/inbox helper-table schema and versioned migration
-  artifacts exposed by `getSqlOutboxMigrations(...)`; services own table names
-  and run the migrations with their normal migration tooling
-- after a successful transaction commit, Trellis notifies the dispatcher only
-  when at least one row was enqueued; no dispatcher notification happens for a
-  rolled-back or rejected transaction
-- outbox dispatcher wakeups should be debounced and single-flight, but they are
-  latency optimizations only; durable retry and recovery depend on persisted
-  outbox state plus explicit dispatch or recovery scans
-- Drizzle is optional. The direct `withSqlOutbox({ drizzle })` convenience is
-  deferred; Drizzle services can adapt their connection and transaction objects
-  through `@qlever-llc/trellis/service/drizzle` helpers while the core outbox
-  surface remains generic SQL
-- NATS KV outbox/inbox helpers remain non-SQL durable helpers for dedupe and
-  queue storage, but they are not transactional with unrelated database side
-  effects
+- Trellis owns the SQL outbox/inbox helper-table schema and versioned
+  migration artifacts exposed by `getSqlOutboxMigrations(...)`; services
+  own table names and run the migrations with their normal migration tooling
+- after a successful transaction commit, Trellis notifies the dispatcher
+  only when at least one row was enqueued; no dispatcher notification
+  happens for a rolled-back or rejected transaction
+- outbox dispatcher wakeups should be debounced and single-flight, but they
+  are latency optimizations only; durable retry and recovery depend on
+  persisted outbox state plus explicit dispatch or recovery scans
+- NATS KV outbox/inbox helpers remain non-SQL durable helpers for dedupe
+  and queue storage, but they are not transactional with unrelated database
+  side effects
 
 Example:
 
 ```ts
-const app = service.withSqlOutbox({
+const outbox = service.createSqlOutbox({
   dialect: "postgres",
   executor,
   transaction: (work) =>
@@ -236,20 +225,26 @@ const app = service.withSqlOutbox({
   },
 });
 
-await app.handle.rpc.partner.update(async ({ input, outbox }) => {
-  const updated = await outbox.transaction(async ({ tx, event }) => {
-    await partnerRepo.update(tx, input.partner);
-    await auditRepo.insert(tx, { entityId: input.partner.id });
+const deps = { outbox, partnerRepo, auditRepo };
 
-    await event.partner.changed.enqueue({ id: input.partner.id }).orThrow();
-    await event.audit.recorded.enqueue({ entityId: input.partner.id })
-      .orThrow();
+function createPartnerUpdateHandler(deps: ServiceDeps): PartnerUpdateHandler {
+  return async ({ input }) => {
+    const updated = await deps.outbox.transaction(async ({ tx, event }) => {
+      await deps.partnerRepo.update(tx, input.partner);
+      await deps.auditRepo.insert(tx, { entityId: input.partner.id });
 
-    return true;
-  }).orThrow();
+      await event.partner.changed.enqueue({ id: input.partner.id }).orThrow();
+      await event.audit.recorded.enqueue({ entityId: input.partner.id })
+        .orThrow();
 
-  return Result.ok({ updated });
-});
+      return true;
+    }).orThrow();
+
+    return Result.ok({ updated });
+  };
+}
+
+await service.handle.rpc.partner.update(createPartnerUpdateHandler(deps));
 ```
 
 ### Minimal installable service example

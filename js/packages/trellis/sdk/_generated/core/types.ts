@@ -8,7 +8,6 @@ import type {
 
 import type { Api } from "./api.ts";
 
-type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
 export type HandlerClient = HandlerTrellis<Api>;
 
 export const CONTRACT_ID = "trellis.core@v1" as const;
@@ -264,48 +263,48 @@ export type TrellisBindingsGetHandlerResult = Result<
   TrellisBindingsGetOutput,
   TrellisBindingsGetHandlerError
 >;
-export type TrellisBindingsGetHandler<TDeps = undefined> = (
+export type TrellisBindingsGetHandler = (
   args: {
     input: TrellisBindingsGetInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => TrellisBindingsGetHandlerResult | Promise<TrellisBindingsGetHandlerResult>;
 export type TrellisCatalogHandlerError = TrellisErrorInstance;
 export type TrellisCatalogHandlerResult = Result<
   TrellisCatalogOutput,
   TrellisCatalogHandlerError
 >;
-export type TrellisCatalogHandler<TDeps = undefined> = (
+export type TrellisCatalogHandler = (
   args: {
     input: TrellisCatalogInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => TrellisCatalogHandlerResult | Promise<TrellisCatalogHandlerResult>;
 export type TrellisContractGetHandlerError = TrellisErrorInstance;
 export type TrellisContractGetHandlerResult = Result<
   TrellisContractGetOutput,
   TrellisContractGetHandlerError
 >;
-export type TrellisContractGetHandler<TDeps = undefined> = (
+export type TrellisContractGetHandler = (
   args: {
     input: TrellisContractGetInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => TrellisContractGetHandlerResult | Promise<TrellisContractGetHandlerResult>;
 export type TrellisSurfaceStatusHandlerError = TrellisErrorInstance;
 export type TrellisSurfaceStatusHandlerResult = Result<
   TrellisSurfaceStatusOutput,
   TrellisSurfaceStatusHandlerError
 >;
-export type TrellisSurfaceStatusHandler<TDeps = undefined> = (
+export type TrellisSurfaceStatusHandler = (
   args: {
     input: TrellisSurfaceStatusInput;
     context: RpcHandlerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) =>
   | TrellisSurfaceStatusHandlerResult
   | Promise<TrellisSurfaceStatusHandlerResult>;

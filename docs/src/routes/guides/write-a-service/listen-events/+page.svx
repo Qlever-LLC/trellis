@@ -45,13 +45,13 @@ await service.event.auth.connectionsOpened.listen(async (event) => {
 }, {}, { group: "authConnections" });
 ```
 
-If the listener needs application dependencies, register through the bound
-wrapper. The event payload, Trellis listener context, handler client, and deps are
-kept separate:
+If the listener needs application dependencies, capture them in a closure:
 
 ```ts
-await app.event.auth.connectionsOpened.listen(
-  async ({ event, context, deps }) => {
+const deps = { log: console };
+
+await service.event.auth.connectionsOpened.listen(
+  async ({ event, context }) => {
     const e = event as { sessionKey: string };
     deps.log.info("connection opened", {
       eventId: context.id,

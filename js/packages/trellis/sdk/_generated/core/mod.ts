@@ -8,7 +8,6 @@ export type {
   Service,
   ServiceEventSurface,
   ServiceHandle,
-  ServiceWithDeps,
   TrellisCoreClient,
   TrellisCoreState,
 } from "./client.ts";

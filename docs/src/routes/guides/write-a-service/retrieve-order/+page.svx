@@ -115,7 +115,7 @@ Mount it from `main.ts`:
 ```ts
 import { getOrderHandler } from "./handlers/orders.ts";
 
-await app.handle.rpc.orders.get(getOrderHandler);
+await service.handle.rpc.orders.get(getOrderHandler);
 ```
 
 `client.kv.orders.get(key)` returns a `Result<TypedKVEntry<Order>, KVError>`.

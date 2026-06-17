@@ -20,11 +20,11 @@ const service = await TrellisService.connect({
   sessionKeySeed: Deno.env.get("ORDERS_SERVICE_SESSION_KEY_SEED")!,
 });
 
-const app = service.with({
+const deps = {
   clock: () => new Date(),
   id: () => crypto.randomUUID(),
   log: console,
-});
+};
 
 console.log("Connected to Trellis!");
 ```
@@ -40,26 +40,21 @@ Those resolved bindings are Trellis runtime internals. Use the returned
 `Trellis.Bindings.Get`, construct `TrellisService` or `StoreHandle`, or pass
 binding/resource payloads into `Trellis` constructors.
 
-Use `service.with(deps)` for application-owned dependencies you want available
-in handlers, such as repositories, clocks, loggers, or local projections. The
-returned `app` wrapper injects those dependencies as `args.deps` in RPC, feed,
-operation, job, and event listener handlers. It does not replace Trellis runtime
-resources or contract `uses` dependencies; keep `service` for lifecycle and
-resolved resource handles.
+Use normal JavaScript closures for application-owned dependencies such as
+repositories, clocks, loggers, or local projections. Trellis handlers receive
+only Trellis-owned runtime data (`input`, `context`, `client`); application
+dependencies are captured by the enclosing closure or factory function.
+This does not replace Trellis runtime resources or contract `uses` dependencies;
+keep `service` for lifecycle and resolved resource handles.
 
 If a TypeScript service needs SQL transactional event enqueue, configure
-`service.withSqlOutbox(...)` during startup and register handlers through that
-wrapper. SQL-outbox-bound handlers receive `args.outbox`; when combined with
-`service.with(deps)`, handlers receive both `args.deps` and `args.outbox`.
+`service.createSqlOutbox(...)` during startup and close over the outbox object.
 Use `outbox.transaction(...)` around the local database work and event enqueues
 that must commit together.
 
-When you need to export or pass the bound wrapper type after generation, import
-`ServiceWithDeps` from your generated SDK package and write
-`ServiceWithDeps<ServiceDeps>`. Extracted handler modules should likewise import
-generated handler aliases such as `OrdersCreateHandler<ServiceDeps>` from that
-SDK; inline handlers registered directly in `service.handle...` still infer their
-types from the registration site.
+Extracted handler modules should import generated handler aliases such as
+`OrdersCreateHandler` from that SDK; inline handlers registered directly in
+`service.handle...` still infer their types from the registration site.
 
 {/snippet}
 {#snippet rust()}

@@ -50,6 +50,8 @@ https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt
   queue policy choices.
 - Public expected failures should be modeled in the contract or as Result-style
   values. Reserve thrown exceptions or panics for unexpected boundary failures.
+- Operations support declared typed errors via `errors` on the operation descriptor,
+  following the same rules as RPC errors.
 
 ## Contract workflow
 
@@ -132,9 +134,9 @@ Rules:
 - the local `AGENTS.md` should record the contract source path, generated artifact
   command, format command, typecheck/clippy command, test command, run command,
   and migration command
-- TypeScript services should import generated SDK handler aliases for extracted
-  handlers after prepare/generation. Inline `service.handle...` handlers can rely
-  on registration-site inference.
+- TypeScript services should import generated SDK handler aliases (without a
+  dependency generic) for extracted handlers after prepare/generation. Inline
+  `service.handle...` handlers can rely on registration-site inference.
 
 The important pattern is that TypeScript services and apps run
 `deno task prepare`, Rust services run `cargo xtask prepare`, and source
@@ -160,12 +162,12 @@ contracts remain the input.
    services or `cargo xtask prepare` for Rust services.
 5. Implement handlers with generated provider APIs. For TypeScript extracted
    handlers, import generated SDK aliases such as
-   `OrdersCreateHandler<ServiceDeps>` after running prepare/generation.
+   `OrdersCreateHandler` after running prepare/generation.
 6. Use scoped handler `client` values for outbound calls and register long-lived
    event listeners during startup.
-   For TypeScript services that bind application dependencies with
-   `service.with(deps)`, export generated SDK `ServiceWithDeps<ServiceDeps>`
-   aliases instead of hand-writing service generic stacks.
+   Trellis does not provide application dependency injection. Handler arguments
+   contain only Trellis-owned runtime data. Application resources are supplied by
+   normal JavaScript closure or factory patterns.
 7. Add or update tests at the service boundary. For event-driven code, test the
    local handler logic and the outbox/inbox behavior separately when possible.
    Use `@qlever-llc/trellis-test` when the boundary test must exercise real
@@ -199,12 +201,12 @@ expected by that repo.
   database side effects should still be idempotent.
 - Publishing an event before a local transaction commits when downstream systems
   require the local state and event to be atomic. In TypeScript services, use
-  `service.withSqlOutbox(...)`, register handlers through that wrapper, and put
-  all DB work plus transaction-scoped `event.*.*.enqueue(...)` calls inside
-  handler-injected `outbox.transaction(...)`. Do not generate local outbox
+  `service.createSqlOutbox(...)`, close over the outbox as a plain dependency,
+  and put all DB work plus transaction-scoped `event.*.*.enqueue(...)` calls
+  inside `outbox.transaction(...)`. Do not generate local outbox
   wrappers, manual `SqlOutboxRepository` handler wiring, direct
-  `withSqlOutbox({ drizzle })` sugar, or per-handler Drizzle adapters. Configure
-  the wrapper with generic `executor` and `transaction` options; use
+  `createSqlOutbox({ drizzle })` sugar, or per-handler Drizzle adapters. Configure
+  the outbox with generic `executor` and `transaction` options; use
   `@qlever-llc/trellis/service/drizzle` only for optional startup/adapter code.
   Trellis owns helper-table migrations via `getSqlOutboxMigrations(...)`, and
   services run those migrations with their normal migration tool.
@@ -216,7 +218,8 @@ expected by that repo.
   declared errors or Result values.
 - Editing generated files by hand without updating the source contract.
 - Typing TypeScript extracted service handlers before running prepare after a
-  contract change. Import generated SDK handler aliases after generation. Source
+  contract change. Import generated SDK handler aliases (without a dependency
+  generic, e.g. `OrdersCreateHandler`) after generation. Source
   `defineError(...)` instances are valid handler returns when their serialized
   data matches the generated declared error.
 - Expanding `uses` broadly when a narrow surface selection is sufficient.

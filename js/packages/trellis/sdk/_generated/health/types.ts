@@ -9,7 +9,6 @@ import type {
 
 import type { Api } from "./api.ts";
 
-type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
 export type HandlerClient = HandlerTrellis<Api>;
 
 export const CONTRACT_ID = "trellis.health@v1" as const;
@@ -46,12 +45,12 @@ export type HealthHeartbeatEvent = {
 export type HealthHeartbeatEventMessage = TrellisEventMessage<
   HealthHeartbeatEvent
 >;
-export type HealthHeartbeatEventHandler<TDeps = undefined> = (
+export type HealthHeartbeatEventHandler = (
   args: {
     event: HealthHeartbeatEvent;
     context: EventListenerContext;
     client: HandlerClient;
-  } & WithDeps<TDeps>,
+  },
 ) => MaybeAsync<void, BaseError>;
 
 export interface RpcMap {

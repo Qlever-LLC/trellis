@@ -350,11 +350,10 @@ Deno.test("trellis service export keeps SQL outbox generic and Drizzle isolated"
 
   for (
     const publicName of [
-      "HandlerSqlOutbox",
+      "SqlOutbox",
       "SqlOutboxEventEnqueueFacade",
       "SqlOutboxTransactionContext",
       "SqlOutboxTransactionRunner",
-      "SqlOutboxTrellisService",
       "TrellisServiceSqlOutboxCommonOptions",
       "TrellisServiceSqlOutboxExecutorOptions",
       "TrellisServiceSqlOutboxOptions",

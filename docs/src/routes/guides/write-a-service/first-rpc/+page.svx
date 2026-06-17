@@ -68,15 +68,14 @@ import type {
   OrdersCreateHandler,
 } from "../generated/packages/jsr/orders-service/mod.ts";
 
-type ServiceDeps = {
-  id(): string;
-  clock(): Date;
+const deps = {
+  id: () => crypto.randomUUID(),
+  clock: () => new Date(),
 };
 
-export const createOrderHandler: OrdersCreateHandler<ServiceDeps> = async ({
+export const createOrderHandler: OrdersCreateHandler = async ({
   input,
   client,
-  deps,
 }) => {
   const orderId = deps.id();
   const order = {
@@ -98,18 +97,18 @@ Mount it from `main.ts`:
 ```ts
 import { createOrderHandler } from "./handlers/orders.ts";
 
-await app.handle.rpc.orders.create(createOrderHandler);
+await service.handle.rpc.orders.create(createOrderHandler);
 ```
 
-Handlers registered through `app` receive the same Trellis `input`, `context`,
-and `client` values as unbound handlers, plus the app dependencies you bound in
-the entrypoint as `deps`. Handlers return `ok(value)` on success or `err(error)`
+Handlers receive Trellis `input`, `context`, and `client` values. Application
+dependencies are captured by the enclosing closure, not injected as handler
+arguments. Handlers return `ok(value)` on success or `err(error)`
 for declared, caller-visible failures. Input validation has already happened by
 the time your handler is called. If the caller sends a malformed request, Trellis
 rejects it before reaching your code. Use `.orThrow()` only for unexpected
 platform failures that should become `UnexpectedError` responses.
 
-If you write the handler inline inside `app.handle.rpc.orders.create(...)`, the
+If you write the handler inline inside `service.handle.rpc.orders.create(...)`, the
 registration call infers the same argument and result types without an explicit
 alias.
 

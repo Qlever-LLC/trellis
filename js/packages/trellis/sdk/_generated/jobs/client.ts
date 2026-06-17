@@ -35,8 +35,6 @@ import type * as AuthSdk from "../auth/mod.ts";
 import type * as CoreSdk from "../core/mod.ts";
 import type * as HealthSdk from "../health/mod.ts";
 
-type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
-
 type EventCallback<TMessage> = {
   bivarianceHack(
     message: TMessage,
@@ -44,10 +42,8 @@ type EventCallback<TMessage> = {
   ): MaybeAsync<void, BaseError>;
 }["bivarianceHack"];
 
-type DependencyServiceEventHandler<TEvent, TDeps = undefined> = (
-  args:
-    & { event: TEvent; context: EventListenerContext; client: HandlerClient }
-    & WithDeps<TDeps>,
+type DependencyServiceEventHandler<TEvent> = (
+  args: { event: TEvent; context: EventListenerContext; client: HandlerClient },
 ) => MaybeAsync<void, BaseError>;
 
 export type TrellisJobsState = {};
@@ -144,16 +140,9 @@ export interface TrellisJobsClient {
 
 export interface Service extends TrellisJobsClient {
   readonly handle: ServiceHandle;
-  with<TDeps>(deps: TDeps): ServiceWithDeps<TDeps>;
 }
 
-export type ServiceWithDeps<TDeps> = Omit<TrellisJobsClient, "event"> & {
-  readonly event: ServiceEventSurface<TDeps>;
-  readonly handle: ServiceHandle<TDeps>;
-  with<TNextDeps>(deps: TNextDeps): ServiceWithDeps<TNextDeps>;
-};
-
-export interface ServiceEventSurface<TDeps> {
+export interface ServiceEventSurface {
   readonly health: {
     heartbeat: {
       publish(
@@ -166,10 +155,7 @@ export interface ServiceEventSurface<TDeps> {
         ValidationError | UnexpectedError
       >;
       listen(
-        handler: DependencyServiceEventHandler<
-          HealthSdk.HealthHeartbeatEvent,
-          TDeps
-        >,
+        handler: DependencyServiceEventHandler<HealthSdk.HealthHeartbeatEvent>,
         subjectData?: Record<string, unknown>,
         opts?: EventOpts,
       ): AsyncResult<void, ValidationError | UnexpectedError>;
@@ -177,21 +163,19 @@ export interface ServiceEventSurface<TDeps> {
   };
 }
 
-export interface ServiceHandle<TDeps = undefined> {
+export interface ServiceHandle {
   readonly rpc: {
     readonly jobs: {
-      cancel(handler: Types.JobsCancelHandler<TDeps>): Promise<void>;
-      dismissDLQ(handler: Types.JobsDismissDLQHandler<TDeps>): Promise<void>;
-      get(handler: Types.JobsGetHandler<TDeps>): Promise<void>;
-      getKey(handler: Types.JobsGetKeyHandler<TDeps>): Promise<void>;
-      health(handler: Types.JobsHealthHandler<TDeps>): Promise<void>;
-      list(handler: Types.JobsListHandler<TDeps>): Promise<void>;
-      listDLQ(handler: Types.JobsListDLQHandler<TDeps>): Promise<void>;
-      listServices(
-        handler: Types.JobsListServicesHandler<TDeps>,
-      ): Promise<void>;
-      replayDLQ(handler: Types.JobsReplayDLQHandler<TDeps>): Promise<void>;
-      retry(handler: Types.JobsRetryHandler<TDeps>): Promise<void>;
+      cancel(handler: Types.JobsCancelHandler): Promise<void>;
+      dismissDLQ(handler: Types.JobsDismissDLQHandler): Promise<void>;
+      get(handler: Types.JobsGetHandler): Promise<void>;
+      getKey(handler: Types.JobsGetKeyHandler): Promise<void>;
+      health(handler: Types.JobsHealthHandler): Promise<void>;
+      list(handler: Types.JobsListHandler): Promise<void>;
+      listDLQ(handler: Types.JobsListDLQHandler): Promise<void>;
+      listServices(handler: Types.JobsListServicesHandler): Promise<void>;
+      replayDLQ(handler: Types.JobsReplayDLQHandler): Promise<void>;
+      retry(handler: Types.JobsRetryHandler): Promise<void>;
     };
   };
   readonly feed: {};

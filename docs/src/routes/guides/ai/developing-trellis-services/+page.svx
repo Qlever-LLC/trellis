@@ -24,9 +24,9 @@ outbox/inbox code. It links to the language-specific TypeScript, Svelte, and Rus
 guides.
 
 For TypeScript SQL outbox work, point agents at `llms-typescript.txt` and ask
-them to use `service.withSqlOutbox(...)` plus handler-injected `outbox` instead
-of generating local outbox wrappers, manual `SqlOutboxRepository` handler wiring,
-or per-handler Drizzle transaction adapters.
+them to use `service.createSqlOutbox(...)` with closure over `deps.outbox`
+instead of generating local outbox wrappers, manual `SqlOutboxRepository` handler
+wiring, or per-handler Drizzle transaction adapters.
 
 Use `llms-typescript.txt` for TypeScript service work and `llms-rust.txt` for
 Rust service work. Most service repositories should link one of these rather than

@@ -417,15 +417,46 @@ fn rpc_local_handler_error_data_types(
     data_types.into_iter().collect()
 }
 
+fn operation_local_handler_error_data_types(
+    loaded: &LoadedManifest,
+    operation: &trellis_contracts::ContractOperation,
+) -> Vec<String> {
+    let mut data_types = BTreeSet::new();
+    let Some(errors) = &operation.errors else {
+        return Vec::new();
+    };
+
+    for error in errors {
+        if let Some((_name, error_decl)) = loaded
+            .manifest
+            .errors
+            .iter()
+            .find(|(_, decl)| decl.error_type == error.error_type)
+        {
+            data_types.insert(format!("{}Data", key_to_pascal(&error_decl.error_type)));
+        }
+    }
+
+    data_types.into_iter().collect()
+}
+
 fn types_ts_runtime_type_imports(loaded: &LoadedManifest) -> Vec<&'static str> {
     let has_jobs = top_level_contract_jobs(loaded).is_some_and(|jobs| !jobs.is_empty());
     let has_handlers = types_ts_has_handler_aliases(loaded);
+    let has_operation_local_errors = loaded
+        .manifest
+        .operations
+        .values()
+        .any(|op| !operation_local_handler_error_data_types(loaded, op).is_empty());
     let has_rpc_local_errors = loaded
         .manifest
         .rpc
         .values()
         .any(|rpc| !rpc_local_handler_error_data_types(loaded, rpc).is_empty());
-    let needs_base_error = has_rpc_local_errors || !loaded.manifest.events.is_empty() || has_jobs;
+    let needs_base_error = has_rpc_local_errors
+        || has_operation_local_errors
+        || !loaded.manifest.events.is_empty()
+        || has_jobs;
 
     let mut imports = Vec::new();
     if has_jobs {
@@ -466,7 +497,7 @@ fn types_ts_runtime_type_imports(loaded: &LoadedManifest) -> Vec<&'static str> {
     if !loaded.manifest.feeds.is_empty() || !loaded.manifest.operations.is_empty() {
         imports.push("SessionCaller");
     }
-    if !loaded.manifest.rpc.is_empty() {
+    if !loaded.manifest.rpc.is_empty() || !loaded.manifest.operations.is_empty() {
         imports.push("TrellisErrorInstance");
     }
     if !loaded.manifest.events.is_empty() {
@@ -550,8 +581,6 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
 
     if has_handler_aliases {
         lines.extend([
-            "type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };"
-                .to_string(),
             "export type HandlerClient = HandlerTrellis<Api>;".to_string(),
             String::new(),
         ]);
@@ -645,10 +674,28 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
                 )
             ));
         }
-        lines.push(String::new());
-
+        // Emit OperationHandlerError type first
+        let operation_error_data_types =
+            operation_local_handler_error_data_types(loaded, operation);
+        let error_union = if operation_error_data_types.is_empty() {
+            "TrellisErrorInstance".to_string()
+        } else {
+            std::iter::once("TrellisErrorInstance".to_string())
+                .chain(
+                    operation_error_data_types
+                        .into_iter()
+                        .map(|dt| format!("BaseError<{dt}>")),
+                )
+                .collect::<Vec<_>>()
+                .join(" | ")
+        };
         lines.push(format!(
-            "export type {base}OperationHandler<TDeps = undefined> = (args: {{ input: {base}Input; op: OperationRuntimeHandle<{}, {}>; caller: SessionCaller; client: HandlerClient; }}{} & WithDeps<TDeps>) => unknown | Promise<unknown>;",
+            "export type {base}OperationHandlerError = {error_union};"
+        ));
+
+        // Then emit the handler with narrowed OperationRuntimeHandle (3 type args)
+        lines.push(format!(
+            "export type {base}OperationHandler = (args: {{ input: {base}Input; op: OperationRuntimeHandle<{}, {}, {base}OperationHandlerError>; caller: SessionCaller; client: HandlerClient; }}{}) => unknown | Promise<unknown>;",
             operation
                 .progress
                 .as_ref()
@@ -680,7 +727,7 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
             "export type {base}EventMessage = TrellisEventMessage<{base}Event>;"
         ));
         lines.push(format!(
-            "export type {base}EventHandler<TDeps = undefined> = (args: {{ event: {base}Event; context: EventListenerContext; client: HandlerClient; }} & WithDeps<TDeps>) => MaybeAsync<void, BaseError>;"
+            "export type {base}EventHandler = (args: {{ event: {base}Event; context: EventListenerContext; client: HandlerClient; }}) => MaybeAsync<void, BaseError>;"
         ));
         lines.push(String::new());
     }
@@ -704,7 +751,7 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
             )
         ));
         lines.push(format!(
-            "export type {base}FeedHandler<TDeps = undefined> = (context: {{ input: {base}Input; caller: SessionCaller; signal: AbortSignal; emit(event: {base}Event): AsyncResult<void, ValidationError | UnexpectedError>; client: HandlerClient; }} & WithDeps<TDeps>) => unknown | Promise<unknown>;"
+            "export type {base}FeedHandler = (context: {{ input: {base}Input; caller: SessionCaller; signal: AbortSignal; emit(event: {base}Event): AsyncResult<void, ValidationError | UnexpectedError>; client: HandlerClient; }}) => unknown | Promise<unknown>;"
         ));
         lines.push(String::new());
     }
@@ -746,7 +793,7 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
                     .unwrap_or_else(|| "unknown".to_string())
             ));
             lines.push(format!(
-                "export type {base}JobHandler<TDeps = undefined> = (args: {{ job: ActiveJob<{payload_type}, {result_type}>; client: HandlerClient; }} & WithDeps<TDeps>) => Promise<Result<{result_type}, BaseError>>;"
+                "export type {base}JobHandler = (args: {{ job: ActiveJob<{payload_type}, {result_type}>; client: HandlerClient; }}) => Promise<Result<{result_type}, BaseError>>;"
             ));
             lines.push(String::new());
         }
@@ -843,7 +890,7 @@ fn render_types_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String 
             "export type {base}HandlerResult = Result<{base}Output, {base}HandlerError>;"
         ));
         lines.push(format!(
-            "export type {base}Handler<TDeps = undefined> = (args: {{ input: {base}Input; context: RpcHandlerContext; client: HandlerClient; }} & WithDeps<TDeps>) => {base}HandlerResult | Promise<{base}HandlerResult>;"
+            "export type {base}Handler = (args: {{ input: {base}Input; context: RpcHandlerContext; client: HandlerClient; }}) => {base}HandlerResult | Promise<{base}HandlerResult>;"
         ));
     }
     if !loaded.manifest.rpc.is_empty() {
@@ -1194,6 +1241,71 @@ fn render_owned_api_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> Str
             "      controlCapabilities: {} as const,",
             serde_json::to_string(&control).unwrap()
         ));
+        // Emit errors, declaredErrorTypes, runtimeErrors for operations (mirroring RPC)
+        if let Some(errors) = &operation.errors {
+            if !errors.is_empty() {
+                let error_types = errors
+                    .iter()
+                    .map(|error| error.error_type.clone())
+                    .collect::<Vec<_>>();
+                lines.push(format!(
+                    "      errors: {} as const,",
+                    serde_json::to_string(&error_types).unwrap()
+                ));
+                lines.push(format!(
+                    "      declaredErrorTypes: {} as const,",
+                    serde_json::to_string(&error_types).unwrap()
+                ));
+            }
+        }
+        let local_runtime_errors = operation
+            .errors
+            .as_ref()
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(|value| {
+                        loaded
+                            .manifest
+                            .errors
+                            .iter()
+                            .find(|(_, decl)| decl.error_type == value.error_type)
+                            .map(|(name, decl)| (name, decl))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if !local_runtime_errors.is_empty() {
+            lines.push("      runtimeErrors: [".to_string());
+            for (_error_name, error_decl) in local_runtime_errors {
+                let base = key_to_pascal(&error_decl.error_type);
+                lines.push("        {".to_string());
+                lines.push(format!(
+                    "          type: {},",
+                    js_string(&error_decl.error_type)
+                ));
+                if error_decl.schema.is_some() {
+                    lines.push(format!(
+                        "          schema: schema<Types.{base}Data>({}),",
+                        schema_const_names
+                            .get(
+                                error_decl
+                                    .schema
+                                    .as_ref()
+                                    .expect("checked above")
+                                    .schema
+                                    .as_str(),
+                            )
+                            .expect("missing public schema export for error schema")
+                    ));
+                }
+                lines.push(format!(
+                    "          fromSerializable: Types.{base}.fromSerializable,"
+                ));
+                lines.push("        },".to_string());
+            }
+            lines.push("      ] as const,".to_string());
+        }
         if let Some(cancelable) = operation.cancel {
             lines.push(format!(
                 "      cancel: {},",
@@ -1685,13 +1797,12 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
 
     lines.extend([
         String::new(),
-        "type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };".to_string(),
         String::new(),
         "type EventCallback<TMessage> = {".to_string(),
         "  bivarianceHack(message: TMessage, context: EventListenerContext): MaybeAsync<void, BaseError>;".to_string(),
         "}[\"bivarianceHack\"];".to_string(),
         String::new(),
-        "type DependencyServiceEventHandler<TEvent, TDeps = undefined> = (args: { event: TEvent; context: EventListenerContext; client: HandlerClient } & WithDeps<TDeps>) => MaybeAsync<void, BaseError>;".to_string(),
+        "type DependencyServiceEventHandler<TEvent> = (args: { event: TEvent; context: EventListenerContext; client: HandlerClient }) => MaybeAsync<void, BaseError>;".to_string(),
         String::new(),
         state_type,
         String::new(),
@@ -1750,16 +1861,7 @@ fn render_client_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String
         "export interface Service extends {interface_name} {{"
     ));
     lines.push("  readonly handle: ServiceHandle;".to_string());
-    lines.push("  with<TDeps>(deps: TDeps): ServiceWithDeps<TDeps>;".to_string());
     lines.push("}".to_string());
-    lines.push(String::new());
-    lines.push(format!(
-        "export type ServiceWithDeps<TDeps> = Omit<{interface_name}, \"event\"> & {{"
-    ));
-    lines.push("  readonly event: ServiceEventSurface<TDeps>;".to_string());
-    lines.push("  readonly handle: ServiceHandle<TDeps>;".to_string());
-    lines.push("  with<TNextDeps>(deps: TNextDeps): ServiceWithDeps<TNextDeps>;".to_string());
-    lines.push("};".to_string());
     lines.push(String::new());
     lines.push(render_service_event_surface(loaded, &uses));
     lines.push(String::new());
@@ -1785,7 +1887,7 @@ fn render_service_event_surface(loaded: &LoadedManifest, uses: &[ClientUseDepend
         leaves.push(surface_leaf(
             key,
             format!(
-                "{}: {{ publish(event: Types.{base}Event): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Types.{base}Event): Result<PreparedTrellisEvent<Types.{base}Event>, ValidationError | UnexpectedError>; listen(handler: Types.{base}EventHandler<TDeps>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; }};",
+                "{}: {{ publish(event: Types.{base}Event): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Types.{base}Event): Result<PreparedTrellisEvent<Types.{base}Event>, ValidationError | UnexpectedError>; listen(handler: Types.{base}EventHandler, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; }};",
                 surface_leaf_name(key)
             ),
         ));
@@ -1804,7 +1906,7 @@ fn render_service_event_surface(loaded: &LoadedManifest, uses: &[ClientUseDepend
                 leaves.push(surface_leaf(
                     key,
                     format!(
-                        "{}: {{ publish(event: {}.{base}Event): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: {}.{base}Event): Result<PreparedTrellisEvent<{}.{base}Event>, ValidationError | UnexpectedError>; listen(handler: DependencyServiceEventHandler<{}.{base}Event, TDeps>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; }};",
+                        "{}: {{ publish(event: {}.{base}Event): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: {}.{base}Event): Result<PreparedTrellisEvent<{}.{base}Event>, ValidationError | UnexpectedError>; listen(handler: DependencyServiceEventHandler<{}.{base}Event>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; }};",
                         surface_leaf_name(key),
                         use_dep.namespace,
                         use_dep.namespace,
@@ -1816,11 +1918,11 @@ fn render_service_event_surface(loaded: &LoadedManifest, uses: &[ClientUseDepend
         }
     }
     if leaves.is_empty() {
-        return "export type ServiceEventSurface<TDeps> = {};".to_string();
+        return "export type ServiceEventSurface = {};".to_string();
     }
 
     format!(
-        "export interface ServiceEventSurface<TDeps> {{\n{}\n}}",
+        "export interface ServiceEventSurface {{\n{}\n}}",
         render_surface_groups(leaves, "  ", "    ")
     )
 }
@@ -1977,7 +2079,7 @@ fn render_service_handle_surface(loaded: &LoadedManifest) -> String {
             surface_leaf(
                 key,
                 format!(
-                    "{}(handler: Types.{base}Handler<TDeps>): Promise<void>;",
+                    "{}(handler: Types.{base}Handler): Promise<void>;",
                     surface_leaf_name(key)
                 ),
             )
@@ -1992,7 +2094,7 @@ fn render_service_handle_surface(loaded: &LoadedManifest) -> String {
             surface_leaf(
                 key,
                 format!(
-                    "{}(handler: Types.{base}FeedHandler<TDeps>): Promise<void>;",
+                    "{}(handler: Types.{base}FeedHandler): Promise<void>;",
                     surface_leaf_name(key)
                 ),
             )
@@ -2017,7 +2119,7 @@ fn render_service_handle_surface(loaded: &LoadedManifest) -> String {
             surface_leaf(
                 key,
                 format!(
-                    "{}: ((handler: Types.{base}OperationHandler<TDeps>) => Promise<void>) & {{ accept(args: {{ sessionKey: string }}): AsyncResult<AcceptedOperation<{progress}, {output}>, UnexpectedError>; control(operationId: string): AsyncResult<OperationRuntimeHandle<{progress}, {output}>, BaseError>; }};",
+                    "{}: ((handler: Types.{base}OperationHandler) => Promise<void>) & {{ accept(args: {{ sessionKey: string }}): AsyncResult<AcceptedOperation<{progress}, {output}>, UnexpectedError>; control(operationId: string): AsyncResult<OperationRuntimeHandle<{progress}, {output}>, BaseError>; }};",
                     surface_leaf_name(key)
                 ),
             )
@@ -2025,7 +2127,7 @@ fn render_service_handle_surface(loaded: &LoadedManifest) -> String {
         .collect::<Vec<_>>();
 
     [
-        "export interface ServiceHandle<TDeps = undefined> {".to_string(),
+        "export interface ServiceHandle {".to_string(),
         render_surface_property("rpc", rpc),
         render_surface_property("feed", feed),
         render_surface_property("operation", operation),
@@ -2807,7 +2909,7 @@ fn render_mod_ts(opts: &GenerateTsSdkOpts, loaded: &LoadedManifest) -> String {
         "export * from \"./types.ts\";".to_string(),
         "export * from \"./schemas.ts\";".to_string(),
         format!(
-            "export type {{ Client, HandlerClient, Service, ServiceEventSurface, ServiceHandle, ServiceWithDeps, {client_interface}, {client_state} }} from \"./client.ts\";"
+            "export type {{ Client, HandlerClient, Service, ServiceEventSurface, ServiceHandle, {client_interface}, {client_state} }} from \"./client.ts\";"
         ),
     ];
     if !operation_client_exports.is_empty() {
@@ -2966,6 +3068,7 @@ fn generated_type_names(loaded: &LoadedManifest) -> BTreeSet<String> {
         names.insert(format!("{base}Output"));
         names.insert(format!("{base}Operation"));
         names.insert(format!("{base}OperationHandler"));
+        names.insert(format!("{base}OperationHandlerError"));
         names.insert(format!("{base}OperationRef"));
         names.insert(format!("{base}Terminal"));
         names.insert(format!("{base}OperationDesc"));
@@ -3652,24 +3755,21 @@ mod tests {
         assert_no_old_generated_handler_patterns(&types);
         assert!(!types.contains("import type { sdk } from \"./contract.ts\";"));
         assert!(types.contains("import type { Api } from \"./api.ts\";"));
-        assert!(types.contains(
-            "type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };"
-        ));
         assert!(types.contains("export type HandlerClient = HandlerTrellis<Api>;"));
         assert!(types.contains("export type ExamplePingHandlerError = TrellisErrorInstance;"));
         assert!(types.contains(
             "export type ExamplePingHandlerResult = Result<ExamplePingOutput, ExamplePingHandlerError>;"
         ));
         assert!(types.contains(
-            "export type ExamplePingHandler<TDeps = undefined> = (args: { input: ExamplePingInput; context: RpcHandlerContext; client: HandlerClient; } & WithDeps<TDeps>) => ExamplePingHandlerResult | Promise<ExamplePingHandlerResult>;"
+            "export type ExamplePingHandler = (args: { input: ExamplePingInput; context: RpcHandlerContext; client: HandlerClient; }) => ExamplePingHandlerResult | Promise<ExamplePingHandlerResult>;"
         ));
         assert!(types.contains(
-            "export type ExampleProcessOperationHandler<TDeps = undefined> = (args: { input: ExampleProcessInput; op: OperationRuntimeHandle<ExampleProcessProgress, ExampleProcessOutput>; caller: SessionCaller; client: HandlerClient; } & WithDeps<TDeps>) => unknown | Promise<unknown>;"
+            "export type ExampleProcessOperationHandler = (args: { input: ExampleProcessInput; op: OperationRuntimeHandle<ExampleProcessProgress, ExampleProcessOutput, ExampleProcessOperationHandlerError>; caller: SessionCaller; client: HandlerClient; }) => unknown | Promise<unknown>;"
         ));
         assert!(types.contains("export type ExampleLiveInput = { siteId: string; };"));
         assert!(types.contains("export type ExampleLiveEvent = { message: string; };"));
         assert!(types.contains(
-            "export type ExampleLiveFeedHandler<TDeps = undefined> = (context: { input: ExampleLiveInput; caller: SessionCaller; signal: AbortSignal; emit(event: ExampleLiveEvent): AsyncResult<void, ValidationError | UnexpectedError>; client: HandlerClient; } & WithDeps<TDeps>) => unknown | Promise<unknown>;"
+            "export type ExampleLiveFeedHandler = (context: { input: ExampleLiveInput; caller: SessionCaller; signal: AbortSignal; emit(event: ExampleLiveEvent): AsyncResult<void, ValidationError | UnexpectedError>; client: HandlerClient; }) => unknown | Promise<unknown>;"
         ));
         assert!(types
             .contains("\"Example.Live\": { input: ExampleLiveInput; event: ExampleLiveEvent; };"));
@@ -3727,30 +3827,23 @@ mod tests {
             "live(input: Types.ExampleLiveInput, opts?: FeedSubscribeOpts): AsyncResult<FeedSubscription<Types.ExampleLiveEvent>, BaseError>;"
         ));
         assert!(client.contains("readonly handle: ServiceHandle;"));
-        assert!(client.contains("with<TDeps>(deps: TDeps): ServiceWithDeps<TDeps>;"));
         assert!(client.contains(
             "import type { AcceptedOperation, AsyncResult, BaseError, EventListenerContext,"
         ));
         assert!(client.contains("export interface Service extends TrellisDemoKvServiceClient {"));
-        assert!(client.contains(
-            "export type ServiceWithDeps<TDeps> = Omit<TrellisDemoKvServiceClient, \"event\"> & {"
-        ));
-        assert!(client.contains("readonly event: ServiceEventSurface<TDeps>;"));
-        assert!(client.contains("export type ServiceEventSurface<TDeps> = {};"));
-        assert!(client.contains("export interface ServiceHandle<TDeps = undefined>"));
+        assert!(client.contains("export type ServiceEventSurface = {};"));
+        assert!(client.contains("export interface ServiceHandle"));
         assert!(client.contains("export type HandlerClient = HandlerTrellis<Api>;"));
         assert!(client.contains(
-            "type DependencyServiceEventHandler<TEvent, TDeps = undefined> = (args: { event: TEvent; context: EventListenerContext; client: HandlerClient } & WithDeps<TDeps>) => MaybeAsync<void, BaseError>;"
+"type DependencyServiceEventHandler<TEvent> = (args: { event: TEvent; context: EventListenerContext; client: HandlerClient }) => MaybeAsync<void, BaseError>;"
         ));
         assert!(!client.contains("type RpcHandler<TInput"));
         assert!(!client.contains("type FeedHandler<TInput"));
         assert!(!client.contains("type OperationHandler<TInput"));
-        assert!(client.contains("ping(handler: Types.ExamplePingHandler<TDeps>): Promise<void>;"));
-        assert!(
-            client.contains("live(handler: Types.ExampleLiveFeedHandler<TDeps>): Promise<void>;")
-        );
+        assert!(client.contains("ping(handler: Types.ExamplePingHandler): Promise<void>;"));
+        assert!(client.contains("live(handler: Types.ExampleLiveFeedHandler): Promise<void>;"));
         assert!(client.contains(
-            "process: ((handler: Types.ExampleProcessOperationHandler<TDeps>) => Promise<void>)"
+            "process: ((handler: Types.ExampleProcessOperationHandler) => Promise<void>)"
         ));
         assert!(!client.contains("client: Client"));
         assert!(!client.contains("request(method:"));
@@ -3759,7 +3852,7 @@ mod tests {
         assert!(!client.contains("feed(feed:"));
         assert!(client.contains("export type Client = TrellisDemoKvServiceClient;"));
         assert!(mod_ts.contains(
-            "export type { Client, HandlerClient, Service, ServiceEventSurface, ServiceHandle, ServiceWithDeps, TrellisDemoKvServiceClient, TrellisDemoKvServiceState } from \"./client.ts\";"
+            "export type { Client, HandlerClient, Service, ServiceEventSurface, ServiceHandle, TrellisDemoKvServiceClient, TrellisDemoKvServiceState } from \"./client.ts\";"
         ));
         assert!(mod_ts.contains(
             "export type { ExampleProcessOperation, ExampleProcessOperationRef, ExampleProcessTerminal } from \"./client.ts\";"
@@ -3924,9 +4017,9 @@ mod tests {
         assert!(client.contains(
             "updated: { publish(event: JobsSdk.JobsUpdatedEvent): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: JobsSdk.JobsUpdatedEvent): Result<PreparedTrellisEvent<JobsSdk.JobsUpdatedEvent>, ValidationError | UnexpectedError>; listen(handler: EventCallback<JobsSdk.JobsUpdatedEvent>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
         ));
-        assert!(client.contains("export interface ServiceEventSurface<TDeps>"));
+        assert!(client.contains("export interface ServiceEventSurface"));
         assert!(client.contains(
-            "updated: { publish(event: JobsSdk.JobsUpdatedEvent): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: JobsSdk.JobsUpdatedEvent): Result<PreparedTrellisEvent<JobsSdk.JobsUpdatedEvent>, ValidationError | UnexpectedError>; listen(handler: DependencyServiceEventHandler<JobsSdk.JobsUpdatedEvent, TDeps>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
+            "updated: { publish(event: JobsSdk.JobsUpdatedEvent): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: JobsSdk.JobsUpdatedEvent): Result<PreparedTrellisEvent<JobsSdk.JobsUpdatedEvent>, ValidationError | UnexpectedError>; listen(handler: DependencyServiceEventHandler<JobsSdk.JobsUpdatedEvent>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
         ));
         assert!(client.contains(
             "live(input: JobsSdk.JobsLiveInput, opts?: FeedSubscribeOpts): AsyncResult<FeedSubscription<JobsSdk.JobsLiveEvent>, BaseError>;"
@@ -3956,7 +4049,7 @@ mod tests {
         assert!(jobs_owned_api.contains("transfer: {\n        direction: \"receive\",\n      },"));
         assert!(jobs_owned_api.contains("transfer: {\n        direction: \"send\",\n        store: \"files\",\n        key: \"/upload\","));
         assert!(jobs_types.contains(
-            "export type JobsRunOperationHandler<TDeps = undefined> = (args: { input: JobsRunInput; op: OperationRuntimeHandle<JobsRunProgress, JobsRunOutput>; caller: SessionCaller; client: HandlerClient; } & { transfer: OperationTransferHandle } & WithDeps<TDeps>) => unknown | Promise<unknown>;"
+            "export type JobsRunOperationHandler = (args: { input: JobsRunInput; op: OperationRuntimeHandle<JobsRunProgress, JobsRunOutput, JobsRunOperationHandlerError>; caller: SessionCaller; client: HandlerClient; } & { transfer: OperationTransferHandle }) => unknown | Promise<unknown>;"
         ));
 
         fs::remove_dir_all(root).unwrap();
@@ -4181,7 +4274,7 @@ mod tests {
             "export type FooHeaderObjectEventMessage = TrellisEventMessage<FooHeaderObjectEvent>;"
         ));
         assert!(types.contains(
-            "export type FooHeaderObjectEventHandler<TDeps = undefined> = (args: { event: FooHeaderObjectEvent; context: EventListenerContext; client: HandlerClient; } & WithDeps<TDeps>) => MaybeAsync<void, BaseError>;"
+            "export type FooHeaderObjectEventHandler = (args: { event: FooHeaderObjectEvent; context: EventListenerContext; client: HandlerClient; }) => MaybeAsync<void, BaseError>;"
         ));
         assert!(
             types.contains("export type FooHeaderNameEvent = { header: string; value: string; };")
@@ -4190,7 +4283,7 @@ mod tests {
             "export type FooHeaderNameEventMessage = TrellisEventMessage<FooHeaderNameEvent>;"
         ));
         assert!(types.contains(
-            "export type FooHeaderNameEventHandler<TDeps = undefined> = (args: { event: FooHeaderNameEvent; context: EventListenerContext; client: HandlerClient; } & WithDeps<TDeps>) => MaybeAsync<void, BaseError>;"
+            "export type FooHeaderNameEventHandler = (args: { event: FooHeaderNameEvent; context: EventListenerContext; client: HandlerClient; }) => MaybeAsync<void, BaseError>;"
         ));
         assert_no_old_generated_handler_patterns(&client);
         assert!(!client.contains("import type { sdk } from \"./contract.ts\";"));
@@ -4200,7 +4293,7 @@ mod tests {
             "headerObject: { publish(event: Types.FooHeaderObjectEvent): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Types.FooHeaderObjectEvent): Result<PreparedTrellisEvent<Types.FooHeaderObjectEvent>, ValidationError | UnexpectedError>; listen(handler: EventCallback<Types.FooHeaderObjectEvent>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
         ));
         assert!(client.contains(
-            "headerObject: { publish(event: Types.FooHeaderObjectEvent): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Types.FooHeaderObjectEvent): Result<PreparedTrellisEvent<Types.FooHeaderObjectEvent>, ValidationError | UnexpectedError>; listen(handler: Types.FooHeaderObjectEventHandler<TDeps>, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
+            "headerObject: { publish(event: Types.FooHeaderObjectEvent): AsyncResult<void, ValidationError | UnexpectedError>; prepare(event: Types.FooHeaderObjectEvent): Result<PreparedTrellisEvent<Types.FooHeaderObjectEvent>, ValidationError | UnexpectedError>; listen(handler: Types.FooHeaderObjectEventHandler, subjectData?: Record<string, unknown>, opts?: EventOpts): AsyncResult<void, ValidationError | UnexpectedError>; };"
         ));
 
         fs::remove_dir_all(root).unwrap();
@@ -4323,12 +4416,12 @@ mod tests {
         assert!(types.contains("export type ExampleJobJobPayload = { id: string; };"));
         assert!(types.contains("export type ExampleJobJobResult = { ok: boolean; };"));
         assert!(types.contains(
-            "export type ExampleJobJobHandler<TDeps = undefined> = (args: { job: ActiveJob<ExampleJobJobPayload, ExampleJobJobResult>; client: HandlerClient; } & WithDeps<TDeps>) => Promise<Result<ExampleJobJobResult, BaseError>>;"
+            "export type ExampleJobJobHandler = (args: { job: ActiveJob<ExampleJobJobPayload, ExampleJobJobResult>; client: HandlerClient; }) => Promise<Result<ExampleJobJobResult, BaseError>>;"
         ));
         assert!(types.contains("export type FireAndForgetJobPayload = { id: string; };"));
         assert!(types.contains("export type FireAndForgetJobResult = unknown;"));
         assert!(types.contains(
-            "export type FireAndForgetJobHandler<TDeps = undefined> = (args: { job: ActiveJob<FireAndForgetJobPayload, FireAndForgetJobResult>; client: HandlerClient; } & WithDeps<TDeps>) => Promise<Result<FireAndForgetJobResult, BaseError>>;"
+            "export type FireAndForgetJobHandler = (args: { job: ActiveJob<FireAndForgetJobPayload, FireAndForgetJobResult>; client: HandlerClient; }) => Promise<Result<FireAndForgetJobResult, BaseError>>;"
         ));
 
         fs::remove_dir_all(root).unwrap();
@@ -4650,7 +4743,7 @@ mod tests {
             "export type ExampleGetHandlerResult = Result<ExampleGetOutput, ExampleGetHandlerError>;"
         ));
         assert!(types.contains(
-            "export type ExampleGetHandler<TDeps = undefined> = (args: { input: ExampleGetInput; context: RpcHandlerContext; client: HandlerClient; } & WithDeps<TDeps>) => ExampleGetHandlerResult | Promise<ExampleGetHandlerResult>;"
+            "export type ExampleGetHandler = (args: { input: ExampleGetInput; context: RpcHandlerContext; client: HandlerClient; }) => ExampleGetHandlerResult | Promise<ExampleGetHandlerResult>;"
         ));
 
         fs::remove_dir_all(root).unwrap();
@@ -4666,8 +4759,75 @@ mod tests {
         assert!(types.contains("export type ExampleProcessProgress = { step: string; };"));
         assert!(types.contains("export type ExampleProcessOutput = { ok: boolean; };"));
         assert!(types.contains(
-            "export type ExampleProcessOperationHandler<TDeps = undefined> = (args: { input: ExampleProcessInput; op: OperationRuntimeHandle<ExampleProcessProgress, ExampleProcessOutput>; caller: SessionCaller; client: HandlerClient; } & WithDeps<TDeps>) => unknown | Promise<unknown>;"
+            "export type ExampleProcessOperationHandler = (args: { input: ExampleProcessInput; op: OperationRuntimeHandle<ExampleProcessProgress, ExampleProcessOutput, ExampleProcessOperationHandlerError>; caller: SessionCaller; client: HandlerClient; }) => unknown | Promise<unknown>;"
         ));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn generated_types_emit_operation_handler_error_types() {
+        let root = unique_temp_dir("operation-handler-errors");
+        fs::create_dir_all(&root).unwrap();
+        let manifest_path = root.join("contract.json");
+        let manifest = serde_json::from_str::<Value>(
+            r#"{
+                "format": "trellis.contract.v1",
+                "id": "example.ops@v1",
+                "displayName": "Example",
+                "description": "Test",
+                "kind": "service",
+                "schemas": {
+                    "Input": { "type": "object", "properties": {} },
+                    "Progress": { "type": "object", "properties": { "step": { "type": "string" } } },
+                    "Output": { "type": "object", "properties": {} },
+                    "ErrorPayload": { "type": "object", "properties": { "detail": { "type": "string" } } }
+                },
+                "errors": {
+                    "NotFoundError": {
+                        "type": "NotFoundError",
+                        "schema": { "schema": "ErrorPayload" }
+                    }
+                },
+                "operations": {
+                    "Example.Process": {
+                        "version": "v1",
+                        "subject": "operations.v1.Example.Process",
+                        "input": { "schema": "Input" },
+                        "progress": { "schema": "Progress" },
+                        "output": { "schema": "Output" },
+                        "errors": [{ "type": "NotFoundError" }]
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        fs::write(&manifest_path, serde_json::to_string(&manifest).unwrap()).unwrap();
+
+        let opts = GenerateTsSdkOpts {
+            manifest_path: manifest_path.clone(),
+            out_dir: root.join("out"),
+            package_name: "@qlever-llc/trellis-sdk-ops".to_string(),
+            package_version: "0.4.0".to_string(),
+            runtime_deps: TsRuntimeDeps {
+                source: TsRuntimeSource::Registry,
+                version: "0.4.0".to_string(),
+                repo_root: None,
+            },
+        };
+        let loaded = load_manifest(&manifest_path).unwrap();
+
+        let types = render_types_ts(&opts, &loaded);
+
+        assert!(
+            types.contains("export type ExampleProcessOperationHandlerError = TrellisErrorInstance | BaseError<NotFoundErrorData>;"),
+            "expected operation handler error type, got:\n{types}"
+        );
+
+        assert!(
+            types.contains("op: OperationRuntimeHandle<ExampleProcessProgress, ExampleProcessOutput, ExampleProcessOperationHandlerError>"),
+            "expected narrowed OperationRuntimeHandle in operation handler, got:\n{types}"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }

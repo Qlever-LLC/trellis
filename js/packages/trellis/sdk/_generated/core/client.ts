@@ -33,8 +33,6 @@ import type { API, Api } from "./api.ts";
 import type * as Types from "./types.ts";
 import type * as HealthSdk from "../health/mod.ts";
 
-type WithDeps<TDeps> = [TDeps] extends [undefined] ? {} : { deps: TDeps };
-
 type EventCallback<TMessage> = {
   bivarianceHack(
     message: TMessage,
@@ -42,10 +40,8 @@ type EventCallback<TMessage> = {
   ): MaybeAsync<void, BaseError>;
 }["bivarianceHack"];
 
-type DependencyServiceEventHandler<TEvent, TDeps = undefined> = (
-  args:
-    & { event: TEvent; context: EventListenerContext; client: HandlerClient }
-    & WithDeps<TDeps>,
+type DependencyServiceEventHandler<TEvent> = (
+  args: { event: TEvent; context: EventListenerContext; client: HandlerClient },
 ) => MaybeAsync<void, BaseError>;
 
 export type TrellisCoreState = {};
@@ -102,16 +98,9 @@ export interface TrellisCoreClient {
 
 export interface Service extends TrellisCoreClient {
   readonly handle: ServiceHandle;
-  with<TDeps>(deps: TDeps): ServiceWithDeps<TDeps>;
 }
 
-export type ServiceWithDeps<TDeps> = Omit<TrellisCoreClient, "event"> & {
-  readonly event: ServiceEventSurface<TDeps>;
-  readonly handle: ServiceHandle<TDeps>;
-  with<TNextDeps>(deps: TNextDeps): ServiceWithDeps<TNextDeps>;
-};
-
-export interface ServiceEventSurface<TDeps> {
+export interface ServiceEventSurface {
   readonly health: {
     heartbeat: {
       publish(
@@ -124,10 +113,7 @@ export interface ServiceEventSurface<TDeps> {
         ValidationError | UnexpectedError
       >;
       listen(
-        handler: DependencyServiceEventHandler<
-          HealthSdk.HealthHeartbeatEvent,
-          TDeps
-        >,
+        handler: DependencyServiceEventHandler<HealthSdk.HealthHeartbeatEvent>,
         subjectData?: Record<string, unknown>,
         opts?: EventOpts,
       ): AsyncResult<void, ValidationError | UnexpectedError>;
@@ -135,16 +121,12 @@ export interface ServiceEventSurface<TDeps> {
   };
 }
 
-export interface ServiceHandle<TDeps = undefined> {
+export interface ServiceHandle {
   readonly rpc: {
     readonly trellis: {
-      catalog(handler: Types.TrellisCatalogHandler<TDeps>): Promise<void>;
-      contractGet(
-        handler: Types.TrellisContractGetHandler<TDeps>,
-      ): Promise<void>;
-      surfaceStatus(
-        handler: Types.TrellisSurfaceStatusHandler<TDeps>,
-      ): Promise<void>;
+      catalog(handler: Types.TrellisCatalogHandler): Promise<void>;
+      contractGet(handler: Types.TrellisContractGetHandler): Promise<void>;
+      surfaceStatus(handler: Types.TrellisSurfaceStatusHandler): Promise<void>;
     };
   };
   readonly feed: {};

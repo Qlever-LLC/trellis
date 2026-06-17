@@ -36,7 +36,6 @@ export {
   HealthRpcSchema,
 } from "./health_schemas.ts";
 export {
-  type BoundTrellisService,
   type HealthCheckHandler,
   type HealthInfoHandler,
   type JobQueue,

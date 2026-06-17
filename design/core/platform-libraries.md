@@ -70,7 +70,7 @@ connection walkthroughs, and exact public signatures belong in:
   `@qlever-llc/trellis/service*`
 - `@qlever-llc/trellis/service` is a service-author surface and must not
   re-export low-level runtime/server internals
-- generic SQL outbox helpers, including `service.withSqlOutbox(...)` and
+- generic SQL outbox helpers, including `service.createSqlOutbox(...)` and
   Trellis-owned helper-table migration artifacts, belong on
   `@qlever-llc/trellis/service*`; Drizzle-specific adapters stay isolated on
   `@qlever-llc/trellis/service/drizzle`
@@ -120,10 +120,10 @@ Rules:
   raw worker-runtime helpers or stream bindings
 - transfer-aware operation contexts belong on the server runtime surface for
   transfer-capable operations
-- SQL outbox handler injection belongs on the service runtime surface:
-  TypeScript services configure it with `service.withSqlOutbox(...)`, and
-  handlers mounted through that wrapper receive `outbox` without importing
-  low-level repository or dispatcher internals
+- SQL outbox creation belongs on the service runtime surface:
+  TypeScript services create it with `service.createSqlOutbox(...)`, and
+  the returned object is a plain dependency that handlers close over at
+  registration without importing low-level repository or dispatcher internals
 - extracted service RPC handler aliases that need service-only helpers belong on
   `@qlever-llc/trellis/service*`, not the browser-safe root package, so handler
   types expose the canonical object argument shape and narrow injected `trellis`

@@ -12,7 +12,7 @@ import contract from "../../../contract.ts";
 import type { FieldOpsDeps } from "../../deps.ts";
 
 type Args = RpcArgs<typeof contract, "Evidence.Download">;
-type HandlerArgs = Pick<Args, "context" | "input"> & { deps: FieldOpsDeps };
+type HandlerArgs = Pick<Args, "context" | "input">;
 type HandlerResult = RpcResult<typeof contract, "Evidence.Download">;
 
 const EVIDENCE_STORE = "uploads";
@@ -123,45 +123,57 @@ function shouldCheckStoreVisibility(error: TransferError): boolean {
 }
 
 /** Returns a receive transfer grant for stored evidence. */
-export async function downloadEvidence(
-  { context, deps, input }: HandlerArgs,
-): Promise<HandlerResult> {
-  const transferIssuer = deps.transferIssuer;
-  const storeTtlMs = transferIssuer.store?.uploads?.binding?.ttlMs;
-  const transfer = await transferIssuer.createTransfer({
-    direction: "receive",
-    store: EVIDENCE_STORE,
-    key: input.key,
-    sessionKey: context.sessionKey,
-    expiresInMs: TRANSFER_GRANT_TTL_MS,
-  }).take();
+export function createDownloadEvidenceHandler(
+  deps: FieldOpsDeps,
+): (args: HandlerArgs) => Promise<HandlerResult> {
+  return async ({ context, input }) => {
+    const transferIssuer = deps.transferIssuer;
+    const storeTtlMs = transferIssuer.store?.uploads?.binding?.ttlMs;
+    const transfer = await transferIssuer.createTransfer({
+      direction: "receive",
+      store: EVIDENCE_STORE,
+      key: input.key,
+      sessionKey: context.sessionKey,
+      expiresInMs: TRANSFER_GRANT_TTL_MS,
+    }).take();
 
-  if (isErr(transfer)) {
-    if (shouldCheckStoreVisibility(transfer.error)) {
-      const visible = await transferIssuer.store?.uploads?.waitFor?.(
-        input.key,
-        {
-          timeoutMs: STORE_VISIBILITY_WAIT_MS,
-          pollIntervalMs: STORE_VISIBILITY_POLL_MS,
-        },
-      ).take();
+    if (isErr(transfer)) {
+      if (shouldCheckStoreVisibility(transfer.error)) {
+        const visible = await transferIssuer.store?.uploads?.waitFor?.(
+          input.key,
+          {
+            timeoutMs: STORE_VISIBILITY_WAIT_MS,
+            pollIntervalMs: STORE_VISIBILITY_POLL_MS,
+          },
+        ).take();
 
-      if (visible && !isErr(visible)) {
-        const retried = await transferIssuer.createTransfer({
-          direction: "receive",
-          store: EVIDENCE_STORE,
-          key: input.key,
-          sessionKey: context.sessionKey,
-          expiresInMs: TRANSFER_GRANT_TTL_MS,
-        }).take();
-        if (!isErr(retried)) return ok({ transfer: retried });
+        if (visible && !isErr(visible)) {
+          const retried = await transferIssuer.createTransfer({
+            direction: "receive",
+            store: EVIDENCE_STORE,
+            key: input.key,
+            sessionKey: context.sessionKey,
+            expiresInMs: TRANSFER_GRANT_TTL_MS,
+          }).take();
+          if (!isErr(retried)) return ok({ transfer: retried });
+
+          return Result.err(annotateDownloadFailure({
+            error: retried.error,
+            key: input.key,
+            storeTtlMs,
+            visibilityCheck: "visible_after_wait",
+            retryFailed: true,
+          }));
+        }
 
         return Result.err(annotateDownloadFailure({
-          error: retried.error,
+          error: transfer.error,
           key: input.key,
           storeTtlMs,
-          visibilityCheck: "visible_after_wait",
-          retryFailed: true,
+          visibilityCheck: visible && isErr(visible)
+            ? "not_visible_after_wait"
+            : "visibility_check_unavailable",
+          visibilityError: visible && isErr(visible) ? visible.error : undefined,
         }));
       }
 
@@ -169,19 +181,9 @@ export async function downloadEvidence(
         error: transfer.error,
         key: input.key,
         storeTtlMs,
-        visibilityCheck: visible && isErr(visible)
-          ? "not_visible_after_wait"
-          : "visibility_check_unavailable",
-        visibilityError: visible && isErr(visible) ? visible.error : undefined,
       }));
     }
 
-    return Result.err(annotateDownloadFailure({
-      error: transfer.error,
-      key: input.key,
-      storeTtlMs,
-    }));
-  }
-
-  return ok({ transfer });
+    return ok({ transfer });
+  };
 }

@@ -474,7 +474,9 @@ Rules:
 - for locally owned TypeScript contracts, inline handlers can infer from
   `service.handle...` registration, while extracted handlers should import
   concrete aliases from the generated SDK after prepare/generation, such as
-  `MyMethodHandler<ServiceDeps>`
+  `MyMethodHandler`
+- extracted handler factories close over application dependencies; the handler
+  type remains a plain function signature without a dependency slot
 - service-owned RPC handler docs and examples should prefer generated SDK
   handler aliases for extracted signatures instead of handwritten request
   parsing

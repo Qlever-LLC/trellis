@@ -25,7 +25,7 @@ import { HealthResponseSchema, HealthRpcSchema } from "./health_schemas.ts";
 import { connectTrellisServiceInternal } from "./internal_connect.ts";
 import {
   connectTrellisServiceWithRuntimeDeps,
-  type HandlerSqlOutbox,
+  type SqlOutbox,
   StoreHandle,
   TrellisService,
   type TrellisServiceConnectArgs,
@@ -2306,13 +2306,12 @@ Deno.test("bound service event listeners receive object args with deps", async (
       subject: string;
       mode: "durable" | "ephemeral";
       prefix: string;
-      hasClient: boolean;
     }
     | undefined;
 
   try {
-    const registered = await service.with(deps).event.test.pinged.listen(
-      ({ event, context, client, deps }) => {
+    const registered = await service.event.test.pinged.listen(
+      (event, context) => {
         observed = {
           value: event.value,
           eventId: context.id,
@@ -2320,7 +2319,6 @@ Deno.test("bound service event listeners receive object args with deps", async (
           subject: context.subject,
           mode: context.mode,
           prefix: deps.prefix,
-          hasClient: typeof client.rpc.test.ping === "function",
         };
         return Result.ok(undefined);
       },
@@ -2345,7 +2343,6 @@ Deno.test("bound service event listeners receive object args with deps", async (
       subject: prepared.subject,
       mode: "ephemeral",
       prefix: "dep",
-      hasClient: true,
     });
   } finally {
     await service.stop();
@@ -2360,15 +2357,15 @@ Deno.test("bound service RPC handlers receive isolated deps", async () => {
   let unboundHadDeps = true;
 
   try {
-    await service.with({ prefix: "one" }).handle.rpc.test.boundOne(
-      ({ input, deps }) => {
-        observed.push(`${deps.prefix}:${input.value}`);
+    await service.handle.rpc.test.boundOne(
+      ({ input }) => {
+        observed.push(`one:${input.value}`);
         return Result.ok({ ok: true });
       },
     );
-    await service.with({ prefix: "two" }).handle.rpc.test.boundTwo(
-      ({ input, deps }) => {
-        observed.push(`${deps.prefix}:${input.value}`);
+    await service.handle.rpc.test.boundTwo(
+      ({ input }) => {
+        observed.push(`two:${input.value}`);
         return Result.ok({ ok: true });
       },
     );
@@ -2412,18 +2409,19 @@ Deno.test("SQL outbox wrapper injects RPC handler outbox and drains enqueued eve
 
   try {
     normalEventHasEnqueue = Reflect.has(service.event.test.pinged, "enqueue");
-    await service.withSqlOutbox(outbox.options).with({ prefix: "dep" })
-      .handle.rpc.test.ping(async ({ input, deps, outbox }) => {
-        const result = await outbox.transaction(async ({ tx, event }) => {
-          tx.writes.push(`domain:${input.value}`, `audit:${deps.prefix}`);
-          observedTx = tx;
-          await event.test.pinged.enqueue({ value: input.value }).orThrow();
-          await event.test.pinged.enqueue({ value: deps.prefix }).orThrow();
-          return tx.writes.length;
-        }).orThrow();
+    const pingOutbox = service.createSqlOutbox(outbox.options);
+    const prefix = "dep";
+    await service.handle.rpc.test.ping(async ({ input }) => {
+      const result = await pingOutbox.transaction(async ({ tx, event }) => {
+        tx.writes.push(`domain:${input.value}`, `audit:${prefix}`);
+        observedTx = tx;
+        await event.test.pinged.enqueue({ value: input.value }).orThrow();
+        await event.test.pinged.enqueue({ value: prefix }).orThrow();
+        return tx.writes.length;
+      }).orThrow();
 
-        return Result.ok({ ok: result === 2 });
-      });
+      return Result.ok({ ok: result === 2 });
+    });
 
     const response = await connection.request(
       "rpc.v1.Test.Ping",
@@ -2461,22 +2459,25 @@ Deno.test("SQL outbox wrapper injects event listener outbox and drains enqueued 
   let wrapperEventHasEnqueue = true;
 
   try {
-    const wrapper = service.withSqlOutbox(outbox.options).with({
-      prefix: "dep",
-    });
-    wrapperEventHasEnqueue = Reflect.has(wrapper.event.test.pinged, "enqueue");
-    await wrapper.event.test.pinged.listen(
-      async ({ event, context, client, deps, outbox }) => {
-        const result = await outbox.transaction(async ({ tx, event: out }) => {
-          tx.writes.push(`event:${event.value}`, `subject:${context.subject}`);
-          observed.push(
-            deps.prefix,
-            typeof client.rpc.test.ping === "function" ? "client" : "missing",
-            ...tx.writes,
-          );
-          await out.test.pinged.enqueue({ value: deps.prefix }).orThrow();
-          return tx.writes.length;
-        }).orThrow();
+    const eventOutbox = service.createSqlOutbox(outbox.options);
+    const prefix = "dep";
+    wrapperEventHasEnqueue = Reflect.has(service.event.test.pinged, "enqueue");
+    await service.event.test.pinged.listen(
+      async (event, context) => {
+        const result = await eventOutbox.transaction(
+          async ({ tx, event: out }) => {
+            tx.writes.push(
+              `event:${event.value}`,
+              `subject:${context.subject}`,
+            );
+            observed.push(
+              prefix,
+              ...tx.writes,
+            );
+            await out.test.pinged.enqueue({ value: prefix }).orThrow();
+            return tx.writes.length;
+          },
+        ).orThrow();
         assertEquals(result, 2);
         return Result.ok(undefined);
       },
@@ -2496,7 +2497,6 @@ Deno.test("SQL outbox wrapper injects event listener outbox and drains enqueued 
     assertEquals(wrapperEventHasEnqueue, false);
     assertEquals(observed, [
       "dep",
-      "client",
       "event:incoming",
       "subject:events.v1.Test.Pinged",
     ]);
@@ -2517,9 +2517,10 @@ Deno.test("SQL outbox wrapper does not dispatch rolled back transaction events",
   const outbox = createSqlOutboxTestOptions(store);
 
   try {
-    await service.withSqlOutbox(outbox.options).handle.rpc.test.ping(
-      async ({ outbox }) => {
-        const result = await outbox.transaction(async ({ event }) => {
+    const rollbackOutbox = service.createSqlOutbox(outbox.options);
+    await service.handle.rpc.test.ping(
+      async () => {
+        const result = await rollbackOutbox.transaction(async ({ event }) => {
           await event.test.pinged.enqueue({ value: "rolled-back" }).orThrow();
           throw new Error("rollback");
         }).take();
@@ -2556,12 +2557,14 @@ Deno.test("SQL outbox wrapper injects job handler outbox and drains enqueued eve
   const observed: string[] = [];
 
   try {
-    service.withSqlOutbox(outbox.options).with({ label: "dep" }).jobs
-      .refreshSummaries.handle(async ({ job, deps, client, outbox }) => {
-        await outbox.transaction(async ({ tx, event }) => {
+    const jobOutbox = service.createSqlOutbox(outbox.options);
+    const label = "dep";
+    service.jobs.refreshSummaries.handle(
+      async ({ job, client }) => {
+        await jobOutbox.transaction(async ({ tx, event }) => {
           tx.writes.push(`job:${job.payload.siteId}`);
           observed.push(
-            deps.label,
+            label,
             typeof client.event.jobs.refreshed.prepare === "function"
               ? "client"
               : "missing",
@@ -2569,11 +2572,12 @@ Deno.test("SQL outbox wrapper injects job handler outbox and drains enqueued eve
           );
           await event.jobs.refreshed.enqueue({
             siteId: job.payload.siteId,
-            label: deps.label,
+            label,
           }).orThrow();
         }).orThrow();
         return Result.ok({ refreshId: `refresh-${job.payload.siteId}` });
-      });
+      },
+    );
 
     await service.jobs.refreshSummaries.create({ siteId: "site-1" }).orThrow();
     const waiting = service.wait();
@@ -2601,13 +2605,13 @@ Deno.test("service stop stops owned SQL outbox dispatcher", async () => {
   const store = createTestSqlOutboxStore();
   const outboxOptions = createSqlOutboxTestOptions(store);
   let injectedOutbox:
-    | HandlerSqlOutbox<TestSqlTx, typeof handlerSurfaceTestContract.API.owned>
+    | SqlOutbox<TestSqlTx, typeof handlerSurfaceTestContract.API.owned>
     | undefined;
 
   try {
-    await service.withSqlOutbox(outboxOptions.options).handle.rpc.test.ping(
-      ({ outbox }) => {
-        injectedOutbox = outbox;
+    injectedOutbox = service.createSqlOutbox(outboxOptions.options);
+    await service.handle.rpc.test.ping(
+      () => {
         return Result.ok({ ok: true });
       },
     );
@@ -2635,9 +2639,10 @@ Deno.test("bound service health checks receive deps through standard health RPC"
     await connectHealthEndpointTestService();
 
   try {
-    service.with({ summary: "from deps" }).health.add(
+    const healthSummary = "from deps";
+    service.health.add(
       "dependency",
-      ({ deps }) => ({ status: "ok", summary: deps.summary }),
+      () => ({ status: "ok", summary: healthSummary }),
     );
 
     const response = await connection.request(
