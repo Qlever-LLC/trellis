@@ -24,7 +24,10 @@ export async function buildPortalFlowState(args: {
 }): Promise<PortalFlowState> {
   const now = args.now ?? new Date();
   if (!args.flow || args.flow.expiresAt < now) {
-    return { status: "expired" };
+    return {
+      status: "expired",
+      ...(args.returnLocation ? { returnLocation: args.returnLocation } : {}),
+    };
   }
 
   if (args.redirectLocation) {
@@ -43,7 +46,10 @@ export async function buildPortalFlowState(args: {
   }
 
   if (!args.resolution) {
-    return { status: "expired" };
+    return {
+      status: "expired",
+      ...(args.returnLocation ? { returnLocation: args.returnLocation } : {}),
+    };
   }
 
   const approval = args.resolution.plan.approval;

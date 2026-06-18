@@ -115,6 +115,11 @@ class ConsoleAuthState {
     throw new Error("Redirecting to sign in");
   }
 
+  async resetSession(): Promise<void> {
+    this.#handle = null;
+    await clearSessionKey();
+  }
+
   #requireAuthUrl(): string {
     if (!this.#authUrl) {
       throw new Error("Trellis auth URL is required.");

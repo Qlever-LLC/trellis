@@ -167,16 +167,21 @@
     }
   }
 
-  function redirectingDelay(): Promise<void> {
-    return new Promise((resolve) => globalThis.setTimeout(resolve, 1800));
-  }
-
   function loadingMessageDelay(): Promise<void> {
     return new Promise((resolve) => globalThis.setTimeout(resolve, 700));
   }
 
+  function visibleFlowError(): string | null {
+    return flow.error === "Missing flow id." ? null : flow.error;
+  }
+
   async function loadFlow(): Promise<void> {
-    await flow.load();
+    const state = await flow.load();
+    if (!state && flow.error === "Missing flow id.") {
+      flow.error = null;
+      flow.state = { status: "expired" };
+      return;
+    }
     followRedirect();
   }
 
@@ -729,19 +734,12 @@
               Return to the CLI to finish sign-in.
             </p>
           </div>
-        {:else}
-          {#await redirectingDelay() then}
-            <div class="flex items-center gap-3 text-sm text-base-content/60">
-              <span class="loading loading-ring loading-sm"></span>
-              <span>Redirecting...</span>
-            </div>
-          {/await}
         {/if}
       {/if}
 
-      {#if flow.error}
+      {#if visibleFlowError()}
         <div class="alert alert-error text-sm">
-          <span>{flow.error}</span>
+          <span>{visibleFlowError()}</span>
         </div>
       {/if}
     </div>

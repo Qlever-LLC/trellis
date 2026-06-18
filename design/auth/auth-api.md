@@ -304,6 +304,7 @@ type PortalFlowState =
   }
   | {
     status: "expired";
+    returnLocation?: string;
   };
 ```
 
@@ -317,6 +318,11 @@ Rules:
 - portal MUST treat `redirect.location` as an opaque next auth step
 - `redirect.location` may point back to the originating browser app or to
   another auth-owned step in the same login flow
+- `expired.returnLocation`, when present, is a safe app restart target for a
+  known expired browser flow; portal helpers MAY treat it as an immediate
+  redirect target rather than rendering an expiration screen
+- when an expired flow is missing or has no `returnLocation`, portal MUST NOT
+  invent an app return URL locally
 - `approval_denied` is a fallback state for stored denied flow state; normal
   user denial returns `redirect` to the originating app with
   `authError=approval_denied`, and portal helpers MAY treat an
@@ -327,6 +333,9 @@ Rules:
   redirecting again
 - portal does not invent auth-protocol next-step URLs locally, though it may
   still use its own local routes and UI state while rendering the flow
+- recoverable stale or expired auth states should restart the caller's normal
+  auth request without a user-visible transient error screen when auth provides
+  a safe redirect target
 - portal-specific customization data travels through `app.context` rather than
   ad hoc query parameters between app and portal
 - portal registration UI is gated by auth-owned flow state; clients MUST use
@@ -399,6 +408,10 @@ Rules:
 - callers that receive `authError=approval_denied` SHOULD surface a denial
   result and clean the callback query parameters rather than immediately
   starting another sign-in flow
+- expired provider-login continuations with a stored app `redirectTo` redirect
+  directly to that app restart URL without adding `authError=flow_expired`;
+  callers should treat the plain callback as a normal opportunity to restart the
+  current auth request
 
 Request:
 

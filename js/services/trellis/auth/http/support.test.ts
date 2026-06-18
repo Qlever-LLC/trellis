@@ -504,6 +504,35 @@ Deno.test("buildPortalFlowState maps browser flow records to typed states", asyn
     } satisfies Parameters<typeof buildPortalFlowState>[0],
   );
   assertEquals(expired.status, "expired");
+
+  const expiredWithReturn = await buildPortalFlowState(
+    {
+      flowId: "flow-7",
+      flow: {
+        flowId: "flow-7",
+        kind: "login" as const,
+        sessionKey: "A".repeat(43),
+        redirectTo: "http://localhost:5173/callback",
+        contract: {
+          id: "trellis.console@v1",
+          displayName: "Console",
+          description: "Admin",
+          format: "trellis.contract.v1",
+          kind: "app",
+        },
+        createdAt: new Date(now.getTime() - 2_000),
+        expiresAt: new Date(now.getTime() - 1_000),
+      },
+      app,
+      providers: [{ id: "github", displayName: "GitHub" }],
+      returnLocation: "http://localhost:5173/callback",
+      now,
+    } satisfies Parameters<typeof buildPortalFlowState>[0],
+  );
+  assertEquals(expiredWithReturn, {
+    status: "expired",
+    returnLocation: "http://localhost:5173/callback",
+  });
 });
 
 Deno.test("buildPortalFlowState asks again after a stored denial", async () => {

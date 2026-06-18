@@ -55,6 +55,8 @@ commands.
 - Browser app repos should read the Svelte AI guide before wiring
   `createTrellisApp`, `TrellisProvider`, generated SDK aliases for contract
   `uses`, Vite aliases, or `svelte-check` path maps.
+- Browser apps should let Trellis helpers own auth redirects and treat plain
+  callbacks after expired login as auth-restart opportunities, not errors.
 - Record the local contract path, generation command, format command, typecheck
   command, test command, run command, and database migration command in the local
   `AGENTS.md`.

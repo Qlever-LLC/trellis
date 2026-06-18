@@ -87,6 +87,7 @@ For a SvelteKit portal, the target shape is a page like `src/routes/login/+page.
   import { env } from "$env/dynamic/public";
   import { page } from "$app/state";
   import { onMount } from "svelte";
+  import { portalRedirectLocation, type BrowserPortalFlowState } from "@qlever-llc/trellis/auth/browser";
   import { createPortalFlow } from "@qlever-llc/trellis-svelte";
 
   const trellisUrl = env.PUBLIC_TRELLIS_URL ?? "http://localhost:3000";
@@ -106,8 +107,21 @@ For a SvelteKit portal, the target shape is a page like `src/routes/login/+page.
     };
   }
 
-  onMount(async () => {
-    await portal.load();
+  function followRedirect(state: BrowserPortalFlowState | null): void {
+    const location = portalRedirectLocation(state);
+    if (location) window.location.assign(location);
+  }
+
+  async function approve(): Promise<void> {
+    followRedirect(await portal.approve());
+  }
+
+  async function deny(): Promise<void> {
+    followRedirect(await portal.deny());
+  }
+
+  onMount(() => {
+    void portal.load().then(followRedirect);
   });
 </script>
 
@@ -121,7 +135,7 @@ For a SvelteKit portal, the target shape is a page like `src/routes/login/+page.
     <p>{appContext()?.subtitle}</p>
   {/if}
   <ul>
-    {#each portal.state.providers as provider}
+    {#each portal.state.providers as provider (provider.id)}
       <li>
         <a href={portal.providerUrl(provider.id)}>{provider.displayName}</a>
       </li>
@@ -133,28 +147,32 @@ For a SvelteKit portal, the target shape is a page like `src/routes/login/+page.
   <p>{portal.state.approval.description}</p>
   <p>Contract evidence: {portal.state.approval.contractId}</p>
   <ul>
-    {#each Object.entries(portal.state.approval.capabilities) as [key, capability]}
+    {#each Object.entries(portal.state.approval.capabilities) as [key, capability] (key)}
       <li><strong>{capability.displayName}</strong>: {capability.description} <code>{key}</code></li>
     {/each}
   </ul>
-  <button onclick={() => portal.approve()}>Approve</button>
-  <button onclick={() => portal.deny()}>Deny</button>
+  <button onclick={approve}>Approve</button>
+  <button onclick={deny}>Deny</button>
 {:else if portal.state?.status === "approval_denied"}
   <h1>Access denied</h1>
   <p>You denied access to {portal.state.approval.displayName}.</p>
 {:else if portal.state?.status === "insufficient_capabilities"}
   <h1>Missing capabilities</h1>
   <p>Your account is missing: {portal.state.missingCapabilities.join(", ")}</p>
-{:else if portal.state?.status === "expired"}
+{:else if portal.state?.status === "expired" && !portal.state.returnLocation}
   <p>This login session has expired. Return to the app and try again.</p>
-{:else if portal.state?.status === "redirect"}
-  <p>Redirecting...</p>
 {:else}
   <p>Loading flow state...</p>
 {/if}
 ```
 
 The helper shown above is the intended public shape. Under the hood it still uses the auth-owned flow endpoints and maps approve/deny actions to the canonical `approved: boolean` request body, but app authors should not need to rebuild those request details by hand.
+
+`portalRedirectLocation(...)` centralizes auth-owned continuation handling. It
+returns redirect targets for `redirect`, `approval_denied.returnLocation`, and
+restartable `expired.returnLocation` states. Custom portals should follow that
+location immediately and show an expiration message only when auth did not provide
+a return location.
 
 `portal.state.approval.capabilities` is the Trellis-side capability list that
 the app contract requested. A portal should present it as application access

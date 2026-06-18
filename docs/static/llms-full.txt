@@ -82,6 +82,10 @@ Rules:
 - Svelte browser app repos should read the Svelte AI guide before wiring
   `createTrellisApp`, `TrellisProvider`, generated SDK aliases for contract
   `uses`, Vite aliases, or `svelte-check` path maps
+- Browser apps should let Trellis-owned auth redirects and callbacks flow through
+  the Trellis browser/Svelte helpers. Plain callbacks after expired login flows
+  should restart the current auth request; reserve user-visible callback errors
+  for explicit outcomes such as `authError=approval_denied`.
 - Rust service repos should expose Trellis generation as `cargo xtask prepare`
 - the local `AGENTS.md` should record the contract source path, generated artifact
   command, format command, typecheck/clippy command, test command, run command,

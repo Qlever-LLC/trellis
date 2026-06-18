@@ -324,9 +324,7 @@ export function registerBrowserAuthRoutes(
     }
     if (flow.kind === "login" && flow.expiresAt <= new Date()) {
       if (flow.redirectTo) {
-        return c.redirect(
-          buildRedirectLocation(flow.redirectTo, { authError: "flow_expired" }),
-        );
+        return c.redirect(flow.redirectTo);
       }
       throw new HTTPException(404, { message: "Expired browser flow" });
     }

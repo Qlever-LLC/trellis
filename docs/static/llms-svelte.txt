@@ -35,6 +35,10 @@ Rules:
 
 - `createTrellisApp(...)`, `TrellisProvider`, `SvelteTrellisConnection`, and
   browser client auth mode `"browser"` are the intended browser-app wiring.
+- Let Trellis-owned browser auth redirects complete through `TrellisProvider` and
+  the returned callback URL. A plain callback after an expired login attempt is a
+  restart opportunity, not a user-facing error; only explicit callback errors
+  such as `authError=approval_denied` should be surfaced as denial outcomes.
 - `TrellisClientFor<typeof contract>` and
   `createTrellisApp(...)` require a module-shaped contract with `CONTRACT`,
   `CONTRACT_DIGEST`, and `API.trellis`. The source contract returned by

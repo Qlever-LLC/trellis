@@ -14,6 +14,7 @@
     getConsoleRedirectTarget,
     auth,
   } from "../../lib/auth";
+  import { isRecoverableConsoleAuthError } from "../../lib/auth_recovery";
   import Notice from "../../lib/components/Notice.svelte";
   import { errorMessage } from "../../lib/format";
 
@@ -82,8 +83,8 @@
       }
 
       if (result.status === "approval_required") {
-        status = "Approval still pending";
-        authError = "Return to the Trellis approval page and approve or deny access to continue.";
+        await auth.resetSession();
+        window.location.href = loginUrl();
         return;
       }
 
@@ -94,14 +95,17 @@
         return;
       }
 
-      if (result.status === "error" && result.code === "flow_expired") {
-        window.location.href = loginUrl(result.message);
+      if (result.status === "error") {
+        await auth.resetSession();
+        window.location.href = loginUrl();
         return;
       }
-
-      status = "Sign-in failed";
-      authError = result.status === "error" ? result.message : "Unknown error";
     } catch (error) {
+      if (isRecoverableConsoleAuthError(error)) {
+        await auth.resetSession();
+        window.location.href = loginUrl();
+        return;
+      }
       authError = errorMessage(error);
       status = "Sign-in failed";
     }

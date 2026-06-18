@@ -4,7 +4,8 @@
   import { onMount } from "svelte";
   import { setSelectedTrellisUrl, trellisApp } from "$lib/trellis-context.svelte";
   import AuthenticatedApp from "../../lib/components/AuthenticatedApp.svelte";
-  import { buildConsoleLoginUrl } from "../../lib/auth";
+  import { auth, buildConsoleLoginUrl } from "../../lib/auth";
+  import { isRecoverableConsoleAuthError } from "../../lib/auth_recovery";
   import { APP_CONFIG, getSelectedAuthUrl, persistSelectedAuthUrl } from "../../lib/config";
 
   type Props = {
@@ -74,11 +75,27 @@
     window.location.reload();
   }
 
-  function signInAgain(): void {
+  let recovering = $state(false);
+
+  async function recoverAuth(): Promise<void> {
+    if (recovering) return;
+    recovering = true;
+    await auth.resetSession();
     window.location.href = buildConsoleLoginUrl({
       redirectTo: currentPath(),
       location: window.location,
-      authError: "Trellis could not open the runtime connection. Sign in again.",
+    });
+  }
+
+  function isRecoverableAuthError(error: unknown): boolean {
+    return isRecoverableConsoleAuthError(error);
+  }
+
+  async function signInAgain(): Promise<void> {
+    await auth.resetSession();
+    window.location.href = buildConsoleLoginUrl({
+      redirectTo: currentPath(),
+      location: window.location,
     });
   }
 </script>
@@ -101,21 +118,33 @@
     {/snippet}
 
     {#snippet error(connectError)}
-      <div class="flex min-h-screen items-center justify-center bg-base-200 px-4 py-10">
-        <div class="card trellis-card w-full max-w-md border border-base-300 bg-base-100 shadow-none">
-          <div class="card-body gap-3">
-            <div>
-              <p class="text-xs font-semibold uppercase tracking-wide text-error">Runtime connection</p>
-              <h1 class="text-lg font-semibold">Connection failed</h1>
-            </div>
-            <p class="text-sm text-base-content/70">{connectionErrorMessage(connectError)}</p>
-            <div class="flex flex-wrap gap-2">
-              <button class="btn btn-outline btn-sm" onclick={retryConnection}>Retry</button>
-              <button class="btn btn-ghost btn-sm" onclick={signInAgain}>Sign in again</button>
+      {#if isRecoverableAuthError(connectError)}
+        {@const _trigger = recoverAuth()}
+        <div class="flex min-h-screen items-center justify-center bg-base-200 px-4 py-10">
+          <div class="card trellis-card w-full max-w-sm border border-base-300 bg-base-100 shadow-none">
+            <div class="card-body text-center gap-3">
+              <h1 class="text-lg font-semibold">Connecting</h1>
+              <span class="loading loading-spinner loading-md mx-auto"></span>
             </div>
           </div>
         </div>
-      </div>
+      {:else}
+        <div class="flex min-h-screen items-center justify-center bg-base-200 px-4 py-10">
+          <div class="card trellis-card w-full max-w-md border border-base-300 bg-base-100 shadow-none">
+            <div class="card-body gap-3">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-error">Runtime connection</p>
+                <h1 class="text-lg font-semibold">Connection failed</h1>
+              </div>
+              <p class="text-sm text-base-content/70">{connectionErrorMessage(connectError)}</p>
+              <div class="flex flex-wrap gap-2">
+                <button class="btn btn-outline btn-sm" onclick={retryConnection}>Retry</button>
+                <button class="btn btn-ghost btn-sm" onclick={signInAgain}>Sign in again</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      {/if}
     {/snippet}
 
     <AuthenticatedApp>

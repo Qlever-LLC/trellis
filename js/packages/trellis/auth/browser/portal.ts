@@ -71,5 +71,6 @@ export function portalRedirectLocation(
 ): string | null {
   if (state?.status === "redirect") return state.location;
   if (state?.status === "approval_denied") return state.returnLocation ?? null;
+  if (state?.status === "expired") return state.returnLocation ?? null;
   return null;
 }

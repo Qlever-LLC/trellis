@@ -1215,6 +1215,7 @@ export const PortalFlowStateSchema = Type.Union([
   }),
   Type.Object({
     status: Type.Literal("expired"),
+    returnLocation: Type.Optional(Type.String({ minLength: 1 })),
   }),
 ]);
 export type PortalFlowState = StaticDecode<typeof PortalFlowStateSchema>;

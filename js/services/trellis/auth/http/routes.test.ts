@@ -9,6 +9,7 @@ import {
   signDeviceWaitRequest,
   utf8,
 } from "@qlever-llc/trellis/auth";
+import { KVError } from "@qlever-llc/trellis";
 
 import type { Config } from "../../config.ts";
 import { createTestContracts } from "../../catalog/test_contracts.ts";
@@ -932,6 +933,21 @@ Deno.test({
       "Expired browser flow",
     );
 
+    const expiredWithoutReturnApp = await registerTestRoutes(
+      { expiresAt: new Date("2020-01-01T00:00:00.000Z") },
+      {},
+      provider,
+    );
+    const expiredWithoutReturnResponse = await expiredWithoutReturnApp.request(
+      "http://trellis/auth/login/github?flowId=flow-oauth",
+    );
+
+    assertEquals(expiredWithoutReturnResponse.status, 404);
+    assertStringIncludes(
+      await expiredWithoutReturnResponse.text(),
+      "Expired browser flow",
+    );
+
     const app = await registerTestRoutes(
       { sessionKey: undefined },
       {},
@@ -947,7 +963,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "auth HTTP OAuth login start redirects expired login flows to app",
+  name:
+    "auth HTTP OAuth login start redirects expired login flows to app without auth error",
   sanitizeResources: false,
   fn: async () => {
     const app = await registerTestRoutes(
@@ -964,10 +981,12 @@ Deno.test({
     );
 
     assertEquals(response.status, 302);
+    const location = response.headers.get("location") ?? "";
     assertEquals(
-      response.headers.get("location"),
-      "http://localhost:5173/callback?redirectTo=%2Fprofile&authError=flow_expired",
+      location,
+      "http://localhost:5173/callback?redirectTo=%2Fprofile",
     );
+    assertEquals(new URL(location).searchParams.has("authError"), false);
   },
 });
 
@@ -1400,6 +1419,45 @@ Deno.test({
     assertEquals((await response.json()).providers, [
       { id: "auth0", displayName: "Qlever, LLC" },
     ]);
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP flow state returns expired return location for known expired flow",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({
+      authToken: undefined,
+      expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+      redirectTo: "http://localhost:5173/callback?redirectTo=%2Fprofile",
+    });
+
+    const response = await app.request("http://trellis/auth/flow/flow-local");
+
+    assertEquals(response.status, 200);
+    assertEquals(await response.json(), {
+      status: "expired",
+      returnLocation: "http://localhost:5173/callback?redirectTo=%2Fprofile",
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP flow state returns expired without return location for missing flow",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({}, {}, {}, {}, {
+      browserFlowsKV: {
+        get: () => AsyncResult.err(new KVError({ operation: "get" })),
+      },
+    });
+
+    const response = await app.request("http://trellis/auth/flow/missing");
+
+    assertEquals(response.status, 200);
+    assertEquals(await response.json(), { status: "expired" });
   },
 });
 

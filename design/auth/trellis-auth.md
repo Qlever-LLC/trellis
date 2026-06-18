@@ -417,6 +417,12 @@ Rules:
 - user denial in the portal is a one-time browser-flow outcome that redirects
   the caller back with `authError=approval_denied` and does not create a durable
   denial record
+- expired or stale browser-flow continuations are recoverable when auth still
+  knows the originating app return URL: auth returns or redirects to that URL
+  without appending `authError=flow_expired`, allowing the app to restart its
+  current auth request without a visible error screen
+- portals MUST NOT invent a return URL for missing expired flows; without an
+  auth-provided return target they should fall back to an expiration state
 - a later sign-in attempt after user denial MUST ask for permission again unless
   a grant override or existing identity grant already covers the requested
   access
