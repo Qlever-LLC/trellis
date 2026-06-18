@@ -190,6 +190,7 @@ export async function registerDeviceAdminAndActivation(
         input: {
           deploymentId: args.input.deploymentId,
           namespaces: args.input.namespaces,
+          contractCompatibilityMode: args.input.contractCompatibilityMode,
         },
       });
       return result.map(({ deployment }) => ({
