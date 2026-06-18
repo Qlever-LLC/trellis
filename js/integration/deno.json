@@ -4,7 +4,7 @@
   "exports": "./runner.ts",
   "extends": "../deno.json",
   "tasks": {
-    "check": "deno check ./runner.ts ./matrix_conformance_test.ts ./_support/runtime.ts ./rpc/rpc.integration_test.ts ./events/events.integration_test.ts ./operations/operations.integration_test.ts ./feeds/feeds.integration_test.ts ./state/state.integration_test.ts ./transfer/transfer.integration_test.ts ./resources/resources.integration_test.ts ./jobs/jobs.integration_test.ts ./health/health.integration_test.ts ./service-approval/service_approval.integration_test.ts ./app-identity-approval/app_identity_approval.integration_test.ts ./device-activation/device_activation.integration_test.ts",
+    "check": "deno check ./runner.ts ./matrix_conformance_test.ts ./_support/runtime.ts ./_support/shared_runtime_protocol.ts ./_support/shared_runtime_host.ts ./_support/shared_runtime_client.ts ./rpc/_fixture.ts ./rpc/*.integration_test.ts ./events/_fixture.ts ./events/*.integration_test.ts ./operations/_fixture.ts ./operations/*.integration_test.ts ./feeds/_fixture.ts ./feeds/*.integration_test.ts ./state/_fixture.ts ./state/*.integration_test.ts ./transfer/_fixture.ts ./transfer/*.integration_test.ts ./resources/_fixture.ts ./resources/*.integration_test.ts ./jobs/_fixture.ts ./jobs/*.integration_test.ts ./health/_fixture.ts ./health/*.integration_test.ts ./authority-plan/_fixture.ts ./authority-plan/*.integration_test.ts ./service-approval/_fixture.ts ./service-approval/*.integration_test.ts ./app-identity-approval/_fixture.ts ./app-identity-approval/*.integration_test.ts ./device-activation/_fixture.ts ./device-activation/*.integration_test.ts ./outbox/_fixture.ts ./outbox/*.integration_test.ts",
     "test": "deno run -A ./runner.ts"
   }
 }

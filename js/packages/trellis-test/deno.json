@@ -11,6 +11,7 @@
     "@qlever-llc/trellis/auth": "jsr:@qlever-llc/trellis@^0.19.0/auth",
     "@qlever-llc/trellis/health": "jsr:@qlever-llc/trellis@^0.19.0/health",
     "@qlever-llc/trellis/sdk/auth": "jsr:@qlever-llc/trellis@^0.19.0/sdk/auth",
+    "@qlever-llc/trellis/telemetry": "jsr:@qlever-llc/trellis@^0.19.0/telemetry",
     "@qlever-llc/trellis/service/deno": "jsr:@qlever-llc/trellis@^0.19.0/service/deno",
     "@nats-io/jetstream": "npm:@nats-io/jetstream@^3.3.1",
     "@nats-io/nats-core": "npm:@nats-io/nats-core@^3.3.1",

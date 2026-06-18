@@ -1,5 +1,8 @@
 export { TrellisTestRuntime } from "./src/runtime.ts";
-export { TrellisTestEventCapture } from "./src/event_capture.ts";
+export {
+  startTrellisTestEventCapture,
+  TrellisTestEventCapture,
+} from "./src/event_capture.ts";
 export {
   assertCapturedEventContext,
   assertEventCaptured,
@@ -50,6 +53,8 @@ export type {
   TrellisTestConnectedClient,
   TrellisTestContract,
   TrellisTestContractApproval,
+  TrellisTestContractDescriptor,
+  TrellisTestContractLike,
   TrellisTestRuntimeStartOptions,
   TrellisTestServiceKey,
   WaitForOptions,

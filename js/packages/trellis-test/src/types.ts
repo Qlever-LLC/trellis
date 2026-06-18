@@ -9,6 +9,18 @@ import type {
   TrellisContractV1,
 } from "@qlever-llc/trellis";
 
+/** Serializable contract descriptor accepted by test admin automation. */
+export type TrellisTestContractDescriptor = {
+  readonly CONTRACT: Record<string, unknown>;
+  readonly CONTRACT_DIGEST: string | undefined;
+};
+
+/** A full contract module or a descriptor carrying only the fields admin needs. */
+export type TrellisTestContractLike = {
+  readonly CONTRACT: Record<string, unknown>;
+  readonly CONTRACT_DIGEST?: string;
+} & ({ readonly __brand?: never });
+
 /** Authority plan classifications the test runtime may approve automatically. */
 export type TrellisTestAuthorityPlanClassification = "update" | "migration";
 

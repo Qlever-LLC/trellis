@@ -2119,7 +2119,7 @@ fn render_service_handle_surface(loaded: &LoadedManifest) -> String {
             surface_leaf(
                 key,
                 format!(
-                    "{}: ((handler: Types.{base}OperationHandler) => Promise<void>) & {{ accept(args: {{ sessionKey: string }}): AsyncResult<AcceptedOperation<{progress}, {output}>, UnexpectedError>; control(operationId: string): AsyncResult<OperationRuntimeHandle<{progress}, {output}>, BaseError>; }};",
+                    "{}: ((handler: Types.{base}OperationHandler) => Promise<void>) & {{ accept(args: {{ sessionKey: string }}): AsyncResult<AcceptedOperation<{progress}, {output}, Types.{base}OperationHandlerError>, UnexpectedError>; control(operationId: string): AsyncResult<OperationRuntimeHandle<{progress}, {output}, Types.{base}OperationHandlerError>, BaseError>; }};",
                     surface_leaf_name(key)
                 ),
             )

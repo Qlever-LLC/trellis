@@ -867,7 +867,8 @@ export interface ServiceHandle {
           ): AsyncResult<
             AcceptedOperation<
               Types.AuthDeviceUserAuthoritiesResolveProgress,
-              Types.AuthDeviceUserAuthoritiesResolveOutput
+              Types.AuthDeviceUserAuthoritiesResolveOutput,
+              Types.AuthDeviceUserAuthoritiesResolveOperationHandlerError
             >,
             UnexpectedError
           >;
@@ -876,7 +877,8 @@ export interface ServiceHandle {
           ): AsyncResult<
             OperationRuntimeHandle<
               Types.AuthDeviceUserAuthoritiesResolveProgress,
-              Types.AuthDeviceUserAuthoritiesResolveOutput
+              Types.AuthDeviceUserAuthoritiesResolveOutput,
+              Types.AuthDeviceUserAuthoritiesResolveOperationHandlerError
             >,
             BaseError
           >;

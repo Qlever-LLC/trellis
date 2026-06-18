@@ -1,12 +1,15 @@
 import { fromFileUrl } from "@std/path";
 import { jsCaseById } from "./_support/cases.ts";
 import { loadClientTestMatrix, type MatrixCase } from "./_support/matrix.ts";
+import { startSharedRuntimeHost } from "./_support/shared_runtime_host.ts";
 
 type RunnerOptions = {
   readonly fixtureFilters: readonly string[];
   readonly caseFilters: readonly string[];
   readonly coverageFilters: readonly string[];
   readonly skipConformance: boolean;
+  readonly parallel: boolean;
+  readonly jobs: number | undefined;
   readonly help: boolean;
 };
 
@@ -36,24 +39,22 @@ export async function main(args: readonly string[]): Promise<number> {
       throw new Error("no JS integration test files selected");
     }
 
-    const hasFilters = options.fixtureFilters.length > 0 ||
-      options.caseFilters.length > 0 || options.coverageFilters.length > 0;
+    const env: Record<string, string> = {};
 
-    if (hasFilters) {
-      if (!options.skipConformance) {
-        const conformanceCode = await runDenoTest([CONFORMANCE_FILE]);
-        if (conformanceCode !== 0) return conformanceCode;
-      }
-
-      const filter = `/^(${resolved.testNames.map(escapeRegExp).join("|")})$/`;
-      return await runDenoTest([...resolved.files, "--filter", filter]);
+    // Always run conformance separately, before parallel or serial behavior.
+    if (!options.skipConformance) {
+      const conformanceCode = await runDenoTest({
+        testFiles: [CONFORMANCE_FILE],
+        env,
+      });
+      if (conformanceCode !== 0) return conformanceCode;
     }
 
-    const conformanceFiles = options.skipConformance ? [] : [CONFORMANCE_FILE];
-    return await runDenoTest([
-      ...conformanceFiles,
-      ...resolved.files,
-    ]);
+    if (options.parallel) {
+      return await runParallelBehaviorTests(options, resolved, env);
+    }
+
+    return await runSerialBehaviorTests(options, resolved, env);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 1;
@@ -64,21 +65,84 @@ if (import.meta.main) {
   Deno.exit(await main(Deno.args));
 }
 
-function runDenoTest(testFiles: readonly string[]): Promise<number> {
+async function runSerialBehaviorTests(
+  options: RunnerOptions,
+  resolved: ResolvedFiles,
+  env: Record<string, string>,
+): Promise<number> {
+  const hasFilters = options.fixtureFilters.length > 0 ||
+    options.caseFilters.length > 0 || options.coverageFilters.length > 0;
+
+  if (hasFilters) {
+    const filter = `/^(${resolved.testNames.map(escapeRegExp).join("|")})$/`;
+    return await runDenoTest({
+      testFiles: [...resolved.files, "--filter", filter],
+      env,
+    });
+  }
+
+  return await runDenoTest({ testFiles: [...resolved.files], env });
+}
+
+async function runParallelBehaviorTests(
+  options: RunnerOptions,
+  resolved: ResolvedFiles,
+  baseEnv: Record<string, string>,
+): Promise<number> {
+  const host = await startSharedRuntimeHost({});
+  const env = { ...baseEnv, ...host.env };
+  if (options.jobs !== undefined) {
+    env.DENO_JOBS = String(options.jobs);
+  }
+
+  const denoArgs: string[] = [];
+  if (resolved.testNames.length > 0) {
+    const filter = `/^(${resolved.testNames.map(escapeRegExp).join("|")})$/`;
+    denoArgs.push("--filter", filter);
+  }
+
+  try {
+    return await runDenoTest({
+      testFiles: [...resolved.files, ...denoArgs],
+      env,
+      parallel: true,
+    });
+  } finally {
+    await host.stop();
+  }
+}
+
+function runDenoTest(
+  args: {
+    testFiles: readonly string[];
+    env?: Record<string, string>;
+    parallel?: boolean;
+  },
+): Promise<number> {
+  const { testFiles, env, parallel } = args;
+  const denoArgs: string[] = [
+    "test",
+    "--no-check",
+    "-A",
+    "-c",
+    "deno.json",
+    "--lock",
+    "../deno.lock",
+  ];
+
+  if (parallel) {
+    denoArgs.push("--parallel");
+  }
+
+  denoArgs.push(...testFiles);
+
   const command = new Deno.Command(Deno.execPath(), {
-    args: [
-      "test",
-      "-A",
-      "-c",
-      "deno.json",
-      "--lock",
-      "../deno.lock",
-      ...testFiles,
-    ],
+    args: denoArgs,
     cwd: integrationRoot,
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
+    env: env ? { ...Deno.env.toObject(), ...env } : undefined,
   });
   return command.spawn().status.then((s) => s.code);
 }
@@ -100,6 +164,8 @@ function parseRunnerArgs(args: readonly string[]): RunnerOptions {
   const caseFilters: string[] = [];
   const coverageFilters: string[] = [];
   let skipConformance = false;
+  let parallel = false;
+  let jobs: number | undefined;
   let help = false;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -110,6 +176,19 @@ function parseRunnerArgs(args: readonly string[]): RunnerOptions {
       help = true;
     } else if (arg === "--skip-conformance") {
       skipConformance = true;
+    } else if (arg === "--parallel") {
+      parallel = true;
+    } else if (arg === "--jobs") {
+      jobs = parseInt(readFlagValue(args, index, arg), 10);
+      if (Number.isNaN(jobs) || jobs < 1) {
+        throw new Error("--jobs requires a positive integer");
+      }
+      index += 1;
+    } else if (arg.startsWith("--jobs=")) {
+      jobs = parseInt(readInlineFlagValue(arg, "--jobs"), 10);
+      if (Number.isNaN(jobs) || jobs < 1) {
+        throw new Error("--jobs requires a positive integer");
+      }
     } else if (arg === "--fixture") {
       fixtureFilters.push(readFlagValue(args, index, arg));
       index += 1;
@@ -135,6 +214,8 @@ function parseRunnerArgs(args: readonly string[]): RunnerOptions {
     caseFilters,
     coverageFilters,
     skipConformance,
+    parallel,
+    jobs,
     help,
   };
 }
@@ -246,13 +327,15 @@ function helpText(): string {
 
 Usage:
   deno task -c js/deno.json test:integration [options]
+  deno task -c js/deno.json test:integration -- --parallel [options]
 
 Options:
   --fixture <id>       Select matrix cases by fixture id. May be repeated.
   --case <id>          Select a matrix case id. May be repeated.
   --coverage <id>      Select matrix cases by coverage id. May be repeated.
-  --skip-conformance   Run only selected behavior tests. This is for focused
-                       incremental migration runs; the default keeps the
-                       matrix conformance gate enabled.
+  --parallel           Run behavior tests in parallel using one shared
+                        Trellis runtime. Conformance always runs serially.
+  --jobs <n>           Max parallel worker count via DENO_JOBS.
+  --skip-conformance   Run only selected behavior tests.
   --help, -h           Print this help text.`;
 }

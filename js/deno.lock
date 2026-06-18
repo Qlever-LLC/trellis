@@ -60,7 +60,7 @@
     "npm:cookie@^1.1.1": "1.1.1",
     "npm:daisyui@5.5.19": "5.5.19",
     "npm:devalue@^5.7.1": "5.7.1",
-    "npm:drizzle-orm@0.44.7": "0.44.7_@libsql+client@0.15.15_@opentelemetry+api@1.9.1",
+    "npm:drizzle-orm@0.44.7": "0.44.7_@libsql+client@0.15.15_@opentelemetry+api@1.9.1_sql.js@1.14.1",
     "npm:esm-env@^1.2.2": "1.2.2",
     "npm:graphology-layout-forceatlas2@~0.10.1": "0.10.1_graphology-types@0.24.8",
     "npm:graphology@0.26": "0.26.0_graphology-types@0.24.8",
@@ -80,6 +80,7 @@
     "npm:set-cookie-parser@^3.1.0": "3.1.0",
     "npm:sigma@^3.0.2": "3.0.2_graphology-types@0.24.8",
     "npm:sirv@^3.0.2": "3.0.2",
+    "npm:sql.js@*": "1.14.1",
     "npm:svelte-check@*": "4.4.6_svelte@5.55.5_typescript@6.0.3",
     "npm:svelte-check@4.4.6": "4.4.6_svelte@5.55.5_typescript@6.0.3",
     "npm:svelte@*": "5.55.5",
@@ -1157,15 +1158,17 @@
         "dequal"
       ]
     },
-    "drizzle-orm@0.44.7_@libsql+client@0.15.15_@opentelemetry+api@1.9.1": {
+    "drizzle-orm@0.44.7_@libsql+client@0.15.15_@opentelemetry+api@1.9.1_sql.js@1.14.1": {
       "integrity": "sha512-quIpnYznjU9lHshEOAYLoZ9s3jweleHlZIAWR/jX9gAWNg/JhQ1wj0KGRf7/Zm+obRrYd9GjPVJg790QY9N5AQ==",
       "dependencies": [
         "@libsql/client",
-        "@opentelemetry/api"
+        "@opentelemetry/api",
+        "sql.js"
       ],
       "optionalPeers": [
         "@libsql/client",
-        "@opentelemetry/api"
+        "@opentelemetry/api",
+        "sql.js"
       ]
     },
     "enhanced-resolve@5.21.0": {
@@ -2013,6 +2016,9 @@
         "mrmime",
         "totalist"
       ]
+    },
+    "sql.js@1.14.1": {
+      "integrity": "sha512-gcj8zBWU5cFsi9WUP+4bFNXAyF1iRpA3LLyS/DP5xlrNzGmPIizUeBggKa8DbDwdqaKwUcTEnChtd2grWo/x/A=="
     },
     "sonic-boom@4.2.1": {
       "integrity": "sha512-w6AxtubXa2wTXAUsZMMWERrsIRAdrK0Sc+FUytWvYAhBJLyuI4llrMIC1DtlNSdI99EI86KZum2MMq3EAZlF9Q==",

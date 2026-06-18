@@ -32,37 +32,37 @@ Deno.test("JS integration manifest conforms to shared matrix", async () => {
       new URL(caseEntry.file, import.meta.url),
     );
 
-    // Check via the test name string itself (handles single-line and multi-line Deno.test(
     const expectedName = `"${caseEntry.testName}"`;
     if (!content.includes(expectedName)) {
       throw new Error(
-        `case ${caseEntry.id} expects Deno.test with name "${caseEntry.testName}" not found in ${caseEntry.file}`,
+        `case ${caseEntry.id} expects test with name "${caseEntry.testName}" not found in ${caseEntry.file}`,
       );
     }
 
-    const testDecls = content.split("Deno.test(");
-    let idDeclCount = 0;
-    for (let i = 1; i < testDecls.length; i++) {
-      const afterParen = testDecls[i];
-      const firstQuote = afterParen.indexOf('"');
-      if (firstQuote !== -1) {
-        const afterFirstQuote = afterParen.slice(firstQuote + 1);
-        const secondQuote = afterFirstQuote.indexOf('"');
-        if (secondQuote !== -1) {
-          const testName = afterFirstQuote.slice(0, secondQuote);
-          if (testName.includes(caseEntry.id)) {
-            idDeclCount++;
-          }
-        }
-      }
-    }
-    if (idDeclCount !== 1) {
+    const liveTrellisTestCount = countMatches(content, /liveTrellisTest\s*\(/g);
+    if (liveTrellisTestCount !== 1) {
       throw new Error(
-        `case ${caseEntry.id} appears in ${idDeclCount} Deno.test name(s) in ${caseEntry.file}, expected exactly 1`,
+        `case ${caseEntry.id} has ${liveTrellisTestCount} liveTrellisTest declaration(s) in ${caseEntry.file}, expected exactly 1`,
+      );
+    }
+
+    if (!content.includes("runtimeScopeForCase(")) {
+      throw new Error(
+        `case ${caseEntry.id} in ${caseEntry.file} must use runtimeScopeForCase(`,
+      );
+    }
+
+    if (content.includes("runtimeScopeForFixture(")) {
+      throw new Error(
+        `case ${caseEntry.id} in ${caseEntry.file} must not use runtimeScopeForFixture(`,
       );
     }
   }
 });
+
+function countMatches(content: string, pattern: RegExp): number {
+  return Array.from(content.matchAll(pattern)).length;
+}
 
 function buildConformanceReport(
   matrixCases: readonly MatrixCase[],

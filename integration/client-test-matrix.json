@@ -1229,6 +1229,373 @@
       }
     },
     {
+      "id": "authority-plan.preapproved-contract-connects",
+      "fixture": "authority-plan",
+      "title": "Pre-approved service contract connects without a pending authority plan",
+      "coverage": [
+        "deployment-authority",
+        "contract-planning",
+        "plan-approval",
+        "cross-runtime-rpc"
+      ],
+      "description": "A service contract approved before startup connects, handles an RPC, and leaves no pending authority plans.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.authority-plan.service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.authority-plan.base-client@v1"
+          }
+        ],
+        "given": [
+          "a strict deployment has accepted the base service contract"
+        ],
+        "when": [
+          "the service connects and the client calls Plan.Ping"
+        ],
+        "then": [
+          "the RPC succeeds",
+          "no pending authority plan remains for the deployment"
+        ]
+      }
+    },
+    {
+      "id": "authority-plan.presented-update-is-pending-at-connect",
+      "fixture": "authority-plan",
+      "title": "Presented additive contract creates a pending update and blocks connect",
+      "coverage": [
+        "deployment-authority",
+        "contract-planning",
+        "strict-compatibility",
+        "plan-approval"
+      ],
+      "description": "A service presents a same-lineage additive contract at connect time; Trellis records a pending update plan and the service remains blocked.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.authority-plan.service@v1"
+          }
+        ],
+        "given": [
+          "a strict deployment has accepted the base contract",
+          "a service instance presents an additive same-contract digest"
+        ],
+        "when": [
+          "the service attempts to connect"
+        ],
+        "then": [
+          "the connect remains pending",
+          "a pending update plan exists for the additive digest",
+          "the added RPC is not mounted"
+        ]
+      }
+    },
+    {
+      "id": "authority-plan.presented-update-approved-then-connects",
+      "fixture": "authority-plan",
+      "title": "Accepted additive update unblocks service connect",
+      "coverage": [
+        "deployment-authority",
+        "contract-planning",
+        "strict-compatibility",
+        "plan-approval",
+        "cross-runtime-rpc"
+      ],
+      "description": "A pending additive update is accepted, materialized, and the waiting service connects and serves the added RPC.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.authority-plan.service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.authority-plan.additive-client@v1"
+          }
+        ],
+        "given": [
+          "a pending additive update plan exists"
+        ],
+        "when": [
+          "the update plan is accepted and materialized"
+        ],
+        "then": [
+          "the plan is listed as accepted",
+          "the service connect resolves",
+          "the client can call Plan.AddedPing"
+        ]
+      }
+    },
+    {
+      "id": "authority-plan.presented-update-rejected-stays-blocked",
+      "fixture": "authority-plan",
+      "title": "Rejected additive update remains blocked and preserves old authority",
+      "coverage": [
+        "deployment-authority",
+        "contract-planning",
+        "strict-compatibility",
+        "plan-rejection",
+        "cross-runtime-rpc"
+      ],
+      "description": "Rejecting a pending additive update keeps the new service blocked while the old approved contract path remains usable.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.authority-plan.service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.authority-plan.base-client@v1"
+          }
+        ],
+        "given": [
+          "a pending additive update plan exists"
+        ],
+        "when": [
+          "the update plan is rejected"
+        ],
+        "then": [
+          "the plan is listed as rejected with the supplied reason",
+          "the additive service remains blocked",
+          "the base contract RPC still works"
+        ]
+      }
+    },
+    {
+      "id": "authority-plan.incompatible-migration-approved-replaces-contract",
+      "fixture": "authority-plan",
+      "title": "Accepted incompatible migration enables same-contract replacement",
+      "coverage": [
+        "deployment-authority",
+        "contract-planning",
+        "strict-compatibility",
+        "plan-approval",
+        "cross-runtime-rpc"
+      ],
+      "description": "An incompatible same-contract replacement creates a migration plan; explicit acceptance allows the replacement service to connect and handle RPC.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.authority-plan.service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.authority-plan.incompatible-client@v1"
+          }
+        ],
+        "given": [
+          "a strict deployment has accepted and used the base digest",
+          "a replacement service presents an incompatible same-contract digest"
+        ],
+        "when": [
+          "the migration plan is accepted with acknowledgement"
+        ],
+        "then": [
+          "the replacement service connects",
+          "the replacement RPC succeeds"
+        ]
+      }
+    },
+    {
+      "id": "authority-plan.incompatible-migration-rejected-keeps-old-contract",
+      "fixture": "authority-plan",
+      "title": "Rejected incompatible migration keeps old contract usable",
+      "coverage": [
+        "deployment-authority",
+        "contract-planning",
+        "strict-compatibility",
+        "plan-rejection",
+        "cross-runtime-rpc"
+      ],
+      "description": "Rejecting an incompatible same-contract migration keeps the replacement blocked and preserves the old approved runtime path.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.authority-plan.service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.authority-plan.base-client@v1"
+          }
+        ],
+        "given": [
+          "a strict deployment has accepted and used the base digest",
+          "a replacement service presents an incompatible same-contract digest"
+        ],
+        "when": [
+          "the migration plan is rejected"
+        ],
+        "then": [
+          "the replacement service remains blocked",
+          "the old base RPC still succeeds"
+        ]
+      }
+    },
+    {
+      "id": "authority-plan.compatible-replacement-auto-allowed-strict",
+      "fixture": "authority-plan",
+      "title": "Strict deployment allows compatible metadata replacement without manual approval",
+      "coverage": [
+        "deployment-authority",
+        "contract-planning",
+        "strict-compatibility",
+        "cross-runtime-rpc"
+      ],
+      "description": "A metadata-only same-contract replacement connects in strict mode without manual plan acceptance and leaves no pending plan.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.authority-plan.service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.authority-plan.base-client@v1"
+          }
+        ],
+        "given": [
+          "a strict deployment has accepted and used the base digest"
+        ],
+        "when": [
+          "a metadata-only replacement service connects"
+        ],
+        "then": [
+          "the replacement connects without manual acceptance",
+          "the RPC succeeds",
+          "no pending replacement plan remains"
+        ]
+      }
+    },
+    {
+      "id": "authority-plan.mutable-dev-auto-accepts-incompatible-migration",
+      "fixture": "authority-plan",
+      "title": "Mutable-dev auto-accepts incompatible same-contract migration",
+      "coverage": [
+        "deployment-authority",
+        "contract-planning",
+        "mutable-dev",
+        "plan-approval",
+        "cross-runtime-rpc"
+      ],
+      "description": "A mutable-dev deployment records and auto-accepts an incompatible same-contract migration, allowing the replacement service to connect.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.authority-plan.service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.authority-plan.incompatible-client@v1"
+          }
+        ],
+        "given": [
+          "a mutable-dev deployment has accepted and used the base digest"
+        ],
+        "when": [
+          "a replacement service presents an incompatible same-contract digest"
+        ],
+        "then": [
+          "an accepted migration plan is listed",
+          "the replacement service connects",
+          "the replacement RPC succeeds"
+        ]
+      }
+    },
+    {
+      "id": "authority-plan.mutable-dev-rejected-explicit-update-still-blocks",
+      "fixture": "authority-plan",
+      "title": "Mutable-dev does not ignore an explicitly rejected update",
+      "coverage": [
+        "deployment-authority",
+        "contract-planning",
+        "mutable-dev",
+        "plan-rejection"
+      ],
+      "description": "An additive update in mutable-dev can be rejected and remains blocked, proving auto-accept is limited to same-contract migrations.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.authority-plan.service@v1"
+          }
+        ],
+        "given": [
+          "a mutable-dev deployment has accepted the base contract",
+          "an additive update plan is pending"
+        ],
+        "when": [
+          "the update plan is rejected"
+        ],
+        "then": [
+          "the plan remains rejected",
+          "the additive service remains blocked"
+        ]
+      }
+    },
+    {
+      "id": "authority-plan.resource-change-migration-approved-and-bound",
+      "fixture": "authority-plan",
+      "title": "Accepted resource migration binds the changed resource definition",
+      "coverage": [
+        "deployment-authority",
+        "contract-planning",
+        "strict-compatibility",
+        "plan-approval",
+        "resource-migration",
+        "cross-runtime-rpc"
+      ],
+      "description": "A changed required KV resource definition creates a migration plan; after acceptance, the replacement service receives a usable bound KV handle.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.authority-plan.resource-service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.authority-plan.resource-client@v1"
+          }
+        ],
+        "given": [
+          "a strict deployment has accepted and connected the base resource contract",
+          "a replacement service presents a changed required KV definition"
+        ],
+        "when": [
+          "the migration plan is accepted and materialized"
+        ],
+        "then": [
+          "the replacement service connects with a KV binding",
+          "the client RPC proves the bound resource handle works"
+        ]
+      }
+    },
+    {
       "id": "service-approval.startup-blocks-before-authority-approval",
       "fixture": "service-approval",
       "title": "Service startup blocks before deployment authority approval",
