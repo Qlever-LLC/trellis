@@ -1,5 +1,6 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
+  import { loadSessionKey } from "@qlever-llc/trellis/auth/browser";
   import { resolve } from "$app/paths";
   import { onMount } from "svelte";
   import {
@@ -29,6 +30,7 @@
 
   let sessions = $state<SessionRecord[]>([]);
   let sessionFilterUser = $state("");
+  let currentSessionKey = $state<string | null>(null);
 
   let connections = $state<ConnectionRecord[]>([]);
   let connFilterUser = $state("");
@@ -38,6 +40,7 @@
     loading = true;
     error = null;
     try {
+      currentSessionKey = (await loadSessionKey())?.sessionKey ?? null;
       const response = await trellis.request("Auth.Sessions.List", {
         user: sessionFilterUser.trim() || undefined,
         limit: 500,
@@ -74,6 +77,10 @@
   function loadActive() {
     if (activeTab === "sessions") void loadSessions();
     else void loadConnections();
+  }
+
+  function isCurrentSession(session: SessionRecord): boolean {
+    return !!currentSessionKey && session.sessionKey === currentSessionKey;
   }
 
   onMount(() => { void loadSessions(); });
@@ -133,7 +140,7 @@
             <col class="w-28" />
             <col class="w-36" />
             <col class="w-52" />
-            <col class="w-16" />
+            <col class="w-28" />
           </colgroup>
           <thead>
             <tr>
@@ -165,9 +172,14 @@
                   <div>Created {formatDate(session.createdAt)}</div>
                 </td>
                 <td class="text-right">
-                  <ActionMenu menuClass="z-10" widthClass="w-48">
-                    <li><a class="text-error" href={resolve(`/admin/sessions/revoke?sessionKey=${encodeURIComponent(session.sessionKey)}`)}>Revoke</a></li>
-                  </ActionMenu>
+                  <div class="flex items-center justify-end gap-2">
+                    {#if isCurrentSession(session)}
+                      <span class="badge badge-info badge-sm">Current</span>
+                    {/if}
+                    <ActionMenu menuClass="z-10" widthClass="w-48">
+                      <li><a class="text-error" href={resolve(`/admin/sessions/revoke?sessionKey=${encodeURIComponent(session.sessionKey)}`)}>Revoke</a></li>
+                    </ActionMenu>
+                  </div>
                 </td>
               </tr>
             {/each}

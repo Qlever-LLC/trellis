@@ -1,5 +1,6 @@
 <script lang="ts">
   import { isErr } from "@qlever-llc/result";
+  import { loadSessionKey } from "@qlever-llc/trellis/auth/browser";
   import type { AuthSessionsRevokeInput } from "@qlever-llc/trellis/sdk/auth";
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
@@ -24,14 +25,17 @@
   let pending = $state(false);
   let sessions = $state<SessionRecord[]>([]);
   let selectedSessionKey = $state("");
+  let currentSessionKey = $state<string | null>(null);
   let confirmationModal: ConfirmationModal | undefined = $state();
 
   const selectedSession = $derived(sessions.find((session) => session.sessionKey === selectedSessionKey) ?? null);
+  const selectedSessionIsCurrent = $derived(!!currentSessionKey && selectedSessionKey === currentSessionKey);
 
   async function load() {
     loading = true;
     error = null;
     try {
+      currentSessionKey = (await loadSessionKey())?.sessionKey ?? null;
       const response = await trellis.request("Auth.Sessions.List", { limit: 500, offset: 0 }).take();
       if (isErr(response)) { error = errorMessage(response); return; }
       sessions = response.entries ?? [];
@@ -64,9 +68,21 @@
   async function requestRevokeSession() {
     if (!selectedSession) return;
     const summary = describeSessionPrincipal(selectedSession);
+    if (selectedSessionIsCurrent) {
+      const selfRevokeConfirmed = await confirmationModal?.confirm({
+        title: "Revoke your current session?",
+        message: "This is the session currently powering this console. If you continue and revoke it, the console will lose auth and force you to sign in again.",
+        confirmLabel: "Continue to revoke",
+        targetLabel: "Current session",
+        targetName: selectedSession.sessionKey,
+      });
+      if (!selfRevokeConfirmed) return;
+    }
     const confirmed = await confirmationModal?.confirm({
       title: "Revoke session?",
-      message: "This immediately invalidates the selected active session.",
+      message: selectedSessionIsCurrent
+        ? "This immediately invalidates your current console session and signs you out."
+        : "This immediately invalidates the selected active session.",
       confirmLabel: "Revoke session",
       targetLabel: summary.title,
       targetName: selectedSession.sessionKey,
@@ -103,15 +119,26 @@
           <select class="select select-bordered select-sm" bind:value={selectedSessionKey} required>
             {#each sessions as session (session.key)}
               {@const summary = describeSessionPrincipal(session)}
-              <option value={session.sessionKey}>{summary.title} — {formatShortKey(session.sessionKey)}</option>
+              <option value={session.sessionKey}>{summary.title} — {formatShortKey(session.sessionKey)}{session.sessionKey === currentSessionKey ? " — Current" : ""}</option>
             {/each}
           </select>
         </label>
 
+        {#if selectedSessionIsCurrent}
+          <Notice variant="warning">
+            This is your current console session. Revoking it will force this app to sign in again.
+          </Notice>
+        {/if}
+
         {#if selectedSession}
           {@const summary = describeSessionPrincipal(selectedSession)}
           <div class="rounded-box border border-base-300 p-3 text-sm">
-            <div class="font-medium">{summary.title}</div>
+            <div class="flex flex-wrap items-center gap-2">
+              <div class="font-medium">{summary.title}</div>
+              {#if selectedSessionIsCurrent}
+                <span class="badge badge-info badge-sm">Current</span>
+              {/if}
+            </div>
             <div class="text-base-content/60">{participantKindLabel(selectedSession.participantKind)}</div>
             <div class="trellis-identifier text-base-content/60">{selectedSession.sessionKey}</div>
             <div class="text-xs text-base-content/60">Last auth {formatDate(selectedSession.lastAuth)}</div>
