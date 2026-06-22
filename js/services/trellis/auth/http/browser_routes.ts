@@ -31,6 +31,7 @@ import type { AuthHttpRouteContext } from "./route_context.ts";
 import {
   buildRedirectLocation,
   type CookieContext,
+  getApprovalResolutionBlocker,
   getCookie,
   type OAuthStateEntry,
   setCookie,
@@ -92,7 +93,7 @@ async function createPendingAuthForIdentity(args: {
   provider?: string;
   pendingAuthKV: AuthHttpRouteContext["opts"]["runtimeDeps"]["pendingAuthKV"];
   logger: AuthHttpRouteContext["opts"]["runtimeDeps"]["logger"];
-}) {
+}): Promise<PendingAuth> {
   const authToken = randomToken(32);
   const authTokenHash = await hashKey(authToken);
   const email = args.account.email ?? args.identity.email ?? args.user.email;
@@ -132,6 +133,8 @@ async function createPendingAuthForIdentity(args: {
     ...(args.provider ? { provider: args.provider } : {}),
     authToken,
   });
+
+  return pending;
 }
 
 function accountFlowOAuthErrorStatus(
@@ -707,7 +710,7 @@ export function registerBrowserAuthRoutes(
       throw new HTTPException(404, { message: "Expired browser flow" });
     }
 
-    await createPendingAuthForIdentity({
+    const pending = await createPendingAuthForIdentity({
       context,
       flowId,
       flow: { ...flow, sessionKey: oauthEntry.value.sessionKey },
@@ -723,6 +726,15 @@ export function registerBrowserAuthRoutes(
       pendingAuthKV,
       logger,
     });
+
+    const resolution = await context.requireApprovalResolution(pending);
+    if (
+      resolution.effectiveApproval.answer === "approved" &&
+      resolution.missingCapabilities.length === 0 &&
+      getApprovalResolutionBlocker(resolution) === null
+    ) {
+      return c.redirect(buildRedirectLocation(pending.redirectTo, { flowId }));
+    }
 
     const selectedPortal = await context.resolveSelectedLoginPortal(flow);
     const resolvedPortalEntryUrl = selectedPortal.portal.entryUrl ??

@@ -22,6 +22,7 @@ import { createLocalCredentialPassword } from "../local_credentials/passwords.ts
 import { registerDeviceActivationHttpRoutes } from "../device_activation/http.ts";
 import type {
   AccountFlow,
+  IdentityGrantRecord,
   LocalCredential,
   LoginPortalRecord,
   LoginPortalSettings,
@@ -278,6 +279,7 @@ async function registerTestRoutes(
     listPage: () => Promise.resolve([]),
     listByUser: () => Promise.resolve([]),
     listByDeployment: () => Promise.resolve([]),
+    listEnabled: () => Promise.resolve([]),
     listEnabledByContractId: () => Promise.resolve([]),
     getFirstEnabledForDeployments: () => Promise.resolve(undefined),
     ...storageOverride,
@@ -513,6 +515,150 @@ async function signedAuthStartRequest(provider?: string) {
   );
   request.sig = base64urlEncode(await auth.sign(digest));
   return request;
+}
+
+function approvalCapabilities(keys: string[]) {
+  return Object.fromEntries(keys.map((key) => [key, {
+    displayName: key,
+    description: key,
+  }]));
+}
+
+function callbackAppContract(options: { requiresAudit?: boolean } = {}) {
+  const base = {
+    format: "trellis.contract.v1",
+    id: "client.example@v1",
+    displayName: "Example Client",
+    description: "Example browser client",
+    kind: "app",
+  };
+  if (!options.requiresAudit) return base;
+
+  return {
+    ...base,
+    capabilities: approvalCapabilities(["audit"]),
+    schemas: { Empty: { type: "object" } },
+    events: {
+      Audit: {
+        version: "v1",
+        subject: "events.v1.audit",
+        event: { schema: "Empty" },
+        capabilities: { publish: ["audit"] },
+      },
+    },
+  };
+}
+
+function storedCallbackApproval(): IdentityGrantRecord {
+  const answeredAt = new Date("2026-05-09T00:00:00.000Z");
+  return {
+    identityGrantId: "grant-client-example",
+    identityAuthorityId: "usr_oauth:github:user",
+    userTrellisId: "usr_oauth",
+    origin: "github",
+    id: "user",
+    identityAnchor: {
+      kind: "web",
+      contractId: "client.example@v1",
+      origin: "http://localhost:5173",
+    },
+    answer: "approved",
+    answeredAt,
+    updatedAt: answeredAt,
+    approvalEvidence: {
+      contractDigest: "digest",
+      contractId: "client.example@v1",
+      displayName: "Example Client",
+      description: "Example browser client",
+      participantKind: "app",
+      capabilities: {},
+    },
+    publishSubjects: [],
+    subscribeSubjects: [],
+  };
+}
+
+async function registerOAuthCallbackTestRoutes(options: {
+  contract?: Record<string, unknown>;
+  grants?: IdentityGrantRecord[];
+  userCapabilities?: string[];
+} = {}): Promise<Hono> {
+  const contract = options.contract ?? callbackAppContract();
+  const flowId = "flow-oauth";
+  const redirectTo = "http://localhost:5173/callback?redirectTo=%2Fprofile";
+  const account: UserAccount = {
+    userId: "usr_oauth",
+    name: "OAuth Account",
+    email: "account@example.com",
+    active: true,
+    capabilities: options.userCapabilities ?? [],
+    capabilityGroups: [],
+    createdAt: "2026-05-09T00:00:00.000Z",
+    updatedAt: "2026-05-09T00:00:00.000Z",
+  };
+  const identity: UserIdentity = {
+    identityId: "idn_github_user",
+    userId: account.userId,
+    provider: "github",
+    subject: "user",
+    displayName: "OAuth User",
+    email: "user@example.com",
+    emailVerified: true,
+    linkedAt: "2026-05-09T00:00:00.000Z",
+    lastLoginAt: null,
+  };
+  const oauthState: OAuthState = {
+    kind: "browser_login",
+    provider: "github",
+    flowId,
+    redirectTo,
+    codeVerifier: "verifier-123",
+    sessionKey: "session-local",
+    app: { contractId: "client.example@v1", origin: "http://localhost:5173" },
+    contract,
+    createdAt: new Date("2026-05-09T00:00:00.000Z"),
+  };
+
+  return await registerTestRoutes({
+    flowId,
+    kind: "login",
+    sessionKey: "session-local",
+    redirectTo,
+    authToken: undefined,
+    app: { contractId: "client.example@v1", origin: "http://localhost:5173" },
+    contract,
+    createdAt: new Date("2026-05-09T00:00:00.000Z"),
+    expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+  }, {
+    get: (id: string) =>
+      Promise.resolve(id === account.userId ? account : undefined),
+    getByProviderSubject: (provider: string, subject: string) =>
+      Promise.resolve(
+        provider === identity.provider && subject === identity.subject
+          ? identity
+          : undefined,
+      ),
+    listByUser: (userId: string) =>
+      Promise.resolve(userId === account.userId ? options.grants ?? [] : []),
+    put: (record: UserIdentity) => {
+      if (record.identityId === identity.identityId) {
+        Object.assign(identity, record);
+      }
+      return Promise.resolve(undefined);
+    },
+  }, {
+    github: testProvider("github", "GitHub"),
+  }, {
+    oauthCodeResponse: () => Promise.resolve({ accessToken: "access-token" }),
+  }, {
+    oauthStateKV: {
+      get: () =>
+        AsyncResult.ok({
+          value: oauthState,
+          delete: () => AsyncResult.ok(undefined),
+        }),
+    },
+  });
 }
 
 Deno.test({
@@ -1042,6 +1188,70 @@ Deno.test({
     assertEquals(
       new URL(location).searchParams.get("authError"),
       "Identity provider rejected sign-in: parameter organization is not allowed for this client",
+    );
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP OAuth callback redirects directly to app when approval is satisfied",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerOAuthCallbackTestRoutes({
+      grants: [storedCallbackApproval()],
+    });
+
+    const response = await app.request(
+      "http://trellis/auth/callback/github?state=state-123&code=code-123",
+      { headers: { cookie: "trellis_oauth=state-123" } },
+    );
+
+    assertEquals(response.status, 302);
+    assertEquals(
+      response.headers.get("location"),
+      "http://localhost:5173/callback?redirectTo=%2Fprofile&flowId=flow-oauth",
+    );
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP OAuth callback redirects to portal when approval is required",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerOAuthCallbackTestRoutes();
+
+    const response = await app.request(
+      "http://trellis/auth/callback/github?state=state-123&code=code-123",
+      { headers: { cookie: "trellis_oauth=state-123" } },
+    );
+
+    assertEquals(response.status, 302);
+    assertEquals(
+      response.headers.get("location"),
+      "http://localhost:3000/_trellis/portal/users/login?flowId=flow-oauth",
+    );
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP OAuth callback redirects to portal when capabilities are missing",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerOAuthCallbackTestRoutes({
+      contract: callbackAppContract({ requiresAudit: true }),
+    });
+
+    const response = await app.request(
+      "http://trellis/auth/callback/github?state=state-123&code=code-123",
+      { headers: { cookie: "trellis_oauth=state-123" } },
+    );
+
+    assertEquals(response.status, 302);
+    assertEquals(
+      response.headers.get("location"),
+      "http://localhost:3000/_trellis/portal/users/login?flowId=flow-oauth",
     );
   },
 });
