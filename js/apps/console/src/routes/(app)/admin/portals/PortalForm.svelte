@@ -360,6 +360,12 @@
   async function saveRoute() {
     if (!portal) return;
     const existingRoute = editingRouteKey ? routes.find((route) => route.routeKey === editingRouteKey) ?? null : null;
+    const selector = {
+      contractId: routeContractId.trim() || null,
+      origin: routeOrigin.trim() || null,
+    };
+    const selectorChanged = existingRoute !== null &&
+      (existingRoute.contractId !== selector.contractId || existingRoute.origin !== selector.origin);
     if (existingRoute && !existingRoute.disabled && routeDisabled) {
       const confirmed = await confirmationModal?.confirm({
         title: "Disable portal route?",
@@ -379,13 +385,24 @@
     try {
       const response = await trellis.request("Auth.Portals.Routes.Put", {
         portalId: portal.portalId,
-        contractId: routeContractId.trim() || null,
-        origin: routeOrigin.trim() || null,
+        contractId: selector.contractId,
+        origin: selector.origin,
         disabled: routeDisabled,
       }).take();
       if (isErr(response)) {
         error = errorMessage(response);
         return;
+      }
+      if (selectorChanged) {
+        const removeResponse = await trellis.request("Auth.Portals.Routes.Remove", {
+          portalId: existingRoute.portalId,
+          contractId: existingRoute.contractId,
+          origin: existingRoute.origin,
+        }).take();
+        if (isErr(removeResponse)) {
+          error = errorMessage(removeResponse);
+          return;
+        }
       }
       saved = "Portal route saved.";
       resetRouteForm();
@@ -660,11 +677,11 @@
                 <div class="text-xs uppercase tracking-wide text-base-content/55">{editingRouteKey ? "Edit route" : "Add route"}</div>
                 <label class="form-control">
                   <span class="label-text text-xs uppercase tracking-wide text-base-content/55">Contract ID</span>
-                  <input class="input input-bordered input-sm font-mono" bind:value={routeContractId} disabled={busy || editingRouteKey !== null} placeholder="Blank for any contract" />
+                  <input class="input input-bordered input-sm font-mono" bind:value={routeContractId} disabled={busy} placeholder="Blank for any contract" />
                 </label>
                 <label class="form-control">
                   <span class="label-text text-xs uppercase tracking-wide text-base-content/55">Origin</span>
-                  <input class="input input-bordered input-sm font-mono" bind:value={routeOrigin} disabled={busy || editingRouteKey !== null} placeholder="Blank for any origin" />
+                  <input class="input input-bordered input-sm font-mono" bind:value={routeOrigin} disabled={busy} placeholder="Blank for any origin" />
                 </label>
                 <label class="flex items-center justify-between rounded border border-base-300 px-3 py-2 text-sm">
                   <span>Enabled</span>

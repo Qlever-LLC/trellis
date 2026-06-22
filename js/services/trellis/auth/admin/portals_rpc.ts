@@ -347,7 +347,9 @@ export function createAuthPortalsRoutesPutHandler(
       }
       const selector = normalizeSelector(input);
       const existing = await storage.getRouteBySelector(selector);
-      if (existing && existing.portalId !== input.portalId) {
+      if (
+        existing && !existing.disabled && existing.portalId !== input.portalId
+      ) {
         return invalid(
           "/selector",
           "login route selector targets another portal",

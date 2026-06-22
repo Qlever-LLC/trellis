@@ -141,3 +141,52 @@ Deno.test("portal route RPCs are scoped by portal and selector", async () => {
     assertEquals(await repo.listRoutesByPortal("portal.main"), []);
   });
 });
+
+Deno.test("portal route RPC can reclaim disabled selectors for a new portal", async () => {
+  await withLoginPortals(async (repo) => {
+    const timestamp = "2026-01-01T00:00:00.000Z";
+    await repo.putPortal({
+      portalId: "portal.main",
+      displayName: "Main Portal",
+      entryUrl: "https://login.example.com",
+      builtIn: false,
+      disabled: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    await repo.putPortal({
+      portalId: "portal.old",
+      displayName: "Old Portal",
+      entryUrl: "https://old.example.com",
+      builtIn: false,
+      disabled: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    const put = createAuthPortalsRoutesPutHandler(repo);
+    const disabled = await put({
+      input: { portalId: "portal.old", disabled: true },
+      context: { caller: adminCaller },
+    });
+    assert(!disabled.isErr());
+
+    const reclaimed = await put({
+      input: { portalId: "portal.main" },
+      context: { caller: adminCaller },
+    });
+    assert(!reclaimed.isErr());
+    const reclaimedValue = reclaimed.take();
+    if (isErr(reclaimedValue)) throw reclaimedValue.error;
+    assertEquals(reclaimedValue.route, {
+      routeKey: "any-contract:any-origin",
+      portalId: "portal.main",
+      contractId: null,
+      origin: null,
+      disabled: false,
+      updatedAt: reclaimedValue.route.updatedAt,
+    });
+    assertEquals(await repo.listRoutesByPortal("portal.old"), []);
+    assertEquals((await repo.listRoutesByPortal("portal.main")).length, 1);
+  });
+});
