@@ -8,6 +8,41 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.18] - 2026-06-22
+
+### Changed
+
+- Changed the public deployment authority protocol so proposal and desired-state
+  `needs` are grouped by `contracts`, `surfaces`, `capabilities`, and
+  `resources`, and materialized authority `grants` are grouped by
+  `capabilities`, `surfaces`, and `nats`. The TypeScript
+  `DeploymentAuthorityNeed` union was replaced by `DeploymentAuthorityNeeds` and
+  family-specific need types.
+- Added browser auth recovery classification helpers and Svelte provider hooks
+  so browser apps can handle stale sessions, expired auth flows, and
+  auth-required reconnects by restarting sign-in instead of showing terminal
+  connection errors.
+
+### Fixed
+
+- Repaired stale or obsolete persisted materialized-authority projections
+  through storage upgrade and reconciliation while preserving the rule that
+  runtime permissions require current materialization.
+- Fixed stale Trellis browser sessions and expired browser login flows across
+  the Console, login portal, and Svelte provider surfaces so recoverable auth
+  failures clear local session state, return users to sign-in, and avoid brief
+  intermediate loading-card flicker during callback handoff.
+- Fixed OAuth browser callbacks so flows with already-satisfied approval and
+  capabilities redirect directly back to the app instead of forcing another
+  login-portal approval step.
+- Fixed login portal route management so disabled selectors can be reclaimed by
+  a different portal, and Console route edits can update selector fields by
+  replacing the old selector after the new route is saved.
+- Fixed capability and authority displays by de-duplicating capability catalog
+  entries, counting grouped materialized grants correctly in Console, and hiding
+  raw capability keys from the login portal's primary insufficient-access copy
+  when no capability metadata is available.
+
 ## [0.10.18-rc.1] - 2026-06-13
 
 ### Changed
