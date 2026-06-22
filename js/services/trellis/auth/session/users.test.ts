@@ -108,6 +108,46 @@ Deno.test("Auth.Capabilities.List returns platform and active contract capabilit
   });
 });
 
+Deno.test("Auth.Capabilities.List returns unique assignment capability keys", async () => {
+  const capabilities: DeploymentAuthorityCapabilityDefinition[] = [{
+    deploymentId: "svc-a",
+    key: "krishi.billing::events.subscribe",
+    displayName: "Subscribe billing events",
+    description: "Subscribe to billing events.",
+    source: "contract",
+    contractId: "krishi.billing@v1",
+    contractDigest: "digest-a",
+    contractDisplayName: "Krishi Billing",
+    direction: "creates",
+  }, {
+    deploymentId: "svc-b",
+    key: "krishi.billing::events.subscribe",
+    displayName: "Subscribe billing events",
+    description: "Subscribe to billing events.",
+    source: "contract",
+    contractId: "krishi.billing@v1",
+    contractDigest: "digest-b",
+    contractDisplayName: "Krishi Billing",
+    direction: "given",
+  }];
+
+  const result = await createAuthCapabilitiesListHandler(
+    { listEnabled: () => Promise.resolve(capabilities) },
+    logger,
+  )({ input: { limit: 10 }, context: { caller: userCaller } });
+
+  const output = result.take();
+  assert(!isErr(output));
+  assertEquals(output.entries.map((entry: { key: string }) => entry.key), [
+    "admin",
+    "krishi.billing::events.subscribe",
+  ]);
+  const duplicateEntry = output.entries[1];
+  assert(duplicateEntry?.source === "contract");
+  assertEquals(duplicateEntry.deploymentId, "svc-a");
+  assertEquals(output.count, 2);
+});
+
 Deno.test("Auth.CapabilityGroups RPCs expose built-ins and manage custom groups", async () => {
   const capabilities: DeploymentAuthorityCapabilityDefinition[] = [{
     deploymentId: "svc-customer",
