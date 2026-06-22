@@ -1,3 +1,18 @@
+import {
+  type BrowserAuthRecoveryClassification,
+  classifyBrowserAuthError,
+} from "@qlever-llc/trellis/auth/browser";
+
+export const MISSING_PORTAL_FLOW_ID_ERROR = "Missing flow id.";
+
+export const GENERIC_MISSING_CAPABILITY_LABEL = "Additional access required";
+
+export interface CapabilityMetadata {
+  displayName: string;
+  description: string;
+  consequence?: string;
+}
+
 function isSamePageLocation(currentUrl: URL, location: string | null): boolean {
   if (!location) return false;
 
@@ -49,6 +64,11 @@ type RegistrationFlowState = {
   registration?: RegistrationOptions;
 };
 
+type PortalReturnState = {
+  status?: unknown;
+  returnLocation?: unknown;
+};
+
 function localLoginUrl(trellisUrl: string): URL {
   return new URL("/auth/login/local", trellisUrl);
 }
@@ -62,6 +82,15 @@ function localRegistrationUrl(trellisUrl: string, flowId: string): URL {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isCapabilityMetadata(value: unknown): value is CapabilityMetadata {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.displayName === "string" &&
+    typeof value.description === "string" &&
+    (value.consequence === undefined || typeof value.consequence === "string")
+  );
 }
 
 async function responseErrorCode(response: Response): Promise<string | null> {
@@ -131,6 +160,34 @@ export function federatedRegistrationProviders(
       typeof provider.id === "string" &&
       typeof provider.displayName === "string",
   );
+}
+
+export function capabilityEntries(
+  capabilities: unknown,
+): { key: string; capability: CapabilityMetadata }[] {
+  if (!isRecord(capabilities)) return [];
+  return Object.entries(capabilities)
+    .filter((entry): entry is [string, CapabilityMetadata] =>
+      isCapabilityMetadata(entry[1])
+    )
+    .map(([key, capability]) => ({ key, capability }));
+}
+
+export function capabilityMetadata(
+  capabilities: unknown,
+  key: string,
+): CapabilityMetadata | null {
+  if (!isRecord(capabilities)) return null;
+  const value = capabilities[key];
+  return isCapabilityMetadata(value) ? value : null;
+}
+
+export function portalCapabilityDisplayName(
+  capabilities: unknown,
+  key: string,
+): string {
+  return capabilityMetadata(capabilities, key)?.displayName ??
+    GENERIC_MISSING_CAPABILITY_LABEL;
 }
 
 export function isFederatedRegistrationAvailable(flowState: unknown): boolean {
@@ -211,10 +268,60 @@ export function shouldStayOnPortalCompletionPage(
   return isSamePageLocation(currentUrl, redirectLocation);
 }
 
+export function portalReturnLocation(
+  flowState: unknown,
+  fallbackLocation: string,
+): string {
+  if (!isRecord(flowState)) return fallbackLocation;
+  const { status, returnLocation } = flowState as PortalReturnState;
+  if (
+    (status === "approval_denied" ||
+      status === "insufficient_capabilities" ||
+      status === "expired") &&
+    typeof returnLocation === "string" &&
+    returnLocation.length > 0
+  ) {
+    return returnLocation;
+  }
+  return fallbackLocation;
+}
+
 export function shouldOfferPortalReturnLink(
   currentUrl: URL,
   returnLocation: string | null | undefined,
 ): boolean {
   if (!returnLocation) return false;
   return !isSamePageLocation(currentUrl, returnLocation);
+}
+
+export function classifyPortalFlowError(
+  error: string | null,
+  classification?: BrowserAuthRecoveryClassification | null,
+): BrowserAuthRecoveryClassification | null {
+  if (!error && !classification) return null;
+  if (error === MISSING_PORTAL_FLOW_ID_ERROR) {
+    return {
+      kind: "recoverable_expired_flow",
+      recoverable: true,
+      reason: "missing_flow_id",
+    };
+  }
+  return classification ?? classifyBrowserAuthError(error);
+}
+
+export function shouldShowPortalExpiredState(
+  error: string | null,
+  classification?: BrowserAuthRecoveryClassification | null,
+): boolean {
+  const portalClassification = classifyPortalFlowError(error, classification);
+  return portalClassification?.kind === "recoverable_expired_flow";
+}
+
+export function visiblePortalFlowError(
+  error: string | null,
+  classification?: BrowserAuthRecoveryClassification | null,
+): string | null {
+  if (!error) return null;
+  const portalClassification = classifyPortalFlowError(error, classification);
+  return portalClassification?.recoverable ? null : error;
 }

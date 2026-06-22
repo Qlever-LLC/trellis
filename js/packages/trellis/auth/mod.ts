@@ -43,7 +43,10 @@ export {
 export {
   type AuthConfig,
   bindFlow,
+  type BrowserAuthRecoveryClassification,
+  type BrowserAuthRecoveryKind,
   buildLoginUrl,
+  classifyBrowserAuthError,
   clearSessionKey,
   createRpcProof,
   fetchPortalFlowState,
@@ -52,6 +55,7 @@ export {
   getPublicSessionKey,
   hasSessionKey,
   isBindSuccessResponse,
+  isRecoverableBrowserAuthError,
   loadSessionKey,
   natsConnectSigForIat,
   portalFlowIdFromUrl,

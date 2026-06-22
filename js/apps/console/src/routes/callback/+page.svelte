@@ -6,7 +6,7 @@
   import {
     getCanonicalLoopbackRedirectUrl,
     getSelectedAuthUrl,
-    persistSelectedAuthUrl
+    persistSelectedAuthUrl,
   } from "../../lib/config";
   import {
     buildConsoleLoginUrl,
@@ -22,6 +22,7 @@
   let authError = $state<string | null>(null);
   let missingCapabilities = $state<string[]>([]);
   let selectedAuthUrl = $state("");
+  let showPendingCard = $state(false);
 
   function targetPath(): string {
     return getConsoleRedirectTarget(page.url);
@@ -48,7 +49,7 @@
     }
   }
 
-  onMount(async () => {
+  onMount(() => {
     if (!browser) return;
 
     const canonicalRedirect = getCanonicalLoopbackRedirectUrl();
@@ -57,58 +58,66 @@
       return;
     }
 
-    try {
-      const authUrl = getSelectedAuthUrl(page.url);
-      selectedAuthUrl = authUrl ? (persistSelectedAuthUrl(authUrl) ?? "") : "";
-      if (selectedAuthUrl) {
-        auth.setAuthUrl(selectedAuthUrl);
-      }
-      await auth.init();
-      const result = await auth.handleCallback(window.location.href);
-      cleanupCallbackUrl();
+    const pendingCardTimer = globalThis.setTimeout(() => {
+      showPendingCard = true;
+    }, 500);
 
-      if (!result) {
-        await goto(targetPath());
-        return;
-      }
+    void (async () => {
+      try {
+        const authUrl = getSelectedAuthUrl(page.url);
+        selectedAuthUrl = authUrl ? (persistSelectedAuthUrl(authUrl) ?? "") : "";
+        if (selectedAuthUrl) {
+          auth.setAuthUrl(selectedAuthUrl);
+        }
+        await auth.init();
+        const result = await auth.handleCallback(window.location.href);
+        cleanupCallbackUrl();
 
-      if (result.status === "bound") {
-        await goto(targetPath());
-        return;
-      }
+        if (!result) {
+          await goto(targetPath());
+          return;
+        }
 
-      if (result.status === "approval_denied") {
-        window.location.href = loginUrl(formatConsoleAuthError("approval_denied"));
-        return;
-      }
+        if (result.status === "bound") {
+          await goto(targetPath());
+          return;
+        }
 
-      if (result.status === "approval_required") {
-        await auth.resetSession();
-        window.location.href = loginUrl();
-        return;
-      }
+        if (result.status === "approval_denied") {
+          window.location.href = loginUrl(formatConsoleAuthError("approval_denied"));
+          return;
+        }
 
-      if (result.status === "insufficient_capabilities") {
-        missingCapabilities = result.missingCapabilities;
-        authError = "An administrator needs to grant additional capabilities before you can continue.";
-        status = "Insufficient access";
-        return;
-      }
+        if (result.status === "approval_required") {
+          await auth.resetSession();
+          window.location.href = loginUrl();
+          return;
+        }
 
-      if (result.status === "error") {
-        await auth.resetSession();
-        window.location.href = loginUrl();
-        return;
+        if (result.status === "insufficient_capabilities") {
+          missingCapabilities = result.missingCapabilities;
+          authError = "An administrator needs to grant additional capabilities before you can continue.";
+          status = "Insufficient access";
+          return;
+        }
+
+        if (result.status === "error") {
+          await auth.resetSession();
+          window.location.href = loginUrl();
+          return;
+        }
+      } catch (error) {
+        if (isRecoverableConsoleAuthError(error)) {
+          await auth.resetSession();
+          window.location.href = loginUrl();
+          return;
+        }
+        authError = errorMessage(error);
+        status = "Sign-in failed";
       }
-    } catch (error) {
-      if (isRecoverableConsoleAuthError(error)) {
-        await auth.resetSession();
-        window.location.href = loginUrl();
-        return;
-      }
-      authError = errorMessage(error);
-      status = "Sign-in failed";
-    }
+    })();
+
+    return () => globalThis.clearTimeout(pendingCardTimer);
   });
 </script>
 
@@ -116,35 +125,37 @@
   <title>Authorizing · Trellis</title>
 </svelte:head>
 
-<div class="flex min-h-screen items-center justify-center bg-base-200 px-4">
-  <div class="card trellis-card w-full max-w-sm border border-base-300 bg-base-100 shadow-none">
-    <div class="card-body items-center text-center gap-4">
-      <h1 class="text-lg font-semibold">{status}</h1>
+{#if showPendingCard || authError}
+  <div class="flex min-h-screen items-center justify-center bg-base-200 px-4">
+    <div class="card trellis-card w-full max-w-sm border border-base-300 bg-base-100 shadow-none">
+      <div class="card-body items-center text-center gap-4">
+        <h1 class="text-lg font-semibold">{status}</h1>
 
-      {#if authError}
-        <Notice variant="error" class="text-sm">{authError}</Notice>
-        {#if missingCapabilities.length}
-          <details class="collapse collapse-arrow rounded-box bg-base-200 text-left">
-            <summary class="collapse-title min-h-0 py-3 text-xs font-semibold uppercase text-base-content/50">
-              Technical details
-            </summary>
-            <ul class="collapse-content flex flex-col gap-1 text-xs text-base-content/55">
-              {#each missingCapabilities as capability (capability)}
-                <li class="trellis-identifier break-all">{capability}</li>
-              {/each}
-            </ul>
-          </details>
+        {#if authError}
+          <Notice variant="error" class="text-sm">{authError}</Notice>
+          {#if missingCapabilities.length}
+            <details class="collapse collapse-arrow rounded-box bg-base-200 text-left">
+              <summary class="collapse-title min-h-0 py-3 text-xs font-semibold uppercase text-base-content/50">
+                Technical details
+              </summary>
+              <ul class="collapse-content flex flex-col gap-1 text-xs text-base-content/55">
+                {#each missingCapabilities as capability (capability)}
+                  <li class="trellis-identifier break-all">{capability}</li>
+                {/each}
+              </ul>
+            </details>
+          {/if}
+          <button
+            class="btn btn-ghost btn-sm"
+            type="button"
+            onclick={() => {
+              window.location.href = loginUrl();
+            }}>Back to sign in</button
+          >
+        {:else}
+          <span class="loading loading-spinner loading-md"></span>
         {/if}
-        <button
-          class="btn btn-ghost btn-sm"
-          type="button"
-          onclick={() => {
-            window.location.href = loginUrl();
-          }}>Back to sign in</button
-        >
-      {:else}
-        <span class="loading loading-spinner loading-md"></span>
-      {/if}
+      </div>
     </div>
   </div>
-</div>
+{/if}

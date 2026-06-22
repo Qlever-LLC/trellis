@@ -9,13 +9,19 @@
   import PortalBrand from "$lib/components/PortalBrand.svelte";
   import { createLoginPortalFlow } from "$lib/portal_login";
   import {
+    capabilityEntries,
+    capabilityMetadata,
+    portalCapabilityDisplayName,
+    portalReturnLocation,
     isFederatedRegistrationAvailable,
     isFederatedRegistrationProvider,
     isLocalRegistrationAvailable,
     submitLocalLogin,
     submitLocalRegistration,
     shouldOfferPortalReturnLink,
+    shouldShowPortalExpiredState,
     shouldStayOnPortalCompletionPage,
+    visiblePortalFlowError,
   } from "./page_state";
 
   const flow = createLoginPortalFlow(pageUrl);
@@ -32,45 +38,6 @@
   let canCreateFederatedAccount = $derived(
     isFederatedRegistrationAvailable(flow.state),
   );
-
-  interface CapabilityMetadata {
-    displayName: string;
-    description: string;
-    consequence?: string;
-  }
-
-  function isPlainObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-  }
-
-  function isCapabilityMetadata(value: unknown): value is CapabilityMetadata {
-    if (!isPlainObject(value)) return false;
-    return (
-      typeof value.displayName === "string" &&
-      typeof value.description === "string" &&
-      (value.consequence === undefined || typeof value.consequence === "string")
-    );
-  }
-
-  function capabilityEntries(
-    capabilities: unknown,
-  ): { key: string; capability: CapabilityMetadata }[] {
-    if (!isPlainObject(capabilities)) return [];
-    return Object.entries(capabilities)
-      .filter((entry): entry is [string, CapabilityMetadata] =>
-        isCapabilityMetadata(entry[1])
-      )
-      .map(([key, capability]) => ({ key, capability }));
-  }
-
-  function capabilityMetadata(
-    capabilities: unknown,
-    key: string,
-  ): CapabilityMetadata | null {
-    if (!isPlainObject(capabilities)) return null;
-    const value = capabilities[key];
-    return isCapabilityMetadata(value) ? value : null;
-  }
 
   type UserDisplay = {
     origin: string;
@@ -113,17 +80,6 @@
     return `${user.origin}:${user.id}`;
   }
 
-  function technicalCapabilityLabel(key: string): string {
-    const namespaced = key.includes("::") ? key.split("::").at(-1) ?? key : key;
-    const withoutTrellisPrefix = namespaced.replace(/^trellis\./, "");
-    const words = withoutTrellisPrefix
-      .split(/[.:_-]+/)
-      .filter((word) => word.length > 0 && word.toLowerCase() !== "trellis");
-    return words
-      .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
-      .join(" ");
-  }
-
   function pageUrl(): URL {
     return new URL(window.location.href);
   }
@@ -138,18 +94,7 @@
   }
 
   function returnToApp(): string {
-    if (
-      flow.state?.status === "approval_denied" ||
-      flow.state?.status === "insufficient_capabilities"
-    ) {
-      const returnLocation =
-        "returnLocation" in flow.state &&
-        typeof flow.state.returnLocation === "string"
-          ? flow.state.returnLocation
-          : undefined;
-      return returnLocation ?? trellisUrl;
-    }
-    return trellisUrl;
+    return portalReturnLocation(flow.state, trellisUrl);
   }
 
   function shouldShowReturnToAppLink(): boolean {
@@ -172,13 +117,26 @@
   }
 
   function visibleFlowError(): string | null {
-    return flow.error === "Missing flow id." ? null : flow.error;
+    return visiblePortalFlowError(flow.error, flow.errorClassification);
+  }
+
+  function setFlowError(message: string): void {
+    flow.error = message;
+    flow.errorClassification = null;
+  }
+
+  function clearFlowError(): void {
+    flow.error = null;
+    flow.errorClassification = null;
   }
 
   async function loadFlow(): Promise<void> {
     const state = await flow.load();
-    if (!state && flow.error === "Missing flow id.") {
-      flow.error = null;
+    if (
+      !state &&
+      shouldShowPortalExpiredState(flow.error, flow.errorClassification)
+    ) {
+      clearFlowError();
       flow.state = { status: "expired" };
       return;
     }
@@ -192,12 +150,12 @@
 
   async function deny(): Promise<void> {
     if (!flow.flowId) {
-      flow.error = "Missing flow id.";
+      setFlowError("Missing flow id.");
       return;
     }
 
     denying = true;
-    flow.error = null;
+    clearFlowError();
     let redirected = false;
 
     try {
@@ -208,13 +166,17 @@
       );
       const nextLocation = portalRedirectLocation(nextState);
       if (nextLocation) {
+        if (shouldStayOnPortalCompletionPage(pageUrl(), nextLocation)) {
+          flow.state = nextState;
+          return;
+        }
         redirected = true;
         window.location.assign(nextLocation);
         return;
       }
       flow.state = nextState;
     } catch (error) {
-      flow.error = error instanceof Error ? error.message : String(error);
+      setFlowError(error instanceof Error ? error.message : String(error));
     } finally {
       if (!redirected) denying = false;
     }
@@ -223,17 +185,18 @@
   async function submitLocal(): Promise<void> {
     const username = localUsername.trim();
     if (!flow.flowId) {
-      flow.error =
-        "This sign-in request has expired. Return to the app and start sign-in again.";
+      setFlowError(
+        "This sign-in request has expired. Return to the app and start sign-in again.",
+      );
       return;
     }
     if (!username || !localPassword) {
-      flow.error = "Enter your username and password.";
+      setFlowError("Enter your username and password.");
       return;
     }
 
     localSubmitting = true;
-    flow.error = null;
+    clearFlowError();
 
     try {
       await submitLocalLogin(trellisUrl, {
@@ -244,7 +207,7 @@
       localPassword = "";
       await loadFlow();
     } catch (error) {
-      flow.error = error instanceof Error ? error.message : String(error);
+      setFlowError(error instanceof Error ? error.message : String(error));
     } finally {
       localSubmitting = false;
     }
@@ -255,17 +218,18 @@
     const name = registrationName.trim();
     const email = registrationEmail.trim();
     if (!flow.flowId) {
-      flow.error =
-        "This sign-in request has expired. Return to the app and start sign-in again.";
+      setFlowError(
+        "This sign-in request has expired. Return to the app and start sign-in again.",
+      );
       return;
     }
     if (!username || !registrationPassword || !name || !email) {
-      flow.error = "Enter your username, password, name, and email.";
+      setFlowError("Enter your username, password, name, and email.");
       return;
     }
 
     registrationSubmitting = true;
-    flow.error = null;
+    clearFlowError();
 
     try {
       await submitLocalRegistration(trellisUrl, flow.flowId, {
@@ -277,7 +241,7 @@
       registrationPassword = "";
       await loadFlow();
     } catch (error) {
-      flow.error = error instanceof Error ? error.message : String(error);
+      setFlowError(error instanceof Error ? error.message : String(error));
     } finally {
       registrationSubmitting = false;
     }
@@ -672,7 +636,7 @@
               {@const metadata = capabilityMetadata(flow.state.approval.capabilities, cap)}
               <li class="portal-capability-row px-3.5 py-3">
                 <p class="text-sm font-semibold text-base-content">
-                  {metadata?.displayName ?? technicalCapabilityLabel(cap)}
+                  {portalCapabilityDisplayName(flow.state.approval.capabilities, cap)}
                 </p>
                 {#if metadata}
                   <p class="portal-copy mt-0.5 text-sm leading-5">
@@ -717,14 +681,18 @@
         <div>
           <h1 class="text-xl font-semibold tracking-[-0.025em] text-base-content">Session expired</h1>
           <p class="portal-copy mt-2 text-sm">
-            This sign-in request is no longer active. Return to the app and
-            start sign-in again.
+            This sign-in request is no longer active.
+            {#if shouldShowReturnToAppLink()}
+              Return to the app and start sign-in again.
+            {:else}
+              Return to the CLI or app and start sign-in again.
+            {/if}
           </p>
         </div>
         <a
           class="btn btn-outline btn-block"
-          href={trellisUrl}
-          >Open Trellis</a
+          href={returnToApp()}
+          >{shouldShowReturnToAppLink() ? "Return to app" : "Open Trellis"}</a
         >
       {:else if flow.state?.status === "redirect"}
         {#if showDetachedCompletion()}

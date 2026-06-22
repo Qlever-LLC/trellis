@@ -1,6 +1,8 @@
 import {
   type AuthConfig,
+  type BrowserAuthRecoveryClassification,
   type BrowserPortalFlowState as PortalFlowState,
+  classifyBrowserAuthError,
   fetchPortalFlowState,
   portalFlowIdFromUrl,
   portalProviderLoginUrl,
@@ -24,6 +26,7 @@ export class PortalFlowController {
   state: PortalFlowState | null = $state(null);
   loading = $state(false);
   error: string | null = $state(null);
+  errorClassification: BrowserAuthRecoveryClassification | null = $state(null);
 
   #config: AuthConfig;
   #getUrl: () => URL;
@@ -36,6 +39,7 @@ export class PortalFlowController {
   async load(): Promise<PortalFlowState | null> {
     this.loading = true;
     this.error = null;
+    this.errorClassification = null;
     this.state = null;
 
     try {
@@ -51,6 +55,7 @@ export class PortalFlowController {
       return state;
     } catch (error) {
       this.error = errorMessage(error);
+      this.errorClassification = classifyBrowserAuthError(error);
       this.state = null;
       return null;
     } finally {
@@ -79,11 +84,13 @@ export class PortalFlowController {
   ): Promise<PortalFlowState | null> {
     if (!this.flowId) {
       this.error = "Missing flow id.";
+      this.errorClassification = null;
       return null;
     }
 
     this.loading = true;
     this.error = null;
+    this.errorClassification = null;
 
     try {
       const state = await submitPortalApproval(
@@ -95,6 +102,7 @@ export class PortalFlowController {
       return state;
     } catch (error) {
       this.error = errorMessage(error);
+      this.errorClassification = classifyBrowserAuthError(error);
       return null;
     } finally {
       this.loading = false;

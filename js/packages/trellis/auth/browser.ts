@@ -44,6 +44,14 @@ export {
 } from "./browser/session.ts";
 export { deleteKeyPair, hasKeyPair } from "./browser/storage.ts";
 export {
+  classifyBrowserAuthError,
+  isRecoverableBrowserAuthError,
+} from "./browser_recovery.ts";
+export type {
+  BrowserAuthRecoveryClassification,
+  BrowserAuthRecoveryKind,
+} from "./browser_recovery.ts";
+export {
   approvalCapabilityKeys,
   type ApprovalDecision as ApprovalDecisionData,
   ApprovalDecisionSchema,
