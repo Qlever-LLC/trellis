@@ -8,6 +8,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- Added browser/provider logout support for Trellis user sessions, including
+  optional OIDC/Auth0 logout URL construction, validated post-logout return
+  targets, browser logout helpers, Console sign-out integration, and generated
+  TypeScript/Rust auth SDK models for the extended `Auth.Sessions.Logout`
+  request and response.
+
 ## [0.10.18] - 2026-06-22
 
 ### Changed

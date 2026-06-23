@@ -2,7 +2,10 @@ import { resolve } from "$app/paths";
 import {
   bindFlow,
   type BindResponse,
+  type BrowserLogoutInput,
+  type BrowserLogoutResponse,
   clearSessionKey,
+  completeBrowserLogout,
   getOrCreateSessionKey,
   type SessionKeyHandle,
 } from "@qlever-llc/trellis/auth/browser";
@@ -101,18 +104,21 @@ class ConsoleAuthState {
     throw new Error("Authentication completed without a browser redirect");
   }
 
-  async signOut(logoutRequest: () => Promise<void>): Promise<never> {
-    try {
-      await logoutRequest();
-    } finally {
-      await clearSessionKey();
-      window.location.href = buildConsoleLoginUrl({
-        redirectTo: "/profile",
-        authUrl: this.#authUrl,
-      });
-    }
+  async signOut(
+    logoutRequest: (
+      input: BrowserLogoutInput,
+    ) => Promise<BrowserLogoutResponse>,
+  ): Promise<never> {
+    const returnTo = buildConsoleLoginUrl({
+      redirectTo: "/profile",
+      authUrl: this.#authUrl,
+    });
 
-    throw new Error("Redirecting to sign in");
+    return await completeBrowserLogout({
+      logoutRequest,
+      returnTo,
+      includeProviderLogout: true,
+    });
   }
 
   async resetSession(): Promise<void> {

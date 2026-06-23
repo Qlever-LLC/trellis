@@ -2523,9 +2523,31 @@ pub struct AuthSessionsListResponse {
     pub next_offset: Option<i64>,
     pub offset: i64,
 }
+/// Generated schema type `AuthSessionsLogoutRequest`.
+/// Generated schema type `AuthSessionsLogoutRequestBrowser`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthSessionsLogoutRequestBrowser {
+    #[serde(rename = "federatedProviderLogout")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub federated_provider_logout: Option<bool>,
+    #[serde(rename = "includeProviderLogout")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_provider_logout: Option<bool>,
+    #[serde(rename = "returnTo")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub return_to: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthSessionsLogoutRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub browser: Option<AuthSessionsLogoutRequestBrowser>,
+}
 /// Generated schema type `AuthSessionsLogoutResponse`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthSessionsLogoutResponse {
+    #[serde(rename = "providerLogoutUrl")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_logout_url: Option<String>,
     pub success: bool,
 }
 /// Generated schema type `AuthSessionsMeResponse`.

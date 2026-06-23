@@ -3,10 +3,15 @@ import { AsyncResult, type BaseError, isErr, Result } from "@qlever-llc/result";
 import { AuthError } from "../../../../packages/trellis/errors/AuthError.ts";
 import type { AuthConnectionRow } from "../../../../packages/trellis/models/auth/rpc/ListConnections.ts";
 import type { AuthSessionRow } from "../../../../packages/trellis/models/auth/rpc/ListSessions.ts";
-import type { Session } from "../schemas.ts";
+import type {
+  AuthSessionsLogoutRequest,
+  AuthSessionsLogoutResponse,
+  Session,
+} from "../schemas.ts";
 import type { CapabilityGroupLoader } from "../capability_groups.ts";
 import { resolveCapabilities } from "../capability_groups.ts";
 import { resolveSessionPrincipal } from "./principal.ts";
+import { buildProviderLogoutUrl } from "./provider_logout.ts";
 import {
   connectionFilterForSession,
   parseConnectionKey,
@@ -21,6 +26,8 @@ import type {
 } from "../storage.ts";
 import { listPage } from "../../storage/list_query.ts";
 import type { AuthLogger, AuthRuntimeDeps } from "../runtime_deps.ts";
+import type { Config } from "../../config.ts";
+import type { Provider } from "../providers/index.ts";
 
 type SessionRpcLogger = Pick<AuthLogger, "trace" | "warn">;
 const SERVICE_CAPABILITY = "service";
@@ -916,18 +923,56 @@ export function createAuthRequestsValidateHandler(deps: {
 
 export function createAuthSessionsLogoutHandler(deps: {
   logger: Pick<SessionRpcLogger, "trace">;
-  sessionStorage: Pick<SessionStorage, "deleteBySessionKey">;
-  connectionsKV: AuthRuntimeDeps["connectionsKV"];
+  sessionStorage: Pick<
+    SessionStorage,
+    "deleteBySessionKey" | "getOneBySessionKey"
+  >;
+  connectionsKV: Pick<
+    AuthRuntimeDeps["connectionsKV"],
+    "keys" | "get" | "delete"
+  >;
   natsSystem: Pick<AuthRuntimeDeps["natsSystem"], "request">;
+  config: Pick<Config, "web">;
+  providers: Record<string, Provider>;
 }) {
   return async (
-    { context: { caller, sessionKey } }: { context: SessionContext },
+    { input = {}, context: { caller, sessionKey } }: {
+      input?: AuthSessionsLogoutRequest;
+      context: SessionContext;
+    },
   ) => {
     const user = requireUserCaller(caller);
     deps.logger.trace(
       { rpc: "Auth.Sessions.Logout", sessionKey, userId: user.userId },
       "RPC request",
     );
+
+    const session = await loadSessionBySessionKey(
+      sessionKey,
+      deps.sessionStorage,
+    );
+    let providerLogoutUrl: string | undefined;
+    if (
+      session?.type === "user" && input.browser?.includeProviderLogout === true
+    ) {
+      const providerLogout = await buildProviderLogoutUrl({
+        provider: deps.providers[session.identity.provider],
+        session,
+        returnTo: input.browser.returnTo,
+        federated: input.browser.federatedProviderLogout,
+        config: deps.config,
+      });
+      if (!providerLogout.ok) {
+        return Result.err(
+          new AuthError({
+            reason: "invalid_request",
+            context: { reason: providerLogout.error },
+          }),
+        );
+      }
+      providerLogoutUrl = providerLogout.url;
+    }
+
     await deps.sessionStorage.deleteBySessionKey(sessionKey);
 
     const connKeys = await deps.connectionsKV.keys(
@@ -953,7 +998,10 @@ export function createAuthSessionsLogoutHandler(deps: {
       }
     }
 
-    return Result.ok({ success: true });
+    const response: AuthSessionsLogoutResponse = providerLogoutUrl
+      ? { success: true, providerLogoutUrl }
+      : { success: true };
+    return Result.ok(response);
   };
 }
 

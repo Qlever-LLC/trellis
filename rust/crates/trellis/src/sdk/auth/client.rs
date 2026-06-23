@@ -535,9 +535,10 @@ impl<'a> AuthRpc<'a> {
     /// Call `Auth.Sessions.Logout`.
     pub async fn sessions_logout(
         &self,
+        input: &super::types::AuthSessionsLogoutRequest,
     ) -> Result<super::types::AuthSessionsLogoutResponse, TrellisClientError> {
         self.inner
-            .call::<super::rpc::AuthSessionsLogoutRpc>(&super::rpc::Empty {})
+            .call::<super::rpc::AuthSessionsLogoutRpc>(input)
             .await
     }
     /// Call `Auth.Sessions.Me`.

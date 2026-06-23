@@ -27,6 +27,12 @@ const oidcProviderSchema = z.object({
   displayName: z.string().optional(),
   scopes: z.array(z.string()).default(["openid", "profile", "email"]),
   organization: z.string().min(1).optional(),
+  logout: z.object({
+    enabled: z.boolean().default(false),
+    endpoint: z.string().url().optional(),
+    mode: z.enum(["oidc", "auth0"]).default("oidc"),
+    allowFederated: z.boolean().default(false),
+  }).optional(),
 });
 
 const httpRateLimitSchema = z.object({
@@ -168,6 +174,12 @@ export type OIDCProviderConfig = {
   displayName: string;
   scopes: string[];
   organization?: string;
+  logout?: {
+    enabled: boolean;
+    endpoint?: string;
+    mode: "oidc" | "auth0";
+    allowFederated: boolean;
+  };
 };
 
 export type AuthProviderConfig = GitHubProviderConfig | OIDCProviderConfig;
@@ -379,6 +391,7 @@ function resolveProviderConfig(
     displayName: provider.displayName ?? key,
     scopes: provider.scopes,
     ...(provider.organization ? { organization: provider.organization } : {}),
+    ...(provider.logout ? { logout: provider.logout } : {}),
   };
 }
 

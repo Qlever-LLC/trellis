@@ -18,6 +18,12 @@ export {
   startAuthRequest,
 } from "./browser/login.ts";
 export {
+  type BrowserLogoutInput,
+  type BrowserLogoutResponse,
+  completeBrowserLogout,
+  type CompleteBrowserLogoutArgs,
+} from "./browser/logout.ts";
+export {
   type ApprovalDecision,
   fetchPortalFlowState,
   portalFlowIdFromUrl,

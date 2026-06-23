@@ -417,6 +417,14 @@ Rules:
 - user denial in the portal is a one-time browser-flow outcome that redirects
   the caller back with `authError=approval_denied` and does not create a durable
   denial record
+- browser apps may request provider/browser logout intent when calling
+  `Auth.Sessions.Logout`, but Trellis owns provider logout URL construction
+  because it owns configured providers, provider discovery, session identity,
+  and return-target validation
+- browser apps navigate to the returned provider logout URL when one is
+  returned; otherwise they complete local signed-out navigation themselves
+- portals render login and consent UX but do not own the provider logout
+  protocol or hard-code provider logout endpoints
 - expired or stale browser-flow continuations are recoverable when auth still
   knows the originating app return URL: auth returns or redirects to that URL
   without appending `authError=flow_expired`, allowing the app to restart its

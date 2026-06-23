@@ -6,6 +6,8 @@ import {
   AppIdentitySchema,
   AuthBrowserFlowSchema,
   AuthRequestsValidateRequestSchema,
+  AuthSessionsLogoutRequestSchema,
+  AuthSessionsLogoutResponseSchema,
   BindResponseSchema,
   DeploymentAuthorityCapabilityDefinitionSchema,
   DeploymentAuthorityGrantOverrideSchema,
@@ -184,6 +186,30 @@ Deno.test("Portal and browser-flow schemas validate", () => {
     },
     createdAt: new Date().toISOString(),
     expiresAt: new Date().toISOString(),
+  }));
+});
+
+Deno.test("AuthSessionsLogout schemas validate browser logout fields", () => {
+  assert(Value.Check(AuthSessionsLogoutRequestSchema, {}));
+  assert(Value.Check(AuthSessionsLogoutRequestSchema, {
+    browser: {
+      returnTo: "https://app.example.com/signed-out",
+      includeProviderLogout: true,
+      federatedProviderLogout: false,
+    },
+  }));
+  assertFalse(Value.Check(AuthSessionsLogoutRequestSchema, {
+    browser: {
+      includeProviderLogout: "true",
+    },
+  }));
+  assert(Value.Check(AuthSessionsLogoutResponseSchema, { success: true }));
+  assert(Value.Check(AuthSessionsLogoutResponseSchema, {
+    success: true,
+    providerLogoutUrl: "https://tenant.example.com/v2/logout",
+  }));
+  assertFalse(Value.Check(AuthSessionsLogoutResponseSchema, {
+    providerLogoutUrl: "https://tenant.example.com/v2/logout",
   }));
 });
 

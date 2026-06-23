@@ -602,7 +602,13 @@ capabilities beyond successful authenticated user context:
 Request:
 
 ```ts
-{}
+{
+  browser?: {
+    returnTo?: string;
+    includeProviderLogout?: boolean;
+    federatedProviderLogout?: boolean;
+  };
+}
 ```
 
 Response:
@@ -610,6 +616,7 @@ Response:
 ```ts
 {
   success: boolean;
+  providerLogoutUrl?: string;
 }
 ```
 
@@ -617,10 +624,37 @@ Behavior:
 
 1. Validate headers
 2. Lookup session
-3. List connections for the session
-4. Delete the session
-5. Kick all connections
+3. If browser provider logout is requested, validate `browser.returnTo` when
+   supplied and build a provider logout URL only when the session provider
+   supports one
+4. Delete the Trellis session
+5. Kick all matching live NATS connections
 6. Delete connection entries
+7. Return `{ success: true }` and, when provider logout URL construction
+   succeeded, `providerLogoutUrl`
+
+Browser logout fields are optional so existing non-browser callers may continue
+to send `{}`. `browser.returnTo` is the final browser location after upstream
+provider logout. `browser.includeProviderLogout` opts into OIDC/provider logout;
+without it, logout revokes only the Trellis session.
+`browser.federatedProviderLogout` requests provider-specific upstream federation
+logout and is honored only when the configured provider allows it.
+
+Rules:
+
+- invalid `browser.returnTo` is rejected as `invalid_request` and the Trellis
+  session is not deleted
+- valid `browser.returnTo` values must be HTTP(S) and must match the bound app
+  origin for app-bound sessions; sessions without an app origin may use explicit
+  configured `web.origins`
+- wildcard `web.origins` entries do not authorize logout return targets
+- apps cannot provide arbitrary external return URLs
+- provider logout is optional and best-effort: unsupported providers, disabled
+  provider logout, missing provider metadata, and provider URL construction
+  failures still complete Trellis session revocation
+- `providerLogoutUrl`, when returned, is produced after local session
+  revocation; browser apps navigate to it after clearing local browser
+  session-key storage
 
 Digest changes are handled by restarting the normal auth request flow with the
 current contract body. Runtime reconnect auth is regenerated locally from

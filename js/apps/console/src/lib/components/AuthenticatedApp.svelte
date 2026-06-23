@@ -2,17 +2,16 @@
   import { goto, afterNavigate } from "$app/navigation";
   import { base } from "$app/paths";
   import { page } from "$app/state";
-  import { clearSessionKey } from "@qlever-llc/trellis/auth/browser";
   import type { AuthSessionsMeOutput } from "@qlever-llc/trellis/sdk/auth";
   import type { Snippet } from "svelte";
   import { onDestroy, onMount } from "svelte";
+  import { auth } from "../auth";
   import {
     getVisibleNavSections,
     isAdmin,
     requiresAdminRoute,
     type NavSection,
   } from "../control-panel.ts";
-  import { APP_CONFIG, getSelectedAuthUrl } from "../config";
   import { errorMessage } from "../format";
   import { NotificationsController, setNotifications } from "../notifications.svelte";
   import { getAuthenticatedUser, getConnection, getTrellis, logoutAuthenticatedUser, type ConnectionStatus } from "../trellis";
@@ -50,22 +49,6 @@
     return pathname;
   }
 
-  function buildLoginUrl(redirectTo: string): string {
-    const url = new URL(resolveAppPath("/login"), page.url);
-    url.searchParams.set("redirectTo", redirectTo);
-
-    const authUrl = getSelectedAuthUrl(page.url);
-    if (authUrl && authUrl !== APP_CONFIG.authUrl) {
-      url.searchParams.set("authUrl", authUrl);
-    }
-
-    return url.toString();
-  }
-
-  function currentPath(): string {
-    return page.url.pathname + page.url.search;
-  }
-
   function enforceAdminAccess(pathname: string): void {
     if (!profileLoaded || !requiresAdminRoute(pathname) || isAdmin(profile)) {
       return;
@@ -79,19 +62,8 @@
     return await getAuthenticatedUser(trellis);
   }
 
-  async function logoutRequest(): Promise<void> {
-    await logoutAuthenticatedUser(trellis);
-  }
-
   async function signOut(): Promise<void> {
-    try {
-      await logoutRequest();
-    } catch {
-      // Continue clearing the browser session even if the server logout fails.
-    } finally {
-      await clearSessionKey();
-      window.location.href = buildLoginUrl(currentPath());
-    }
+    await auth.signOut((input) => logoutAuthenticatedUser(trellis, input));
   }
 
   afterNavigate(({ to }) => {

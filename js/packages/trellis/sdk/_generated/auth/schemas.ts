@@ -6138,12 +6138,24 @@ export const AuthSessionsListResponseSchema = {
 } as const;
 
 export const AuthSessionsLogoutRequestSchema = {
-  "properties": {},
+  "properties": {
+    "browser": {
+      "properties": {
+        "federatedProviderLogout": { "type": "boolean" },
+        "includeProviderLogout": { "type": "boolean" },
+        "returnTo": { "format": "uri", "type": "string" },
+      },
+      "type": "object",
+    },
+  },
   "type": "object",
 } as const;
 
 export const AuthSessionsLogoutResponseSchema = {
-  "properties": { "success": { "type": "boolean" } },
+  "properties": {
+    "providerLogoutUrl": { "format": "uri", "type": "string" },
+    "success": { "type": "boolean" },
+  },
   "required": ["success"],
   "type": "object",
 } as const;
