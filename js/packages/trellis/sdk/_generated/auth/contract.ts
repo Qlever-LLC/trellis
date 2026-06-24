@@ -13,7 +13,7 @@ const CONTRACT_MODULE_METADATA = Symbol.for(
 
 export const CONTRACT_ID = "trellis.auth@v1" as const;
 export const CONTRACT_DIGEST =
-  "e9RNn5N-yjr3k6-wV4kluhR42lOvY4--UYz95wX_F_A" as const;
+  "x-9_MjfSThvbn1yc9jAWbaraniKLZ74oUeUqqtZijXQ" as const;
 export const CONTRACT = {
   "capabilities": {
     "trellis.auth::device.review": {
@@ -7323,23 +7323,13 @@ export const CONTRACT = {
       "type": "object",
     },
     "AuthSessionsLogoutRequest": {
-      "properties": {
-        "browser": {
-          "properties": {
-            "federatedProviderLogout": { "type": "boolean" },
-            "includeProviderLogout": { "type": "boolean" },
-            "returnTo": { "format": "uri", "type": "string" },
-          },
-          "type": "object",
-        },
-      },
+      "additionalProperties": true,
+      "properties": {},
       "type": "object",
     },
     "AuthSessionsLogoutResponse": {
-      "properties": {
-        "providerLogoutUrl": { "format": "uri", "type": "string" },
-        "success": { "type": "boolean" },
-      },
+      "additionalProperties": false,
+      "properties": { "success": { "type": "boolean" } },
       "required": ["success"],
       "type": "object",
     },

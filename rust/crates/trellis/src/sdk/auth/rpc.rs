@@ -547,7 +547,7 @@ impl RpcDescriptor for AuthSessionsListRpc {
 /// Descriptor for `Auth.Sessions.Logout`.
 pub struct AuthSessionsLogoutRpc;
 impl RpcDescriptor for AuthSessionsLogoutRpc {
-    type Input = super::types::AuthSessionsLogoutRequest;
+    type Input = Empty;
     type Output = super::types::AuthSessionsLogoutResponse;
     const KEY: &'static str = "Auth.Sessions.Logout";
     const SUBJECT: &'static str = "rpc.v1.Auth.Sessions.Logout";

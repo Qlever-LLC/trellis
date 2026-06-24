@@ -86,11 +86,12 @@ Rules:
   the Trellis browser/Svelte helpers. Plain callbacks after expired login flows
   should restart the current auth request; reserve user-visible callback errors
   for explicit outcomes such as `authError=approval_denied`.
-- Browser apps should request browser/provider logout through Trellis auth helpers
-  or `Auth.Sessions.Logout`, then navigate to the returned `providerLogoutUrl`
-  when present. Trellis owns provider logout URL construction and return-target
-  validation; apps should not hard-code IdP logout endpoints or arbitrary
-  post-logout return URLs.
+- Browser apps should request sign-out through Trellis browser auth helpers,
+  which sign and POST the logout request over HTTP before navigating to any
+  returned redirect. Browser apps should not call `Auth.Sessions.Logout` from
+  the active app connection. Trellis owns provider logout URL construction and
+  return-target validation; apps should not hard-code IdP logout endpoints or
+  arbitrary post-logout return URLs.
 - Rust service repos should expose Trellis generation as `cargo xtask prepare`
 - the local `AGENTS.md` should record the contract source path, generated artifact
   command, format command, typecheck/clippy command, test command, run command,

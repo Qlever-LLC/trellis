@@ -310,6 +310,12 @@ export function createAuthStartRequestHandler(deps: {
     }
 
     const existingSession = await deps.loadCurrentUserSession(req.sessionKey);
+    const app = typeof contract.id === "string"
+      ? buildAppIdentity({
+        contractId: contract.id,
+        redirectTo: req.redirectTo,
+      })
+      : undefined;
     let resolution: ApprovalResolution | null = null;
     if (existingSession) {
       const pendingValue: PendingAuth = {
@@ -324,14 +330,7 @@ export function createAuthStartRequestHandler(deps: {
         },
         sessionKey: req.sessionKey,
         redirectTo: req.redirectTo,
-        ...(typeof contract.id === "string"
-          ? {
-            app: buildAppIdentity({
-              contractId: contract.id,
-              redirectTo: req.redirectTo,
-            }),
-          }
-          : {}),
+        ...(app ? { app } : {}),
         contract,
         createdAt: new Date(),
       };

@@ -87,10 +87,11 @@ handles. Use generated `rpc`, `event`, `feed`, `operation`, `state`, and
 `service.jobs` for service-owned resources, and `connection` for lifecycle status
 or shutdown.
 
-For browser app sign-out, use Trellis browser auth helpers or call
-`Auth.Sessions.Logout` with browser logout options. Navigate to the returned
-`providerLogoutUrl` when present, and let Trellis validate `returnTo` and build
-provider logout URLs instead of hard-coding IdP endpoints.
+For browser app sign-out, use Trellis browser auth helpers so the app signs and
+POSTs the logout request over HTTP before navigating to any returned redirect.
+Do not call `Auth.Sessions.Logout` from the active app connection for normal
+browser logout, and let Trellis validate `returnTo` and build provider logout
+URLs instead of hard-coding IdP endpoints.
 
 ## Register handlers with `service.handle`
 

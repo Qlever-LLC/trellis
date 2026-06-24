@@ -48,6 +48,15 @@ type BuildLoginUrlFlatArgs = {
   context?: unknown;
 };
 
+type StartAuthRequestArgs = {
+  authUrl: string;
+  provider?: string;
+  redirectTo: string;
+  handle: SessionKeyHandle;
+  contract: Record<string, unknown>;
+  context?: unknown;
+};
+
 function contextRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
@@ -124,14 +133,9 @@ export async function buildLoginUrl(
   return response.loginUrl;
 }
 
-export async function startAuthRequest(args: {
-  authUrl: string;
-  provider?: string;
-  redirectTo: string;
-  handle: SessionKeyHandle;
-  contract: Record<string, unknown>;
-  context?: unknown;
-}): Promise<AuthStartResponse> {
+export async function startAuthRequest(
+  args: StartAuthRequestArgs,
+): Promise<AuthStartResponse> {
   const context = contextRecord(args.context);
   const contractDigest = isTrellisContractV1(args.contract)
     ? digestContractManifest(args.contract)

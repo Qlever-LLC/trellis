@@ -1,21 +1,22 @@
 import { base64urlDecode, verifyProof } from "@qlever-llc/trellis/auth";
-import { AsyncResult, type BaseError, isErr, Result } from "@qlever-llc/result";
+import {
+  type AsyncResult,
+  type BaseError,
+  isErr,
+  Result,
+} from "@qlever-llc/result";
 import { AuthError } from "../../../../packages/trellis/errors/AuthError.ts";
 import type { AuthConnectionRow } from "../../../../packages/trellis/models/auth/rpc/ListConnections.ts";
 import type { AuthSessionRow } from "../../../../packages/trellis/models/auth/rpc/ListSessions.ts";
-import type {
-  AuthSessionsLogoutRequest,
-  AuthSessionsLogoutResponse,
-  Session,
-} from "../schemas.ts";
+import type { AuthSessionsLogoutRequest, Session } from "../schemas.ts";
 import type { CapabilityGroupLoader } from "../capability_groups.ts";
 import { resolveCapabilities } from "../capability_groups.ts";
 import { resolveSessionPrincipal } from "./principal.ts";
-import { buildProviderLogoutUrl } from "./provider_logout.ts";
 import {
   connectionFilterForSession,
   parseConnectionKey,
 } from "./connections.ts";
+import { terminateSession } from "./logout.ts";
 export { createAuthSessionsRevokeHandler } from "./revoke.ts";
 import { createAuthSessionsRevokeHandler } from "./revoke.ts";
 import type {
@@ -26,8 +27,6 @@ import type {
 } from "../storage.ts";
 import { listPage } from "../../storage/list_query.ts";
 import type { AuthLogger, AuthRuntimeDeps } from "../runtime_deps.ts";
-import type { Config } from "../../config.ts";
-import type { Provider } from "../providers/index.ts";
 
 type SessionRpcLogger = Pick<AuthLogger, "trace" | "warn">;
 const SERVICE_CAPABILITY = "service";
@@ -931,12 +930,10 @@ export function createAuthSessionsLogoutHandler(deps: {
     AuthRuntimeDeps["connectionsKV"],
     "keys" | "get" | "delete"
   >;
-  natsSystem: Pick<AuthRuntimeDeps["natsSystem"], "request">;
-  config: Pick<Config, "web">;
-  providers: Record<string, Provider>;
+  kick: (serverId: string, clientId: number) => Promise<void>;
 }) {
   return async (
-    { input = {}, context: { caller, sessionKey } }: {
+    { input: _input = {}, context: { caller, sessionKey } }: {
       input?: AuthSessionsLogoutRequest;
       context: SessionContext;
     },
@@ -947,61 +944,15 @@ export function createAuthSessionsLogoutHandler(deps: {
       "RPC request",
     );
 
-    const session = await loadSessionBySessionKey(
+    await terminateSession({
       sessionKey,
-      deps.sessionStorage,
-    );
-    let providerLogoutUrl: string | undefined;
-    if (
-      session?.type === "user" && input.browser?.includeProviderLogout === true
-    ) {
-      const providerLogout = await buildProviderLogoutUrl({
-        provider: deps.providers[session.identity.provider],
-        session,
-        returnTo: input.browser.returnTo,
-        federated: input.browser.federatedProviderLogout,
-        config: deps.config,
-      });
-      if (!providerLogout.ok) {
-        return Result.err(
-          new AuthError({
-            reason: "invalid_request",
-            context: { reason: providerLogout.error },
-          }),
-        );
-      }
-      providerLogoutUrl = providerLogout.url;
-    }
+      scopeId: user.userId,
+      sessionStorage: deps.sessionStorage,
+      connectionsKV: deps.connectionsKV,
+      kick: deps.kick,
+    });
 
-    await deps.sessionStorage.deleteBySessionKey(sessionKey);
-
-    const connKeys = await deps.connectionsKV.keys(
-      connectionFilterForSession(sessionKey),
-    )
-      .take();
-    if (!isErr(connKeys)) {
-      for await (const key of connKeys) {
-        const parsedKey = parseConnectionKey(key);
-        if (!parsedKey || parsedKey.scopeId !== user.userId) continue;
-        const entry = await deps.connectionsKV.get(key).take();
-        if (!isErr(entry)) {
-          const connection = unwrapConnectionEntry(entry);
-          if (!connection) continue;
-          await AsyncResult.try(() =>
-            deps.natsSystem.request(
-              `$SYS.REQ.SERVER.${connection.serverId}.KICK`,
-              JSON.stringify({ cid: connection.clientId }),
-            )
-          );
-        }
-        await deps.connectionsKV.delete(key);
-      }
-    }
-
-    const response: AuthSessionsLogoutResponse = providerLogoutUrl
-      ? { success: true, providerLogoutUrl }
-      : { success: true };
-    return Result.ok(response);
+    return Result.ok({ success: true });
   };
 }
 

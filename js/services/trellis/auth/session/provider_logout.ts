@@ -1,6 +1,6 @@
 import type { Config } from "../../config.ts";
 import type { Provider } from "../providers/index.ts";
-import type { UserSession } from "../schemas.ts";
+import type { Session, UserSession } from "../schemas.ts";
 
 type LogoutCapableProvider = {
   buildLogoutUrl(args?: {
@@ -38,27 +38,35 @@ function hasLogoutBuilder(
 }
 
 /**
- * Validates a browser return URL for provider logout.
+ * Validates a browser return URL for logout.
  *
  * The return URL must be http(s) and same-origin with the session app when the
  * session is app-bound. Sessions without an app origin fall back to explicit
  * configured web origins; wildcard origins do not authorize logout returns.
  */
-export function validateProviderLogoutReturnTo(args: {
+export function validateLogoutReturnTo(args: {
   returnTo: string;
-  session: UserSession;
+  session: Session;
   config: Pick<Config, "web">;
 }): boolean {
   const returnUrl = parseHttpUrl(args.returnTo);
   if (!returnUrl) return false;
 
-  if (args.session.app?.origin) {
+  if (args.session.type === "user" && args.session.app?.origin) {
     return sameOrigin(returnUrl, args.session.app.origin);
   }
 
   return args.config.web.origins.some((origin) =>
     origin !== "*" && sameOrigin(returnUrl, origin)
   );
+}
+
+function validateProviderLogoutReturnTo(args: {
+  returnTo: string;
+  session: UserSession;
+  config: Pick<Config, "web">;
+}): boolean {
+  return validateLogoutReturnTo(args);
 }
 
 /**

@@ -180,7 +180,9 @@ export async function ensureBoundUserSession(args: {
   delegatedCapabilities: string[];
   delegatedPublishSubjects: string[];
   delegatedSubscribeSubjects: string[];
-}): Promise<Result<{ createdAt: Date }, EnsureBoundUserSessionError>> {
+}): Promise<
+  Result<{ createdAt: Date; session: UserSession }, EnsureBoundUserSessionError>
+> {
   let existingSession: Session | undefined;
   try {
     existingSession = await args.sessionStorage.getOneBySessionKey(
@@ -252,7 +254,7 @@ export async function ensureBoundUserSession(args: {
   if (existingSession === undefined || needsReset) {
     try {
       await args.sessionStorage.put(args.sessionKey, session);
-      return Result.ok({ createdAt: args.now });
+      return Result.ok({ createdAt: args.now, session });
     } catch (error) {
       return Result.err(
         new EnsureBoundUserSessionError("storage_error", {
@@ -305,5 +307,5 @@ export async function ensureBoundUserSession(args: {
     );
   }
 
-  return Result.ok({ createdAt: updated.createdAt });
+  return Result.ok({ createdAt: updated.createdAt, session: updated });
 }

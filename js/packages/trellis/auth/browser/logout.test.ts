@@ -1,7 +1,13 @@
 import { assertEquals, assertRejects } from "@std/assert";
 
-import { type BrowserLogoutInput, completeBrowserLogout } from "./logout.ts";
-import { generateSessionKey, hasSessionKey } from "./session.ts";
+import { buildLogoutSignaturePayload } from "../schemas.ts";
+import { base64urlDecode, sha256, toArrayBuffer, utf8 } from "../utils.ts";
+import { completeSessionLogout, logoutSession } from "./logout.ts";
+import {
+  generateSessionKey,
+  hasSessionKey,
+  logoutSessionSig,
+} from "./session.ts";
 
 async function assertRedirects(
   action: () => Promise<never>,
@@ -9,129 +15,221 @@ async function assertRedirects(
   await assertRejects(action, Error, "Redirecting after logout");
 }
 
-Deno.test("completeBrowserLogout builds browser logout input and redirects to provider URL", async () => {
-  await generateSessionKey({ persistence: "temporary" });
-  const inputs: BrowserLogoutInput[] = [];
-  const location: Pick<Location, "href"> = { href: "" };
+Deno.test("logoutSession POSTs signed JSON request and parses response", async () => {
+  const handle = await generateSessionKey({ persistence: "temporary" });
+  const originalNow = Date.now;
+  let input = "";
+  let init: RequestInit | undefined;
 
-  await assertRedirects(() =>
-    completeBrowserLogout({
-      logoutRequest: (input) => {
-        inputs.push(input);
-        return Promise.resolve({
+  try {
+    Date.now = () => 1_735_689_600_000;
+    const response = await logoutSession({
+      authUrl: "https://auth.example/",
+      handle,
+      returnTo: "https://app.example/signed-out",
+      providerLogout: true,
+      federatedProviderLogout: true,
+      fetch: (async (requestInput, requestInit) => {
+        input = String(requestInput);
+        init = requestInit;
+        return new Response(JSON.stringify({
           success: true,
-          providerLogoutUrl: "https://idp.example/logout",
-        });
-      },
-      returnTo: "https://app.example/signed-out",
-      includeProviderLogout: true,
-      location,
-    })
-  );
+          redirectTo: "https://idp.example/logout",
+        }));
+      }) as typeof fetch,
+    });
 
-  assertEquals(inputs, [{
-    browser: {
-      returnTo: "https://app.example/signed-out",
-      includeProviderLogout: true,
-    },
-  }]);
-  assertEquals(location.href, "https://idp.example/logout");
-  assertEquals(await hasSessionKey({ persistence: "temporary" }), false);
+    assertEquals(input, "https://auth.example/auth/sessions/logout");
+    assertEquals(init?.method, "POST");
+    assertEquals(init?.headers, { "content-type": "application/json" });
+    const body = JSON.parse(String(init?.body));
+    assertEquals(body.sessionKey, handle.sessionKey);
+    assertEquals(body.iat, 1_735_689_600);
+    assertEquals(body.providerLogout, true);
+    assertEquals(body.federatedProviderLogout, true);
+    assertEquals(body.returnTo, "https://app.example/signed-out");
+    assertEquals(body.responseMode, "json");
+
+    const digest = await sha256(
+      utf8(`logout-session:${
+        buildLogoutSignaturePayload({
+          iat: 1_735_689_600,
+          providerLogout: true,
+          federatedProviderLogout: true,
+          returnTo: "https://app.example/signed-out",
+          responseMode: "json",
+        })
+      }`),
+    );
+    const verified = await crypto.subtle.verify(
+      { name: "Ed25519" },
+      handle.publicKey,
+      toArrayBuffer(base64urlDecode(body.sig)),
+      toArrayBuffer(digest),
+    );
+
+    assertEquals(verified, true);
+    assertEquals(response, {
+      success: true,
+      redirectTo: "https://idp.example/logout",
+    });
+  } finally {
+    Date.now = originalNow;
+  }
 });
 
-Deno.test("completeBrowserLogout falls back to returnTo when no provider URL is returned", async () => {
-  await generateSessionKey({ persistence: "temporary" });
-  const location: Pick<Location, "href"> = { href: "" };
+Deno.test("logoutSession rejects HTTP failures clearly", async () => {
+  const handle = await generateSessionKey({ persistence: "temporary" });
 
-  await assertRedirects(() =>
-    completeBrowserLogout({
-      logoutRequest: () => Promise.resolve({ success: true }),
-      returnTo: "https://app.example/signed-out",
-      location,
-    })
+  await assertRejects(
+    () =>
+      logoutSession({
+        authUrl: "https://auth.example",
+        handle,
+        fetch: (async () =>
+          new Response("no", { status: 503 })) as typeof fetch,
+      }),
+    Error,
+    "Logout request failed with HTTP 503",
   );
-
-  assertEquals(location.href, "https://app.example/signed-out");
-  assertEquals(await hasSessionKey({ persistence: "temporary" }), false);
 });
 
-Deno.test("completeBrowserLogout defaults includeProviderLogout when returnTo is provided", async () => {
-  const inputs: BrowserLogoutInput[] = [];
-  const location: Pick<Location, "href"> = { href: "" };
+Deno.test("completeSessionLogout clears session key and navigates to returned redirect", async () => {
+  const handle = await generateSessionKey({ persistence: "temporary" });
+  const assigned: string[] = [];
+  const originalFetch = globalThis.fetch;
 
-  await assertRedirects(() =>
-    completeBrowserLogout({
-      logoutRequest: (input) => {
-        inputs.push(input);
-        return Promise.resolve({ success: true });
-      },
-      returnTo: "https://app.example/signed-out",
-      location,
-    })
-  );
+  try {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        success: true,
+        redirectTo: "https://idp.example/logout",
+      }))) as typeof fetch;
 
-  assertEquals(inputs, [{
-    browser: {
-      returnTo: "https://app.example/signed-out",
-      includeProviderLogout: true,
-    },
-  }]);
+    await assertRedirects(() =>
+      completeSessionLogout({
+        authUrl: "https://auth.example",
+        handle,
+        returnTo: "https://app.example/signed-out",
+        providerLogout: true,
+        location: {
+          href: "",
+          assign: (target) => assigned.push(String(target)),
+        },
+      })
+    );
+
+    assertEquals(assigned, ["https://idp.example/logout"]);
+    assertEquals(await hasSessionKey({ persistence: "temporary" }), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
-Deno.test("completeBrowserLogout supports explicit includeProviderLogout false", async () => {
-  const inputs: BrowserLogoutInput[] = [];
-  const location: Pick<Location, "href"> = { href: "" };
+Deno.test("completeSessionLogout falls back to returnTo when no redirect is returned", async () => {
+  const handle = await generateSessionKey({ persistence: "temporary" });
+  const assigned: string[] = [];
+  const originalFetch = globalThis.fetch;
 
-  await assertRedirects(() =>
-    completeBrowserLogout({
-      logoutRequest: (input) => {
-        inputs.push(input);
-        return Promise.resolve({ success: true });
-      },
-      returnTo: "https://app.example/signed-out",
-      includeProviderLogout: false,
-      location,
-    })
-  );
+  try {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ success: true }))) as typeof fetch;
 
-  assertEquals(inputs, [{
-    browser: {
-      returnTo: "https://app.example/signed-out",
-      includeProviderLogout: false,
-    },
-  }]);
+    await assertRedirects(() =>
+      completeSessionLogout({
+        authUrl: "https://auth.example",
+        handle,
+        returnTo: "https://app.example/signed-out",
+        location: {
+          href: "",
+          assign: (target) =>
+            assigned.push(String(target)),
+        },
+      })
+    );
+
+    assertEquals(assigned, ["https://app.example/signed-out"]);
+    assertEquals(await hasSessionKey({ persistence: "temporary" }), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
-Deno.test("completeBrowserLogout clears session key when logoutRequest rejects and redirects to fallback", async () => {
-  await generateSessionKey({ persistence: "temporary" });
-  const location: Pick<Location, "href"> = { href: "" };
+Deno.test("completeSessionLogout clears session key after HTTP failure and falls back to returnTo", async () => {
+  const handle = await generateSessionKey({ persistence: "temporary" });
+  const assigned: string[] = [];
+  const originalFetch = globalThis.fetch;
 
-  await assertRedirects(() =>
-    completeBrowserLogout({
-      logoutRequest: () => Promise.reject(new Error("RPC unavailable")),
-      returnTo: "https://app.example/signed-out",
-      location,
-    })
-  );
+  try {
+    globalThis.fetch = (async () =>
+      new Response("unavailable", { status: 503 })) as typeof fetch;
 
-  assertEquals(location.href, "https://app.example/signed-out");
-  assertEquals(await hasSessionKey({ persistence: "temporary" }), false);
+    await assertRedirects(() =>
+      completeSessionLogout({
+        authUrl: "https://auth.example",
+        handle,
+        returnTo: "https://app.example/signed-out",
+        location: {
+          href: "",
+          assign: (target) =>
+            assigned.push(String(target)),
+        },
+      })
+    );
+
+    assertEquals(assigned, ["https://app.example/signed-out"]);
+    assertEquals(await hasSessionKey({ persistence: "temporary" }), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
-Deno.test("completeBrowserLogout uses slash fallback when no returnTo or provider URL is available", async () => {
-  const inputs: BrowserLogoutInput[] = [];
-  const location: Pick<Location, "href"> = { href: "" };
+Deno.test("completeSessionLogout uses slash fallback when no redirect or returnTo is available", async () => {
+  const handle = await generateSessionKey({ persistence: "temporary" });
+  const assigned: string[] = [];
+  const originalFetch = globalThis.fetch;
 
-  await assertRedirects(() =>
-    completeBrowserLogout({
-      logoutRequest: (input) => {
-        inputs.push(input);
-        return Promise.resolve({ success: true });
-      },
-      location,
-    })
+  try {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ success: true }))) as typeof fetch;
+
+    await assertRedirects(() =>
+      completeSessionLogout({
+        authUrl: "https://auth.example",
+        handle,
+        location: {
+          href: "",
+          assign: (target) =>
+            assigned.push(String(target)),
+        },
+      })
+    );
+
+    assertEquals(assigned, ["/"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("logoutSessionSig signs the canonical logout-session digest", async () => {
+  const handle = await generateSessionKey({ persistence: "temporary" });
+  const input = {
+    iat: 1_735_689_600,
+    providerLogout: true,
+    returnTo: "https://app.example/signed-out",
+    responseMode: "json" as const,
+  };
+
+  const sig = await logoutSessionSig(handle, input);
+  const digest = await sha256(
+    utf8(`logout-session:${buildLogoutSignaturePayload(input)}`),
+  );
+  const verified = await crypto.subtle.verify(
+    { name: "Ed25519" },
+    handle.publicKey,
+    toArrayBuffer(base64urlDecode(sig)),
+    toArrayBuffer(digest),
   );
 
-  assertEquals(inputs, [{}]);
-  assertEquals(location.href, "/");
+  assertEquals(verified, true);
 });

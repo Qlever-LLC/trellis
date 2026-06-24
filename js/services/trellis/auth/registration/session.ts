@@ -1,7 +1,6 @@
 import { createKick } from "../callout/kick.ts";
 import { createServiceLookup } from "../admin/service_lookup.ts";
 import type { Config } from "../../config.ts";
-import { createProviders } from "../providers/registry.ts";
 import {
   createAuthConnectionsKickHandler,
   createAuthConnectionsListHandler,
@@ -57,7 +56,6 @@ export async function registerSessionRpcs(deps: {
 }): Promise<void> {
   const kick = createKick({ logger: deps.logger, natsSystem: deps.natsSystem });
   const serviceLookup = createServiceLookup(deps);
-  const providers = createProviders(deps.config);
   const revokeSessionHandler = createAuthSessionsRevokeHandler({
     sessionStorage: deps.sessionStorage,
     connectionsKV: deps.connectionsKV,
@@ -110,9 +108,7 @@ export async function registerSessionRpcs(deps: {
       logger: deps.logger,
       sessionStorage: deps.sessionStorage,
       connectionsKV: deps.connectionsKV,
-      natsSystem: deps.natsSystem,
-      config: deps.config,
-      providers,
+      kick,
     }),
   );
   await deps.trellis.handle.rpc.auth.sessionsList(

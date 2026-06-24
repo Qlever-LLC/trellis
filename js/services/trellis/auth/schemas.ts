@@ -1,11 +1,21 @@
 import {
   ApprovalDecisionSchema,
+  type AuthLogoutRequest,
+  AuthLogoutRequestSchema,
+  type AuthLogoutResponse,
+  type AuthLogoutResponseMode,
+  AuthLogoutResponseModeSchema,
+  AuthLogoutResponseSchema,
   AuthRequestsValidateSchema as AuthRequestsValidateRequestSchema,
+  type AuthStartRequest,
+  AuthStartRequestSchema,
   type BindResponse,
   BindResponseSchema,
   BindSuccessResponseSchema,
+  buildLogoutSignaturePayload,
   type ContractApproval as AuthContractApproval,
   ContractApprovalSchema,
+  type LogoutSignaturePayloadInput,
   type SentinelCreds,
   SentinelCredsSchema,
 } from "@qlever-llc/trellis/auth";
@@ -33,7 +43,15 @@ export const UserParticipantKindSchema = Type.Union([
 
 const DurableIsoDateStringSchema = Type.String({ format: "date-time" });
 
-export type { BindResponse, SentinelCreds };
+export type {
+  AuthLogoutRequest,
+  AuthLogoutResponse,
+  AuthLogoutResponseMode,
+  AuthStartRequest,
+  BindResponse,
+  LogoutSignaturePayloadInput,
+  SentinelCreds,
+};
 export const DeviceSchema = Type.Object({
   instanceId: Type.String({ minLength: 1 }),
   publicIdentityKey: Type.String({ minLength: 1 }),
@@ -53,8 +71,13 @@ export const DeviceSchema = Type.Object({
 });
 export {
   ApprovalDecisionSchema,
+  AuthLogoutRequestSchema,
+  AuthLogoutResponseModeSchema,
+  AuthLogoutResponseSchema,
+  AuthStartRequestSchema,
   BindResponseSchema,
   BindSuccessResponseSchema,
+  buildLogoutSignaturePayload,
   ContractApprovalSchema,
   DeviceActivationActorSchema,
   DeviceActivationRecordSchema,
@@ -929,12 +952,8 @@ export const ConnectionSchema = Type.Object({
 });
 export type Connection = StaticDecode<typeof ConnectionSchema>;
 
-export const AuthSessionsLogoutRequestSchema = Type.Object({
-  browser: Type.Optional(Type.Object({
-    returnTo: Type.Optional(Type.String({ format: "uri" })),
-    includeProviderLogout: Type.Optional(Type.Boolean()),
-    federatedProviderLogout: Type.Optional(Type.Boolean()),
-  })),
+export const AuthSessionsLogoutRequestSchema = Type.Object({}, {
+  additionalProperties: true,
 });
 export type AuthSessionsLogoutRequest = StaticDecode<
   typeof AuthSessionsLogoutRequestSchema
@@ -942,8 +961,7 @@ export type AuthSessionsLogoutRequest = StaticDecode<
 
 export const AuthSessionsLogoutResponseSchema = Type.Object({
   success: Type.Boolean(),
-  providerLogoutUrl: Type.Optional(Type.String({ format: "uri" })),
-});
+}, { additionalProperties: false });
 export type AuthSessionsLogoutResponse = StaticDecode<
   typeof AuthSessionsLogoutResponseSchema
 >;

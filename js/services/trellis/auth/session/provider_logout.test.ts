@@ -3,10 +3,10 @@ import { assertEquals } from "@std/assert";
 import type { Config } from "../../config.ts";
 import { GitHub } from "../providers/github.ts";
 import { Provider } from "../providers/index.ts";
-import type { UserSession } from "../schemas.ts";
+import type { ServiceSession, UserSession } from "../schemas.ts";
 import {
   buildProviderLogoutUrl,
-  validateProviderLogoutReturnTo,
+  validateLogoutReturnTo,
 } from "./provider_logout.ts";
 
 const BASE_CONFIG: Pick<Config, "web"> = {
@@ -37,6 +37,27 @@ function testUserSession(overrides: Partial<UserSession> = {}): UserSession {
     delegatedSubscribeSubjects: [],
     createdAt: new Date("2026-04-10T00:00:00.000Z"),
     lastAuth: new Date("2026-04-10T00:00:00.000Z"),
+    ...overrides,
+  };
+}
+
+function testServiceSession(
+  overrides: Partial<ServiceSession> = {},
+): ServiceSession {
+  return {
+    type: "service",
+    trellisId: "trellis_test",
+    origin: "https://service.example.com",
+    id: "svc_123",
+    email: "service@example.com",
+    name: "Service",
+    createdAt: new Date("2026-04-10T00:00:00.000Z"),
+    lastAuth: new Date("2026-04-10T00:00:00.000Z"),
+    instanceId: "svc_instance_123",
+    deploymentId: "svc.example.default",
+    instanceKey: "svc_key_123",
+    contractId: "svc.example@v1",
+    contractDigest: "digest-a",
     ...overrides,
   };
 }
@@ -75,7 +96,7 @@ Deno.test("provider logout returnTo accepts same-origin app URLs", () => {
   });
 
   assertEquals(
-    validateProviderLogoutReturnTo({
+    validateLogoutReturnTo({
       returnTo: "https://app.example.com/signed-out?next=%2F",
       session,
       config: BASE_CONFIG,
@@ -90,7 +111,7 @@ Deno.test("provider logout returnTo rejects cross-origin app URLs", () => {
   });
 
   assertEquals(
-    validateProviderLogoutReturnTo({
+    validateLogoutReturnTo({
       returnTo: "https://evil.example.com/signed-out",
       session,
       config: BASE_CONFIG,
@@ -103,7 +124,20 @@ Deno.test("provider logout returnTo accepts configured web origin fallback", () 
   const session = testUserSession();
 
   assertEquals(
-    validateProviderLogoutReturnTo({
+    validateLogoutReturnTo({
+      returnTo: "https://configured.example.com/signed-out",
+      session,
+      config: BASE_CONFIG,
+    }),
+    true,
+  );
+});
+
+Deno.test("logout returnTo accepts configured web origin fallback for non-user sessions", () => {
+  const session = testServiceSession();
+
+  assertEquals(
+    validateLogoutReturnTo({
       returnTo: "https://configured.example.com/signed-out",
       session,
       config: BASE_CONFIG,
@@ -116,7 +150,7 @@ Deno.test("provider logout returnTo ignores wildcard web origins", () => {
   const session = testUserSession();
 
   assertEquals(
-    validateProviderLogoutReturnTo({
+    validateLogoutReturnTo({
       returnTo: "https://arbitrary.example.com/signed-out",
       session,
       config: { web: { origins: ["*"], allowInsecureOrigins: [] } },
@@ -129,7 +163,7 @@ Deno.test("provider logout returnTo rejects malformed and non-http URLs", () => 
   const session = testUserSession();
 
   assertEquals(
-    validateProviderLogoutReturnTo({
+    validateLogoutReturnTo({
       returnTo: "not a url",
       session,
       config: BASE_CONFIG,
@@ -137,7 +171,7 @@ Deno.test("provider logout returnTo rejects malformed and non-http URLs", () => 
     false,
   );
   assertEquals(
-    validateProviderLogoutReturnTo({
+    validateLogoutReturnTo({
       returnTo: "javascript:alert(1)",
       session,
       config: BASE_CONFIG,

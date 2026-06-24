@@ -517,6 +517,105 @@ async function signedAuthStartRequest(provider?: string) {
   return request;
 }
 
+async function signedBindRequest(
+  auth: Awaited<ReturnType<typeof createAuth>>,
+  flowId: string,
+) {
+  const digest = await sha256(utf8(`bind-flow:${flowId}`));
+  return {
+    sessionKey: auth.sessionKey,
+    sig: base64urlEncode(await auth.sign(digest)),
+  };
+}
+
+function pendingBindAuth(args: {
+  sessionKey: string;
+  legacyProviderLogoutReturnTo?: string;
+}): PendingAuth & { browser?: { providerLogoutReturnTo: string } } {
+  const pending: PendingAuth = {
+    userId: "usr_oauth",
+    identity: {
+      identityId: "idn_github_user",
+      provider: "github",
+      subject: "user",
+    },
+    user: {
+      origin: "github",
+      id: "user",
+      name: "OAuth User",
+      email: "user@example.com",
+    },
+    sessionKey: args.sessionKey,
+    redirectTo: "http://localhost:5173/callback?redirectTo=%2Fprofile",
+    app: { contractId: "client.example@v1", origin: "http://localhost:5173" },
+    contract: callbackAppContract(),
+    createdAt: new Date("2026-05-09T00:00:00.000Z"),
+  };
+  return args.legacyProviderLogoutReturnTo
+    ? {
+      ...pending,
+      browser: { providerLogoutReturnTo: args.legacyProviderLogoutReturnTo },
+    }
+    : pending;
+}
+
+function recordFromObject(value: object): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value));
+}
+
+async function registerBindResponseTestRoutes(args: {
+  pending: PendingAuth;
+  provider?: Provider;
+}) {
+  const sessions = new Map<string, Session>();
+  return await registerTestRoutes(
+    {
+      flowId: "flow-bind",
+      kind: "login",
+      sessionKey: args.pending.sessionKey,
+      redirectTo: args.pending.redirectTo,
+      authToken: "token-bind",
+      app: args.pending.app,
+      contract: recordFromObject(args.pending.contract),
+      createdAt: new Date("2026-05-09T00:00:00.000Z"),
+      expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+    },
+    {
+      listByUser: (userId: string) =>
+        Promise.resolve(
+          userId === "usr_oauth" ? [storedCallbackApproval()] : [],
+        ),
+    },
+    args.provider ? { [args.provider.name]: args.provider } : {},
+    {},
+    {
+      pendingAuthKV: {
+        get: () =>
+          AsyncResult.ok({
+            value: args.pending,
+            delete: () => AsyncResult.ok(undefined),
+          }),
+        put: () => AsyncResult.ok(undefined),
+        create: () => AsyncResult.ok(undefined),
+        delete: () => AsyncResult.ok(undefined),
+        keys: () => AsyncResult.ok((async function* () {})()),
+      },
+      sessionStorage: {
+        getOneBySessionKey: (sessionKey: string) =>
+          Promise.resolve(sessions.get(sessionKey)),
+        put: (sessionKey: string, session: Session) => {
+          sessions.set(sessionKey, session);
+          return Promise.resolve(undefined);
+        },
+        deleteBySessionKey: (sessionKey: string) => {
+          sessions.delete(sessionKey);
+          return Promise.resolve(undefined);
+        },
+      },
+    },
+  );
+}
+
 function approvalCapabilities(keys: string[]) {
   return Object.fromEntries(keys.map((key) => [key, {
     displayName: key,
@@ -674,6 +773,42 @@ Deno.test({
 
     assertEquals(response.status, 400);
     assertEquals(await response.json(), { error: "Invalid JSON body" });
+  },
+});
+
+Deno.test({
+  name: "auth HTTP request start ignores legacy browser logout fields",
+  sanitizeResources: false,
+  fn: async () => {
+    let savedFlow: BrowserFlowRecord | undefined;
+    const app = await registerTestRoutes({}, {}, {}, {}, {
+      browserFlowsKV: {
+        get: () => AsyncResult.ok({ value: {} }),
+        put: (_key: string, value: BrowserFlowRecord) => {
+          savedFlow = value;
+          return AsyncResult.ok(undefined);
+        },
+        create: () => AsyncResult.ok(undefined),
+        delete: () => AsyncResult.ok(undefined),
+        keys: () => AsyncResult.ok((async function* () {})()),
+      },
+    });
+    const request = await signedAuthStartRequest();
+
+    const response = await app.request("http://trellis/auth/requests", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ...request,
+        browser: {
+          providerLogoutReturnTo: "http://localhost:5173/logout/complete",
+        },
+      }),
+    });
+
+    assertEquals(response.status, 200);
+    assertEquals((await response.json()).status, "flow_started");
+    assertEquals(savedFlow !== undefined && "browser" in savedFlow, false);
   },
 });
 
@@ -2072,6 +2207,73 @@ Deno.test({
       response.headers.get("access-control-allow-credentials"),
       "true",
     );
+  },
+});
+
+Deno.test({
+  name: "auth HTTP bind ignores legacy provider logout return URLs",
+  sanitizeResources: false,
+  fn: async () => {
+    const auth = await createAuth({ sessionKeySeed: "A".repeat(43) });
+    const returnTo = "http://localhost:5173/logout/complete";
+    let providerLogoutCalls = 0;
+    const provider = Object.assign(testProvider("github", "GitHub"), {
+      buildLogoutUrl() {
+        providerLogoutCalls += 1;
+        return Promise.resolve("https://github.example/logout");
+      },
+    });
+    const app = await registerBindResponseTestRoutes({
+      pending: pendingBindAuth({
+        sessionKey: auth.sessionKey,
+        legacyProviderLogoutReturnTo: returnTo,
+      }),
+      provider,
+    });
+
+    const response = await app.request(
+      "http://trellis/auth/flow/flow-bind/bind",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(await signedBindRequest(auth, "flow-bind")),
+      },
+    );
+
+    assertEquals(response.status, 200);
+    const body = await response.json();
+    assertEquals(body.status, "bound");
+    assertEquals(body.providerLogout, undefined);
+    assertEquals(providerLogoutCalls, 0);
+  },
+});
+
+Deno.test({
+  name: "auth HTTP bind omits provider logout when return URL is absent",
+  sanitizeResources: false,
+  fn: async () => {
+    const auth = await createAuth({ sessionKeySeed: "A".repeat(43) });
+    const provider = Object.assign(testProvider("github", "GitHub"), {
+      buildLogoutUrl: () => Promise.resolve("https://github.example/logout"),
+    });
+    const app = await registerBindResponseTestRoutes({
+      pending: pendingBindAuth({ sessionKey: auth.sessionKey }),
+      provider,
+    });
+
+    const response = await app.request(
+      "http://trellis/auth/flow/flow-bind/bind",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(await signedBindRequest(auth, "flow-bind")),
+      },
+    );
+
+    assertEquals(response.status, 200);
+    const body = await response.json();
+    assertEquals(body.status, "bound");
+    assertEquals(body.providerLogout, undefined);
   },
 });
 

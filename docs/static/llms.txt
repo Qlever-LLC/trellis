@@ -57,9 +57,10 @@ commands.
   `uses`, Vite aliases, or `svelte-check` path maps.
 - Browser apps should let Trellis helpers own auth redirects and treat plain
   callbacks after expired login as auth-restart opportunities, not errors.
-- Browser apps that sign users out should request browser/provider logout through
-  Trellis auth helpers or `Auth.Sessions.Logout`; do not hard-code IdP logout
-  endpoints or arbitrary post-logout return URLs.
+- Browser apps that sign users out should use Trellis browser auth helpers for
+  signed HTTP logout; do not call `Auth.Sessions.Logout` from the active app
+  connection, hard-code IdP logout endpoints, or invent arbitrary post-logout
+  return URLs.
 - Record the local contract path, generation command, format command, typecheck
   command, test command, run command, and database migration command in the local
   `AGENTS.md`.

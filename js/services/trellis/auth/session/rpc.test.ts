@@ -18,8 +18,6 @@ import { connectionKey } from "./connections.ts";
 import { createAuthSessionsRevokeHandler } from "./revoke.ts";
 import type { IdentityGrantRecord, Session, UserSession } from "../schemas.ts";
 import type { UserProjectionEntry } from "../schemas.ts";
-import type { Config } from "../../config.ts";
-import { Provider } from "../providers/index.ts";
 import {
   initializeTrellisStorageSchema,
   openTrellisStorageDb,
@@ -258,12 +256,6 @@ const TEST_IDENTITY = {
   provider: "github",
   subject: "123",
 };
-const TEST_WEB_CONFIG: Pick<Config, "web"> = {
-  web: {
-    origins: ["https://app.example.com"],
-    allowInsecureOrigins: [],
-  },
-};
 type TestDeviceActivationActor = {
   participantKind: "app" | "agent";
   userId: string;
@@ -310,34 +302,6 @@ function testUserSession(overrides: Partial<UserSession> = {}): UserSession {
   };
 }
 
-class TestLogoutProvider extends Provider {
-  override name = "auth0";
-  override displayName = "Auth0";
-  override issuer = "https://tenant.example.auth0.com";
-  override authorizationEndpoint = "https://tenant.example.auth0.com/authorize";
-  override tokenEndpoint = "https://tenant.example.auth0.com/oauth/token";
-  override scope = "openid profile email";
-  override supportsDiscovery = true;
-  override supportsPKCE = true;
-  calls: Array<{ returnTo?: string; federated?: boolean }> = [];
-
-  constructor(private readonly logoutUrl: string | undefined) {
-    super(
-      "client-id",
-      "client-secret",
-      "https://trellis.example/auth/callback",
-    );
-  }
-
-  buildLogoutUrl(args: {
-    returnTo?: string;
-    federated?: boolean;
-  } = {}): Promise<string | undefined> {
-    this.calls.push(args);
-    return Promise.resolve(this.logoutUrl);
-  }
-}
-
 function testUserContext(sessionKey: string, identity = TEST_IDENTITY) {
   return {
     sessionKey,
@@ -354,17 +318,6 @@ function testUserContext(sessionKey: string, identity = TEST_IDENTITY) {
   };
 }
 
-function createTestNatsSystem(
-  requests: Array<{ subject: string; payload?: string }>,
-) {
-  return {
-    request: (subject: string, payload?: string): Promise<unknown> => {
-      requests.push({ subject, payload });
-      return Promise.resolve(undefined);
-    },
-  };
-}
-
 Deno.test("Auth.Sessions.Logout with empty input deletes session and connections without provider URL", async () => {
   const sessionKV = new InMemoryKV<Session>();
   const connectionsKV = new InMemoryKV<{
@@ -372,7 +325,7 @@ Deno.test("Auth.Sessions.Logout with empty input deletes session and connections
     clientId: number;
     connectedAt: Date;
   }>();
-  const natsRequests: Array<{ subject: string; payload?: string }> = [];
+  const kicked: Array<{ serverId: string; clientId: number }> = [];
   const sessionKey = "sk_logout";
   sessionKV.seed(sessionKey, testUserSession());
   connectionsKV.seed(connectionKey(sessionKey, TEST_USER_ID, "user_nkey"), {
@@ -386,9 +339,10 @@ Deno.test("Auth.Sessions.Logout with empty input deletes session and connections
     logger: createTestLogger(),
     sessionStorage,
     connectionsKV,
-    natsSystem: createTestNatsSystem(natsRequests),
-    config: TEST_WEB_CONFIG,
-    providers: {},
+    kick: (serverId, clientId) => {
+      kicked.push({ serverId, clientId });
+      return Promise.resolve();
+    },
   });
 
   const value = (await handler({
@@ -404,166 +358,45 @@ Deno.test("Auth.Sessions.Logout with empty input deletes session and connections
       connectionKey(sessionKey, TEST_USER_ID, "user_nkey"),
     ).take(),
   ));
-  assertEquals(natsRequests, [{
-    subject: "$SYS.REQ.SERVER.n1.KICK",
-    payload: JSON.stringify({ cid: 7 }),
-  }]);
+  assertEquals(kicked, [{ serverId: "n1", clientId: 7 }]);
 });
 
-Deno.test("Auth.Sessions.Logout returns provider logout URL for matching browser provider", async () => {
+Deno.test("Auth.Sessions.Logout deletes connection records when kick rejects", async () => {
   const sessionKV = new InMemoryKV<Session>();
   const connectionsKV = new InMemoryKV<{
     serverId: string;
     clientId: number;
     connectedAt: Date;
   }>();
-  const natsRequests: Array<{ subject: string; payload?: string }> = [];
-  const sessionKey = "sk_auth0_logout";
-  const auth0Identity = {
-    identityId: "idn_auth0_123",
-    provider: "auth0",
-    subject: "auth0|123",
-  };
-  sessionKV.seed(
-    sessionKey,
-    testUserSession({
-      identity: auth0Identity,
-      app: {
-        contractId: "trellis.console@v1",
-        origin: "https://app.example.com",
-      },
-    }),
-  );
-  const provider = new TestLogoutProvider(
-    "https://tenant.example.auth0.com/v2/logout?client_id=client-id",
-  );
+  const sessionKey = "sk_logout_rejecting_kick";
+  sessionKV.seed(sessionKey, testUserSession());
+  connectionsKV.seed(connectionKey(sessionKey, TEST_USER_ID, "user_nkey"), {
+    serverId: "n1",
+    clientId: 7,
+    connectedAt: new Date("2026-04-10T00:00:00.000Z"),
+  });
 
   const sessionStorage = sessionStorageFromKV(sessionKV);
   const handler = createAuthSessionsLogoutHandler({
     logger: createTestLogger(),
     sessionStorage,
     connectionsKV,
-    natsSystem: createTestNatsSystem(natsRequests),
-    config: TEST_WEB_CONFIG,
-    providers: { auth0: provider },
+    kick: () => Promise.reject(new Error("kick failed")),
   });
 
   const value = (await handler({
-    input: {
-      browser: {
-        includeProviderLogout: true,
-        returnTo: "https://app.example.com/signed-out",
-        federatedProviderLogout: true,
-      },
-    },
-    context: testUserContext(sessionKey, auth0Identity),
-  })).take();
-  if (isErr(value)) throw value.error;
-
-  assertEquals(value, {
-    success: true,
-    providerLogoutUrl:
-      "https://tenant.example.auth0.com/v2/logout?client_id=client-id",
-  });
-  assertEquals(provider.calls, [{
-    returnTo: "https://app.example.com/signed-out",
-    federated: true,
-  }]);
-  assertEquals(await sessionStorage.getOneBySessionKey(sessionKey), undefined);
-});
-
-Deno.test("Auth.Sessions.Logout rejects invalid returnTo without deleting Trellis session", async () => {
-  const sessionKV = new InMemoryKV<Session>();
-  const connectionsKV = new InMemoryKV<{
-    serverId: string;
-    clientId: number;
-    connectedAt: Date;
-  }>();
-  const natsRequests: Array<{ subject: string; payload?: string }> = [];
-  const sessionKey = "sk_invalid_return_to";
-  const auth0Identity = {
-    identityId: "idn_auth0_123",
-    provider: "auth0",
-    subject: "auth0|123",
-  };
-  const session = testUserSession({
-    identity: auth0Identity,
-    app: {
-      contractId: "trellis.console@v1",
-      origin: "https://app.example.com",
-    },
-  });
-  sessionKV.seed(sessionKey, session);
-  const provider = new TestLogoutProvider(
-    "https://tenant.example.auth0.com/v2/logout",
-  );
-
-  const sessionStorage = sessionStorageFromKV(sessionKV);
-  const result = await createAuthSessionsLogoutHandler({
-    logger: createTestLogger(),
-    sessionStorage,
-    connectionsKV,
-    natsSystem: createTestNatsSystem(natsRequests),
-    config: TEST_WEB_CONFIG,
-    providers: { auth0: provider },
-  })({
-    input: {
-      browser: {
-        includeProviderLogout: true,
-        returnTo: "https://evil.example.com/signed-out",
-      },
-    },
-    context: testUserContext(sessionKey, auth0Identity),
-  });
-  const value = result.take();
-
-  assert(isErr(value));
-  assertEquals(value.error.reason, "invalid_request");
-  assertEquals(value.error.toSerializable().context, {
-    reason: "invalid_return_to",
-  });
-  assertEquals(await sessionStorage.getOneBySessionKey(sessionKey), session);
-  assertEquals(provider.calls, []);
-  assertEquals(natsRequests, []);
-});
-
-Deno.test("Auth.Sessions.Logout ignores mismatched provider logout while deleting Trellis session", async () => {
-  const sessionKV = new InMemoryKV<Session>();
-  const connectionsKV = new InMemoryKV<{
-    serverId: string;
-    clientId: number;
-    connectedAt: Date;
-  }>();
-  const natsRequests: Array<{ subject: string; payload?: string }> = [];
-  const sessionKey = "sk_mismatched_provider";
-  const auth0Identity = {
-    identityId: "idn_auth0_123",
-    provider: "auth0",
-    subject: "auth0|123",
-  };
-  sessionKV.seed(sessionKey, testUserSession({ identity: auth0Identity }));
-  const provider = new TestLogoutProvider("https://logout.example.com");
-  provider.name = "other";
-
-  const sessionStorage = sessionStorageFromKV(sessionKV);
-  const handler = createAuthSessionsLogoutHandler({
-    logger: createTestLogger(),
-    sessionStorage,
-    connectionsKV,
-    natsSystem: createTestNatsSystem(natsRequests),
-    config: TEST_WEB_CONFIG,
-    providers: { auth0: provider },
-  });
-
-  const value = (await handler({
-    input: { browser: { includeProviderLogout: true } },
-    context: testUserContext(sessionKey, auth0Identity),
+    input: {},
+    context: testUserContext(sessionKey),
   })).take();
   if (isErr(value)) throw value.error;
 
   assertEquals(value, { success: true });
-  assertEquals(provider.calls, []);
   assertEquals(await sessionStorage.getOneBySessionKey(sessionKey), undefined);
+  assert(isErr(
+    await connectionsKV.get(
+      connectionKey(sessionKey, TEST_USER_ID, "user_nkey"),
+    ).take(),
+  ));
 });
 
 Deno.test("Auth.Sessions.Me returns user, device, and service envelopes", async () => {

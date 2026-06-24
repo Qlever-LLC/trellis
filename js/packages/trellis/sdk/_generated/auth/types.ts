@@ -4,7 +4,7 @@ import type { API } from "./api.ts";
 
 export const CONTRACT_ID = "trellis.auth@v1" as const;
 export const CONTRACT_DIGEST =
-  "e9RNn5N-yjr3k6-wV4kluhR42lOvY4--UYz95wX_F_A" as const;
+  "x-9_MjfSThvbn1yc9jAWbaraniKLZ74oUeUqqtZijXQ" as const;
 
 export type AuthCapabilitiesListInput = { limit: number; offset?: number };
 export type AuthCapabilitiesListOutput = {
@@ -2083,17 +2083,8 @@ export type AuthSessionsListOutput = {
   offset: number;
 };
 
-export type AuthSessionsLogoutInput = {
-  browser?: {
-    federatedProviderLogout?: boolean;
-    includeProviderLogout?: boolean;
-    returnTo?: string;
-  };
-};
-export type AuthSessionsLogoutOutput = {
-  providerLogoutUrl?: string;
-  success: boolean;
-};
+export type AuthSessionsLogoutInput = { [k: string]: unknown };
+export type AuthSessionsLogoutOutput = { success: boolean };
 
 export type AuthSessionsMeInput = {};
 export type AuthSessionsMeOutput = {
