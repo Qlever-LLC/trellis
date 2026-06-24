@@ -56,6 +56,7 @@ import type {
   DeploymentAuthorityMaterialization,
   DeploymentAuthorityPlan,
   DeploymentAuthorityUpdate,
+  ImplementationOffer,
 } from "../schemas.ts";
 
 type AuthorityCapabilityNeed = AuthorityNeedSet["capabilities"][number];
@@ -3054,6 +3055,8 @@ function deviceAdminDeps(args: {
   >;
   activeCatalogIssues?: ActiveCatalogIssue[];
   serviceInstances?: Array<Record<string, never>>;
+  activeOffers?: ImplementationOffer[];
+  putOffers?: ImplementationOffer[];
   approvalDigests?: string[];
   authorityPuts?: DeploymentAuthority[];
   authority?: DeploymentAuthority;
@@ -3124,6 +3127,19 @@ function deviceAdminDeps(args: {
   } = {
     browserFlowsKV,
     builtinContractDigests: args.builtinContractDigests ?? [],
+    implementationOfferStorage: args.activeOffers || args.putOffers
+      ? {
+        listActiveByDigests: async (digests) => {
+          const requested = new Set(digests);
+          return (args.activeOffers ?? []).filter((offer) =>
+            requested.has(offer.contractDigest)
+          );
+        },
+        put: async (offer) => {
+          args.putOffers?.push(offer);
+        },
+      }
+      : undefined,
     connectionsKV,
     contractApprovalStorage: {
       get: async () => undefined,
@@ -3433,6 +3449,7 @@ function deviceAdminDeps(args: {
 
 Deno.test("Auth.CatalogIssues.Resolve applies force-replace without deleting offers", async () => {
   let refreshCount = 0;
+  const putOffers: ImplementationOffer[] = [];
   const { deps } = deviceAdminDeps({
     activeCatalogIssues: [{
       issueId: "issue-1",
@@ -3455,6 +3472,38 @@ Deno.test("Auth.CatalogIssues.Resolve applies force-replace without deleting off
         digests: ["digest-current"],
       }],
     }],
+    activeOffers: [{
+      offerId: "offer-current",
+      deploymentKind: "service",
+      deploymentId: "svc-a",
+      instanceId: "svc-a-instance",
+      contractId: "billing@v1",
+      contractDigest: "digest-current",
+      lineageKey: "service:svc-a:billing@v1",
+      status: "accepted",
+      liveness: "healthy",
+      firstOfferedAt: "2026-01-01T00:00:00.000Z",
+      acceptedAt: "2026-01-01T00:00:00.000Z",
+      lastRefreshedAt: "2026-01-01T00:00:00.000Z",
+      staleAt: null,
+      expiresAt: null,
+    }, {
+      offerId: "offer-proposed",
+      deploymentKind: "service",
+      deploymentId: "svc-b",
+      instanceId: "svc-b-instance",
+      contractId: "billing@v1",
+      contractDigest: "digest-proposed",
+      lineageKey: "service:svc-b:billing@v1",
+      status: "accepted",
+      liveness: "healthy",
+      firstOfferedAt: "2026-01-02T00:00:00.000Z",
+      acceptedAt: "2026-01-02T00:00:00.000Z",
+      lastRefreshedAt: "2026-01-02T00:00:00.000Z",
+      staleAt: null,
+      expiresAt: null,
+    }],
+    putOffers,
     refreshActiveContracts: async () => {
       refreshCount += 1;
     },
@@ -3473,6 +3522,10 @@ Deno.test("Auth.CatalogIssues.Resolve applies force-replace without deleting off
     action: "force-replace",
   });
   assertEquals(refreshCount, 1);
+  assertEquals(putOffers.length, 1);
+  assertEquals(putOffers[0].offerId, "offer-current");
+  assertEquals(putOffers[0].status, "withdrawn");
+  assertEquals(putOffers[0].liveness, "disconnected");
 });
 
 Deno.test("Auth.Deployments.Enable device validates staged deployment before persisting", async () => {

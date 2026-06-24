@@ -27,7 +27,9 @@ Common packages are:
   propagation, initialization, and Trellis error metrics.
 - `@qlever-llc/trellis-test`: Deno-first integration test helpers for service
   repositories that need isolated NATS/JetStream and a real Trellis
-  control-plane process.
+  control-plane process. Use its `/integration` helpers and `/integration/runner`
+  subpath for out-of-tree service-repo cases that can run serially or with one
+  shared runtime for Deno parallel workers.
 - `@qlever-llc/trellis-svelte`: Svelte and SvelteKit integration helpers.
 - generated SDK packages under `generated/packages/jsr/` and
   `generated/packages/npm/` for contracts in your project.
@@ -60,6 +62,25 @@ application code instead of stringly typed RPC calls.
 ```ts
 const order = await client.rpc.orders.get({ orderId: "ord_123" }).orThrow();
 ```
+
+## Test TypeScript services
+
+Use `@qlever-llc/trellis-test/integration` when a service repository needs a
+live Trellis boundary test. The service repo supplies its own Trellis command in
+`trellis.integration.ts`, imports helpers such as `trellisIntegrationTest(...)`,
+`runtimeScopeForCase(...)`, `caseScopedContractId(...)`,
+`caseScopedSubject(...)`, and `caseScopedName(...)`, and runs cases through
+`@qlever-llc/trellis-test/integration/runner`.
+
+Serial runs start an isolated runtime per selected test from the `runtime` option
+passed to `trellisIntegrationTest(...)`, commonly imported from the same
+`trellis.integration.ts` module used by the runner config. Parallel runs start
+one shared runtime from the runner config and pass `DENO_JOBS` from the runner's
+`--jobs` flag to Deno's parallel test workers.
+
+See [Testing Trellis services](/guides/testing-trellis-services) for a complete
+out-of-tree config, one-case test module, serial and parallel commands, and
+troubleshooting guidance.
 
 ## Connect as a service
 
@@ -636,10 +657,11 @@ composing `{ CONTRACT, API: { owned: OWNED_API } }` for normal Svelte app
 bootstrap; that partial shape can lose `API.trellis`, `CONTRACT_DIGEST`, state
 metadata, and clean inferred client types.
 
-Generated SDKs are workspace artifacts. There is no separate published path for
-an app's generated SDK; use them from source contracts for `sdk.use(spec)` and
-keep imports pointed at the local generated output or an import-map alias owned by
-the consuming repo.
+Generated service SDKs are workspace artifacts. Use them from source contracts for
+`sdk.use(spec)` and keep imports pointed at the local generated output or an
+import-map alias owned by the consuming repo. Do not import the app's own
+generated SDK just to type the browser client; use
+`TrellisClientFor<typeof contract>` from the app source contract.
 
 For cross-contract app calls, declare the narrow `uses` selection the app needs
 and call the other contract SDK's `sdk.use(spec)` helper. Do not depend on broad
@@ -660,8 +682,8 @@ packages, and Vite. Keep each resolver layer explicit:
   `npm:@qlever-llc/trellis` and `npm:@qlever-llc/trellis/...`.
 - If `svelte-check` cannot find Trellis types from the npm artifact, add a
   `compilerOptions.paths` mapping in the app's typecheck config to the installed
-  package `mod.ts` and its subpath `.ts` files. The npm artifact is not the
-  source of generated app SDK types.
+  package `mod.ts` and its subpath `.ts` files. Do not work around this by
+  generating an app SDK for client typing.
 
 See [Writing SvelteKit Apps](/guides/writing-sveltekit-apps) for the full app
 flow, including login pages, providers, and local workspace aliases.

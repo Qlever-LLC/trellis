@@ -12,14 +12,17 @@ use std::io;
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{collections::HashSet, fmt};
 
 use async_nats::jetstream::{self, stream};
 use async_nats::ConnectOptions;
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use tempfile::TempDir;
+use tokio::task::JoinHandle;
 use trellis_local_bootstrap::{
     render_trellis_config, ContainerRuntime as BootstrapContainerRuntime, LocalBootstrapError,
     LocalTrellisBootstrapManifest, LocalTrellisBootstrapOptions,
@@ -38,9 +41,14 @@ const ADMIN_RPC_CALLS: &[&str] = &[
     "Auth.DeploymentAuthority.AcceptUpdate",
     "Auth.DeploymentAuthority.Get",
     "Auth.DeploymentAuthority.Plan",
+    "Auth.DeploymentAuthority.Plans.List",
+    "Auth.DeploymentAuthority.Reject",
     "Auth.DeploymentAuthority.Reconcile",
     "Auth.Deployments.Create",
     "Auth.DeviceUserAuthorities.List",
+    "Auth.DeviceUserAuthorities.Reviews.Decide",
+    "Auth.DeviceUserAuthorities.Reviews.List",
+    "Auth.DeviceUserAuthorities.Revoke",
     "Auth.Devices.Provision",
     "Auth.Sessions.Me",
     "Auth.ServiceInstances.Provision",
@@ -349,7 +357,79 @@ pub struct TrellisTestRuntime {
     default_deployment: String,
     default_mutable_dev: bool,
     reconciliation_timeout: Duration,
+    startup_timeout: Duration,
     shutdown_timeout: Duration,
+    trellis_command: TrellisProcessCommand,
+}
+
+/// JetStream consumer metadata exposed by the Rust integration-test harness.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrellisJetStreamConsumerInfo {
+    /// JetStream consumer name.
+    pub name: String,
+    /// Durable consumer name, when the consumer is durable.
+    pub durable_name: Option<String>,
+    /// Concrete filter subjects configured on the consumer.
+    pub filter_subjects: Vec<String>,
+    /// Number of active pull requests waiting on the consumer.
+    pub num_waiting: usize,
+    /// Number of messages delivered to clients and still awaiting acknowledgement.
+    pub num_ack_pending: usize,
+    /// Number of messages pending delivery for the consumer.
+    pub num_pending: usize,
+}
+
+/// One observed JetStream acknowledgement protocol frame.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrellisJetStreamAckFrame {
+    /// ACK protocol subject the frame was published to.
+    pub subject: String,
+    /// UTF-8 lossy payload text, such as `+ACK` or `-NAK`.
+    pub payload: String,
+}
+
+/// Live NATS observer for JetStream acknowledgement protocol frames.
+pub struct TrellisJetStreamAckObserver {
+    _client: async_nats::Client,
+    frames: Arc<Mutex<Vec<TrellisJetStreamAckFrame>>>,
+    errors: Arc<Mutex<Vec<String>>>,
+    task: Option<JoinHandle<()>>,
+}
+
+impl TrellisJetStreamAckObserver {
+    /// Return a snapshot of observed ACK protocol frames.
+    #[must_use]
+    pub fn frames(&self) -> Vec<TrellisJetStreamAckFrame> {
+        self.frames
+            .lock()
+            .expect("lock ACK observer frames")
+            .clone()
+    }
+
+    /// Return a snapshot of observer errors.
+    #[must_use]
+    pub fn errors(&self) -> Vec<String> {
+        self.errors
+            .lock()
+            .expect("lock ACK observer errors")
+            .clone()
+    }
+
+    /// Stop the observer task.
+    pub async fn stop(mut self) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+            let _ = task.await;
+        }
+    }
+}
+
+impl Drop for TrellisJetStreamAckObserver {
+    fn drop(&mut self) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+    }
 }
 
 impl TrellisTestRuntime {
@@ -427,7 +507,9 @@ impl TrellisTestRuntime {
             default_deployment: options.default_deployment,
             default_mutable_dev: options.default_mutable_dev,
             reconciliation_timeout: options.reconciliation_timeout,
+            startup_timeout: options.startup_timeout,
             shutdown_timeout: options.shutdown_timeout,
+            trellis_command: options.trellis_command,
         })
     }
 
@@ -453,6 +535,109 @@ impl TrellisTestRuntime {
     #[must_use]
     pub fn workdir(&self) -> &Path {
         self.workdir.path()
+    }
+
+    /// List JetStream consumers on the shared Trellis event stream.
+    pub async fn list_trellis_jetstream_consumers(
+        &self,
+    ) -> Result<Vec<TrellisJetStreamConsumerInfo>, TrellisTestError> {
+        let client = ConnectOptions::new()
+            .credentials_file(trellis_creds_path(self.workdir.path()))
+            .await?
+            .connect(&self.nats_url)
+            .await
+            .map_err(|error| io::Error::new(io::ErrorKind::ConnectionRefused, error))?;
+        let js = jetstream::new(client);
+        let stream = js
+            .get_stream("trellis")
+            .await
+            .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+        let mut consumers = stream.consumers();
+        let mut infos = Vec::new();
+
+        while let Some(info) = consumers.next().await {
+            let info = info.map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+            let mut filter_subjects = Vec::new();
+            if !info.config.filter_subject.is_empty() {
+                filter_subjects.push(info.config.filter_subject.clone());
+            }
+            filter_subjects.extend(info.config.filter_subjects.clone());
+            infos.push(TrellisJetStreamConsumerInfo {
+                name: info.name,
+                durable_name: info.config.durable_name,
+                filter_subjects,
+                num_waiting: info.num_waiting,
+                num_ack_pending: info.num_ack_pending,
+                num_pending: usize::try_from(info.num_pending).unwrap_or(usize::MAX),
+            });
+        }
+
+        Ok(infos)
+    }
+
+    /// Start a live NATS observer for JetStream ACK frames on the Trellis event stream.
+    pub async fn start_jetstream_ack_observer(
+        &self,
+    ) -> Result<TrellisJetStreamAckObserver, TrellisTestError> {
+        let client = ConnectOptions::new()
+            .credentials_file(trellis_creds_path(self.workdir.path()))
+            .await?
+            .connect(&self.nats_url)
+            .await
+            .map_err(|error| io::Error::new(io::ErrorKind::ConnectionRefused, error))?;
+        let mut subscription = client
+            .subscribe("$JS.ACK.trellis.>".to_string())
+            .await
+            .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+        client
+            .flush()
+            .await
+            .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+
+        let frames = Arc::new(Mutex::new(Vec::new()));
+        let errors = Arc::new(Mutex::new(Vec::new()));
+        let task_frames = Arc::clone(&frames);
+        let task = tokio::spawn(async move {
+            while let Some(message) = subscription.next().await {
+                task_frames.lock().expect("lock ACK observer frames").push(
+                    TrellisJetStreamAckFrame {
+                        subject: message.subject.to_string(),
+                        payload: String::from_utf8_lossy(&message.payload).into_owned(),
+                    },
+                );
+            }
+        });
+
+        Ok(TrellisJetStreamAckObserver {
+            _client: client,
+            frames,
+            errors,
+            task: Some(task),
+        })
+    }
+
+    /// Delete a JetStream consumer from the shared Trellis event stream.
+    pub async fn delete_trellis_jetstream_consumer(
+        &self,
+        durable_name: &str,
+    ) -> Result<bool, TrellisTestError> {
+        let client = ConnectOptions::new()
+            .credentials_file(trellis_creds_path(self.workdir.path()))
+            .await?
+            .connect(&self.nats_url)
+            .await
+            .map_err(|error| io::Error::new(io::ErrorKind::ConnectionRefused, error))?;
+        let js = jetstream::new(client);
+        let stream = js
+            .get_stream("trellis")
+            .await
+            .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+
+        match stream.delete_consumer(durable_name).await {
+            Ok(_) => Ok(true),
+            Err(error) if is_jetstream_not_found_error(&error) => Ok(false),
+            Err(error) => Err(io::Error::new(io::ErrorKind::Other, error).into()),
+        }
     }
 
     /// Return the generated local bootstrap manifest.
@@ -512,6 +697,38 @@ impl TrellisTestRuntime {
             .await?;
         complete_first_admin_bootstrap(&self.trellis_url, &bootstrap_url, &self.admin_password)
             .await
+    }
+
+    /// Restart only the Trellis control-plane process, preserving workdir state and NATS.
+    pub async fn restart_control_plane(&mut self) -> Result<(), TrellisTestError> {
+        if self.nats.is_none() {
+            return Err(TrellisTestError::UnexpectedResponse(
+                "NATS container is not running".to_string(),
+            ));
+        }
+
+        let Some(mut trellis) = self.trellis.take() else {
+            return Err(TrellisTestError::UnexpectedResponse(
+                "Trellis process is not running".to_string(),
+            ));
+        };
+        trellis.stop(self.shutdown_timeout)?;
+
+        let config_path = self
+            .workdir
+            .path()
+            .join(&self.manifest.paths.trellis_config);
+        let restarted = TrellisProcess::start(
+            &self.trellis_command,
+            &config_path,
+            self.workdir.path(),
+            &self.trellis_url,
+            self.startup_timeout,
+            self.shutdown_timeout,
+        )
+        .await?;
+        self.trellis = Some(restarted);
+        Ok(())
     }
 
     /// Stop Trellis, remove the NATS container, and clean up the workdir.
@@ -847,6 +1064,19 @@ impl TrellisTestAdmin {
         contract: &TrellisTestContract,
         session_seed: impl Into<String>,
     ) -> Result<TrellisClient, TrellisTestError> {
+        let (client, _) = self
+            .connect_client_with_session_seed_reconnectable(bootstrap_url, contract, session_seed)
+            .await?;
+        Ok(client)
+    }
+
+    /// Complete a user/client auth flow for a deterministic session seed and return a bound-only reconnect handle.
+    pub async fn connect_client_with_session_seed_reconnectable(
+        &mut self,
+        bootstrap_url: &str,
+        contract: &TrellisTestContract,
+        session_seed: impl Into<String>,
+    ) -> Result<(TrellisClient, TrellisTestClientReconnect), TrellisTestError> {
         self.complete_bootstrap(bootstrap_url).await?;
         let session_seed = session_seed.into();
         let auth = SessionAuth::from_seed_base64url(&session_seed)?;
@@ -865,7 +1095,56 @@ impl TrellisTestAdmin {
             } => bound_flow_session_from_parts(expires, sentinel, transports)?,
         };
 
+        let reconnect = TrellisTestClientReconnect {
+            bound: bound.clone(),
+            session_seed,
+            contract_digest: contract.digest.clone(),
+        };
+        let client =
+            connect_bound_user(&bound, &reconnect.session_seed, &reconnect.contract_digest).await?;
+        Ok((client, reconnect))
+    }
+
+    /// Reconnect a user/client session only when Trellis reports the session is already bound.
+    pub async fn connect_client_with_session_seed_bound_only(
+        &self,
+        contract: &TrellisTestContract,
+        session_seed: impl Into<String>,
+    ) -> Result<TrellisClient, TrellisTestError> {
+        let session_seed = session_seed.into();
+        let auth = SessionAuth::from_seed_base64url(&session_seed)?;
+        let redirect_to = format!("{}/_trellis/test/client-auth", self.trellis_url);
+        let started = start_auth_request(&self.trellis_url, &redirect_to, &auth, contract).await?;
+        let bound = match started {
+            trellis_rs::auth::AuthStartResponse::Bound {
+                expires,
+                sentinel,
+                transports,
+                ..
+            } => bound_flow_session_from_parts(expires, sentinel, transports)?,
+            trellis_rs::auth::AuthStartResponse::FlowStarted { flow_id, .. } => {
+                return Err(TrellisTestError::UnexpectedResponse(format!(
+                    "bound-only client reconnect started fresh auth flow {flow_id}"
+                )));
+            }
+        };
+
         connect_bound_user(&bound, &session_seed, contract.digest()).await
+    }
+}
+
+/// Bound client reconnect material captured from a completed public auth flow.
+#[derive(Clone, Debug)]
+pub struct TrellisTestClientReconnect {
+    bound: BoundFlowSession,
+    session_seed: String,
+    contract_digest: String,
+}
+
+impl TrellisTestClientReconnect {
+    /// Reconnect the already-bound session without starting or completing a fresh auth flow.
+    pub async fn connect_bound_only(&self) -> Result<TrellisClient, TrellisTestError> {
+        connect_bound_user(&self.bound, &self.session_seed, &self.contract_digest).await
     }
 }
 
@@ -973,7 +1252,7 @@ enum BindFlowResponse {
     ApprovalDenied,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct BoundFlowSession {
     nats_servers: String,
     sentinel_jwt: String,
@@ -1875,6 +2154,11 @@ fn nats_io_error(error: async_nats::jetstream::context::CreateStreamError) -> Tr
     TrellisTestError::Io(io::Error::new(io::ErrorKind::Other, error))
 }
 
+fn is_jetstream_not_found_error(error: &impl fmt::Display) -> bool {
+    let message = error.to_string().to_ascii_lowercase();
+    message.contains("not found") || message.contains("does not exist")
+}
+
 async fn wait_for_trellis_ready(
     child: &mut Child,
     trellis_url: &str,
@@ -2198,6 +2482,9 @@ mod tests {
             .expect("admin contract auth rpc call list");
 
         assert!(uses.contains(&json!("Auth.Deployments.Create")));
+        assert!(uses.contains(&json!("Auth.DeviceUserAuthorities.Reviews.Decide")));
+        assert!(uses.contains(&json!("Auth.DeviceUserAuthorities.Reviews.List")));
+        assert!(uses.contains(&json!("Auth.DeviceUserAuthorities.Revoke")));
         assert!(uses.contains(&json!("Auth.ServiceInstances.Provision")));
         assert_eq!(contract.manifest()["kind"], json!("agent"));
         assert!(!contract.digest().is_empty());

@@ -13,17 +13,8 @@ use miette::{miette, IntoDiagnostic};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::json;
 use time::OffsetDateTime;
-use trellis_local_bootstrap::{
-    generate_local_trellis_bootstrap, ContainerRuntime, LocalBootstrapError,
-    LocalTrellisBootstrapOptions,
-};
+use trellis_bootstrap::{generate_trellis_bootstrap, BootstrapError, TrellisBootstrapOptions};
 use ulid::Ulid;
-
-pub(super) fn local(format: OutputFormat, command: LocalCommand) -> miette::Result<()> {
-    match command.command {
-        LocalSubcommand::Init(args) => local_init_command(format, &args),
-    }
-}
 
 pub(super) async fn infra(format: OutputFormat, command: InfraCommand) -> miette::Result<()> {
     match command.command {
@@ -34,12 +25,9 @@ pub(super) async fn infra(format: OutputFormat, command: InfraCommand) -> miette
 
 pub(super) async fn init(format: OutputFormat, command: InitCommand) -> miette::Result<()> {
     match command.command {
+        InitSubcommand::Config(args) => init_config_command(format, &args),
         InitSubcommand::Admin(args) => init_admin_command(format, &args).await,
     }
-}
-
-fn local_init_command(_format: OutputFormat, args: &LocalInitArgs) -> miette::Result<()> {
-    local_trellis_bootstrap_command(args)
 }
 
 async fn infra_apply_command(_format: OutputFormat, args: &InfraApplyArgs) -> miette::Result<()> {
@@ -98,55 +86,51 @@ async fn init_admin_command(_format: OutputFormat, args: &InitAdminArgs) -> miet
     bootstrap_admin_command(&args.db_path, provider, subject).await
 }
 
-fn local_trellis_bootstrap_command(args: &LocalInitArgs) -> miette::Result<()> {
-    let mut options = LocalTrellisBootstrapOptions::new(args.out.clone());
+fn init_config_command(format: OutputFormat, args: &InitConfigArgs) -> miette::Result<()> {
+    let mut options = TrellisBootstrapOptions::new(args.out.clone());
     options.force = args.force;
-    options.container_runtime = container_runtime_arg(args.container_runtime);
-    options.nats_box_image = args.nats_box_image.clone();
-    options.operator_name = args.operator_name.clone();
-    options.system_account = args.system_account.clone();
-    options.auth_account = args.auth_account.clone();
-    options.trellis_account = args.trellis_account.clone();
-    options.server_name = args.server_name.clone();
-    options.trellis_port = args.trellis_port;
-    options.nats_server_url = args.nats_server_url.clone();
-    options.nats_websocket_url = args.nats_websocket_url.clone();
-    options.public_origin = args.public_origin.clone();
+    options.runtime.name = args.name.clone();
+    options.runtime.trellis_port = args.trellis_port;
+    options.runtime.nats_server_url = args.nats_server_url.clone();
+    options.runtime.nats_websocket_url = args.nats_websocket_url.clone();
+    options.runtime.public_origin = args.public_origin.clone();
+    options.nats.names.operator_name = args.operator_name.clone();
+    options.nats.names.system_account = args.system_account.clone();
+    options.nats.names.auth_account = args.auth_account.clone();
+    options.nats.names.trellis_account = args.trellis_account.clone();
+    options.nats.names.server_name = args.server_name.clone();
 
-    let manifest = generate_local_trellis_bootstrap(&options).map_err(local_bootstrap_report)?;
-    output::print_success("generated local Trellis bootstrap files");
+    generate_trellis_bootstrap(&options).map_err(bootstrap_report)?;
+    let trellis_config = args.out.join("trellis/config.toml");
+    let nats_config = args.out.join("nats/nats.conf");
+    if output::is_json(format) {
+        output::print_json(&json!({
+            "generated": true,
+            "out": args.out.display().to_string(),
+            "trellisConfig": trellis_config.display().to_string(),
+            "natsConfig": nats_config.display().to_string(),
+            "publicOrigin": options.runtime.public_origin,
+            "natsServer": options.runtime.nats_server_url,
+            "natsWebsocket": options.runtime.nats_websocket_url,
+        }))?;
+        return Ok(());
+    }
+
+    output::print_success("generated Trellis bootstrap files");
     output::print_info(&format!("out={}", args.out.display()));
+    output::print_info(&format!("trellisConfig={}", trellis_config.display()));
+    output::print_info(&format!("natsConfig={}", nats_config.display()));
+    output::print_info(&format!("publicOrigin={}", options.runtime.public_origin));
+    output::print_info(&format!("natsServer={}", options.runtime.nats_server_url));
     output::print_info(&format!(
-        "manifest={}",
-        args.out.join("manifest.json").display()
+        "natsWebsocket={}",
+        options.runtime.nats_websocket_url
     ));
-    output::print_info(&format!(
-        "trellisConfig={}",
-        args.out.join(&manifest.paths.trellis_config).display()
-    ));
-    output::print_info(&format!(
-        "natsConfig={}",
-        args.out
-            .join("nats")
-            .join(&manifest.nats.paths.nats_config)
-            .display()
-    ));
-    output::print_info(&format!("publicOrigin={}", manifest.urls.public_origin));
-    output::print_info(&format!("natsServer={}", manifest.urls.nats_server));
-    output::print_info(&format!("natsWebsocket={}", manifest.urls.nats_websocket));
     Ok(())
 }
 
-fn container_runtime_arg(runtime: LocalNatsContainerRuntimeArg) -> ContainerRuntime {
-    match runtime {
-        LocalNatsContainerRuntimeArg::Auto => ContainerRuntime::Auto,
-        LocalNatsContainerRuntimeArg::Podman => ContainerRuntime::Podman,
-        LocalNatsContainerRuntimeArg::Docker => ContainerRuntime::Docker,
-    }
-}
-
-fn local_bootstrap_report(error: LocalBootstrapError) -> miette::Report {
-    miette!(error.to_string())
+fn bootstrap_report(error: BootstrapError) -> miette::Report {
+    miette::Report::new(error)
 }
 
 async fn nats_bootstrap_command(format: OutputFormat, args: &InfraApplyArgs) -> miette::Result<()> {

@@ -27,7 +27,7 @@ export type ClientTestMatrix = {
 };
 
 const MATRIX_URL = new URL(
-  "../../../integration/client-test-matrix.json",
+  "../../../integration/test-matrix.json",
   import.meta.url,
 );
 
@@ -64,9 +64,9 @@ function parseClientTestMatrix(value: unknown): ClientTestMatrix {
     throw new Error("client integration matrix cases must be an array");
   }
 
-  const cases = root.cases.map((caseEntry, index) =>
-    parseMatrixCase(caseEntry, index)
-  );
+  const cases = root.cases
+    .filter((caseEntry) => isMatrixCaseKind(caseEntry, "client"))
+    .map((caseEntry, index) => parseMatrixCase(caseEntry, index));
   const duplicateIds = duplicates(cases.map((caseEntry) => caseEntry.id));
   if (duplicateIds.length > 0) {
     throw new Error(
@@ -89,7 +89,16 @@ function parseMatrixCase(
   const caseEntry = expectRecord(value, context);
   expectKeys(
     caseEntry,
-    ["id", "fixture", "title", "coverage", "description", "scenario"],
+    [
+      "kind",
+      "id",
+      "fixture",
+      "title",
+      "coverage",
+      "description",
+      "scenario",
+      "completion",
+    ],
     context,
   );
 
@@ -191,6 +200,10 @@ function expectRecord(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isMatrixCaseKind(value: unknown, kind: "client" | "service"): boolean {
+  return isRecord(value) && value.kind === kind;
 }
 
 function expectKeys(

@@ -5,7 +5,7 @@ This guide covers day-to-day development from a Trellis source checkout. It uses
 - Git
 - [Deno](https://deno.com) v2+
 - a Rust toolchain
-- `podman`
+- `podman` or `docker`
 - the `trellis` CLI installed (see [Install the Trellis CLI](/guides/install-trellis-cli))
 
 ## 1. Prepare a local runtime bundle
@@ -13,7 +13,7 @@ This guide covers day-to-day development from a Trellis source checkout. It uses
 Generate local NATS, Trellis config, credentials, keys, and data directories:
 
 ```sh
-trellis local init --out ~/trellis
+trellis init config --out ~/trellis
 ```
 
 Start NATS from that bundle:
@@ -30,7 +30,7 @@ podman run --replace --detach --name trellis-nats \
   -c /etc/nats/nats.conf
 ```
 
-The generated config is ready for local username/password login. You do not need a GitHub or OIDC application for the first local admin account.
+The generated config is intended for local username/password login once the auth and portal services are available. The current Rust runtime path in this guide does not yet expose auth routes, the built-in portal, first-admin bootstrap, or a Rust-runtime-backed CLI login flow.
 
 ## 2. Clone and prepare the repo
 
@@ -70,20 +70,24 @@ trellis infra apply \
 ## 4. Start the Trellis runtime
 
 ```sh
-cd js/services/trellis
-TRELLIS_CONFIG="$HOME/trellis/trellis/config.jsonc" deno task dev
+cargo run --manifest-path rust/Cargo.toml \
+  --package trellis-runtime \
+  --bin trellis-server \
+  -- all --config "$HOME/trellis/trellis/config.toml"
 ```
 
-The runtime starts on `http://localhost:3000` with file watching enabled. Trellis serves the built-in portal from the source tree during this flow.
+The runtime starts on `http://localhost:3000` using the generated TOML config. The current Rust runtime exposes `/healthz` and `/readyz`; both return version and mode metadata.
 
-## 5. Create and log in as an admin
+## 5. Check runtime readiness
 
-When Trellis starts for the first time, it creates the initial local `admin` identity and prints an admin setup URL. Open that URL in your browser and set the password. Then start the CLI login flow:
+Query both runtime endpoints:
 
 ```sh
-trellis login http://localhost:3000
-trellis whoami
+curl http://localhost:3000/healthz
+curl http://localhost:3000/readyz
 ```
+
+Use a runtime path that explicitly includes the auth and portal services for end-to-end first-admin, portal, and CLI login flows.
 
 ## 6. Start Console
 
@@ -93,11 +97,11 @@ cp .env.example .env
 deno task dev
 ```
 
-Open `http://localhost:5173` and log in with the local admin username and password.
+Open `http://localhost:5173` for Console UI development. Console cannot complete login against the current Rust runtime until auth and portal routes are ported.
 
 ## Development workflow
 
-- **Runtime changes**: edit files under `js/services/trellis/` or `js/packages/`; the service watcher restarts automatically.
+- **Runtime changes**: edit files under `rust/crates/runtime/`; restart `trellis-server` after rebuilding.
 - **Console changes**: edit files under `js/apps/console/`; Vite HMR applies changes in place.
 - **Contract changes**: run `cd js && deno task prepare`, or keep `cd js && deno task prepare:watch` running.
 - **CLI changes**: run `cargo build -p trellis-cli` in the `rust/` directory, then re-run `trellis ...` commands.
@@ -108,7 +112,7 @@ Open `http://localhost:5173` and log in with the local admin username and passwo
 
 ```sh
 curl http://127.0.0.1:8222/healthz
-curl -i http://localhost:3000/_trellis/portal
+curl http://localhost:3000/healthz
+curl http://localhost:3000/readyz
 curl -I http://localhost:5173/
-trellis whoami
 ```

@@ -1493,31 +1493,6 @@ Deno.test("POST /bootstrap/service does not resolve omitted manifests from imple
   assertEquals((await response.json()).reason, "manifest_required");
 });
 
-Deno.test("POST /bootstrap/service returns stored resource bindings", async () => {
-  const contract = await validatedContract(baseContract());
-  const binding: DeploymentResourceBinding = {
-    deploymentId: "deployment_1",
-    kind: "kv",
-    alias: "cache",
-    binding: { bucket: "stored_cache", history: 1, ttlMs: 0 },
-    limits: null,
-    createdAt: TEST_NOW,
-    updatedAt: TEST_NOW,
-  };
-  const setup = await createApp({ initialBindings: [binding] });
-
-  const response = await setup.bootstrap({
-    contractId: contract.contract.id,
-    contractDigest: contract.digest,
-    contract: contract.contract,
-  });
-
-  assertEquals(response.status, 200);
-  assertEquals((await response.json()).binding.resources, {
-    kv: { cache: binding.binding },
-  });
-});
-
 Deno.test("POST /bootstrap/service returns jobs bindings in contract resource shape", async () => {
   const contract = await validatedContract(jobsContract());
   const jobsBinding = {

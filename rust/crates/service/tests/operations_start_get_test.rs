@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use trellis_service::internal::{dispatch_one, InboundRequest};
 use trellis_service::{
-    control_subject, AcceptedOperation, OperationDescriptor, OperationFailure, OperationProvider, OperationRefData,
-    OperationSnapshot, OperationState, OperationTransferProgress, RequestContext, Router,
-    ServerError,
+    control_subject, AcceptedOperation, OperationDescriptor, OperationFailure, OperationProvider,
+    OperationRefData, OperationSnapshot, OperationState, OperationTransferProgress, RequestContext,
+    Router, ServerError,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

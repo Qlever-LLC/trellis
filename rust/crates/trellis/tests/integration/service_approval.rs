@@ -70,6 +70,9 @@ impl trellis_rs::client::RpcDescriptor for StartupPingRpc {
     const CALLER_CAPABILITIES: &'static [&'static str] =
         &["trellis.integration.service-approval-service::ping"];
     const ERRORS: &'static [&'static str] = &[];
+    const INPUT_SCHEMA_JSON: &'static str =
+        r#"{"type":"object","required":["message"],"properties":{"message":{"type":"string"}}}"#;
+    const OUTPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","required":["message","approved"],"properties":{"message":{"type":"string"},"approved":{"type":"boolean"}}}"#;
 }
 
 struct ServiceApprovalContract;

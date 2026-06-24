@@ -291,6 +291,7 @@ export class TrellisTestAdminAutomation {
         const client = await TrellisClient.connect({
           trellisUrl: this.#trellisUrl,
           name: "trellis-test-admin",
+          timeout: this.#reconciliationMs,
           contract: adminContract,
           auth: {
             mode: "session_key",
@@ -344,9 +345,12 @@ export class TrellisTestAdminAutomation {
         { operation: "register_service", phase: "create_deployment" },
       );
     })();
-    this.#createdDeployments.set(key, promise.catch(() => {
-      this.#createdDeployments.delete(key);
-    }));
+    this.#createdDeployments.set(
+      key,
+      promise.catch(() => {
+        this.#createdDeployments.delete(key);
+      }),
+    );
     await promise;
   }
 
@@ -383,50 +387,57 @@ export class TrellisTestAdminAutomation {
     state: PortalFlowInsufficientCapabilitiesState;
     deployment: string;
   }): Promise<void> {
-    const run = this.#capabilityGrantQueue.catch(() => undefined).then(async () => {
-      // ... existing body unchanged ...
-      const startedAt = performance.now();
-      const createDeploymentStartedAt = performance.now();
-      await this.createDeployment({ deployment: args.deployment });
-      recordTrellisDuration(
-        "trellis.admin.workflow.duration",
-        performance.now() - createDeploymentStartedAt,
-        { operation: "grant_client_capabilities", phase: "create_deployment" },
-      );
-      const client = await this.#client();
-      const missingCapabilities = [...new Set(args.state.missingCapabilities)]
-        .sort();
-      const meStartedAt = performance.now();
-      const me = await client.rpc.auth.sessionsMe({}).orThrow();
-      recordTrellisDuration(
-        "trellis.admin.workflow.duration",
-        performance.now() - meStartedAt,
-        { operation: "grant_client_capabilities", phase: "sessions_me" },
-      );
-      if (!me.user) {
-        throw new Error("Trellis test admin session did not resolve to a user");
-      }
-      const adminCapabilities = [
-        ...new Set([...me.user.capabilities, ...missingCapabilities]),
-      ].sort();
-      if (adminCapabilities.length !== me.user.capabilities.length) {
-        const updateStartedAt = performance.now();
-        await client.rpc.auth.usersUpdate({
-          userId: me.user.userId,
-          capabilities: adminCapabilities,
-        }).orThrow();
+    const run = this.#capabilityGrantQueue.catch(() => undefined).then(
+      async () => {
+        // ... existing body unchanged ...
+        const startedAt = performance.now();
+        const createDeploymentStartedAt = performance.now();
+        await this.createDeployment({ deployment: args.deployment });
         recordTrellisDuration(
           "trellis.admin.workflow.duration",
-          performance.now() - updateStartedAt,
-          { operation: "grant_client_capabilities", phase: "users_update" },
+          performance.now() - createDeploymentStartedAt,
+          {
+            operation: "grant_client_capabilities",
+            phase: "create_deployment",
+          },
         );
-      }
-      recordTrellisDuration(
-        "trellis.admin.workflow.duration",
-        performance.now() - startedAt,
-        { operation: "grant_client_capabilities", phase: "total" },
-      );
-    });
+        const client = await this.#client();
+        const missingCapabilities = [...new Set(args.state.missingCapabilities)]
+          .sort();
+        const meStartedAt = performance.now();
+        const me = await client.rpc.auth.sessionsMe({}).orThrow();
+        recordTrellisDuration(
+          "trellis.admin.workflow.duration",
+          performance.now() - meStartedAt,
+          { operation: "grant_client_capabilities", phase: "sessions_me" },
+        );
+        if (!me.user) {
+          throw new Error(
+            "Trellis test admin session did not resolve to a user",
+          );
+        }
+        const adminCapabilities = [
+          ...new Set([...me.user.capabilities, ...missingCapabilities]),
+        ].sort();
+        if (adminCapabilities.length !== me.user.capabilities.length) {
+          const updateStartedAt = performance.now();
+          await client.rpc.auth.usersUpdate({
+            userId: me.user.userId,
+            capabilities: adminCapabilities,
+          }).orThrow();
+          recordTrellisDuration(
+            "trellis.admin.workflow.duration",
+            performance.now() - updateStartedAt,
+            { operation: "grant_client_capabilities", phase: "users_update" },
+          );
+        }
+        recordTrellisDuration(
+          "trellis.admin.workflow.duration",
+          performance.now() - startedAt,
+          { operation: "grant_client_capabilities", phase: "total" },
+        );
+      },
+    );
     this.#capabilityGrantQueue = run.catch(() => undefined);
     await run;
   }
@@ -622,7 +633,9 @@ export class TrellisTestAdminAutomation {
     classification?: "update" | "migration";
     limit?: number;
     offset?: number;
-  }): Promise<{ entries: unknown[]; count: number; offset: number; limit: number }> {
+  }): Promise<
+    { entries: unknown[]; count: number; offset: number; limit: number }
+  > {
     const client = await this.#client();
     return await client.rpc.auth.deploymentAuthorityPlansList({
       deploymentId: args.deploymentId,
@@ -687,8 +700,17 @@ export class TrellisTestAdminAutomation {
     return { seed, sessionKey: auth.sessionKey };
   }
 
+  /** Ensures bootstrap is complete and clears the admin connection before a Trellis restart. */
+  async prepareForControlPlaneRestart(): Promise<void> {
+    await this.#completeBootstrap();
+    await this.close();
+  }
+
   /** Closes the lazily connected admin client, when it exists. */
   async close(): Promise<void> {
-    await this.#connectedAdminClient?.connection.close();
+    const client = this.#connectedAdminClient;
+    this.#connectedAdminClient = undefined;
+    this.#adminClient = undefined;
+    await client?.connection.close();
   }
 }

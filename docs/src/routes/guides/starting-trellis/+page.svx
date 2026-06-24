@@ -1,13 +1,12 @@
-This guide generates the local files Trellis needs, starts NATS in a container, applies shared infrastructure, and runs Trellis from the source tree with `deno task dev`.
+This guide generates the local files Trellis needs, starts NATS in a container, applies shared infrastructure, and runs the Rust Trellis runtime from the source tree.
 
 By the end, you will have:
 
 - a local folder at `~/trellis` with generated Trellis and NATS files
 - a NATS container running on your machine
-- Trellis running at `http://localhost:3000`
-- the built-in setup page for creating your first admin account
-- Console running at `http://localhost:5173`
-- a CLI login you can use for admin commands
+- the current Rust Trellis runtime running at `http://localhost:3000`
+- runtime health and readiness checks that return version and mode metadata
+- Console running at `http://localhost:5173` for UI development
 
 ## What you need
 
@@ -15,24 +14,22 @@ By the end, you will have:
 - [Deno](https://deno.com) v2+
 - a Rust toolchain, because local prepare tasks run the Rust generator
 - the `trellis` CLI installed (see [Install the Trellis CLI](/guides/install-trellis-cli))
-- `podman`
+- `podman` or `docker`
 
-The local bootstrap command uses a `nats-box` container internally to generate NATS operator, account, credential, signing-key, and resolver files. You do not need to configure NATS accounts, credentials, or signing keys by hand.
+The config init command generates NATS operator, account, credential, signing-key, auth-callout, and resolver files natively. You do not need to configure NATS accounts, credentials, or signing keys by hand.
 
 ## 1. Generate the local bundle
 
 ```sh
-trellis local init --out ~/trellis
+trellis init config --out ~/trellis
 ```
 
-This creates a movable local bundle under `~/trellis`:
+This creates a movable init bundle under `~/trellis`:
 
 | Path | Purpose |
 | --- | --- |
-| `manifest.json` | Generated bundle manifest with public keys and relative paths |
 | `nats/` | NATS config, resolver data, service credentials, and signing seeds |
-| `trellis/config.jsonc` | Trellis runtime config using relative file paths |
-| `trellis/session.seed` | Local Trellis runtime session key seed |
+| `trellis/config.toml` | Trellis runtime config using relative file paths |
 | `trellis/data/` | Local Trellis SQLite data directory |
 
 The generated Trellis config omits `nats.jetstream.replicas`. On startup,
@@ -45,7 +42,8 @@ Useful local flags:
 
 | Flag | Default | Use when |
 | --- | --- | --- |
-| `--container-runtime podman` | `auto` | You want to avoid runtime autodetection |
+| `--name Trellis` | `Trellis` | You want a different Trellis display name; the NATS server name is derived from this unless overridden |
+| `--server-name trellis` | derived from `--name` | You need a specific NATS server name |
 | `--public-origin http://localhost:3000` | `http://localhost:3000` | Trellis is exposed on a different local origin |
 | `--nats-server-url nats://127.0.0.1:4222` | `nats://127.0.0.1:4222` | Server-side clients reach NATS somewhere else |
 | `--nats-websocket-url ws://localhost:8080` | `ws://localhost:8080` | Browser clients reach NATS somewhere else |
@@ -119,39 +117,28 @@ trellis infra check \
 In the source checkout:
 
 ```sh
-cd js/services/trellis
-TRELLIS_CONFIG="$HOME/trellis/trellis/config.jsonc" deno task dev
+cargo run --manifest-path rust/Cargo.toml \
+  --package trellis-runtime \
+  --bin trellis-server \
+  -- all --config "$HOME/trellis/trellis/config.toml"
 ```
 
-Keep this terminal running. The task prepares generated artifacts, builds the built-in portal, and starts the Trellis runtime with file watching.
+Keep this terminal running. The current Rust runtime starts the runtime process and exposes `/healthz` and `/readyz`; both endpoints return JSON metadata with the runtime version and mode.
 
-On first boot, Trellis prints an admin setup URL because no admin account exists yet. You will use that link in the next step.
+The current Rust runtime does not provide `/version`, `/_trellis/portal`, first-admin bootstrap, or a Rust-runtime-backed `trellis login` flow yet. Use the supported Deno/service runtime path for end-to-end auth, portal, first-admin, and CLI login flows until the Rust `platform` subsystem includes those services.
 
-## 7. Create your first admin account
+## 7. Check runtime readiness
 
-Find the admin setup URL in the Trellis server output. It looks like this:
-
-```text
-http://localhost:3000/_trellis/portal/admin/bootstrap?flowId=...
-```
-
-Open that URL in your browser and set the password for the initial local `admin` account.
-
-## 8. Log in with the CLI
+Query both runtime endpoints:
 
 ```sh
-trellis login http://localhost:3000
+curl http://localhost:3000/healthz
+curl http://localhost:3000/readyz
 ```
 
-The CLI prints a portal URL and QR code. Open the URL, sign in with the local `admin` username and password you just set, approve the CLI contract, and wait for the command to complete.
+Each response should include fields like `version` and `mode`.
 
-Confirm the stored admin session:
-
-```sh
-trellis whoami
-```
-
-## 9. Start the Console
+## 8. Start the Console
 
 In another terminal from the source checkout:
 
@@ -161,21 +148,20 @@ cp .env.example .env
 deno task dev
 ```
 
-Open `http://localhost:5173` and log in with the local `admin` username and password. The browser flow uses the built-in Trellis portal served by the source-run runtime.
+Open `http://localhost:5173` for Console development. The current Rust runtime does not serve the built-in portal or auth routes, so Console cannot complete login against this Rust runtime until those routes are ported. Use the Deno/service runtime path for end-to-end Console auth flows.
 
-## 10. Verify the local stack
+## 9. Verify the local stack
 
 ```sh
 curl http://127.0.0.1:8222/healthz
-curl -i http://localhost:3000/_trellis/portal
+curl http://localhost:3000/healthz
+curl http://localhost:3000/readyz
 curl -I http://localhost:5173/
-trellis whoami
 ```
 
 At this point you have:
 
 - NATS running in a container
-- Trellis running from source with `deno task dev`
-- the built-in portal served by Trellis
-- Console running from source
-- an admin CLI session
+- Trellis running from source with `trellis-server`
+- Rust runtime health and readiness checks returning version and mode metadata
+- Console running from source for UI development

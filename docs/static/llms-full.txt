@@ -1,6 +1,6 @@
 # Trellis AI guidance for services and browser apps
 
-Last verified against Trellis main (2026-06-16).
+Last verified against Trellis main (2026-06-18).
 
 This file is for AI coding agents working in a service or browser app repository
 that consumes Trellis. The canonical URL is:
@@ -21,6 +21,12 @@ https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt
   `self: ["Event"]`. Dependency durable consumption remains authority-backed by
   top-level `uses`; runtime listeners consume only reconciled Trellis bindings,
   and runtime durable consumers are Trellis-provisioned only.
+- Rust services use descriptor-backed `listen_event(...)` on the connected
+  service runtime for durable event consumers. Specify `group` when a declared
+  event appears in multiple groups, and never provide a JetStream durable name
+  from application code. The returned handle supports `abort()`; aborting a
+  durable listener removes that handler from the shared registry so re-registering
+  can resume delivery from the same Trellis-provisioned durable consumer.
 - Runtime authority comes from deployment authority and identity authority.
 - Deployment authority proposal/desired `needs` are grouped by `contracts`,
   `surfaces`, `capabilities`, and `resources`. Materialized authority is a
@@ -101,10 +107,12 @@ Rules:
   `deno task prepare`
 - TypeScript browser app repos should expose Trellis generation through the local
   workspace and keep generated SDK imports pointed at workspace output paths;
-  generated SDKs do not have a separate published package path
+  generated SDKs do not have a separate published package path. Svelte apps do
+  not need their own generated app SDK for the connected client type; use
+  `TrellisClientFor<typeof contract>` from the app source contract.
 - Svelte browser app repos should read the Svelte AI guide before wiring
-  `createTrellisApp`, `TrellisProvider`, generated SDK aliases for contract
-  `uses`, Vite aliases, or `svelte-check` path maps
+  `createTrellisApp`, `TrellisProvider`, generated service SDK aliases for
+  contract `uses`, Vite aliases, or `svelte-check` path maps
 - Browser apps should let Trellis-owned auth redirects and callbacks flow through
   the Trellis browser/Svelte helpers. Plain callbacks after expired login flows
   should restart the current auth request; reserve user-visible callback errors
@@ -116,26 +124,21 @@ Rules:
   return-target validation; apps should not hard-code IdP logout endpoints or
   arbitrary post-logout return URLs.
 - Rust service repos should expose Trellis generation as `cargo xtask prepare`
-- Deno-first TypeScript service repos can use `@qlever-llc/trellis-test` for
-  integration tests that need a real isolated Trellis runtime. Start it with
-  `TrellisTestRuntime.start({ trellis: { command: ... } })`, register services
-  through `runtime.registerService(...)`, connect services with public
-  `TrellisService.connect(...)`, connect app/client participants with
-  `runtime.connectClient(...)`, capture live generated events with
-  `runtime.captureEvents(...)`, assert captured events/jobs/operations/RPC Results
-  with the exported `assert*` helpers, use `assertRpcEventuallyOk(...)` for
-  projection/eventual-consistency polling, pass generated event captures and
-  service job refs directly to the assertion helpers, and let the runtime start
-  the explicit Trellis control-plane command as a spawned process. Allow
-  migration authority plans only in isolated mutable-dev tests through
-  `authority.autoAccept` or per-approval `allowPlanClassifications`.
-- In the Trellis repo, client-library integration parity is owned by
-  `integration/client-test-matrix.json`. Release verification runs the
-  language-owned JS suite with `deno task -c js/deno.json test:integration` and
-  the Rust `trellis-rs` suite with
-  `cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration -- --nocapture`.
-  The matrix has no per-language opt-ins or skips; every supported language suite
-  must register every case.
+- Deno-first TypeScript service repos can use
+  `@qlever-llc/trellis-test/integration` and
+  `@qlever-llc/trellis-test/integration/runner` for out-of-tree integration
+  tests that need a real Trellis runtime. Add `trellis.integration.ts` with an
+  explicit `runtime.trellis.command`, child `denoTestArgs`, and case descriptors.
+  Test modules should use `trellisIntegrationTest(...)`,
+  `runtimeScopeForCase(CASE_ID)`, case-scoped contract ids, subjects, participant
+  names, state/resource keys, contract approval/provisioning,
+  `TrellisService.connect(...)`, `runtime.connectClient(...)`, and
+  `runtime.captureEvents(...)` when needed. Run serially with the generic runner
+  and `--config`; run in parallel with `--parallel --jobs <n>`. The runner maps
+  `--jobs` to child `DENO_JOBS` rather than passing a `deno test --jobs` flag.
+  Keep one case per module and never depend on cleanup or execution order.
+  Migration authority plans should be allowed only in tests that intentionally
+  cover migrations.
 - the local `AGENTS.md` should record the contract source path, generated artifact
   command, format command, typecheck/clippy command, test command, run command,
   and migration command
@@ -234,6 +237,7 @@ expected by that repo.
 
 - Docs-site path for the AI guide page: `/guides/ai/developing-trellis-services`
 - Docs-site path for TypeScript libraries: `/guides/libraries/typescript`
+- Docs-site path for testing Trellis services: `/guides/testing-trellis-services`
 - Docs-site path for SvelteKit apps: `/guides/writing-sveltekit-apps`
 - Docs-site path for Rust libraries: `/guides/libraries/rust`
 - Docs-site path for the API reference: `/api`

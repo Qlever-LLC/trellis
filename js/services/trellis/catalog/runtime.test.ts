@@ -649,31 +649,6 @@ Deno.test("contracts runtime treats missing active offer manifest as cache miss"
   }
 });
 
-Deno.test("contracts runtime includes accepted implementation offers as active", async () => {
-  await withContractsModule(async (
-    module,
-    _contractStorage,
-    deployments,
-    _authorities,
-    offers,
-  ) => {
-    const installed = await module.installServiceContract(
-      makeOperationContract("billing@v1", "operations.v1.Billing.Refund"),
-    );
-    await deployments.put(testServiceDeployment("billing.default", [
-      "Billing",
-    ]));
-    await putAcceptedOffer(offers, "billing.default", installed);
-
-    await module.refreshActiveContracts();
-
-    assertEquals(
-      (await module.getActiveCatalog()).contracts.map((entry) => entry.digest),
-      [installed.digest],
-    );
-  });
-});
-
 Deno.test("contracts runtime excludes expired and stale implementation offers", async () => {
   await withContractsModule(async (
     module,

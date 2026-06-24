@@ -105,6 +105,9 @@ Rules:
   keeps contract knowledge out of arbitrary page files
 - generated client facades are not needed for Svelte app-local helpers; the app
   contract is the typing source for `createTrellisApp` and `TrellisProvider`
+- do not generate or import an app SDK just to type `getTrellis()`; use
+  `TrellisClientFor<typeof contract>` and reserve generated SDK imports for the
+  service contracts referenced by `sdk.use(spec)`
 - SvelteKit apps should usually source that fixed instance URL from public env
   such as `PUBLIC_TRELLIS_URL`; use `$env/dynamic/public` when local demos need
   a safe default and `$env/static/public` when the value must be fixed at build

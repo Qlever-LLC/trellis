@@ -621,6 +621,13 @@ export const guideDocs: DocEntry[] = [
     section: "Libraries",
   },
   {
+    title: "Testing Trellis services",
+    description:
+      "Run out-of-tree TypeScript service integration tests with @qlever-llc/trellis-test, case-scoped fixtures, and the generic runner.",
+    href: "/guides/testing-trellis-services",
+    section: "Libraries",
+  },
+  {
     title: "Install the Trellis CLI",
     description:
       "Install the trellis command-line tool from a release, Cargo, or the current checkout.",

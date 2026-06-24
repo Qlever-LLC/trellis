@@ -1152,6 +1152,7 @@ fn rewrite_embedded_rust_sdk_source(contents: &str, is_root: bool) -> String {
     };
     rewritten
         .replace("trellis_rs::client::", "crate::client::")
+        .replace("trellis_rs::service::", "crate::service::")
         .replace("trellis_client::", "crate::client::")
         .replace("trellis_contracts::", "crate::contracts::")
 }
@@ -1538,7 +1539,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("create tempdir");
         let dest = temp.path().join("rpc.rs");
         let rewritten = rewrite_embedded_rust_sdk_source(
-            "pub fn client( )->trellis_client::Result<()> { todo!() }\n",
+            "use trellis_rs::service::OperationFailureLike;\npub fn client( )->trellis_client::Result<()> { todo!() }\n",
             false,
         );
         let formatted = format_embedded_rust_sdk_source(&dest, &rewritten)
@@ -1546,7 +1547,7 @@ mod tests {
 
         assert_eq!(
             formatted,
-            "pub fn client() -> crate::client::Result<()> {\n    todo!()\n}\n"
+            "use crate::service::OperationFailureLike;\npub fn client() -> crate::client::Result<()> {\n    todo!()\n}\n"
         );
     }
 

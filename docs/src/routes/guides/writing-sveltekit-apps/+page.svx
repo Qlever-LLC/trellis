@@ -117,7 +117,7 @@ A simple setup that ensures this:
 }
 ```
 
-`prepare` generates the app SDK under `generated/packages/jsr/my-app/` for consumers that need generated SDK modules. Svelte app-local helpers can derive the connected client type directly from the local contract. Regenerate whenever the contract changes.
+`prepare` regenerates contract artifacts and any generated service SDKs consumed by the app contract. Svelte app-local helpers derive the connected client type directly from the local app contract with `TrellisClientFor<typeof contract>`; do not import the app's own generated SDK just to type `getTrellis()`. Regenerate whenever the contract changes.
 
 For active app or service-contract editing, keep `deno task prepare:watch`
 running in a separate terminal. It watches broadly but only prepares affected

@@ -1,6 +1,6 @@
 # Trellis AI guide
 
-Last verified against Trellis main (2026-06-16).
+Last verified against Trellis main (2026-06-18).
 
 Canonical full guide:
 https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt
@@ -36,6 +36,11 @@ commands.
   alias, and `eventConsumers.<group>.self` selects events owned by the same
   contract. Dependency durable consumption remains authority-backed by top-level
   `uses`; runtime durable consumers are Trellis-provisioned only.
+- Rust durable event listeners use descriptor-backed `listen_event(...)` from a
+  connected service runtime and must not provide caller-owned durable names. The
+  returned handle supports `abort()`; aborting a durable listener removes that
+  handler registration so re-registering can resume delivery from the same
+  Trellis-provisioned durable consumer.
 - Trellis does not provide application dependency injection. Handler arguments
   contain only Trellis-owned runtime data. Application resources are supplied by
   normal JavaScript closure or factory patterns.
@@ -85,12 +90,6 @@ commands.
   TypeScript tests. The captured-event helpers accept generated
   `runtime.captureEvents(...)` captures directly, and `assertJobCompleted`
   accepts generated service job refs directly.
-- Trellis client-library integration parity is tracked by
-  `integration/client-test-matrix.json`. In the Trellis repo, release verification
-  runs the JS suite with `deno task -c js/deno.json test:integration` and the
-  Rust suite with
-  `cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration -- --nocapture`;
-  every supported language suite must register every matrix case.
 - Event subject `params` must point at string, number, or integer-compatible
   payload fields. For `anyOf` or `oneOf` event payload schemas, every variant must
   contain each routed pointer.
@@ -112,21 +111,23 @@ commands.
 - TypeScript handlers may return source `defineError(...)` instances when their
   serialized data matches the declared generated SDK error data; generated SDK
   aliases type those returns structurally on the handler side.
-- For Deno-first TypeScript integration tests, use
-  `@qlever-llc/trellis-test` and `TrellisTestRuntime.start({ trellis: {
-  command: ... } })` to start an isolated explicit Trellis control-plane process
-  plus fresh NATS/JetStream container. Register service participants with
-  `runtime.registerService(...)`, connect app/client participants with
-  `runtime.connectClient(...)`, capture live generated events with
-  `runtime.captureEvents(...)`, and opt into migration-plan approval only for
-  isolated mutable-dev tests with `authority.autoAccept` or
-  `runtime.contracts.approve({ allowPlanClassifications: [...] })`. Do not mock
-  Trellis bootstrap, auth, authority, generated clients, jobs, operations, KV,
-  store, or event consumers in service-boundary tests.
+- For Deno-first TypeScript service integration tests, prefer the public
+  `@qlever-llc/trellis-test/integration` helpers and
+  `/integration/runner`. External service repos provide
+  `trellis.integration.ts` with an explicit `runtime.trellis.command`,
+  `denoTestArgs`, and case descriptors. Tests use
+  `trellisIntegrationTest(...)`, `runtimeScopeForCase(CASE_ID)`, case-scoped
+  contract ids/subjects/names/resource keys, contract approval/provisioning,
+  `TrellisService.connect(...)`, and `runtime.connectClient(...)`. Serial runs
+  call the runner with `--config`; parallel runs add `--parallel --jobs <n>`,
+  where `--jobs` maps to child `DENO_JOBS`, not a `deno test --jobs` flag. Keep
+  one case per module and do not rely on cleanup or execution order.
 - Wrap Rust Trellis generation in `cargo xtask prepare`.
 - Browser app repos should read the Svelte AI guide before wiring
-  `createTrellisApp`, `TrellisProvider`, generated SDK aliases for contract
-  `uses`, Vite aliases, or `svelte-check` path maps.
+  `createTrellisApp`, `TrellisProvider`, generated service SDK aliases for
+  contract `uses`, Vite aliases, or `svelte-check` path maps. Do not generate or
+  import an app SDK just to type a Svelte app client; use
+  `TrellisClientFor<typeof contract>` from the app source contract.
 - Browser apps should let Trellis helpers own auth redirects and treat plain
   callbacks after expired login as auth-restart opportunities, not errors.
 - Browser apps that sign users out should use Trellis browser auth helpers for
@@ -156,4 +157,5 @@ commands.
 - Rust AGENTS template: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/templates/trellis-service-rust-AGENTS.md
 - Combined AGENTS template: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/templates/trellis-service-AGENTS.md
 - Docs-site path for the human guide: `/guides/ai/developing-trellis-services`
+- Docs-site path for service integration testing: `/guides/testing-trellis-services`
 - Docs-site path for the API reference: `/api`

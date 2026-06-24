@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -41,6 +42,52 @@ const RPC_SERVICE_CONTRACT_JSON: &str = r#"{
         "id": { "type": "string" },
         "found": { "type": "boolean" }
       }
+    },
+    "AnnotatedValidationInput": {
+      "type": "object",
+      "required": ["items"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "x-trellis-validation": {
+            "label": "Items",
+            "issues": {
+              "minItems": {
+                "code": "rpc.items.required",
+                "message": "Add at least one item."
+              }
+            }
+          }
+        }
+      }
+    },
+    "MixedValidationInput": {
+      "type": "object",
+      "required": ["items", "name"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "x-trellis-validation": {
+            "label": "Items",
+            "issues": {
+              "minItems": {
+                "code": "rpc.items.required",
+                "message": "Add at least one item."
+              }
+            }
+          }
+        },
+        "name": { "type": "string", "minLength": 3 }
+      }
+    },
+    "ValidationOutput": {
+      "type": "object",
+      "required": ["success"],
+      "properties": { "success": { "type": "boolean" } }
     }
   },
   "errors": {
@@ -65,6 +112,22 @@ const RPC_SERVICE_CONTRACT_JSON: &str = r#"{
       "output": { "schema": "EntityGetOutput" },
       "capabilities": { "call": ["trellis.integration.rpc-service::read"] },
       "errors": [{ "type": "NOT_FOUND" }]
+    },
+    "Validation.Annotated": {
+      "version": "v1",
+      "subject": "rpc.v1.Validation.Annotated",
+      "input": { "schema": "AnnotatedValidationInput" },
+      "output": { "schema": "ValidationOutput" },
+      "capabilities": { "call": ["trellis.integration.rpc-service::read"] },
+      "errors": []
+    },
+    "Validation.Mixed": {
+      "version": "v1",
+      "subject": "rpc.v1.Validation.Mixed",
+      "input": { "schema": "MixedValidationInput" },
+      "output": { "schema": "ValidationOutput" },
+      "capabilities": { "call": ["trellis.integration.rpc-service::read"] },
+      "errors": []
     }
   }
 }"#;
@@ -88,6 +151,22 @@ struct EntityGetOutput {
     found: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct AnnotatedValidationInput {
+    items: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct MixedValidationInput {
+    items: Vec<String>,
+    name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct ValidationOutput {
+    success: bool,
+}
+
 struct EntityGetRpc;
 
 impl RpcDescriptor for EntityGetRpc {
@@ -99,6 +178,73 @@ impl RpcDescriptor for EntityGetRpc {
     const CALLER_CAPABILITIES: &'static [&'static str] = &[RPC_READ_CAPABILITY];
     const ERRORS: &'static [&'static str] = &["NOT_FOUND"];
     const INPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
+    const OUTPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
+}
+
+struct AnnotatedValidationRpc;
+
+impl RpcDescriptor for AnnotatedValidationRpc {
+    type Input = AnnotatedValidationInput;
+    type Output = ValidationOutput;
+
+    const KEY: &'static str = "Validation.Annotated";
+    const SUBJECT: &'static str = "rpc.v1.Validation.Annotated";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &[RPC_READ_CAPABILITY];
+    const ERRORS: &'static [&'static str] = &[];
+    const INPUT_SCHEMA_JSON: &'static str = r#"{
+      "type": "object",
+      "required": ["items"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "x-trellis-validation": {
+            "label": "Items",
+            "issues": {
+              "minItems": {
+                "code": "rpc.items.required",
+                "message": "Add at least one item."
+              }
+            }
+          }
+        }
+      }
+    }"#;
+    const OUTPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
+}
+
+struct MixedValidationRpc;
+
+impl RpcDescriptor for MixedValidationRpc {
+    type Input = MixedValidationInput;
+    type Output = ValidationOutput;
+
+    const KEY: &'static str = "Validation.Mixed";
+    const SUBJECT: &'static str = "rpc.v1.Validation.Mixed";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &[RPC_READ_CAPABILITY];
+    const ERRORS: &'static [&'static str] = &[];
+    const INPUT_SCHEMA_JSON: &'static str = r#"{
+      "type": "object",
+      "required": ["items", "name"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "x-trellis-validation": {
+            "label": "Items",
+            "issues": {
+              "minItems": {
+                "code": "rpc.items.required",
+                "message": "Add at least one item."
+              }
+            }
+          }
+        },
+        "name": { "type": "string", "minLength": 3 }
+      }
+    }"#;
     const OUTPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","properties":{},"required":[]}"#;
 }
 
@@ -473,6 +619,179 @@ async fn rpc_denies_client_without_call_authority() {
     service_task.abort_and_wait().await;
 }
 
+#[tokio::test]
+async fn rpc_invalid_annotated_input_schema_validation() {
+    assert_case_registered(
+        "rpc.invalid-annotated-input-schema-validation",
+        "rpc",
+        "rpc",
+    );
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    let service_contract =
+        trellis_test::TrellisTestContract::from_manifest_json(RpcServiceContract::CONTRACT_JSON)
+            .expect("build RPC service test contract");
+    let client_contract = rpc_client_contract().expect("build RPC client test contract");
+
+    let service_key = admin
+        .provision_service_instance(&bootstrap_url, &service_contract, None, None)
+        .await
+        .expect("provision live RPC service instance");
+    let contract_digest = service_contract.digest().to_string();
+
+    let trellis_url = runtime.trellis_url().to_string();
+    let seed = service_key.seed.clone();
+    let mut service: RpcServiceRuntime = ConnectedServiceRuntime::from_connected_client(
+        service_name(),
+        Arc::new(
+            TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
+                trellis_url: &trellis_url,
+                contract_id: RPC_SERVICE_ID,
+                contract_digest: &contract_digest,
+                contract_json: RPC_SERVICE_CONTRACT_JSON,
+                session_key_seed_base64url: &seed,
+                timeout_ms: trellis_rs::service::DEFAULT_TIMEOUT_MS,
+                retry_delay_ms: trellis_rs::service::DEFAULT_RETRY_DELAY_MS,
+                authority_pending_timeout_ms:
+                    trellis_rs::service::DEFAULT_AUTHORITY_PENDING_TIMEOUT_MS,
+            })
+            .await
+            .expect("connect live Rust RPC service"),
+        ),
+    )
+    .expect("build connected service runtime");
+
+    let handler_call_count = Arc::new(AtomicUsize::new(0));
+    let handler_counter = Arc::clone(&handler_call_count);
+    service.register_rpc::<AnnotatedValidationRpc, _, _>(move |_context, _input| {
+        let handler_counter = Arc::clone(&handler_counter);
+        async move {
+            handler_counter.fetch_add(1, Ordering::SeqCst);
+            Ok(ValidationOutput { success: true })
+        }
+    });
+
+    let service_task = AbortOnDrop::new(tokio::spawn(async move { service.run().await }));
+
+    let client = admin
+        .connect_client(&bootstrap_url, &client_contract)
+        .await
+        .expect("connect live Rust RPC client");
+    let payload = call_rpc_expecting_error_with_retry::<AnnotatedValidationRpc>(
+        &client,
+        &AnnotatedValidationInput { items: Vec::new() },
+    )
+    .await;
+    let error = payload
+        .decode_schema_validation()
+        .expect("decode SchemaValidationError payload")
+        .expect("expected SchemaValidationError payload");
+
+    service_task.abort_and_wait().await;
+    assert_eq!(error.error_type, "SchemaValidationError");
+    assert_eq!(error.issues.len(), 1);
+    assert_eq!(error.issues[0].code, "rpc.items.required");
+    assert_eq!(handler_call_count.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn rpc_invalid_mixed_input_validation() {
+    assert_case_registered("rpc.invalid-mixed-input-validation", "rpc", "rpc");
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    let service_contract =
+        trellis_test::TrellisTestContract::from_manifest_json(RpcServiceContract::CONTRACT_JSON)
+            .expect("build RPC service test contract");
+    let client_contract = rpc_client_contract().expect("build RPC client test contract");
+
+    let service_key = admin
+        .provision_service_instance(&bootstrap_url, &service_contract, None, None)
+        .await
+        .expect("provision live RPC service instance");
+    let contract_digest = service_contract.digest().to_string();
+
+    let trellis_url = runtime.trellis_url().to_string();
+    let seed = service_key.seed.clone();
+    let mut service: RpcServiceRuntime = ConnectedServiceRuntime::from_connected_client(
+        service_name(),
+        Arc::new(
+            TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
+                trellis_url: &trellis_url,
+                contract_id: RPC_SERVICE_ID,
+                contract_digest: &contract_digest,
+                contract_json: RPC_SERVICE_CONTRACT_JSON,
+                session_key_seed_base64url: &seed,
+                timeout_ms: trellis_rs::service::DEFAULT_TIMEOUT_MS,
+                retry_delay_ms: trellis_rs::service::DEFAULT_RETRY_DELAY_MS,
+                authority_pending_timeout_ms:
+                    trellis_rs::service::DEFAULT_AUTHORITY_PENDING_TIMEOUT_MS,
+            })
+            .await
+            .expect("connect live Rust RPC service"),
+        ),
+    )
+    .expect("build connected service runtime");
+
+    let handler_call_count = Arc::new(AtomicUsize::new(0));
+    let handler_counter = Arc::clone(&handler_call_count);
+    service.register_rpc::<MixedValidationRpc, _, _>(move |_context, _input| {
+        let handler_counter = Arc::clone(&handler_counter);
+        async move {
+            handler_counter.fetch_add(1, Ordering::SeqCst);
+            Ok(ValidationOutput { success: true })
+        }
+    });
+
+    let service_task = AbortOnDrop::new(tokio::spawn(async move { service.run().await }));
+
+    let client = admin
+        .connect_client(&bootstrap_url, &client_contract)
+        .await
+        .expect("connect live Rust RPC client");
+    let payload = call_rpc_expecting_error_with_retry::<MixedValidationRpc>(
+        &client,
+        &MixedValidationInput {
+            items: Vec::new(),
+            name: "ab".to_string(),
+        },
+    )
+    .await;
+
+    assert!(
+        payload
+            .decode_schema_validation()
+            .expect("decode SchemaValidationError probe")
+            .is_none(),
+        "expected ValidationError, not SchemaValidationError"
+    );
+    let error = payload
+        .decode_validation()
+        .expect("decode ValidationError payload")
+        .expect("expected ValidationError payload");
+
+    service_task.abort_and_wait().await;
+    assert_eq!(error.error_type, "ValidationError");
+    assert_eq!(handler_call_count.load(Ordering::SeqCst), 0);
+}
+
 async fn call_entity_get_with_retry(
     client: &trellis_rs::client::TrellisClient,
     id: &str,
@@ -518,6 +837,28 @@ async fn call_entity_get_expecting_error(
     }
 }
 
+async fn call_rpc_expecting_error_with_retry<D>(
+    client: &trellis_rs::client::TrellisClient,
+    input: &D::Input,
+) -> trellis_rs::client::RpcErrorPayload
+where
+    D: RpcDescriptor,
+{
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match client.call::<D>(input).await {
+            Ok(_output) => panic!("expected error but call succeeded"),
+            Err(error)
+                if is_retryable_service_startup_error(&error) && Instant::now() < deadline =>
+            {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            Err(trellis_rs::client::TrellisClientError::RpcError(payload)) => return payload,
+            Err(error) => panic!("expected RPC validation error, got: {error}"),
+        }
+    }
+}
+
 fn is_retryable_service_startup_error(error: &trellis_rs::client::TrellisClientError) -> bool {
     match error {
         trellis_rs::client::TrellisClientError::NatsRequest(message) => {
@@ -538,7 +879,11 @@ fn rpc_client_contract() -> Result<trellis_test::TrellisTestContract, trellis_te
     )
     .use_ref(
         "rpcService",
-        trellis_rs::contracts::use_contract(RPC_SERVICE_ID).with_rpc_call(["Entity.Get"]),
+        trellis_rs::contracts::use_contract(RPC_SERVICE_ID).with_rpc_call([
+            "Entity.Get",
+            "Validation.Annotated",
+            "Validation.Mixed",
+        ]),
     )
     .build()?;
 

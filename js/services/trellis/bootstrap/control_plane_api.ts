@@ -2,12 +2,19 @@ import { API as trellisAuthApi } from "../contracts/trellis_auth.ts";
 import { API as trellisCoreApi } from "../contracts/trellis_core.ts";
 import { API as trellisHealthApi } from "../contracts/trellis_health.ts";
 import { API as trellisStateApi } from "../contracts/trellis_state.ts";
+import { API as generatedTrellisJobsApi } from "@qlever-llc/trellis/sdk/jobs";
+
+const trellisJobsApi = {
+  owned: generatedTrellisJobsApi.owned,
+  trellis: generatedTrellisJobsApi.owned,
+} as const;
 
 const CONTROL_PLANE_APIS = [
   trellisCoreApi,
   trellisAuthApi,
   trellisStateApi,
   trellisHealthApi,
+  trellisJobsApi,
 ] as const;
 
 const OWNED_API_KINDS = ["rpc", "operations", "events", "subjects"] as const;
@@ -96,23 +103,27 @@ export const trellisControlPlaneApi = {
       ...trellisCoreApi.owned.rpc,
       ...trellisAuthApi.owned.rpc,
       ...trellisStateApi.owned.rpc,
+      ...trellisJobsApi.owned.rpc,
     },
     operations: {
       ...trellisCoreApi.owned.operations,
       ...trellisAuthApi.owned.operations,
       ...trellisStateApi.owned.operations,
+      ...trellisJobsApi.owned.operations,
     },
     events: {
       ...trellisCoreApi.owned.events,
       ...trellisAuthApi.owned.events,
       ...trellisStateApi.owned.events,
       ...trellisHealthApi.owned.events,
+      ...trellisJobsApi.owned.events,
     },
     subjects: {
       ...trellisCoreApi.owned.subjects,
       ...trellisAuthApi.owned.subjects,
       ...trellisStateApi.owned.subjects,
       ...trellisHealthApi.owned.subjects,
+      ...trellisJobsApi.owned.subjects,
     },
   },
   trellis: {
@@ -121,24 +132,28 @@ export const trellisControlPlaneApi = {
       ...trellisAuthApi.trellis?.rpc,
       ...trellisStateApi.trellis?.rpc,
       ...trellisHealthApi.trellis?.rpc,
+      ...trellisJobsApi.trellis.rpc,
     },
     operations: {
       ...trellisCoreApi.trellis?.operations,
       ...trellisAuthApi.trellis?.operations,
       ...trellisStateApi.trellis?.operations,
       ...trellisHealthApi.trellis?.operations,
+      ...trellisJobsApi.trellis.operations,
     },
     events: {
       ...trellisCoreApi.trellis?.events,
       ...trellisAuthApi.trellis?.events,
       ...trellisStateApi.trellis?.events,
       ...trellisHealthApi.trellis?.events,
+      ...trellisJobsApi.trellis.events,
     },
     subjects: {
       ...trellisCoreApi.trellis?.subjects,
       ...trellisAuthApi.trellis?.subjects,
       ...trellisStateApi.trellis?.subjects,
       ...trellisHealthApi.trellis?.subjects,
+      ...trellisJobsApi.trellis.subjects,
     },
   },
 } as const;

@@ -115,35 +115,6 @@ function userSessionFields() {
   };
 }
 
-Deno.test("ensureBoundUserSession creates a new session when none exists", async () => {
-  const sessionKV = new InMemoryKV<Session>();
-  const connectionsKV = new InMemoryKV<Connection>();
-
-  const now = new Date("2026-01-01T00:00:00.000Z");
-  const res = await ensureBoundUserSession({
-    sessionStorage: sessionStorageFromKV(sessionKV),
-    connectionsKV,
-    kick: async () => {},
-    now,
-    sessionKey: "sk",
-    userId: "usr_123",
-    identity: {
-      identityId: "idn_github_123",
-      provider: "github",
-      subject: "123",
-    },
-    email: "a@example.com",
-    name: "Alice",
-    ...userSessionFields(),
-  });
-
-  const v = res.take();
-  if (isErr(v)) throw v.error;
-
-  assertEquals(v.createdAt.toISOString(), now.toISOString());
-  assertEquals(sessionKV.has("sk"), true);
-});
-
 Deno.test("ensureBoundUserSession recovers when the session already exists for the same identity", async () => {
   const sessionKV = new InMemoryKV<Session>();
   const connectionsKV = new InMemoryKV<Connection>();

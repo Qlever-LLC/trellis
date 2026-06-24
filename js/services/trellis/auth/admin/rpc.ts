@@ -32,11 +32,13 @@ import type {
   Connection,
   DeploymentAuthority,
   IdentityGrantRecord,
+  ImplementationOffer,
 } from "../schemas.ts";
 import type {
   BoundedListQuery,
   ListPage,
   SqlDeviceProvisioningSecretRepository,
+  SqlImplementationOfferRepository,
   SqlSessionRepository,
   SqlUserProjectionRepository,
 } from "../storage.ts";
@@ -157,6 +159,10 @@ export type AdminRpcDeps = {
   browserFlowsKV: RuntimeKV<unknown>;
   builtinContractDigests?: Iterable<string>;
   getActiveCatalogIssues?: () => Promise<ActiveCatalogIssue[]>;
+  implementationOfferStorage?: Pick<
+    SqlImplementationOfferRepository,
+    "listActiveByDigests" | "put"
+  >;
   refreshActiveContracts: (
     opts?: Parameters<ActiveCatalogValidator>[0],
   ) => Promise<void>;
@@ -359,6 +365,23 @@ async function authResolveCatalogIssueHandler(
         action: req.action,
       });
     }
+    if (req.action === "force-replace") {
+      if (!ctx.implementationOfferStorage) {
+        return Result.err(
+          new UnexpectedError({
+            cause: new Error(
+              "catalog issue force-replace requires implementationOfferStorage",
+            ),
+          }),
+        );
+      }
+      await withdrawActiveOffers({
+        implementationOfferStorage: ctx.implementationOfferStorage,
+        contractId: issue.contractId,
+        deploymentIds: action.deploymentIds,
+        digests: action.digests,
+      });
+    }
     await ctx.refreshActiveContracts();
     return Result.ok({
       success: true,
@@ -368,6 +391,42 @@ async function authResolveCatalogIssueHandler(
   } catch (error) {
     return Result.err(new UnexpectedError({ cause: toError(error) }));
   }
+}
+
+async function withdrawActiveOffers(args: {
+  implementationOfferStorage: Pick<
+    SqlImplementationOfferRepository,
+    "listActiveByDigests" | "put"
+  >;
+  contractId: string;
+  deploymentIds: Iterable<string>;
+  digests: Iterable<string>;
+}): Promise<void> {
+  const deploymentIds = new Set(args.deploymentIds);
+  const now = new Date().toISOString();
+  for (
+    const offer of await args.implementationOfferStorage.listActiveByDigests(
+      args.digests,
+    )
+  ) {
+    if (offer.contractId !== args.contractId) continue;
+    if (!deploymentIds.has(offer.deploymentId)) continue;
+    await args.implementationOfferStorage.put(withdrawnOffer(offer, now));
+  }
+}
+
+function withdrawnOffer(
+  offer: ImplementationOffer,
+  now: string,
+): ImplementationOffer {
+  return {
+    ...offer,
+    status: "withdrawn",
+    liveness: "disconnected",
+    lastRefreshedAt: now,
+    staleAt: now,
+    expiresAt: now,
+  };
 }
 
 function isAdmin(user: RpcUser): boolean {

@@ -23,6 +23,8 @@ trellis-codegen-rust = { path = "../codegen-rust", version = "0.19.0" }
 trellis-codegen-ts = { path = "../codegen-ts", version = "0.19.0" }
 trellis-contracts = { path = "../contracts", version = "0.19.0" }
 trellis-local-bootstrap = { path = "../local-bootstrap", version = "0.19.0" }
+trellis-generate = { path = "../../tools/generate", version = "0.19.0" }
+trellis-bootstrap = { path = "../bootstrap", version = "0.19.0" }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 miette.workspace = true

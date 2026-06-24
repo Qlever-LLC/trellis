@@ -87,7 +87,6 @@ pub async fn run() -> miette::Result<()> {
         TopLevelCommand::Grants(command) => deploy::run_grants(format, command).await?,
         TopLevelCommand::Svc(command) => deploy::run_svc(format, command).await?,
         TopLevelCommand::Dev(command) => deploy::run_dev(format, command).await?,
-        TopLevelCommand::Local(command) => bootstrap::local(format, command)?,
         TopLevelCommand::Infra(command) => bootstrap::infra(format, command).await?,
         TopLevelCommand::Init(command) => bootstrap::init(format, command).await?,
         TopLevelCommand::Keys(command) => match command.command {

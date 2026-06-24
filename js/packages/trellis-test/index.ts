@@ -46,6 +46,12 @@ export type {
   TrellisTestEventSourceContract,
 } from "./src/event_capture.ts";
 export type {
+  JetStreamAckFrame,
+  JetStreamAckObserver,
+  NatsMessageFrame,
+  NatsMessageObserver,
+} from "./src/nats_container.ts";
+export type {
   TrellisTestAuthorityPlanClassification,
   TrellisTestClientAuth,
   TrellisTestClientContract,

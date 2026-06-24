@@ -178,6 +178,9 @@ export function createDeviceActivationFixture(caseId: string) {
               "Auth.DeploymentAuthority.Reconcile",
               "Auth.Devices.Provision",
               "Auth.DeviceUserAuthorities.List",
+              "Auth.DeviceUserAuthorities.Revoke",
+              "Auth.DeviceUserAuthorities.Reviews.Decide",
+              "Auth.DeviceUserAuthorities.Reviews.List",
               "Auth.Sessions.Me",
             ],
           },
@@ -201,7 +204,10 @@ export function createDeviceActivationFixture(caseId: string) {
     ReturnType<LiveTrellisRuntime["connectClient"]>
   >;
 
-  async function setupDeviceDeployment(runtime: LiveTrellisRuntime) {
+  async function setupDeviceDeployment(
+    runtime: LiveTrellisRuntime,
+    options: { reviewMode?: "none" | "required" } = {},
+  ) {
     const admin = await runtime.connectClient({
       name: caseScopedName("device-activation-fixture-admin", caseId),
       contract: adminContract,
@@ -214,7 +220,7 @@ export function createDeviceActivationFixture(caseId: string) {
     await admin.rpc.auth.deploymentsCreate({
       deploymentId,
       kind: "device",
-      reviewMode: "none",
+      reviewMode: options.reviewMode ?? "none",
     }).orThrow();
     await approveDeviceContract(admin, deploymentId);
 

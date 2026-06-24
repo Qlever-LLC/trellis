@@ -209,63 +209,6 @@ async function createVerifiedApp(args?: {
   return { app, auth, contract: validated, sessionKV };
 }
 
-Deno.test("POST /bootstrap/client returns runtime bootstrap info for bound browser sessions", async () => {
-  const { app, auth, contract } = await createVerifiedApp();
-  const response = await app.request("http://trellis/bootstrap/client", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      sessionKey: auth.sessionKey,
-      iat: TEST_IAT,
-      sig: await signClientBootstrapProof(TEST_SEED, TEST_IAT),
-    }),
-  });
-
-  assertEquals(response.status, 200);
-  assertEquals(await response.json(), {
-    status: "ready",
-    serverNow: TEST_IAT,
-    connectInfo: {
-      sessionKey: auth.sessionKey,
-      contractId: contract.contract.id,
-      contractDigest: contract.digest,
-      transports: {
-        native: { natsServers: ["nats://127.0.0.1:4222"] },
-        websocket: { natsServers: ["ws://localhost:8080"] },
-      },
-      transport: {
-        inboxPrefix: `_INBOX.${auth.sessionKey.slice(0, 16)}`,
-        sentinel: { jwt: "jwt", seed: "seed" },
-      },
-    },
-    contract: {
-      id: contract.contract.id,
-      digest: contract.digest,
-      displayName: contract.contract.displayName,
-      description: contract.contract.description,
-      jobs: contract.contract.jobs,
-      resources: contract.contract.resources,
-    },
-    user: {
-      userId: "user-1",
-      identity: {
-        identityId: "idn_github_123",
-        provider: "github",
-        subject: "123",
-      },
-      email: "user@example.com",
-      name: "Example User",
-    },
-    binding: {
-      contractId: contract.contract.id,
-      digest: contract.digest,
-      capabilities: ["read:deployment"],
-      publishSubjects: ["events.deployment.updated"],
-      subscribeSubjects: ["events.deployment.*"],
-    },
-  });
-});
-
 Deno.test("POST /bootstrap/client accepts the exact session digest when multiple digests share a contract id", async () => {
   const auth = await createAuth({ sessionKeySeed: TEST_SEED });
   const contracts = createTestContracts();

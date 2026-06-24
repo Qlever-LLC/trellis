@@ -39,6 +39,16 @@ and this project adheres to
 - Added Drizzle SQL transaction helper types and functions:
   `DrizzleSqlTransactionRunner`, `DrizzleSqlOutboxOptions`, and
   `runDrizzleSqlTransaction(...)`.
+- Added the Rust `trellis-runtime` and `trellis-bootstrap` crates, including the
+  `trellis-server` runtime entrypoint, bootstrap config generation, runtime
+  storage migrations, and subsystem scaffolds.
+- Added generated Jobs admin service registration plus live projection RPC
+  handlers for listing, reading, and cancelling jobs.
+- Added expanded JS and Rust integration coverage for granular matrix cases,
+  operations cancellation/signalling, event consumers, control-plane jobs admin,
+  prepared events, outbox flows, state admin, and authority planning.
+- Added service-repo integration helper surfaces and documentation updates for
+  Trellis test harness workflows.
 
 ### Changed
 
@@ -48,6 +58,26 @@ and this project adheres to
   directly, inline handlers still infer from `service.handle...`, and
   handler-side source `defineError(...)` instances are accepted when their
   serialized data matches the declared generated error data.
+- Reworked JS integration execution around a shared test matrix and granular
+  fixture selection, replacing the old client test matrix file and shared
+  runtime protocol helpers.
+- Changed TypeScript internal Trellis runtime hooks to thread bootstrap-resolved
+  durable event consumer bindings without module-level mutable state.
+- Changed contract digest normalization so TypeScript preserves operation error
+  declarations consistently with Rust and the shared conformance vector.
+
+### Fixed
+
+- Fixed durable Rust service event consumers so handler errors NAK the delivered
+  message and keep the shared pull loop alive for later redelivery.
+- Fixed Jobs admin projection lookup to use an id index instead of scanning all
+  projected jobs for `Jobs.Get` and `Jobs.Cancel`.
+- Fixed Jobs admin `since` filtering and sorting to compare parsed timestamps
+  instead of lexicographic date strings.
+- Fixed Rust workspace lint configuration to use the supported `missing_docs`
+  lint and keep new Rust runtime/bootstrap surfaces documented.
+- Fixed bootstrap CLI reporting and `trellis init config --format json` output,
+  while preserving structured `BootstrapError` diagnostics.
 
 ## [0.19.0-rc.5] - 2026-06-15
 

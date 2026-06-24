@@ -119,6 +119,7 @@ export function createRoutedNatsConnections(
       closed: closedPromise,
       unsubscribe: () => closeSubscription(),
       drain: async () => closeSubscription(),
+      [Symbol.asyncDispose]: async () => closeSubscription(),
       isDraining: () => false,
       isClosed: () => subscriptionClosed,
       callback: () => {},
@@ -270,6 +271,9 @@ export function createRoutedNatsConnections(
       stats: () => ({ inBytes: 0, outBytes: 0, inMsgs: 0, outMsgs: 0 }),
       rtt: async () => 0,
       reconnect: async () => {},
+      setServers: () => {},
+      getServers: () => [],
+      [Symbol.asyncDispose]: async () => close(),
     };
     return connection;
   };

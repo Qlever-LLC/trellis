@@ -5,8 +5,8 @@ use bytes::Bytes;
 use futures_util::future::{ready, BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
 use trellis_service::{
-    AuthenticatedRouter, OperationDescriptor, OperationFailure, RequestContext, RequestValidation, RequestValidator,
-    Router, RpcDescriptor, ServerError,
+    AuthenticatedRouter, OperationDescriptor, OperationFailure, RequestContext, RequestValidation,
+    RequestValidator, Router, RpcDescriptor, ServerError,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

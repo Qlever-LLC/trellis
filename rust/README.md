@@ -84,7 +84,7 @@ cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration -- -
 
 That Rust suite is a peer of the TypeScript/Deno suite
 (`deno task -c js/deno.json test:integration`) and must conform to the shared
-`integration/client-test-matrix.json` parity contract.
+client cases in `integration/test-matrix.json`.
 
 ## Known 0.9.x Rust Gaps
 

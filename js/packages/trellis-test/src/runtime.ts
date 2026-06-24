@@ -1,4 +1,5 @@
 import { join } from "@std/path";
+import type { ConsumerInfo } from "@nats-io/jetstream";
 import {
   type ClientAuthContinuation,
   type ClientAuthRequiredContext,
@@ -25,6 +26,10 @@ import {
   type TrellisTestEventSourceContract,
 } from "./event_capture.ts";
 import { NatsTestContainer } from "./nats_container.ts";
+import type {
+  JetStreamAckObserver,
+  NatsMessageObserver,
+} from "./nats_container.ts";
 import { sqliteMemoryUrl as sqliteMemoryUrlHelper } from "./temp.ts";
 import {
   startTrellisProcess,
@@ -119,6 +124,8 @@ export class TrellisTestRuntime implements AsyncDisposable {
   #controlPlane: TrellisProcessHandle;
   #nats: NatsTestContainer;
   #admin: TrellisTestAdminAutomation;
+  #configPath: string;
+  #trellisOptions: TrellisTestRuntimeStartOptions["trellis"];
   #keepWorkdir: boolean;
   #deployment: string;
   #timeouts: RuntimeTimeouts;
@@ -132,6 +139,8 @@ export class TrellisTestRuntime implements AsyncDisposable {
     deployment: string;
     keepWorkdir: boolean;
     timeouts: RuntimeTimeouts;
+    configPath: string;
+    trellisOptions: TrellisTestRuntimeStartOptions["trellis"];
     nats: NatsTestContainer;
     controlPlane: TrellisProcessHandle;
     admin: TrellisTestAdminAutomation;
@@ -144,6 +153,8 @@ export class TrellisTestRuntime implements AsyncDisposable {
     this.#timeouts = args.timeouts;
     this.#nats = args.nats;
     this.#controlPlane = args.controlPlane;
+    this.#configPath = args.configPath;
+    this.#trellisOptions = args.trellisOptions;
     this.#admin = args.admin;
     this.deployments = {
       create: ({ id, mutableDev }) =>
@@ -235,6 +246,8 @@ export class TrellisTestRuntime implements AsyncDisposable {
         deployment,
         keepWorkdir: options.keepWorkdir ?? false,
         timeouts,
+        configPath,
+        trellisOptions: options.trellis,
         nats,
         controlPlane: startedControlPlane,
         admin: new TrellisTestAdminAutomation({
@@ -386,6 +399,51 @@ export class TrellisTestRuntime implements AsyncDisposable {
   /** Drains the underlying NATS connection. */
   async drain(): Promise<void> {
     await this.#nats.nc.drain();
+  }
+
+  /** Lists JetStream consumers on the scratch NATS `trellis` event stream. */
+  async listTrellisJetStreamConsumers(): Promise<ConsumerInfo[]> {
+    return await this.#nats.listTrellisJetStreamConsumers();
+  }
+
+  /** Deletes a JetStream consumer from the scratch NATS server by stream and durable/name. */
+  async deleteJetStreamConsumer(
+    stream: string,
+    name: string,
+  ): Promise<boolean> {
+    return await this.#nats.deleteJetStreamConsumer(stream, name);
+  }
+
+  /** Observes JetStream ACK reply frames on the scratch NATS server. */
+  async startJetStreamAckObserver(
+    subject?: string,
+  ): Promise<JetStreamAckObserver> {
+    return await this.#nats.startJetStreamAckObserver(subject);
+  }
+
+  /** Observes raw NATS messages with selected headers on the scratch NATS server. */
+  async startNatsMessageObserver(
+    subject: string,
+    headerNames: readonly string[] = [],
+  ): Promise<NatsMessageObserver> {
+    return await this.#nats.startNatsMessageObserver(subject, headerNames);
+  }
+
+  /** Restarts only the Trellis control-plane process, preserving workdir, SQLite state, and NATS. */
+  async restartControlPlane(): Promise<void> {
+    if (this.#stopped) {
+      throw new Error("Cannot restart a stopped Trellis test runtime");
+    }
+
+    await this.#admin.prepareForControlPlaneRestart();
+    await this.#controlPlane.stop();
+    this.#controlPlane = await startTrellisProcess({
+      trellisUrl: this.trellisUrl,
+      configPath: this.#configPath,
+      options: this.#trellisOptions,
+      startupTimeoutMs: this.#timeouts.startupMs,
+      shutdownTimeoutMs: this.#timeouts.shutdownMs,
+    });
   }
 
   /** Returns a service-owned SQLite path under this runtime workdir. */

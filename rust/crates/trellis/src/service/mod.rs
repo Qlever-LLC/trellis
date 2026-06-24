@@ -53,7 +53,8 @@ pub use resources::{
 pub use router::{RequestContext, Router};
 pub use runtime_facade::{
     ConnectedServiceRuntime, CoreBootstrapBinding, DefaultServiceRunner, GeneratedServiceContract,
-    ServiceConnectOptions, ServiceHandle, ServiceHandlerContext, ServiceOperationProvider,
+    ServiceConnectOptions, ServiceEventListenOptions, ServiceEventListenerContext,
+    ServiceEventListenerMode, ServiceHandle, ServiceHandlerContext, ServiceOperationProvider,
     ServiceOperationWatch, ServiceRuntimeError, ServiceRuntimeRunner,
     DEFAULT_AUTHORITY_PENDING_TIMEOUT_MS, DEFAULT_RETRY_DELAY_MS, DEFAULT_TIMEOUT_MS,
 };

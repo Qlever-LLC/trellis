@@ -1,6 +1,7 @@
 {
   "cases": [
     {
+      "kind": "client",
       "id": "rpc.client-calls-service-success",
       "fixture": "rpc",
       "title": "Client calls a service RPC and receives a successful typed response",
@@ -34,9 +35,14 @@
           "the service receives the typed input",
           "the client receives { id, found: true }"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "rpc.service-receives-caller-context",
       "fixture": "rpc",
       "title": "Service RPC handler receives authenticated caller context",
@@ -72,9 +78,14 @@
           "the service handler observes non-empty request metadata",
           "the service handler observes non-empty trace metadata"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "rpc.client-receives-declared-error",
       "fixture": "rpc",
       "title": "Client receives a declared service RPC error through the result surface",
@@ -107,9 +118,14 @@
           "the client result surface preserves the declared error code",
           "the client result surface preserves the declared error data"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "rpc.denies-client-without-call-authority",
       "fixture": "rpc",
       "title": "RPC call is denied for a client without call authority",
@@ -137,9 +153,98 @@
         "then": [
           "the generated RPC call is denied"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
+      "id": "rpc.invalid-annotated-input-schema-validation",
+      "fixture": "rpc",
+      "title": "Annotated invalid RPC input returns SchemaValidationError without dispatching the handler",
+      "coverage": [
+        "cross-runtime-rpc",
+        "schema-validation-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "A client sends invalid input whose validation failures are fully annotated, receives SchemaValidationError over the live RPC wire, and the service handler is not called.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.rpc-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.rpc-service@v1"
+          }
+        ],
+        "given": [
+          "a live Trellis runtime",
+          "the RPC input schema contains annotated validation metadata for every failing constraint"
+        ],
+        "when": [
+          "the client calls Validation.Annotated with invalid input"
+        ],
+        "then": [
+          "the client receives SchemaValidationError over the RPC wire",
+          "the SchemaValidationError contains the annotated issue code",
+          "the service handler is not called"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "rpc.invalid-mixed-input-validation",
+      "fixture": "rpc",
+      "title": "Mixed annotated and unannotated invalid RPC input returns ValidationError without dispatching the handler",
+      "coverage": [
+        "cross-runtime-rpc",
+        "schema-validation-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "A client sends invalid input with both annotated and unannotated validation failures, receives ValidationError over the live RPC wire, and the service handler is not called.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.rpc-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.rpc-service@v1"
+          }
+        ],
+        "given": [
+          "a live Trellis runtime",
+          "the RPC input schema has one annotated failing constraint and one unannotated failing constraint"
+        ],
+        "when": [
+          "the client calls Validation.Mixed with invalid input"
+        ],
+        "then": [
+          "the client receives ValidationError over the RPC wire",
+          "the client does not receive SchemaValidationError",
+          "the service handler is not called"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
       "id": "events.client-publishes-and-subscriber-receives",
       "fixture": "events",
       "title": "Publisher sends an event and subscriber receives the exact payload",
@@ -171,9 +276,14 @@
           "the subscriber receives the exact payload",
           "the received event contains context with id and time"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "events.denies-publish-without-authority",
       "fixture": "events",
       "title": "Event publish is denied for a subscribe-only client",
@@ -200,9 +310,14 @@
         "then": [
           "the publish call is denied with a public denied failure"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "events.denies-subscribe-without-authority",
       "fixture": "events",
       "title": "Event subscribe does not deliver to a client without subscribe authority",
@@ -230,9 +345,14 @@
         "then": [
           "the unauthorized listener does not receive the event"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "operations.client-starts-operation",
       "fixture": "operations",
       "title": "Client starts an operation through public operation APIs",
@@ -264,9 +384,14 @@
           "the client receives an operation reference and id",
           "the service handler receives typed input"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "operations.client-watches-progress",
       "fixture": "operations",
       "title": "Client watches operation progress events",
@@ -297,9 +422,14 @@
         "then": [
           "the watch stream observes at least one typed progress event"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "operations.client-waits-for-completion",
       "fixture": "operations",
       "title": "Client waits for operation completion and receives typed output",
@@ -331,9 +461,98 @@
           "the client observes terminal completed state",
           "the client receives typed operation output"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
+      "id": "operations.client-cancels-operation",
+      "fixture": "operations",
+      "title": "Client cancels a running operation through public operation APIs",
+      "coverage": [
+        "cross-runtime-operations",
+        "auth-protocol-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "The client starts a service-owned long-running operation, cancels it through the public/generated operation surface, and observes a canceled terminal state.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.operations-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.operations-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected and handles a cancelable Entity.Process operation",
+          "the client starts a long-running Entity.Process operation"
+        ],
+        "when": [
+          "the client cancels the operation through the generated public operation reference"
+        ],
+        "then": [
+          "the cancel call returns a canceled terminal snapshot",
+          "the operation watch or wait result reaches a canceled terminal state",
+          "the service observes cancellation if the runtime exposes that signal"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "operations.client-signals-running-operation",
+      "fixture": "operations",
+      "title": "Client signals a running operation through public operation APIs",
+      "coverage": [
+        "cross-runtime-operations",
+        "auth-protocol-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "The client starts a service-owned long-running operation, sends a typed signal/control message through the public/generated operation surface, and observes signal-derived progress or completion.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.operations-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.operations-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected and handles an Entity.Process operation with a typed signal",
+          "the client starts a long-running Entity.Process operation"
+        ],
+        "when": [
+          "the client sends a typed signal/control message through the generated public operation reference"
+        ],
+        "then": [
+          "the signal call returns a typed accepted acknowledgement",
+          "the service observes the typed signal input",
+          "the client observes signal-derived progress or completion"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
       "id": "operations.denies-start-without-call-authority",
       "fixture": "operations",
       "title": "Operation start is denied for a client without call authority",
@@ -360,9 +579,14 @@
         "then": [
           "the operation start is denied with a public denied failure"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "feeds.client-receives-first-frame",
       "fixture": "feeds",
       "title": "Client receives the first feed frame after subscribing",
@@ -393,9 +617,14 @@
         "then": [
           "the client receives the first typed frame"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "feeds.client-receives-ordered-frames",
       "fixture": "feeds",
       "title": "Client receives feed frames in order",
@@ -427,9 +656,14 @@
           "the client observes sequence 1",
           "the client observes sequence 2 in order"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "feeds.abort-stops-client-subscription",
       "fixture": "feeds",
       "title": "Aborting a feed subscription stops the stream without leaking",
@@ -460,9 +694,14 @@
         "then": [
           "the stream terminates without leaking"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "feeds.denies-subscribe-without-authority",
       "fixture": "feeds",
       "title": "Feed subscribe is denied for a client without authority",
@@ -489,9 +728,14 @@
         "then": [
           "the subscribe call is denied with a public denied failure"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "state.value-store-missing-read",
       "fixture": "state",
       "title": "Reading an empty value store returns found false",
@@ -517,9 +761,14 @@
         "then": [
           "the client receives { found: false }"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "state.value-store-create-read-delete",
       "fixture": "state",
       "title": "Value store create, read, and delete cycle",
@@ -551,9 +800,14 @@
           "the delete returns deleted true",
           "the final read returns found false"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "state.value-store-stale-revision-rejected",
       "fixture": "state",
       "title": "Value store rejects stale revision writes and deletes",
@@ -582,9 +836,14 @@
           "the write returns a conflict or not-applied shape",
           "the delete returns a conflict or not-applied shape"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "state.map-store-prefix-put-get-list-delete",
       "fixture": "state",
       "title": "Map store prefix put, get, list, and delete cycle",
@@ -618,9 +877,14 @@
           "the delete succeeds",
           "the final get returns missing"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "state.map-store-list-limit",
       "fixture": "state",
       "title": "Map store list respects the requested limit",
@@ -648,9 +912,62 @@
           "the list returns no more than the requested limit entries",
           "the returned keys are stable"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
+      "id": "state.admin-inspect-and-delete-state",
+      "fixture": "state",
+      "title": "Admin inspects and deletes user app state through public State admin APIs",
+      "coverage": [
+        "state-parity",
+        "state-admin",
+        "auth-protocol-matrix",
+        "capability-permission-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "A client writes value and map state through generated state facades, an admin participant inspects state metadata through public generated State admin and Auth surfaces, admin deletes the state, and subsequent client reads observe missing state.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.state-client@v1"
+          },
+          {
+            "name": "admin",
+            "kind": "app",
+            "contract": "trellis.integration.state-admin@v1"
+          }
+        ],
+        "given": [
+          "a client is connected with value and map state stores",
+          "an admin participant is connected with generated Auth session-list and State admin RPC authority"
+        ],
+        "when": [
+          "the client writes value state through a generated state facade",
+          "the client writes map state through a generated state facade",
+          "the admin discovers the client user-app target through generated Auth session APIs",
+          "the admin inspects the value and map state through generated State admin get and list APIs",
+          "the admin deletes the value and map state through generated State admin delete APIs"
+        ],
+        "then": [
+          "admin inspection returns the stored values with revision and update metadata",
+          "admin deletion succeeds for both value and map state",
+          "subsequent generated client state reads observe missing state"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
       "id": "transfer.client-uploads-file-via-operation",
       "fixture": "transfer",
       "title": "Client uploads a file through the transfer operation",
@@ -685,9 +1002,14 @@
           "the service observes completed upload contentType",
           "the terminal output matches the upload"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "transfer.client-downloads-file-via-receive-grant",
       "fixture": "transfer",
       "title": "Client downloads a file through a receive grant",
@@ -721,9 +1043,14 @@
         "then": [
           "the downloaded payload matches the expected content"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "transfer.download-grant-is-session-bound",
       "fixture": "transfer",
       "title": "Download grant is bound to the requesting session",
@@ -756,9 +1083,14 @@
         "then": [
           "the second client receives a public denied or invalid grant failure"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "resources.service-receives-required-bindings",
       "fixture": "resources",
       "title": "Service receives required resource bindings",
@@ -791,9 +1123,14 @@
           "the required KV handle is materialized",
           "the required store handle is materialized"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "resources.service-receives-optional-bindings",
       "fixture": "resources",
       "title": "Service receives optional resource bindings",
@@ -825,9 +1162,14 @@
           "the optional KV handle is present",
           "the optional store handle is present"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "resources.service-store-create-read-list-delete",
       "fixture": "resources",
       "title": "Service-bound store supports create, read, list, and delete",
@@ -865,9 +1207,14 @@
           "the service store list works",
           "the service store delete works"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "resources.service-kv-create-put-get-delete",
       "fixture": "resources",
       "title": "Service-bound KV supports create, put, get, and delete",
@@ -903,9 +1250,14 @@
           "the service KV get works",
           "the service KV revision delete works"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "resources.service-kv-stale-revision-rejected",
       "fixture": "resources",
       "title": "Service-bound KV rejects stale revision operations",
@@ -940,9 +1292,56 @@
           "the stale update fails through the public handle surface",
           "the stale delete fails through the public handle surface"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
+      "id": "jobs.keyed-jobs-serialize-same-key",
+      "fixture": "jobs",
+      "title": "Keyed jobs with the same concurrency key run serially",
+      "coverage": [
+        "jobs-public-api",
+        "jobs-service-local-parity",
+        "observability-trace-matrix"
+      ],
+      "description": "A service creates two jobs with the same keyed concurrency key from client-visible workflows; the second waits until the first releases and both complete in deterministic order.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.jobs-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.jobs-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected with a keyed jobs queue whose per-key active limit is one",
+          "the keyed jobs queue has enough worker concurrency to run more than one job without the key limit"
+        ],
+        "when": [
+          "client-visible workflows create two jobs with the same keyed concurrency key",
+          "the first job is held active until the test releases it"
+        ],
+        "then": [
+          "the second job does not run before the first releases or completes",
+          "both jobs complete in deterministic first-then-second order"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
       "id": "jobs.service-creates-local-job-from-client-rpc",
       "fixture": "jobs",
       "title": "Service creates a local job in response to a client RPC",
@@ -974,9 +1373,14 @@
         "then": [
           "the response includes a non-empty job id"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "jobs.job-progress-and-log-are-published",
       "fixture": "jobs",
       "title": "Job progress and log entries are published",
@@ -1009,9 +1413,14 @@
           "progress entries are observable through the public surface",
           "log entries are observable through the public surface"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "jobs.job-wait-returns-typed-result",
       "fixture": "jobs",
       "title": "Job wait returns terminal state with typed result",
@@ -1045,9 +1454,14 @@
           "the wait returns completed terminal state",
           "the wait returns a typed result"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "jobs.job-context-propagates-request-and-trace",
       "fixture": "jobs",
       "title": "Job context propagates request id and trace id",
@@ -1080,9 +1494,14 @@
           "the response contains a non-empty request id",
           "the response contains a 32-character trace id"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "health.client-subscribes-to-heartbeats",
       "fixture": "health",
       "title": "Client subscribes to service health heartbeats",
@@ -1113,9 +1532,14 @@
         "then": [
           "the observer receives a heartbeat for the service"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "health.heartbeat-includes-service-metadata",
       "fixture": "health",
       "title": "Heartbeat includes service identity metadata",
@@ -1155,9 +1579,14 @@
           "the heartbeat includes startedAt",
           "the heartbeat includes publish interval"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "health.heartbeat-includes-custom-checks",
       "fixture": "health",
       "title": "Heartbeat includes built-in and custom health checks",
@@ -1189,9 +1618,14 @@
           "the heartbeat includes a built-in nats ok check",
           "the heartbeat includes a custom fixture ok check with summary and info"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "health.heartbeat-event-context-is-populated",
       "fixture": "health",
       "title": "Heartbeat event context is populated",
@@ -1226,9 +1660,14 @@
           "the event context time is populated",
           "the event context subject is events.v1.Health.Heartbeat"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "authority-plan.preapproved-contract-connects",
       "fixture": "authority-plan",
       "title": "Pre-approved service contract connects without a pending authority plan",
@@ -1262,9 +1701,14 @@
           "the RPC succeeds",
           "no pending authority plan remains for the deployment"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "authority-plan.presented-update-is-pending-at-connect",
       "fixture": "authority-plan",
       "title": "Presented additive contract creates a pending update and blocks connect",
@@ -1295,9 +1739,14 @@
           "a pending update plan exists for the additive digest",
           "the added RPC is not mounted"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "authority-plan.presented-update-approved-then-connects",
       "fixture": "authority-plan",
       "title": "Accepted additive update unblocks service connect",
@@ -1333,9 +1782,14 @@
           "the service connect resolves",
           "the client can call Plan.AddedPing"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "authority-plan.presented-update-rejected-stays-blocked",
       "fixture": "authority-plan",
       "title": "Rejected additive update remains blocked and preserves old authority",
@@ -1371,9 +1825,14 @@
           "the additive service remains blocked",
           "the base contract RPC still works"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "authority-plan.incompatible-migration-approved-replaces-contract",
       "fixture": "authority-plan",
       "title": "Accepted incompatible migration enables same-contract replacement",
@@ -1409,9 +1868,14 @@
           "the replacement service connects",
           "the replacement RPC succeeds"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "authority-plan.incompatible-migration-rejected-keeps-old-contract",
       "fixture": "authority-plan",
       "title": "Rejected incompatible migration keeps old contract usable",
@@ -1447,9 +1911,14 @@
           "the replacement service remains blocked",
           "the old base RPC still succeeds"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "authority-plan.compatible-replacement-auto-allowed-strict",
       "fixture": "authority-plan",
       "title": "Strict deployment allows compatible metadata replacement without manual approval",
@@ -1484,9 +1953,14 @@
           "the RPC succeeds",
           "no pending replacement plan remains"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "authority-plan.mutable-dev-auto-accepts-incompatible-migration",
       "fixture": "authority-plan",
       "title": "Mutable-dev auto-accepts incompatible same-contract migration",
@@ -1522,9 +1996,14 @@
           "the replacement service connects",
           "the replacement RPC succeeds"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "authority-plan.mutable-dev-rejected-explicit-update-still-blocks",
       "fixture": "authority-plan",
       "title": "Mutable-dev does not ignore an explicitly rejected update",
@@ -1554,9 +2033,14 @@
           "the plan remains rejected",
           "the additive service remains blocked"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "authority-plan.resource-change-migration-approved-and-bound",
       "fixture": "authority-plan",
       "title": "Accepted resource migration binds the changed resource definition",
@@ -1593,9 +2077,14 @@
           "the replacement service connects with a KV binding",
           "the client RPC proves the bound resource handle works"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "service-approval.startup-blocks-before-authority-approval",
       "fixture": "service-approval",
       "title": "Service startup blocks before deployment authority approval",
@@ -1627,9 +2116,14 @@
         "then": [
           "the service connect remains pending"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "service-approval.startup-completes-after-authority-approval",
       "fixture": "service-approval",
       "title": "Service startup completes after deployment authority approval",
@@ -1662,9 +2156,14 @@
         "then": [
           "the pending service connect resolves"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "service-approval.approved-service-handles-client-rpc",
       "fixture": "service-approval",
       "title": "Approved service handles a client RPC",
@@ -1702,9 +2201,14 @@
         "then": [
           "the client receives a typed response"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "app-identity-approval.connect-requires-auth-flow",
       "fixture": "app-identity-approval",
       "title": "App client connect triggers auth-required callback before approval",
@@ -1739,9 +2243,14 @@
           "the callback includes a session key mode",
           "the callback includes a session key"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "app-identity-approval.approved-client-connects",
       "fixture": "app-identity-approval",
       "title": "Approved app client connects successfully",
@@ -1774,9 +2283,14 @@
         "then": [
           "the client connects with an open connection"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "app-identity-approval.approved-client-calls-service",
       "fixture": "app-identity-approval",
       "title": "Approved app client calls a service RPC",
@@ -1814,9 +2328,115 @@
         "then": [
           "the client receives a typed response"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
+      "id": "auth.local-login-binds-approved-client",
+      "fixture": "auth",
+      "title": "Local login binds an approved app client session",
+      "coverage": [
+        "app-identity-grant-approval",
+        "auth-protocol-matrix",
+        "capability-permission-matrix",
+        "cross-runtime-rpc",
+        "observability-trace-matrix"
+      ],
+      "description": "A registered app/client starts an auth-required session, completes local login and approval through live public Auth and portal flows, binds the app session to a local admin user, Auth.Sessions.Me reports an active admin user, and the approved client can call a service RPC.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.auth@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.auth-local-login-service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.auth-local-login-client@v1"
+          }
+        ],
+        "given": [
+          "a registered service handles an RPC required by the app client contract",
+          "the app client contract uses Auth.Sessions.Me and the service RPC"
+        ],
+        "when": [
+          "the registered app client starts an auth-required session",
+          "local admin login and approval complete through live public Auth and portal flows",
+          "the approved app session binds to the local admin user"
+        ],
+        "then": [
+          "Auth.Sessions.Me reflects participant kind app",
+          "Auth.Sessions.Me reflects an active user with admin capability",
+          "the approved client can call the service RPC successfully"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "auth.session-revoke-denies-reconnect",
+      "fixture": "auth",
+      "title": "Revoked app session cannot continue or reconnect",
+      "coverage": [
+        "app-identity-grant-approval",
+        "auth-protocol-matrix",
+        "capability-permission-matrix",
+        "cross-runtime-rpc",
+        "observability-trace-matrix"
+      ],
+      "description": "An authenticated app/client session can call Auth.Sessions.Me or a service RPC, an admin revokes the session through the public Auth sessions admin surface, subsequent calls or reconnect attempts are denied, and public Auth session state reflects the revocation.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.auth@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.auth-local-login-service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.auth-local-login-client@v1"
+          }
+        ],
+        "given": [
+          "a registered service handles an RPC required by the app client contract",
+          "the app client has an authenticated approved session",
+          "Auth.Sessions.List shows the app session in public admin state"
+        ],
+        "when": [
+          "the admin revokes the app session through Auth.Sessions.Revoke"
+        ],
+        "then": [
+          "Auth.Sessions.List no longer shows the revoked app session",
+          "the existing app session is denied for subsequent Auth.Sessions.Me or service RPC calls",
+          "the app client cannot reconnect with the revoked session without completing a new auth flow"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
       "id": "device-activation.admin-provisions-known-device",
       "fixture": "device-activation",
       "title": "Admin provisions a known device identity",
@@ -1852,9 +2472,14 @@
           "the admin receives a deployment id",
           "the admin receives a public identity key"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "device-activation.device-starts-activation-request",
       "fixture": "device-activation",
       "title": "Device starts an activation request",
@@ -1888,9 +2513,14 @@
           "the device receives an activation URL",
           "the activation URL includes a flow id"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "device-activation.admin-resolves-activation-operation",
       "fixture": "device-activation",
       "title": "Admin resolves the device activation operation",
@@ -1919,9 +2549,102 @@
           "the operation completes with a deployment id",
           "the operation completes with an instance id"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
+      "id": "device-activation.review-reject-denies-connect",
+      "fixture": "device-activation",
+      "title": "Rejected device activation review denies device connection",
+      "coverage": [
+        "device-activation-end-to-end",
+        "auth-protocol-matrix",
+        "capability-permission-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "An admin provisions a known device requiring review, the device starts activation, the admin rejects the activation review through public Auth operation/admin surfaces, the device wait observes terminal rejection, and the device cannot connect or authenticate.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.integration.device-activation-admin@v1"
+          },
+          {
+            "name": "device",
+            "kind": "device",
+            "contract": "trellis.integration.device-activation-device@v1"
+          }
+        ],
+        "given": [
+          "an admin provisions a known device in a deployment that requires device activation review",
+          "the device starts an activation request",
+          "the admin starts Auth.DeviceUserAuthorities.Resolve and observes a pending review"
+        ],
+        "when": [
+          "the admin rejects the pending review through Auth.DeviceUserAuthorities.Reviews.Decide"
+        ],
+        "then": [
+          "the resolve operation reaches terminal rejected output",
+          "the device activation wait observes terminal rejection",
+          "the device cannot connect or authenticate as the rejected device"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "device-activation.revoked-device-cannot-reconnect",
+      "fixture": "device-activation",
+      "title": "Revoked device activation cannot reconnect or authenticate",
+      "coverage": [
+        "device-activation-end-to-end",
+        "auth-protocol-matrix",
+        "capability-permission-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "An admin provisions and activates a known device, the device connects and authenticates, the admin revokes the device activation through public Auth admin surfaces, public activation state reflects revocation, and the device cannot reconnect or authenticate afterwards.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.integration.device-activation-admin@v1"
+          },
+          {
+            "name": "device",
+            "kind": "device",
+            "contract": "trellis.integration.device-activation-device@v1"
+          }
+        ],
+        "given": [
+          "an admin provisions and activates a known device",
+          "the device connects through the public device client surface",
+          "Auth.Sessions.Me reports the connected participant as the device"
+        ],
+        "when": [
+          "the admin revokes the device activation through Auth.DeviceUserAuthorities.Revoke"
+        ],
+        "then": [
+          "Auth.DeviceUserAuthorities.List shows the device activation as revoked",
+          "the existing device session is denied for subsequent Auth.Sessions.Me calls",
+          "the device cannot reconnect or authenticate as the revoked device"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
       "id": "device-activation.device-receives-connect-info",
       "fixture": "device-activation",
       "title": "Device receives connection information after activation",
@@ -1949,9 +2672,14 @@
           "the device receives connect info with deployment id",
           "the device receives connect info with contract digest"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "device-activation.activated-device-connects-and-authenticates",
       "fixture": "device-activation",
       "title": "Activated device connects and authenticates",
@@ -1979,9 +2707,14 @@
           "Auth.Sessions.Me reports participant kind device",
           "Auth.Sessions.Me reports the expected identity"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "device-activation.activated-device-authority-is-listed",
       "fixture": "device-activation",
       "title": "Activated device appears in admin authority list",
@@ -2008,9 +2741,14 @@
         "then": [
           "the list includes the activated device entry"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "outbox.commits-event-through-sql-outbox",
       "fixture": "outbox",
       "title": "SQL outbox commits event through service-owned database transaction and delivers to NATS",
@@ -2044,9 +2782,14 @@
           "the RPC response includes the expected documentId",
           "the event is captured by a live event subscriber"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "outbox.rollback-does-not-publish",
       "fixture": "outbox",
       "title": "SQL outbox suppresses events when the service transaction rolls back",
@@ -2078,9 +2821,14 @@
         "then": [
           "no event is captured by a live event subscriber"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "outbox.multiple-events-in-one-transaction",
       "fixture": "outbox",
       "title": "SQL outbox publishes multiple events from a single transaction commit",
@@ -2113,9 +2861,14 @@
           "both Document.Processed and Document.Audited events are captured",
           "each event has the expected documentId payload"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "outbox.listener-derives-event",
       "fixture": "outbox",
       "title": "Event listener derives a new event through SQL outbox",
@@ -2147,9 +2900,14 @@
           "the Document.Processed event is captured",
           "the Document.Audited event derived by the listener is captured"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     },
     {
+      "kind": "client",
       "id": "outbox.sql-row-state-is-dispatched",
       "fixture": "outbox",
       "title": "Outbox SQL row is marked dispatched after successful commit",
@@ -2181,6 +2939,1308 @@
           "the SQL outbox row has state 'dispatched'",
           "the SQL outbox row has kind 'event.publish'"
         ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.admin-bootstrap-creates-first-local-admin",
+      "fixture": "control-plane",
+      "title": "Admin bootstrap creates the first local admin",
+      "coverage": [
+        "auth",
+        "admin-bootstrap"
+      ],
+      "description": "Starts an empty Trellis control plane, completes first-admin local-password bootstrap, and verifies the resulting admin session.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis Auth bootstrap HTTP and Auth.Sessions"
+          },
+          {
+            "name": "local admin",
+            "kind": "admin",
+            "contract": "Trellis built-in admin identity"
+          }
+        ],
+        "given": [
+          "A fresh Trellis control plane has no local admin account."
+        ],
+        "when": [
+          "The bootstrap flow creates the first local admin account."
+        ],
+        "then": [
+          "The caller receives an authenticated admin-capable session."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/admin_bootstrap_creates_first_local_admin.integration_test.ts",
+          "testName": "control-plane.admin-bootstrap-creates-first-local-admin creates an authenticated admin session"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_admin_bootstrap_creates_first_local_admin"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.password-reset-change-invalidates-old-password",
+      "fixture": "control-plane",
+      "title": "Password reset change invalidates the old password",
+      "coverage": [
+        "auth",
+        "password-reset",
+        "password-change",
+        "local-login"
+      ],
+      "description": "Exercises local-password reset and authenticated password change through public auth routes, then proves the old password is denied.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis Auth account-flow HTTP and Auth.Users"
+          },
+          {
+            "name": "local admin",
+            "kind": "admin",
+            "contract": "Trellis built-in admin identity"
+          }
+        ],
+        "given": [
+          "A local admin account exists and can authenticate."
+        ],
+        "when": [
+          "The admin completes password reset and changes the password."
+        ],
+        "then": [
+          "The old password is rejected and the new password authenticates."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/password_reset_change_invalidates_old_password.integration_test.ts",
+          "testName": "control-plane.password-reset-change-invalidates-old-password changes the local admin password and rejects the old password"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_password_reset_change_invalidates_old_password"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.http-route-security-requires-admin-session",
+      "fixture": "control-plane",
+      "title": "HTTP bootstrap route security requires an admin session",
+      "coverage": [
+        "auth",
+        "http-route-security",
+        "admin-session"
+      ],
+      "description": "Fetches the bootstrap client HTTP route without and with an authenticated admin session to verify public access control.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis bootstrap/client HTTP route"
+          },
+          {
+            "name": "local admin",
+            "kind": "admin",
+            "contract": "Trellis built-in admin identity"
+          }
+        ],
+        "given": [
+          "A Trellis control plane has bootstrap client data protected by admin authentication."
+        ],
+        "when": [
+          "The route is fetched without a session and then with an admin session."
+        ],
+        "then": [
+          "Unauthenticated access is modeled as auth-required and authenticated admin access succeeds."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/http_route_security_requires_admin_session.integration_test.ts",
+          "testName": "control-plane.http-route-security-requires-admin-session rejects unauthenticated admin HTTP access"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_http_route_security_requires_admin_session"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.catalog-active-contracts-survive-restart",
+      "fixture": "control-plane",
+      "title": "Catalog active contracts survive control-plane restart",
+      "coverage": [
+        "catalog",
+        "authority",
+        "persistence",
+        "restart"
+      ],
+      "description": "Registers compatible service and client contracts, restarts the Trellis control plane, and verifies the active catalog still authorizes the client call.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis catalog and authority store"
+          },
+          {
+            "name": "service provider",
+            "kind": "service",
+            "contract": "case-scoped catalog provider contract"
+          },
+          {
+            "name": "client app",
+            "kind": "app",
+            "contract": "case-scoped catalog client contract"
+          }
+        ],
+        "given": [
+          "A service and client contract are active and an RPC succeeds."
+        ],
+        "when": [
+          "Only the Trellis control plane process restarts against the same storage."
+        ],
+        "then": [
+          "The active catalog remains usable and the client RPC succeeds after restart."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/catalog_active_contracts_survive_restart.integration_test.ts",
+          "testName": "control-plane.catalog-active-contracts-survive-restart keeps approved contracts usable after restart"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_catalog_active_contracts_survive_restart"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.sessions-survive-control-plane-restart",
+      "fixture": "control-plane",
+      "title": "Sessions survive control-plane restart",
+      "coverage": [
+        "auth",
+        "sessions",
+        "authority",
+        "persistence",
+        "restart"
+      ],
+      "description": "Authenticates an app session, restarts only the control plane, and reconnects with the same session material without a new auth flow.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis Auth.Sessions"
+          },
+          {
+            "name": "client app",
+            "kind": "app",
+            "contract": "case-scoped app auth contract"
+          }
+        ],
+        "given": [
+          "An app has an authenticated and listed session."
+        ],
+        "when": [
+          "The Trellis control plane restarts while session storage is preserved."
+        ],
+        "then": [
+          "The app reconnects with the same session material and remains authenticated."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/sessions_survive_control_plane_restart.integration_test.ts",
+          "testName": "control-plane.sessions-survive-control-plane-restart reuses an approved app session after restart"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_sessions_survive_control_plane_restart"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.state-persists-across-control-plane-restart",
+      "fixture": "control-plane",
+      "title": "State persists across control-plane restart",
+      "coverage": [
+        "state",
+        "persistence",
+        "restart"
+      ],
+      "description": "Writes generated value and map state, restarts only the control plane, and verifies state values and metadata are preserved.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis state runtime"
+          },
+          {
+            "name": "client app",
+            "kind": "app",
+            "contract": "case-scoped state contract"
+          }
+        ],
+        "given": [
+          "A client has written generated value and map state."
+        ],
+        "when": [
+          "The Trellis control plane restarts with the same storage."
+        ],
+        "then": [
+          "The client reads the previously written state after restart."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/state_persists_across_control_plane_restart.integration_test.ts",
+          "testName": "control-plane.state-persists-across-control-plane-restart reads state written before restart"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_state_persists_across_control_plane_restart"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.resources-survive-control-plane-restart",
+      "fixture": "control-plane",
+      "title": "Resource bindings survive control-plane restart",
+      "coverage": [
+        "resources",
+        "resource-bindings",
+        "persistence",
+        "restart"
+      ],
+      "description": "Uses service KV and store resource handles, restarts the control plane, and verifies the same bindings and backing data remain available.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis resource binding runtime"
+          },
+          {
+            "name": "service provider",
+            "kind": "service",
+            "contract": "case-scoped resource contract"
+          }
+        ],
+        "given": [
+          "A service has resolved KV and store bindings and written data."
+        ],
+        "when": [
+          "The Trellis control plane restarts with the same storage."
+        ],
+        "then": [
+          "The service reconnects and reads the previously stored resource data."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/resources_survive_control_plane_restart.integration_test.ts",
+          "testName": "control-plane.resources-survive-control-plane-restart reuses service resource bindings after restart"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_resources_survive_control_plane_restart"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.outbox-dispatches-after-control-plane-restart",
+      "fixture": "control-plane",
+      "title": "Outbox dispatches after control-plane restart",
+      "coverage": [
+        "outbox",
+        "events",
+        "persistence",
+        "restart"
+      ],
+      "description": "Queues a service SQL outbox event, restarts Trellis before dispatch, and observes the queued event after restart.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis restart and event routing runtime"
+          },
+          {
+            "name": "service provider",
+            "kind": "service",
+            "contract": "case-scoped outbox contract"
+          },
+          {
+            "name": "client app",
+            "kind": "app",
+            "contract": "case-scoped outbox client contract"
+          }
+        ],
+        "given": [
+          "A service queues an event in its SQL outbox before dispatch."
+        ],
+        "when": [
+          "The Trellis control plane restarts and the service reconnects."
+        ],
+        "then": [
+          "The queued event is dispatched and observed by a public subscriber."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/outbox_dispatches_after_control_plane_restart.integration_test.ts",
+          "testName": "control-plane.outbox-dispatches-after-control-plane-restart dispatches a queued event after restart"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_outbox_dispatches_after_control_plane_restart"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.catalog-dependency-issue-resolved-by-provider",
+      "fixture": "control-plane",
+      "title": "Catalog dependency issue is resolved by provider",
+      "coverage": [
+        "catalog",
+        "authority",
+        "dependency-resolution",
+        "rpc"
+      ],
+      "description": "Installs a client with a missing provider dependency, then registers the provider and verifies the same client call succeeds.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis catalog dependency resolver"
+          },
+          {
+            "name": "service provider",
+            "kind": "service",
+            "contract": "case-scoped dependency provider contract"
+          },
+          {
+            "name": "client app",
+            "kind": "app",
+            "contract": "case-scoped dependency client contract"
+          }
+        ],
+        "given": [
+          "A client contract depends on a provider that is not active yet."
+        ],
+        "when": [
+          "The missing provider contract is registered and connected."
+        ],
+        "then": [
+          "The dependency issue clears and the client RPC succeeds."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/catalog_dependency_issue_resolved_by_provider.integration_test.ts",
+          "testName": "control-plane.catalog-dependency-issue-resolved-by-provider resolves an app dependency issue when a provider contract appears"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_catalog_dependency_issue_resolved_by_provider"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.catalog-force-replace-resolves-catalog-issue",
+      "fixture": "control-plane",
+      "title": "Catalog force replace resolves a catalog issue",
+      "coverage": [
+        "catalog",
+        "catalog-issues",
+        "force-replace"
+      ],
+      "description": "Invokes the catalog issue resolver against incompatible active offers and verifies force-replace makes the replacement digest active.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis CatalogIssues admin RPC"
+          },
+          {
+            "name": "local admin",
+            "kind": "admin",
+            "contract": "Trellis built-in admin identity"
+          },
+          {
+            "name": "service provider",
+            "kind": "service",
+            "contract": "case-scoped incompatible catalog contracts"
+          }
+        ],
+        "given": [
+          "The catalog contains incompatible active offers and reports an issue."
+        ],
+        "when": [
+          "An admin resolves the issue with force-replace."
+        ],
+        "then": [
+          "The current effective offers are withdrawn, the replacement digest becomes active, and the catalog issue clears."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/catalog_force_replace_resolves_catalog_issue.integration_test.ts",
+          "testName": "control-plane.catalog-force-replace-resolves-catalog-issue resolves incompatible active catalog issue with force-replace"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_catalog_force_replace_resolves_catalog_issue"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.jobs-admin-lists-and-cancels-job",
+      "fixture": "control-plane",
+      "title": "Jobs admin lists and cancels a service-local job",
+      "coverage": [
+        "jobs",
+        "jobs-admin",
+        "jobs-cancel"
+      ],
+      "description": "Starts a service-local job and uses generated Jobs admin RPCs to observe and cancel it through the control plane.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis Jobs admin RPC"
+          },
+          {
+            "name": "local admin",
+            "kind": "admin",
+            "contract": "Trellis built-in admin identity"
+          },
+          {
+            "name": "service provider",
+            "kind": "service",
+            "contract": "case-scoped jobs service contract"
+          }
+        ],
+        "given": [
+          "A service-local long-running job is active."
+        ],
+        "when": [
+          "An admin lists, gets, and cancels the job through generated Jobs RPCs."
+        ],
+        "then": [
+          "The job is observable through Jobs admin and reaches the cancelled state."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/jobs_admin_lists_and_cancels_job.integration_test.ts",
+          "testName": "control-plane.jobs-admin-lists-and-cancels-job observes and cancels a service-local job"
+        },
+        "rust": {
+          "module": "control_plane_jobs_admin",
+          "function": "control_plane_jobs_admin_lists_and_cancels_job"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "event-consumers.durable-listen-without-declared-group-returns-err",
+      "fixture": "event-consumers",
+      "title": "Durable listen without a declared group returns an error",
+      "coverage": [
+        "events",
+        "event-consumers",
+        "durable-listen",
+        "errors"
+      ],
+      "description": "Connects a service that subscribes to a dependency event without declaring a durable group and verifies durable listen is rejected.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "source service",
+            "kind": "service",
+            "contract": "event-consumers source contract"
+          },
+          {
+            "name": "consumer service",
+            "kind": "service",
+            "contract": "event-consumers missing-group consumer contract"
+          }
+        ],
+        "given": [
+          "A consumer contract uses a source event but declares no durable consumer group."
+        ],
+        "when": [
+          "The service attempts a durable listen for that dependency event."
+        ],
+        "then": [
+          "The listen call returns a modeled error."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "event-consumers/durable_listen_without_declared_group_returns_err.integration_test.ts",
+          "testName": "event-consumers.durable-listen-without-declared-group-returns-err"
+        },
+        "rust": {
+          "module": "event_consumers",
+          "function": "event_consumers_durable_listen_without_declared_group_returns_err"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "event-consumers.ambiguous-group-without-opts-group-returns-err-and-specifying-group-works",
+      "fixture": "event-consumers",
+      "title": "Ambiguous durable group requires opts.group",
+      "coverage": [
+        "events",
+        "event-consumers",
+        "durable-listen",
+        "groups"
+      ],
+      "description": "Declares two durable groups for one event, verifies an unspecified group is rejected, and verifies the selected group works.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "source service",
+            "kind": "service",
+            "contract": "event-consumers source contract"
+          },
+          {
+            "name": "consumer service",
+            "kind": "service",
+            "contract": "event-consumers ambiguous-group consumer contract"
+          }
+        ],
+        "given": [
+          "A dependency event has multiple declared durable consumer groups."
+        ],
+        "when": [
+          "The service listens without opts.group and then with an explicit group."
+        ],
+        "then": [
+          "The ambiguous listen is rejected and the explicit group listen succeeds."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "event-consumers/ambiguous_group_without_opts_group_returns_err_and_specifying_group_works.integration_test.ts",
+          "testName": "event-consumers.ambiguous-group-without-opts-group-returns-err-and-specifying-group-works"
+        },
+        "rust": {
+          "module": "event_consumers",
+          "function": "event_consumers_ambiguous_group_without_opts_group_returns_err_and_specifying_group_works"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "event-consumers.caller-provided-durable-name-returns-err",
+      "fixture": "event-consumers",
+      "title": "Caller-provided durable name returns an error",
+      "coverage": [
+        "events",
+        "event-consumers",
+        "durable-listen",
+        "errors"
+      ],
+      "description": "Verifies durable listener callers cannot override Trellis-provisioned durable consumer names.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "source service",
+            "kind": "service",
+            "contract": "event-consumers source contract"
+          },
+          {
+            "name": "consumer service",
+            "kind": "service",
+            "contract": "event-consumers dependency consumer contract"
+          }
+        ],
+        "given": [
+          "Trellis provisions a durable consumer for the declared group."
+        ],
+        "when": [
+          "The service attempts to pass its own durable name."
+        ],
+        "then": [
+          "The listen call returns a modeled error."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "event-consumers/caller_provided_durable_name_returns_err.integration_test.ts",
+          "testName": "event-consumers.caller-provided-durable-name-returns-err"
+        },
+        "rust": {
+          "module": "event_consumers",
+          "function": "event_consumers_caller_provided_durable_name_returns_err"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "event-consumers.bound-dependency-consumer-uses-trellis-provisioned-consumer-only",
+      "fixture": "event-consumers",
+      "title": "Bound dependency consumer uses only the Trellis-provisioned consumer",
+      "coverage": [
+        "events",
+        "event-consumers",
+        "jetstream",
+        "bindings"
+      ],
+      "description": "Verifies a dependency durable listener attaches to the Trellis-provisioned JetStream consumer without creating extra consumers.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "source service",
+            "kind": "service",
+            "contract": "event-consumers source contract"
+          },
+          {
+            "name": "consumer service",
+            "kind": "service",
+            "contract": "event-consumers dependency consumer contract"
+          },
+          {
+            "name": "publisher app",
+            "kind": "app",
+            "contract": "event-consumers publisher app contract"
+          }
+        ],
+        "given": [
+          "A dependency durable consumer binding has been provisioned by Trellis."
+        ],
+        "when": [
+          "The service listens and a publisher emits a source event."
+        ],
+        "then": [
+          "The event is delivered through the provisioned consumer and no extra JetStream consumer is created."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "event-consumers/bound_dependency_consumer_uses_trellis_provisioned_consumer_only.integration_test.ts",
+          "testName": "event-consumers.bound-dependency-consumer-uses-trellis-provisioned-consumer-only"
+        },
+        "rust": {
+          "module": "event_consumers",
+          "function": "event_consumers_bound_dependency_consumer_uses_trellis_provisioned_consumer_only"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "event-consumers.ephemeral-listener-avoids-durable-metadata-and-jetstream-consumer",
+      "fixture": "event-consumers",
+      "title": "Ephemeral listener avoids durable metadata and JetStream consumer creation",
+      "coverage": [
+        "events",
+        "event-consumers",
+        "ephemeral",
+        "jetstream"
+      ],
+      "description": "Listens ephemerally to a dependency event and verifies durable metadata and durable JetStream consumer creation are avoided.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "source service",
+            "kind": "service",
+            "contract": "event-consumers source contract"
+          },
+          {
+            "name": "consumer service",
+            "kind": "service",
+            "contract": "event-consumers dependency consumer contract"
+          },
+          {
+            "name": "publisher app",
+            "kind": "app",
+            "contract": "event-consumers publisher app contract"
+          }
+        ],
+        "given": [
+          "A service can subscribe to a dependency event without selecting a durable group."
+        ],
+        "when": [
+          "The service listens ephemerally and a publisher emits an event."
+        ],
+        "then": [
+          "The event is delivered without durable metadata or an extra JetStream consumer."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "event-consumers/ephemeral_listener_avoids_durable_metadata_and_jetstream_consumer.integration_test.ts",
+          "testName": "event-consumers.ephemeral-listener-avoids-durable-metadata-and-jetstream-consumer"
+        },
+        "rust": {
+          "module": "event_consumers",
+          "function": "event_consumers_ephemeral_listener_avoids_durable_metadata_and_jetstream_consumer"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "event-consumers.duplicate-handlers-share-single-group-waiter",
+      "fixture": "event-consumers",
+      "title": "Duplicate handlers share a single group waiter",
+      "coverage": [
+        "events",
+        "event-consumers",
+        "groups",
+        "jetstream"
+      ],
+      "description": "Registers two handlers on the same durable group and verifies they share one active pull waiter while both receive the event.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "source service",
+            "kind": "service",
+            "contract": "event-consumers source contract"
+          },
+          {
+            "name": "consumer service",
+            "kind": "service",
+            "contract": "event-consumers dependency consumer contract"
+          },
+          {
+            "name": "publisher app",
+            "kind": "app",
+            "contract": "event-consumers publisher app contract"
+          }
+        ],
+        "given": [
+          "A service registers duplicate handlers for the same dependency durable group."
+        ],
+        "when": [
+          "A publisher emits a source event."
+        ],
+        "then": [
+          "Both handlers observe the event while JetStream shows one active group waiter."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "event-consumers/duplicate_handlers_share_single_group_waiter.integration_test.ts",
+          "testName": "event-consumers.duplicate-handlers-share-single-group-waiter"
+        },
+        "rust": {
+          "module": "event_consumers",
+          "function": "event_consumers_duplicate_handlers_share_single_group_waiter"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "event-consumers.self-owned-durable-consumer-receives-self-published-event",
+      "fixture": "event-consumers",
+      "title": "Self-owned durable consumer receives a self-published event",
+      "coverage": [
+        "events",
+        "event-consumers",
+        "self-events"
+      ],
+      "description": "Publishes a service-owned event and verifies the same service receives it through its self-owned durable consumer.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "self-consuming service",
+            "kind": "service",
+            "contract": "event-consumers self-owned consumer contract"
+          }
+        ],
+        "given": [
+          "A service declares a durable consumer for its own event."
+        ],
+        "when": [
+          "The service publishes that self-owned event."
+        ],
+        "then": [
+          "The service receives the event through the self-owned durable consumer."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "event-consumers/self_owned_durable_consumer_receives_self_published_event.integration_test.ts",
+          "testName": "event-consumers.self-owned-durable-consumer-receives-self-published-event"
+        },
+        "rust": {
+          "module": "event_consumers",
+          "function": "event_consumers_self_owned_durable_consumer_receives_self_published_event"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "event-consumers.grouped-consumer-waits-for-all-handlers-before-consuming-queued-event",
+      "fixture": "event-consumers",
+      "title": "Grouped consumer waits for all dependency handlers before consuming a queued event",
+      "coverage": [
+        "events",
+        "event-consumers",
+        "group-readiness"
+      ],
+      "description": "Queues dependency events and verifies grouped delivery waits until all declared handlers for the group are ready.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "source service",
+            "kind": "service",
+            "contract": "event-consumers source contract"
+          },
+          {
+            "name": "consumer service",
+            "kind": "service",
+            "contract": "event-consumers grouped dependency consumer contract"
+          },
+          {
+            "name": "publisher app",
+            "kind": "app",
+            "contract": "event-consumers publisher app contract"
+          }
+        ],
+        "given": [
+          "A dependency durable group covers multiple event handlers and an event is queued."
+        ],
+        "when": [
+          "The service registers the full handler set for the group."
+        ],
+        "then": [
+          "Queued delivery begins only after all group handlers are ready."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "event-consumers/grouped_consumer_waits_for_all_handlers_before_consuming_queued_event.integration_test.ts",
+          "testName": "event-consumers.grouped-consumer-waits-for-all-handlers-before-consuming-queued-event"
+        },
+        "rust": {
+          "module": "event_consumers",
+          "function": "event_consumers_grouped_consumer_waits_for_all_handlers_before_consuming_queued_event"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "event-consumers.self-owned-grouped-consumer-waits-for-all-handlers-before-consuming-queued-event",
+      "fixture": "event-consumers",
+      "title": "Self-owned grouped consumer waits for all handlers before consuming a queued event",
+      "coverage": [
+        "events",
+        "event-consumers",
+        "self-events",
+        "group-readiness"
+      ],
+      "description": "Queues self-owned events and verifies grouped delivery waits until all self-event handlers for the durable group are ready.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "self-consuming service",
+            "kind": "service",
+            "contract": "event-consumers self-owned consumer contract"
+          }
+        ],
+        "given": [
+          "A self-owned durable group covers multiple event handlers and an event is queued."
+        ],
+        "when": [
+          "The service registers the full self-event handler set for the group."
+        ],
+        "then": [
+          "Queued delivery begins only after all self-owned group handlers are ready."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "event-consumers/self_owned_grouped_consumer_waits_for_all_handlers_before_consuming_queued_event.integration_test.ts",
+          "testName": "event-consumers.self-owned-grouped-consumer-waits-for-all-handlers-before-consuming-queued-event"
+        },
+        "rust": {
+          "module": "event_consumers",
+          "function": "event_consumers_self_owned_grouped_consumer_waits_for_all_handlers_before_consuming_queued_event"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "event-consumers.abort-re-register-restarts-delivery",
+      "fixture": "event-consumers",
+      "title": "Abort and re-register restarts durable delivery",
+      "coverage": [
+        "events",
+        "event-consumers",
+        "abort",
+        "redelivery"
+      ],
+      "description": "Aborts a durable listener, waits for delivery to stop, re-registers the handler, and verifies queued delivery restarts.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "source service",
+            "kind": "service",
+            "contract": "event-consumers source contract"
+          },
+          {
+            "name": "consumer service",
+            "kind": "service",
+            "contract": "event-consumers dependency consumer contract"
+          },
+          {
+            "name": "publisher app",
+            "kind": "app",
+            "contract": "event-consumers publisher app contract"
+          }
+        ],
+        "given": [
+          "A durable listener has been aborted after initial registration."
+        ],
+        "when": [
+          "A queued event exists and the listener is re-registered."
+        ],
+        "then": [
+          "Durable delivery resumes and the queued event is observed."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "event-consumers/abort_re_register_restarts_delivery.integration_test.ts",
+          "testName": "event-consumers.abort-re-register-restarts-delivery"
+        },
+        "rust": {
+          "module": "event_consumers",
+          "function": "event_consumers_abort_re_register_restarts_delivery"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "event-consumers.stop-teardown-stops-durable-delivery",
+      "fixture": "event-consumers",
+      "title": "Stop teardown stops durable delivery",
+      "coverage": [
+        "events",
+        "event-consumers",
+        "stop",
+        "teardown"
+      ],
+      "description": "Stops a service with an active durable listener and verifies delivery does not continue after teardown.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "source service",
+            "kind": "service",
+            "contract": "event-consumers source contract"
+          },
+          {
+            "name": "consumer service",
+            "kind": "service",
+            "contract": "event-consumers dependency consumer contract"
+          },
+          {
+            "name": "publisher app",
+            "kind": "app",
+            "contract": "event-consumers publisher app contract"
+          }
+        ],
+        "given": [
+          "A durable dependency listener is active."
+        ],
+        "when": [
+          "The service stops and another event is published."
+        ],
+        "then": [
+          "The stopped service does not receive additional durable deliveries."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "event-consumers/stop_teardown_stops_durable_delivery.integration_test.ts",
+          "testName": "event-consumers.stop-teardown-stops-durable-delivery"
+        },
+        "rust": {
+          "module": "event_consumers",
+          "function": "event_consumers_stop_teardown_stops_durable_delivery"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "event-consumers.transient-missing-consumer-retries-after-reconcile",
+      "fixture": "event-consumers",
+      "title": "Transient missing consumer retries after reconcile",
+      "coverage": [
+        "events",
+        "event-consumers",
+        "jetstream",
+        "reconcile"
+      ],
+      "description": "Deletes a Trellis-provisioned JetStream consumer, verifies transient listen failure, reconciles, and verifies delivery recovers.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "source service",
+            "kind": "service",
+            "contract": "event-consumers source contract"
+          },
+          {
+            "name": "consumer service",
+            "kind": "service",
+            "contract": "event-consumers dependency consumer contract"
+          },
+          {
+            "name": "publisher app",
+            "kind": "app",
+            "contract": "event-consumers publisher app contract"
+          }
+        ],
+        "given": [
+          "A Trellis-provisioned dependency durable consumer is transiently missing."
+        ],
+        "when": [
+          "Trellis reconciles the consumer and the service listens again."
+        ],
+        "then": [
+          "The durable listener recovers and receives the next event."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "event-consumers/transient_missing_consumer_retries_after_reconcile.integration_test.ts",
+          "testName": "event-consumers.transient-missing-consumer-retries-after-reconcile"
+        },
+        "rust": {
+          "module": "event_consumers",
+          "function": "event_consumers_transient_missing_consumer_retries_after_reconcile"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "event-consumers.readiness-lost-does-not-nak-delivered-group-message",
+      "fixture": "event-consumers",
+      "title": "Readiness lost does not NAK an already delivered group message",
+      "coverage": [
+        "events",
+        "event-consumers",
+        "group-readiness",
+        "ack"
+      ],
+      "description": "Forces readiness loss after a grouped durable message is delivered and verifies the delivered message is not negatively acknowledged.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "source service",
+            "kind": "service",
+            "contract": "event-consumers source contract"
+          },
+          {
+            "name": "consumer service",
+            "kind": "service",
+            "contract": "event-consumers grouped dependency consumer contract"
+          },
+          {
+            "name": "publisher app",
+            "kind": "app",
+            "contract": "event-consumers publisher app contract"
+          }
+        ],
+        "given": [
+          "A grouped durable message has already been delivered to a handler."
+        ],
+        "when": [
+          "Group readiness is lost before the handler completes."
+        ],
+        "then": [
+          "The delivered message is not NAKed solely because readiness changed."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "event-consumers/readiness_lost_does_not_nak_delivered_group_message.integration_test.ts",
+          "testName": "event-consumers.readiness-lost-does-not-nak-delivered-group-message"
+        },
+        "rust": {
+          "module": "event_consumers",
+          "function": "event_consumers_readiness_lost_does_not_nak_delivered_group_message"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "prepared-events.prepared-publish-preserves-custom-headers-and-annotates-handler-error",
+      "fixture": "prepared-events",
+      "title": "Prepared publish preserves custom headers and annotates handler error",
+      "coverage": [
+        "events",
+        "prepared-events",
+        "headers",
+        "errors"
+      ],
+      "description": "Publishes a prepared event with custom headers and verifies handler error annotation preserves the prepared header metadata.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "service provider",
+            "kind": "service",
+            "contract": "prepared-events service contract"
+          },
+          {
+            "name": "client app",
+            "kind": "app",
+            "contract": "prepared-events publisher client contract"
+          }
+        ],
+        "given": [
+          "A service handler throws while processing a prepared event with custom headers."
+        ],
+        "when": [
+          "The client publishes the prepared event."
+        ],
+        "then": [
+          "The handler error annotation includes the prepared event header metadata."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "prepared-events/prepared_publish_preserves_custom_headers_and_annotates_handler_error.integration_test.ts",
+          "testName": "prepared-events.prepared-publish-preserves-custom-headers-and-annotates-handler-error publishes prepared headers into handler error annotation"
+        },
+        "rust": {
+          "module": "prepared_events",
+          "function": "prepared_events_prepared_publish_preserves_custom_headers_and_annotates_handler_error"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
       }
     }
   ]

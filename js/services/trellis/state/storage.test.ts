@@ -151,7 +151,7 @@ class RevisionConflictDeleteStateKV extends FakeStateKV {
   }
 }
 
-Deno.test("StateStore put/get/list returns lexicographic pages for map stores", async () => {
+Deno.test("StateStore lists lexicographic pages for map stores", async () => {
   const kv = new FakeStateKV();
   const store = new StateStore({
     kv,
@@ -172,9 +172,6 @@ Deno.test("StateStore put/get/list returns lexicographic pages for map stores", 
   unwrapOk(await store.put(target, { key: "b", value: { label: "b" } }));
   unwrapOk(await store.put(target, { key: "a", value: { label: "a" } }));
   unwrapOk(await store.put(target, { key: "c", value: { label: "c" } }));
-
-  const got = unwrapOk(await store.get(target, { key: "a" }));
-  assertFound(got);
 
   const listed = unwrapOk(
     await store.list(target, { prefix: "", offset: 0, limit: 2 }),

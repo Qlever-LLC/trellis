@@ -696,6 +696,7 @@ impl<'a> AuthConnectionsClosedEvent<'a> {
             .inner
             .subscribe_with_options::<super::events::AuthConnectionsClosedEventDescriptor>(
                 crate::client::EventSubscribeOptions {
+                    stream: None,
                     mode: crate::client::EventSubscriptionMode::Ephemeral,
                     replay: crate::client::EventReplayPolicy::New,
                     durable_name: None,
@@ -729,6 +730,7 @@ impl<'a> AuthConnectionsKickedEvent<'a> {
             .inner
             .subscribe_with_options::<super::events::AuthConnectionsKickedEventDescriptor>(
                 crate::client::EventSubscribeOptions {
+                    stream: None,
                     mode: crate::client::EventSubscriptionMode::Ephemeral,
                     replay: crate::client::EventReplayPolicy::New,
                     durable_name: None,
@@ -762,6 +764,7 @@ impl<'a> AuthConnectionsOpenedEvent<'a> {
             .inner
             .subscribe_with_options::<super::events::AuthConnectionsOpenedEventDescriptor>(
                 crate::client::EventSubscribeOptions {
+                    stream: None,
                     mode: crate::client::EventSubscriptionMode::Ephemeral,
                     replay: crate::client::EventReplayPolicy::New,
                     durable_name: None,
@@ -796,6 +799,7 @@ impl<'a> AuthDeviceUserAuthoritiesApprovedEvent<'a> {
             .subscribe_with_options::<
                 super::events::AuthDeviceUserAuthoritiesApprovedEventDescriptor,
             >(crate::client::EventSubscribeOptions {
+                stream: None,
                 mode: crate::client::EventSubscriptionMode::Ephemeral,
                 replay: crate::client::EventReplayPolicy::New,
                 durable_name: None,
@@ -829,6 +833,7 @@ impl<'a> AuthDeviceUserAuthoritiesRequestedEvent<'a> {
             .subscribe_with_options::<
                 super::events::AuthDeviceUserAuthoritiesRequestedEventDescriptor,
             >(crate::client::EventSubscribeOptions {
+                stream: None,
                 mode: crate::client::EventSubscriptionMode::Ephemeral,
                 replay: crate::client::EventReplayPolicy::New,
                 durable_name: None,
@@ -862,6 +867,7 @@ impl<'a> AuthDeviceUserAuthoritiesResolvedEvent<'a> {
             .subscribe_with_options::<
                 super::events::AuthDeviceUserAuthoritiesResolvedEventDescriptor,
             >(crate::client::EventSubscribeOptions {
+                stream: None,
                 mode: crate::client::EventSubscriptionMode::Ephemeral,
                 replay: crate::client::EventReplayPolicy::New,
                 durable_name: None,
@@ -897,6 +903,7 @@ impl<'a> AuthDeviceUserAuthoritiesReviewRequestedEvent<'a> {
             .subscribe_with_options::<
                 super::events::AuthDeviceUserAuthoritiesReviewRequestedEventDescriptor,
             >(crate::client::EventSubscribeOptions {
+                stream: None,
                 mode: crate::client::EventSubscriptionMode::Ephemeral,
                 replay: crate::client::EventReplayPolicy::New,
                 durable_name: None,
@@ -929,6 +936,7 @@ impl<'a> AuthSessionsRevokedEvent<'a> {
             .inner
             .subscribe_with_options::<super::events::AuthSessionsRevokedEventDescriptor>(
                 crate::client::EventSubscribeOptions {
+                    stream: None,
                     mode: crate::client::EventSubscriptionMode::Ephemeral,
                     replay: crate::client::EventReplayPolicy::New,
                     durable_name: None,

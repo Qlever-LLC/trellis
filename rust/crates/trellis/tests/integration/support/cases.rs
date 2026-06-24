@@ -1,6 +1,9 @@
 use std::collections::BTreeSet;
 
-use super::matrix::{load_client_test_matrix, matrix_case_ids, repo_root, ClientTestMatrix};
+use super::matrix::{
+    load_client_test_matrix, load_service_test_matrix, matrix_case_ids, repo_root,
+    ClientTestMatrix, CompletionStatus, ServiceTestMatrix,
+};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(crate) struct IntegrationCase {
@@ -52,6 +55,16 @@ pub(crate) const RUST_INTEGRATION_CASES: &[IntegrationCase] = &[
         "rpc_denies_client_without_call_authority",
     ),
     IntegrationCase::live(
+        "rpc.invalid-annotated-input-schema-validation",
+        "rpc",
+        "rpc_invalid_annotated_input_schema_validation",
+    ),
+    IntegrationCase::live(
+        "rpc.invalid-mixed-input-validation",
+        "rpc",
+        "rpc_invalid_mixed_input_validation",
+    ),
+    IntegrationCase::live(
         "events.client-publishes-and-subscriber-receives",
         "events",
         "events_client_publishes_and_subscriber_receives",
@@ -80,6 +93,16 @@ pub(crate) const RUST_INTEGRATION_CASES: &[IntegrationCase] = &[
         "operations.client-waits-for-completion",
         "operations",
         "operations_client_waits_for_completion",
+    ),
+    IntegrationCase::live(
+        "operations.client-cancels-operation",
+        "operations",
+        "operations_client_cancels_operation",
+    ),
+    IntegrationCase::live(
+        "operations.client-signals-running-operation",
+        "operations",
+        "operations_client_signals_running_operation",
     ),
     IntegrationCase::live(
         "operations.denies-start-without-call-authority",
@@ -132,6 +155,11 @@ pub(crate) const RUST_INTEGRATION_CASES: &[IntegrationCase] = &[
         "state_map_store_list_limit",
     ),
     IntegrationCase::live(
+        "state.admin-inspect-and-delete-state",
+        "state",
+        "state_admin_inspect_and_delete_state",
+    ),
+    IntegrationCase::live(
         "transfer.client-uploads-file-via-operation",
         "transfer",
         "transfer_client_uploads_file_via_operation",
@@ -170,6 +198,11 @@ pub(crate) const RUST_INTEGRATION_CASES: &[IntegrationCase] = &[
         "resources.service-kv-stale-revision-rejected",
         "resources",
         "resources_service_kv_stale_revision_rejected",
+    ),
+    IntegrationCase::live(
+        "jobs.keyed-jobs-serialize-same-key",
+        "jobs",
+        "jobs_keyed_jobs_serialize_same_key",
     ),
     IntegrationCase::live(
         "jobs.service-creates-local-job-from-client-rpc",
@@ -212,6 +245,81 @@ pub(crate) const RUST_INTEGRATION_CASES: &[IntegrationCase] = &[
         "health_heartbeat_event_context_is_populated",
     ),
     IntegrationCase::live(
+        "authority-plan.preapproved-contract-connects",
+        "authority_plan",
+        "authority_plan_preapproved_contract_connects",
+    ),
+    IntegrationCase::live(
+        "authority-plan.presented-update-is-pending-at-connect",
+        "authority_plan",
+        "authority_plan_presented_update_is_pending_at_connect",
+    ),
+    IntegrationCase::live(
+        "authority-plan.presented-update-approved-then-connects",
+        "authority_plan",
+        "authority_plan_presented_update_approved_then_connects",
+    ),
+    IntegrationCase::live(
+        "authority-plan.presented-update-rejected-stays-blocked",
+        "authority_plan",
+        "authority_plan_presented_update_rejected_stays_blocked",
+    ),
+    IntegrationCase::live(
+        "authority-plan.incompatible-migration-approved-replaces-contract",
+        "authority_plan",
+        "authority_plan_incompatible_migration_approved_replaces_contract",
+    ),
+    IntegrationCase::live(
+        "authority-plan.incompatible-migration-rejected-keeps-old-contract",
+        "authority_plan",
+        "authority_plan_incompatible_migration_rejected_keeps_old_contract",
+    ),
+    IntegrationCase::live(
+        "authority-plan.compatible-replacement-auto-allowed-strict",
+        "authority_plan",
+        "authority_plan_compatible_replacement_auto_allowed_strict",
+    ),
+    IntegrationCase::live(
+        "authority-plan.mutable-dev-auto-accepts-incompatible-migration",
+        "authority_plan",
+        "authority_plan_mutable_dev_auto_accepts_incompatible_migration",
+    ),
+    IntegrationCase::live(
+        "authority-plan.mutable-dev-rejected-explicit-update-still-blocks",
+        "authority_plan",
+        "authority_plan_mutable_dev_rejected_explicit_update_still_blocks",
+    ),
+    IntegrationCase::live(
+        "authority-plan.resource-change-migration-approved-and-bound",
+        "authority_plan",
+        "authority_plan_resource_change_migration_approved_and_bound",
+    ),
+    IntegrationCase::live(
+        "outbox.commits-event-through-sql-outbox",
+        "outbox",
+        "outbox_commits_event_through_sql_outbox",
+    ),
+    IntegrationCase::live(
+        "outbox.rollback-does-not-publish",
+        "outbox",
+        "outbox_rollback_does_not_publish",
+    ),
+    IntegrationCase::live(
+        "outbox.multiple-events-in-one-transaction",
+        "outbox",
+        "outbox_multiple_events_in_one_transaction",
+    ),
+    IntegrationCase::live(
+        "outbox.listener-derives-event",
+        "outbox",
+        "outbox_listener_derives_event",
+    ),
+    IntegrationCase::live(
+        "outbox.sql-row-state-is-dispatched",
+        "outbox",
+        "outbox_sql_row_state_is_dispatched",
+    ),
+    IntegrationCase::live(
         "service-approval.startup-blocks-before-authority-approval",
         "service_approval",
         "service_approval_startup_blocks_before_authority_approval",
@@ -242,6 +350,16 @@ pub(crate) const RUST_INTEGRATION_CASES: &[IntegrationCase] = &[
         "app_identity_approval_approved_client_calls_service",
     ),
     IntegrationCase::live(
+        "auth.local-login-binds-approved-client",
+        "app_identity_approval",
+        "auth_local_login_binds_approved_client",
+    ),
+    IntegrationCase::live(
+        "auth.session-revoke-denies-reconnect",
+        "app_identity_approval",
+        "auth_session_revoke_denies_reconnect",
+    ),
+    IntegrationCase::live(
         "device-activation.admin-provisions-known-device",
         "device_activation",
         "device_activation_admin_provisions_known_device",
@@ -255,6 +373,16 @@ pub(crate) const RUST_INTEGRATION_CASES: &[IntegrationCase] = &[
         "device-activation.admin-resolves-activation-operation",
         "device_activation",
         "device_activation_admin_resolves_activation_operation",
+    ),
+    IntegrationCase::live(
+        "device-activation.review-reject-denies-connect",
+        "device_activation",
+        "device_activation_review_reject_denies_connect",
+    ),
+    IntegrationCase::live(
+        "device-activation.revoked-device-cannot-reconnect",
+        "device_activation",
+        "device_activation_revoked_device_cannot_reconnect",
     ),
     IntegrationCase::live(
         "device-activation.device-receives-connect-info",
@@ -273,8 +401,142 @@ pub(crate) const RUST_INTEGRATION_CASES: &[IntegrationCase] = &[
     ),
 ];
 
+pub(crate) const RUST_SERVICE_INTEGRATION_CASES: &[IntegrationCase] = &[
+    IntegrationCase::live(
+        "control-plane.admin-bootstrap-creates-first-local-admin",
+        "control_plane",
+        "control_plane_admin_bootstrap_creates_first_local_admin",
+    ),
+    IntegrationCase::live(
+        "control-plane.password-reset-change-invalidates-old-password",
+        "control_plane",
+        "control_plane_password_reset_change_invalidates_old_password",
+    ),
+    IntegrationCase::live(
+        "control-plane.http-route-security-requires-admin-session",
+        "control_plane",
+        "control_plane_http_route_security_requires_admin_session",
+    ),
+    IntegrationCase::live(
+        "control-plane.catalog-active-contracts-survive-restart",
+        "control_plane",
+        "control_plane_catalog_active_contracts_survive_restart",
+    ),
+    IntegrationCase::live(
+        "control-plane.catalog-dependency-issue-resolved-by-provider",
+        "control_plane",
+        "control_plane_catalog_dependency_issue_resolved_by_provider",
+    ),
+    IntegrationCase::live(
+        "control-plane.catalog-force-replace-resolves-catalog-issue",
+        "control_plane",
+        "control_plane_catalog_force_replace_resolves_catalog_issue",
+    ),
+    IntegrationCase::live(
+        "control-plane.sessions-survive-control-plane-restart",
+        "control_plane",
+        "control_plane_sessions_survive_control_plane_restart",
+    ),
+    IntegrationCase::live(
+        "control-plane.state-persists-across-control-plane-restart",
+        "control_plane",
+        "control_plane_state_persists_across_control_plane_restart",
+    ),
+    IntegrationCase::live(
+        "control-plane.resources-survive-control-plane-restart",
+        "control_plane",
+        "control_plane_resources_survive_control_plane_restart",
+    ),
+    IntegrationCase::live(
+        "control-plane.outbox-dispatches-after-control-plane-restart",
+        "control_plane",
+        "control_plane_outbox_dispatches_after_control_plane_restart",
+    ),
+    IntegrationCase::live(
+        "control-plane.jobs-admin-lists-and-cancels-job",
+        "control_plane_jobs_admin",
+        "control_plane_jobs_admin_lists_and_cancels_job",
+    ),
+    IntegrationCase::live(
+        "event-consumers.durable-listen-without-declared-group-returns-err",
+        "event_consumers",
+        "event_consumers_durable_listen_without_declared_group_returns_err",
+    ),
+    IntegrationCase::live(
+        "event-consumers.ambiguous-group-without-opts-group-returns-err-and-specifying-group-works",
+        "event_consumers",
+        "event_consumers_ambiguous_group_without_opts_group_returns_err_and_specifying_group_works",
+    ),
+    IntegrationCase::live(
+        "event-consumers.caller-provided-durable-name-returns-err",
+        "event_consumers",
+        "event_consumers_caller_provided_durable_name_returns_err",
+    ),
+    IntegrationCase::live(
+        "event-consumers.bound-dependency-consumer-uses-trellis-provisioned-consumer-only",
+        "event_consumers",
+        "event_consumers_bound_dependency_consumer_uses_trellis_provisioned_consumer_only",
+    ),
+    IntegrationCase::live(
+        "event-consumers.ephemeral-listener-avoids-durable-metadata-and-jetstream-consumer",
+        "event_consumers",
+        "event_consumers_ephemeral_listener_avoids_durable_metadata_and_jetstream_consumer",
+    ),
+    IntegrationCase::live(
+        "event-consumers.duplicate-handlers-share-single-group-waiter",
+        "event_consumers",
+        "event_consumers_duplicate_handlers_share_single_group_waiter",
+    ),
+    IntegrationCase::live(
+        "event-consumers.self-owned-durable-consumer-receives-self-published-event",
+        "event_consumers",
+        "event_consumers_self_owned_durable_consumer_receives_self_published_event",
+    ),
+    IntegrationCase::live(
+        "event-consumers.grouped-consumer-waits-for-all-handlers-before-consuming-queued-event",
+        "event_consumers",
+        "event_consumers_grouped_consumer_waits_for_all_handlers_before_consuming_queued_event",
+    ),
+    IntegrationCase::live(
+        "event-consumers.self-owned-grouped-consumer-waits-for-all-handlers-before-consuming-queued-event",
+        "event_consumers",
+        "event_consumers_self_owned_grouped_consumer_waits_for_all_handlers_before_consuming_queued_event",
+    ),
+    IntegrationCase::live(
+        "event-consumers.abort-re-register-restarts-delivery",
+        "event_consumers",
+        "event_consumers_abort_re_register_restarts_delivery",
+    ),
+    IntegrationCase::live(
+        "event-consumers.stop-teardown-stops-durable-delivery",
+        "event_consumers",
+        "event_consumers_stop_teardown_stops_durable_delivery",
+    ),
+    IntegrationCase::live(
+        "event-consumers.transient-missing-consumer-retries-after-reconcile",
+        "event_consumers",
+        "event_consumers_transient_missing_consumer_retries_after_reconcile",
+    ),
+    IntegrationCase::live(
+        "event-consumers.readiness-lost-does-not-nak-delivered-group-message",
+        "event_consumers",
+        "event_consumers_readiness_lost_does_not_nak_delivered_group_message",
+    ),
+    IntegrationCase::live(
+        "prepared-events.prepared-publish-preserves-custom-headers-and-annotates-handler-error",
+        "prepared_events",
+        "prepared_events_prepared_publish_preserves_custom_headers_and_annotates_handler_error",
+    ),
+];
+
 pub(crate) fn rust_case_by_id(id: &str) -> Option<&'static IntegrationCase> {
     RUST_INTEGRATION_CASES
+        .iter()
+        .find(|case_entry| case_entry.id == id)
+}
+
+pub(crate) fn rust_service_case_by_id(id: &str) -> Option<&'static IntegrationCase> {
+    RUST_SERVICE_INTEGRATION_CASES
         .iter()
         .find(|case_entry| case_entry.id == id)
 }
@@ -284,6 +546,16 @@ pub(crate) fn assert_rust_manifest_conforms_to_matrix() {
 
     let report = build_conformance_report(&matrix, RUST_INTEGRATION_CASES)
         .expect("build Rust integration conformance report");
+    if !report.is_empty() {
+        panic!("{report}");
+    }
+}
+
+pub(crate) fn assert_rust_service_manifest_conforms_to_matrix() {
+    let matrix = load_service_test_matrix().expect("load shared service integration matrix");
+
+    let report = build_service_conformance_report(&matrix, RUST_SERVICE_INTEGRATION_CASES)
+        .expect("build Rust service integration conformance report");
     if !report.is_empty() {
         panic!("{report}");
     }
@@ -358,8 +630,109 @@ fn build_conformance_report(
         let module_path = integration_dir.join(format!("{}.rs", case_entry.module));
         let content = std::fs::read_to_string(&module_path)
             .map_err(|e| format!("failed to read {}: {}", module_path.display(), e))?;
-        let fn_pattern = format!("async fn {}(", case_entry.function);
-        if !content.contains("#[tokio::test]") || !content.contains(&fn_pattern) {
+        if !has_tokio_test_async_fn(&content, case_entry.function) {
+            messages.push(format!(
+                "case {}: missing #[tokio::test] async fn {}() in {}",
+                case_entry.id, case_entry.function, case_entry.module
+            ));
+        }
+
+        let fn_decl = format!("fn {}(", case_entry.function);
+        let fn_count = content.matches(&fn_decl).count();
+        if fn_count != 1 {
+            messages.push(format!(
+                "case {}: function {} appears {} times in module {} (expected 1)",
+                case_entry.id, case_entry.function, fn_count, case_entry.module
+            ));
+        }
+    }
+
+    Ok(messages.join("\n"))
+}
+
+fn build_service_conformance_report(
+    matrix: &ServiceTestMatrix,
+    local_cases: &[IntegrationCase],
+) -> Result<String, String> {
+    let mut implemented_matrix_ids = matrix
+        .cases
+        .iter()
+        .filter(|case_entry| case_entry.completion.rust == CompletionStatus::Implemented)
+        .map(|case_entry| case_entry.id.clone())
+        .collect::<Vec<_>>();
+    implemented_matrix_ids.sort();
+    let mut local_ids = local_cases
+        .iter()
+        .map(|case_entry| case_entry.id.to_string())
+        .collect::<Vec<_>>();
+    local_ids.sort();
+
+    let missing = implemented_matrix_ids
+        .iter()
+        .filter(|id| !local_ids.contains(id))
+        .cloned()
+        .collect::<Vec<_>>();
+    let extra = local_ids
+        .iter()
+        .filter(|id| !implemented_matrix_ids.contains(id))
+        .cloned()
+        .collect::<Vec<_>>();
+    let local_duplicates = duplicates(local_ids.iter().map(String::as_str));
+    let fixture_prefix_mismatches = service_fixture_prefix_errors(matrix, local_cases);
+    let implementation_mismatches = service_implementation_mismatches(matrix, local_cases);
+    let missing_modules = missing_module_files(local_cases)?;
+    let mut messages = Vec::new();
+
+    if !missing.is_empty() {
+        messages.push(format!(
+            "missing Rust service integration cases marked implemented: {}",
+            missing.join(", ")
+        ));
+    }
+    if !extra.is_empty() {
+        messages.push(format!(
+            "extra Rust service integration cases not marked implemented in matrix: {}",
+            extra.join(", ")
+        ));
+    }
+    if !local_duplicates.is_empty() {
+        messages.push(format!(
+            "duplicate Rust service integration case ids: {}",
+            local_duplicates.join(", ")
+        ));
+    }
+    if !fixture_prefix_mismatches.is_empty() {
+        messages.push(format!(
+            "Rust service integration case ids with wrong fixture prefix: {}",
+            fixture_prefix_mismatches.join(", ")
+        ));
+    }
+    if !implementation_mismatches.is_empty() {
+        messages.push(format!(
+            "Rust service integration cases with mismatched matrix implementation: {}",
+            implementation_mismatches.join(", ")
+        ));
+    }
+    if !missing_modules.is_empty() {
+        messages.push(format!(
+            "Rust service integration case modules without test files: {}",
+            missing_modules.join(", ")
+        ));
+    }
+
+    let integration_dir = repo_root()?.join("rust/crates/trellis/tests/integration");
+    for case_entry in local_cases {
+        if case_entry.runtime != IntegrationRuntime::LiveTrellis {
+            messages.push(format!(
+                "case {} has unexpected runtime {:?}",
+                case_entry.id, case_entry.runtime
+            ));
+        }
+
+        let module_path = integration_dir.join(format!("{}.rs", case_entry.module));
+        let content = std::fs::read_to_string(&module_path)
+            .map_err(|e| format!("failed to read {}: {}", module_path.display(), e))?;
+        if !has_tokio_test_async_fn(&content, case_entry.function) {
             messages.push(format!(
                 "case {}: missing #[tokio::test] async fn {}() in {}",
                 case_entry.id, case_entry.function, case_entry.module
@@ -390,6 +763,34 @@ fn duplicates<'a>(values: impl Iterator<Item = &'a str>) -> Vec<String> {
     duplicates.into_iter().collect()
 }
 
+fn has_tokio_test_async_fn(content: &str, function: &str) -> bool {
+    let lines = content.lines().collect::<Vec<_>>();
+    let fn_pattern = format!("async fn {function}(");
+
+    for (line_index, line) in lines.iter().enumerate() {
+        if !line.contains(&fn_pattern) {
+            continue;
+        }
+
+        let mut attr_index = line_index;
+        while attr_index > 0 {
+            attr_index -= 1;
+            let previous = lines[attr_index].trim();
+            if previous.is_empty() {
+                continue;
+            }
+            if !previous.starts_with("#[") {
+                break;
+            }
+            if previous.starts_with("#[tokio::test") {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 fn fixture_prefix_errors(
     matrix: &ClientTestMatrix,
     local_cases: &[IntegrationCase],
@@ -404,6 +805,49 @@ fn fixture_prefix_errors(
             errors.push(format!(
                 "{} expected prefix {expected_prefix}",
                 case_entry.id
+            ));
+        }
+    }
+    errors
+}
+
+fn service_fixture_prefix_errors(
+    matrix: &ServiceTestMatrix,
+    local_cases: &[IntegrationCase],
+) -> Vec<String> {
+    let mut errors = Vec::new();
+    for case_entry in local_cases {
+        let Some(matrix_case) = matrix.case_by_id(case_entry.id) else {
+            continue;
+        };
+        let expected_prefix = format!("{}.", matrix_case.fixture);
+        if !case_entry.id.starts_with(&expected_prefix) {
+            errors.push(format!(
+                "{} expected prefix {expected_prefix}",
+                case_entry.id
+            ));
+        }
+    }
+    errors
+}
+
+fn service_implementation_mismatches(
+    matrix: &ServiceTestMatrix,
+    local_cases: &[IntegrationCase],
+) -> Vec<String> {
+    let mut errors = Vec::new();
+    for case_entry in local_cases {
+        let Some(matrix_case) = matrix.case_by_id(case_entry.id) else {
+            continue;
+        };
+        let Some(rust) = &matrix_case.implementations.rust else {
+            errors.push(format!("{} missing implementations.rust", case_entry.id));
+            continue;
+        };
+        if rust.module != case_entry.module || rust.function != case_entry.function {
+            errors.push(format!(
+                "{} expected {}::{}, registry has {}::{}",
+                case_entry.id, rust.module, rust.function, case_entry.module, case_entry.function
             ));
         }
     }

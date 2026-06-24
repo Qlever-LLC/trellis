@@ -36,6 +36,14 @@ Rules:
   alias, and `eventConsumers.<group>.self` selects events owned by the same
   contract. Dependency durable consumption remains authority-backed by top-level
   `uses`; runtime durable consumers are Trellis-provisioned only.
+- Rust services register durable event listeners from the connected service
+  runtime with descriptor-backed `listen_event(...)`. Pass `group` when more
+  than one declared event-consumer group matches the event. Do not pass or invent
+  durable consumer names; Trellis resolves the provisioned durable binding from
+  service bootstrap. The returned listener handle supports `abort()`; aborting a
+  durable listener removes that handler from the shared listener registry so a
+  later registration can restart delivery from the same Trellis-provisioned
+  durable consumer.
 - Deno-first service-boundary tests that use `@qlever-llc/trellis-test` can use
   `runtime.captureEvents(...)` and the exported captured-event, job, operation,
   and Result assertion helpers without raw NATS subjects or production-only event
@@ -45,10 +53,9 @@ Rules:
 - In the Trellis repo, Rust client-library integration coverage lives in the
   public `trellis-rs` facade integration target and runs with
   `cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration -- --nocapture`.
-  It is a peer of the JS suite
-  (`deno task -c js/deno.json test:integration`) and must register every case in
-  `integration/client-test-matrix.json`; there are no Rust-only skips or
-  per-language matrix opt-ins.
+  It is a peer of the JS integration runners and must register every applicable
+  case from `integration/test-matrix.json`; there are no Rust-only skips or
+  per-language matrix opt-ins outside explicit blocked rows.
 - service-private jobs that must be singleton per logical key should declare
   `keyConcurrency`. Keep the existing numeric `concurrency` field for
   worker-count concurrency. Keyed queues default to clear failure

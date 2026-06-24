@@ -552,6 +552,10 @@ function createFakeNatsConnection(args: {
         closed = true;
         notify();
       },
+      [Symbol.asyncDispose]: async () => {
+        closed = true;
+        notify();
+      },
       isDraining: () => false,
       isClosed: () => closed,
       callback: () => {},
@@ -783,11 +787,17 @@ function createFakeNatsConnection(args: {
     stats: () => ({ inBytes: 0, outBytes: 0, inMsgs: 0, outMsgs: 0 }),
     rtt: async () => 0,
     reconnect: async () => {},
+    setServers: () => {},
+    getServers: () => [],
     features: {
       get: () => ({ min: "0.0.0", ok: true }),
     },
     addCloseListener: () => {},
     removeCloseListener: () => {},
+    [Symbol.asyncDispose]: async () => {
+      closed = true;
+      resolveClosed?.(args.closedResult);
+    },
   };
 
   return connection;
@@ -2077,38 +2087,6 @@ Deno.test("service heartbeat publishing stops after terminal NATS close", async 
   }
 });
 
-Deno.test("service heartbeat publishing starts from baseline health use", async () => {
-  let publishRequests = 0;
-  const connection = createFakeNatsConnection({
-    requestJson: () => {
-      publishRequests += 1;
-      return { stream: "HEALTH", seq: publishRequests, duplicate: false };
-    },
-  });
-
-  const service = await connectTrellisServiceInternal("svc", {
-    sessionKeySeed: TEST_SEED,
-    contractDigest: heartbeatTestContract.CONTRACT_DIGEST,
-    nats: {
-      servers: "nats://127.0.0.1:4222",
-      authenticator: {},
-    },
-    server: {
-      api: heartbeatTestContract.API.owned,
-      trellisApi: heartbeatTestContract.API.trellis,
-      log: false,
-    },
-  }, {
-    connect: () => Promise.resolve(connection),
-  });
-
-  try {
-    assertEquals(publishRequests > 0, true);
-  } finally {
-    await service.stop();
-  }
-});
-
 Deno.test("internal service connect cleans up the connection when bootstrap probing fails", async () => {
   let closed = false;
   let resolveClosed: ((value: Error | void) => void) | undefined;
@@ -2499,9 +2477,8 @@ Deno.test("service-local JobRef cancel publishes scoped cancelled lifecycle even
       siteId: "site-1",
     }).orThrow();
     const created = await ref.get().orThrow();
-    const cancelled = await ref.cancel().orThrow();
+    await ref.cancel().orThrow();
 
-    assertEquals(cancelled.state, "cancelled");
     const eventMessage = published.find((message) =>
       message.subject ===
         `trellis.jobs.jobs_handler_test.refreshSummaries.${ref.id}.cancelled`

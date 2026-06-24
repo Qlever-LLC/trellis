@@ -4,7 +4,9 @@
   "version": "0.19.0",
   "license": "Apache-2.0",
   "exports": {
-    ".": "./index.ts"
+    ".": "./index.ts",
+    "./integration": "./integration.ts",
+    "./integration/runner": "./src/integration/runner.ts"
   },
   "imports": {
     "@qlever-llc/trellis": "jsr:@qlever-llc/trellis@^0.19.0",
@@ -27,7 +29,9 @@
     ]
   },
   "tasks": {
-    "test": "deno test -A"
+    "test": "deno test -A",
+    "smoke:external-service-repo:serial": "deno run -A -c tests/fixtures/external-service-repo/deno.json @qlever-llc/trellis-test/integration/runner --config tests/fixtures/external-service-repo/trellis.integration.ts --case external.rpc-smoke",
+    "smoke:external-service-repo:parallel": "deno run -A -c tests/fixtures/external-service-repo/deno.json @qlever-llc/trellis-test/integration/runner --config tests/fixtures/external-service-repo/trellis.integration.ts --parallel --jobs 2 --case external.rpc-smoke"
   },
   "compilerOptions": {
     "verbatimModuleSyntax": true

@@ -1,6 +1,6 @@
 //! Typed operation descriptors for `trellis.auth@v1`.
 use crate::client::OperationDescriptor;
-use trellis_rs::service::OperationFailureLike;
+use crate::service::OperationFailureLike;
 /// Descriptor for `Auth.DeviceUserAuthorities.Resolve`.
 pub struct AuthDeviceUserAuthoritiesResolveOperation;
 impl OperationDescriptor for AuthDeviceUserAuthoritiesResolveOperation {
@@ -31,22 +31,22 @@ pub enum AuthDeviceUserAuthoritiesResolveOperationError {
     /// `AuthError` failure.
     AuthError {
         /// Human-facing error message.
-        pub message: String,
+        message: String,
     },
     /// `UnexpectedError` failure.
     UnexpectedError {
         /// Human-facing error message.
-        pub message: String,
+        message: String,
     },
     /// `ValidationError` failure.
     ValidationError {
         /// Human-facing error message.
-        pub message: String,
+        message: String,
     },
     /// Catch-all for unexpected operation failures.
     Other { message: String },
 }
-impl trellis_rs::service::OperationFailureLike for AuthDeviceUserAuthoritiesResolveOperationError {
+impl OperationFailureLike for AuthDeviceUserAuthoritiesResolveOperationError {
     fn error_type(&self) -> &str {
         match self {
             Self::AuthError { .. } => "AuthError",
@@ -57,7 +57,10 @@ impl trellis_rs::service::OperationFailureLike for AuthDeviceUserAuthoritiesReso
     }
     fn message(&self) -> String {
         match self {
-            _ => String::new(),
+            Self::AuthError { message } => message.clone(),
+            Self::UnexpectedError { message } => message.clone(),
+            Self::ValidationError { message } => message.clone(),
+            Self::Other { message } => message.clone(),
         }
     }
     fn fields(&self) -> serde_json::Map<String, serde_json::Value> {

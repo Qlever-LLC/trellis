@@ -629,7 +629,6 @@ if (false) {
     }),
   );
 
-
   defineAppContract(() => ({
     id: "trellis.invalid-app@v1",
     displayName: "Invalid App",

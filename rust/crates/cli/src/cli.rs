@@ -57,8 +57,6 @@ pub enum TopLevelCommand {
     Svc(SvcCommand),
     /// Manage device deployments.
     Dev(DevCommand),
-    /// Generate local Trellis development files.
-    Local(LocalCommand),
     /// Apply or check shared infrastructure.
     Infra(InfraCommand),
     /// Run one-time initialization workflows.

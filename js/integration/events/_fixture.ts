@@ -10,8 +10,17 @@ import {
 export function createEventsFixture(caseId: string) {
   const slug = integrationSlug(caseId);
   const eventSchemas = {
-    EntityChanged: Type.Object({ id: Type.String(), value: Type.String() }),
+    EntityChanged: Type.Object({
+      id: Type.String(),
+      value: Type.String(),
+      header: Type.Optional(Type.String()),
+    }),
   } as const;
+  const entityChangedSubject = caseScopedSubject(
+    "events.v1.Integration.Events",
+    caseId,
+    "Entity.Changed",
+  );
 
   const serviceContract = defineServiceContract(
     { schemas: eventSchemas },
@@ -33,11 +42,7 @@ export function createEventsFixture(caseId: string) {
       events: {
         "Entity.Changed": {
           version: "v1",
-          subject: caseScopedSubject(
-            "events.v1.Integration.Events",
-            caseId,
-            "Entity.Changed",
-          ),
+          subject: entityChangedSubject,
           event: ref.schema("EntityChanged"),
           capabilities: {
             publish: ["publishRecords"],
@@ -117,6 +122,7 @@ export function createEventsFixture(caseId: string) {
       caseId,
     ),
     publishOnlyName: caseScopedName("events-fixture-publish-only", caseId),
+    sourceSubject: entityChangedSubject,
     publishedEntityId: caseScopedName("entity-events", caseId),
     deniedPublishEntityId: caseScopedName("entity-denied", caseId),
     deniedSubscribeEntityId: caseScopedName("entity-no-subscribe", caseId),

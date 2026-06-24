@@ -3184,6 +3184,9 @@ function operation(operation: ContractOperation): ContractOperation {
         ),
       }
       : {}),
+    ...(operation.errors
+      ? { errors: operation.errors.map((error) => ({ type: error.type })) }
+      : {}),
     ...(operation.cancel !== undefined ? { cancel: operation.cancel } : {}),
     ...(operation.docs ? { docs: contractDocs(operation.docs) } : {}),
   };
@@ -3542,7 +3545,9 @@ export function projectContractDigestManifest(
   const rpcDeclaredErrors = projectRpcDeclaredErrors(contract);
   const operationDeclaredErrors = projectOperationDeclaredErrors(contract);
   const combinedErrors = { ...rpcDeclaredErrors, ...operationDeclaredErrors };
-  const errors = Object.keys(combinedErrors).length > 0 ? combinedErrors : undefined;
+  const errors = Object.keys(combinedErrors).length > 0
+    ? combinedErrors
+    : undefined;
   const state = projectDigestState(contract.state);
   const resources = projectDigestResources(contract.resources);
   const jobs = projectDigestJobs(contract.jobs);

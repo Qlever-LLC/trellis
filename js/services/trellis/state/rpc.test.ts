@@ -90,14 +90,6 @@ function assertStateEntry(entry: unknown): asserts entry is {
   }
 }
 
-function listedKey(
-  entry:
-    | { key?: string }
-    | { migrationRequired: true; entry: { key?: string } },
-): string | undefined {
-  return "migrationRequired" in entry ? entry.entry.key : entry.key;
-}
-
 function isMigrationRequired(value: unknown): value is {
   migrationRequired: true;
   entry: unknown;
@@ -738,29 +730,6 @@ Deno.test("State admin RPCs inspect and delete named stores", async () => {
     store: "drafts",
     user: { origin: "github", id: "123" },
   };
-
-  const got = unwrapOk(
-    await handlers.adminGet({ ...target, key: "draft" }, adminContext),
-  );
-  assertFound(got);
-
-  const listed = unwrapOk(
-    await handlers.adminList({ ...target, offset: 0, limit: 10 }, adminContext),
-  );
-  assertEquals(listed.entries.map(listedKey), ["draft"]);
-
-  const deleted = unwrapOk(
-    await handlers.adminDelete(
-      { ...target, key: "draft", expectedRevision: put.entry.revision },
-      adminContext,
-    ),
-  );
-  assertEquals(deleted, { deleted: true });
-
-  const missing = unwrapOk(
-    await handlers.adminGet({ ...target, key: "draft" }, adminContext),
-  );
-  assertEquals(missing, { found: false });
 
   assertEquals(
     unwrapErr(

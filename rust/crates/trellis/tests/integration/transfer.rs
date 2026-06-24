@@ -162,7 +162,7 @@ impl trellis_rs::client::OperationDescriptor for FilesUploadOp {
     type Input = UploadInput;
     type Progress = Value;
     type Output = UploadOutput;
-    type Error = String;
+    type Error = trellis_rs::service::OperationFailure;
 
     const KEY: &'static str = "Files.Upload";
     const SUBJECT: &'static str = "operations.v1.Files.Upload";
@@ -172,6 +172,10 @@ impl trellis_rs::client::OperationDescriptor for FilesUploadOp {
     const CONTROL_CAPABILITIES: &'static [&'static str] = &[];
     const CANCELABLE: bool = false;
     const ERRORS: &'static [&'static str] = &[];
+    const INPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","required":["key"],"properties":{"key":{"type":"string"},"contentType":{"type":"string"}}}"#;
+    const PROGRESS_SCHEMA_JSON: Option<&'static str> = None;
+    const OUTPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","required":["key","size"],"properties":{"key":{"type":"string"},"size":{"type":"integer"},"contentType":{"type":"string"}}}"#;
+    const SIGNAL_INPUT_SCHEMAS_JSON: &'static str = "{}";
 }
 
 impl TransferOperationDescriptor for FilesUploadOp {}
@@ -186,6 +190,9 @@ impl trellis_rs::client::RpcDescriptor for FilesDownloadRpc {
     const SUBJECT: &'static str = "rpc.v1.Files.Download";
     const CALLER_CAPABILITIES: &'static [&'static str] = &[];
     const ERRORS: &'static [&'static str] = &[];
+    const INPUT_SCHEMA_JSON: &'static str =
+        r#"{"type":"object","required":["key"],"properties":{"key":{"type":"string"}}}"#;
+    const OUTPUT_SCHEMA_JSON: &'static str = r#"{"type":"object"}"#;
 }
 
 struct SharedOpState {

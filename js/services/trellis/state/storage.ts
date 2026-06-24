@@ -2,6 +2,7 @@ import { AsyncResult, isErr, Result } from "@qlever-llc/result";
 import { KVError, UnexpectedError, ValidationError } from "@qlever-llc/trellis";
 import type { JsonValue } from "@qlever-llc/trellis/contracts";
 import { isJsonValue } from "@qlever-llc/trellis/contracts";
+import { SchemaValidationError } from "@qlever-llc/trellis/errors";
 import { parseUnknownSchema } from "@qlever-llc/trellis/host/control-plane";
 import type {
   StateDeleteOutput as StateDeleteResponse,
@@ -151,6 +152,19 @@ function isCreateConflict(error: unknown): error is KVError {
 function isRevisionConflict(error: unknown): error is KVError {
   return error instanceof KVError &&
     error.getContext().reason === "revision mismatch";
+}
+
+function collapseSchemaValidationError(
+  error: SchemaValidationError | ValidationError | UnexpectedError,
+): ValidationError | UnexpectedError {
+  if (!(error instanceof SchemaValidationError)) return error;
+  return new ValidationError({
+    errors: error.issues.map((issue) => ({
+      path: issue.path,
+      message: issue.message,
+    })),
+    cause: error.cause,
+  });
 }
 
 export class StateStore {
@@ -596,7 +610,9 @@ export class StateStore {
     value: JsonValue,
   ): Result<JsonValue, ValidationError | UnexpectedError> {
     const parsed = parseUnknownSchema(target.schema, value);
-    if (parsed.isErr()) return Result.err(parsed.error);
+    if (parsed.isErr()) {
+      return Result.err(collapseSchemaValidationError(parsed.error));
+    }
     return Result.ok(parsed.orThrow() as JsonValue);
   }
 
@@ -726,7 +742,9 @@ export class StateStore {
     }
 
     const parsed = parseUnknownSchema(schema, entry.value);
-    if (parsed.isErr()) return Result.err(parsed.error);
+    if (parsed.isErr()) {
+      return Result.err(collapseSchemaValidationError(parsed.error));
+    }
     return Result.ok({
       value: parsed.orThrow() as JsonValue,
     });

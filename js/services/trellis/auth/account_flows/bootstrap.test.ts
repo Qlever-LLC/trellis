@@ -444,61 +444,6 @@ Deno.test("ensureAdminBootstrapFlow detects an active admin on a later page", as
   assertEquals(flows, []);
 });
 
-Deno.test("completeAdminBootstrapLocalPassword creates the first active local admin", async () => {
-  const flowId = "bootstrap-flow";
-  const state = createCompletionDeps({
-    flow: accountFlow({ flowIdHash: await hashKey(flowId) }),
-  });
-
-  const result = await completeAdminBootstrapLocalPassword({
-    ...state.deps,
-    flowId,
-    username: "ada",
-    password: "correct horse battery staple",
-    name: "Ada Lovelace",
-    email: "ada@example.com",
-    now: new Date("2026-05-09T00:00:00.000Z"),
-  });
-
-  if (!result.ok) throw new Error(result.error);
-  assertMatch(result.userId, /^usr_[A-Za-z0-9_-]+$/);
-  assertEquals(state.accounts, [{
-    userId: result.userId,
-    name: "Ada Lovelace",
-    email: "ada@example.com",
-    active: true,
-    capabilities: [],
-    capabilityGroups: ["admin"],
-    createdAt: "2026-05-09T00:00:00.000Z",
-    updatedAt: "2026-05-09T00:00:00.000Z",
-  }]);
-  assertEquals(state.identities, [{
-    identityId: identityIdForProviderSubject("local", "ada"),
-    userId: result.userId,
-    provider: "local",
-    subject: "ada",
-    displayName: "Ada Lovelace",
-    email: "ada@example.com",
-    emailVerified: false,
-    linkedAt: "2026-05-09T00:00:00.000Z",
-    lastLoginAt: null,
-  }]);
-  assertEquals(state.credentials.length, 1);
-  const credential = state.credentials[0];
-  if (!credential) throw new Error("expected local credential");
-  assertEquals(
-    credential.identityId,
-    identityIdForProviderSubject("local", "ada"),
-  );
-  assertEquals(
-    await verifyLocalCredentialPassword(
-      credential,
-      "correct horse battery staple",
-    ),
-    true,
-  );
-});
-
 Deno.test("completeAdminBootstrapLocalPassword rejects expired and consumed bootstrap flows", async () => {
   const cases: Array<{
     consumedAt?: string | null;

@@ -33,8 +33,10 @@ Rust service work. Most service repositories should link one of these rather tha
 asking agents to read both language stacks.
 
 Use `llms-svelte.txt` for Svelte or SvelteKit browser apps that need
-`createTrellisApp`, `TrellisProvider`, generated SDK aliases for contract
-`uses`, Vite aliases, or `svelte-check` path-map guidance.
+`createTrellisApp`, `TrellisProvider`, generated service SDK aliases for contract
+`uses`, Vite aliases, or `svelte-check` path-map guidance. Svelte apps should use
+`TrellisClientFor<typeof contract>` for their connected client type rather than
+importing a generated app SDK.
 
 Copy the TypeScript or Rust `templates/*-AGENTS.md` file into a service
 repository as `AGENTS.md`, then fill in the local commands and paths. Keep local

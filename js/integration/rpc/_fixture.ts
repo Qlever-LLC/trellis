@@ -1,4 +1,8 @@
-import { defineAppContract, defineServiceContract } from "@qlever-llc/trellis";
+import {
+  defineAppContract,
+  defineServiceContract,
+  withTrellisValidation,
+} from "@qlever-llc/trellis";
 import { Type } from "typebox";
 import {
   caseScopedContractId,
@@ -19,6 +23,36 @@ export function createRpcFixture(caseId: string) {
       requestId: Type.Optional(Type.String()),
       traceId: Type.Optional(Type.String()),
     }),
+    AnnotatedValidationInput: Type.Object({
+      items: withTrellisValidation(
+        Type.Array(Type.String(), { minItems: 1 }),
+        {
+          label: "Items",
+          issues: {
+            minItems: {
+              code: "rpc.items.required",
+              message: "Add at least one item.",
+            },
+          },
+        },
+      ),
+    }),
+    MixedValidationInput: Type.Object({
+      items: withTrellisValidation(
+        Type.Array(Type.String(), { minItems: 1 }),
+        {
+          label: "Items",
+          issues: {
+            minItems: {
+              code: "rpc.items.required",
+              message: "Add at least one item.",
+            },
+          },
+        },
+      ),
+      name: Type.String({ minLength: 3 }),
+    }),
+    ValidationOutput: Type.Object({ success: Type.Boolean() }),
   } as const;
 
   const serviceContract = defineServiceContract(
@@ -47,6 +81,30 @@ export function createRpcFixture(caseId: string) {
           capabilities: { call: ["read"] },
           errors: ["NOT_FOUND"],
         },
+        "Validation.Annotated": {
+          version: "v1",
+          subject: caseScopedSubject(
+            "rpc.v1.integration.rpc",
+            caseId,
+            "Validation.Annotated",
+          ),
+          input: ref.schema("AnnotatedValidationInput"),
+          output: ref.schema("ValidationOutput"),
+          capabilities: { call: ["read"] },
+          errors: [],
+        },
+        "Validation.Mixed": {
+          version: "v1",
+          subject: caseScopedSubject(
+            "rpc.v1.integration.rpc",
+            caseId,
+            "Validation.Mixed",
+          ),
+          input: ref.schema("MixedValidationInput"),
+          output: ref.schema("ValidationOutput"),
+          capabilities: { call: ["read"] },
+          errors: [],
+        },
       },
     }),
   );
@@ -58,7 +116,13 @@ export function createRpcFixture(caseId: string) {
     uses: {
       required: {
         rpcService: serviceContract.use({
-          rpc: { call: ["Entity.Get"] },
+          rpc: {
+            call: [
+              "Entity.Get",
+              "Validation.Annotated",
+              "Validation.Mixed",
+            ],
+          },
         }),
       },
     },

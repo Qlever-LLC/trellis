@@ -506,7 +506,10 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
     operation: string,
     ctx: RegisteredRuntimeOperationDesc,
     operationId: string,
-  ): AsyncResult<OperationRuntimeHandle<unknown, unknown, BaseError>, BaseError> {
+  ): AsyncResult<
+    OperationRuntimeHandle<unknown, unknown, BaseError>,
+    BaseError
+  > {
     return AsyncResult.from((async () => {
       const runtime = await this.#resolveOperation(operationId);
       if (!runtime) {
@@ -764,7 +767,9 @@ export class TrellisServiceRuntime extends Trellis<TrellisAPI, TrellisMode> {
     operation: string,
     ctx: RegisteredRuntimeOperationDesc,
     sessionKey: string,
-  ): Promise<Result<AcceptedOperation<unknown, unknown, BaseError>, UnexpectedError>> {
+  ): Promise<
+    Result<AcceptedOperation<unknown, unknown, BaseError>, UnexpectedError>
+  > {
     const createdAt = new Date().toISOString();
     const operationId = ulid();
     const runtime: RuntimeOperationRecord = {

@@ -98,6 +98,8 @@ pub enum EventReplayPolicy {
 /// Options for descriptor-backed event subscriptions.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EventSubscribeOptions {
+    /// JetStream stream that owns the event consumer. Defaults to the Trellis event stream.
+    pub stream: Option<String>,
     /// Durable or ephemeral consumer mode.
     pub mode: EventSubscriptionMode,
     /// Initial delivery position for a newly created consumer.
@@ -136,6 +138,11 @@ impl<T> EventMessage<T> {
     /// Return the raw JSON payload bytes.
     pub fn payload(&self) -> &[u8] {
         &self.message.payload
+    }
+
+    /// Return the concrete NATS subject that delivered this event message.
+    pub fn subject(&self) -> &str {
+        self.message.subject.as_ref()
     }
 
     /// Decode the message payload as the descriptor's typed event payload.
@@ -1330,9 +1337,10 @@ impl TrellisClient {
         D::Event: Send + 'static,
     {
         let jetstream = jetstream::new(self.nats.clone());
+        let stream_name = options.stream.as_deref().unwrap_or(DEFAULT_EVENT_STREAM);
         let event_stream = timeout(
             std::time::Duration::from_millis(self.timeout_ms),
-            jetstream.get_stream_no_info(DEFAULT_EVENT_STREAM),
+            jetstream.get_stream_no_info(stream_name),
         )
         .await
         .map_err(|_| TrellisClientError::Timeout)?
@@ -1699,6 +1707,7 @@ mod tests {
         assert_eq!(config.durable_name, None);
 
         let config = event_consumer_config::<PaymentCapturedEvent>(&EventSubscribeOptions {
+            stream: None,
             mode: EventSubscriptionMode::Durable,
             replay: EventReplayPolicy::All,
             durable_name: Some("payments_capture_projection".to_string()),
@@ -1714,6 +1723,7 @@ mod tests {
     #[test]
     fn event_consumer_config_supports_ephemeral_new_events() {
         let config = event_consumer_config::<PaymentCapturedEvent>(&EventSubscribeOptions {
+            stream: None,
             mode: EventSubscriptionMode::Ephemeral,
             replay: EventReplayPolicy::New,
             durable_name: Some("ignored".to_string()),

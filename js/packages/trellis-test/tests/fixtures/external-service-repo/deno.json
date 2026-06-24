@@ -1,0 +1,25 @@
+{
+  "extends": "../../../../../deno.json",
+  "lock": false,
+  "imports": {
+    "@qlever-llc/result": "../../../../result/mod.ts",
+    "@qlever-llc/trellis": "../../../../trellis/index.ts",
+    "@qlever-llc/trellis/service/deno": "../../../../trellis/service/deno.ts",
+    "@qlever-llc/trellis/telemetry": "../../../../trellis/telemetry.ts",
+    "@qlever-llc/trellis-test/integration": "../../../integration.ts",
+    "@qlever-llc/trellis-test/integration/runner": "../../../src/integration/runner.ts",
+    "@std/assert": "jsr:@std/assert@^1.0.19",
+    "@std/path": "jsr:@std/path@^1.1.4",
+    "typebox": "npm:typebox@^1.1.33"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "dom.asynciterable",
+      "deno.ns"
+    ],
+    "verbatimModuleSyntax": true
+  }
+}

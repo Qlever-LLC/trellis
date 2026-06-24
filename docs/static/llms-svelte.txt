@@ -52,10 +52,13 @@ Rules:
 - Do not manually compose `{ CONTRACT, API: { owned: OWNED_API } }` for normal
   Svelte app bootstrap. That partial shape can lose `API.trellis`,
   `CONTRACT_DIGEST`, state metadata, and clean inferred client types.
-- Generated SDKs are workspace delivery artifacts used by contract authoring and
-  generated clients. There is no separate published path for an app's generated
-  SDK; keep imports pointed at the local generated workspace output or an
-  import-map alias owned by the consuming repo.
+- Do not generate or import the app's own generated SDK just to type
+  `getTrellis()` or `createTrellisApp(...)`. The app source contract is the
+  client type source; use `TrellisClientFor<typeof contract>`.
+- Generated service SDKs are still used for contract authoring, especially
+  `sdk.use(spec)` declarations in app `uses` blocks. Keep those imports pointed
+  at the local generated workspace output or an import-map alias owned by the
+  consuming repo.
 
 ## Svelte integration
 
@@ -110,8 +113,8 @@ packages, and Vite. Keep those resolver layers explicit:
   `npm:@qlever-llc/trellis` and `npm:@qlever-llc/trellis/...`.
 - If `svelte-check` cannot find Trellis types from the npm artifact, add a
   `compilerOptions.paths` mapping in the app's typecheck config to the installed
-  package `mod.ts` and its subpath `.ts` files. The npm artifact is not the
-  source of generated app SDK types.
+  package `mod.ts` and its subpath `.ts` files. Do not work around this by
+  generating an app SDK for client typing.
 
 ## Verification
 

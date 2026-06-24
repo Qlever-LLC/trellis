@@ -253,10 +253,9 @@ Auth/admin control-plane correlation:
 - traced admin errors include the request trace ID in serialized Trellis error
   data so operators can correlate failed control-plane calls with logs and spans
 - language-owned client integration suites cover traced auth/admin behavior
-  through live NATS/auth-callout according to the shared
-  `integration/client-test-matrix.json` parity contract; successful and failing
-  auth/admin flows should be represented as separate matrix cases when both are
-  required coverage
+  through live NATS/auth-callout according to the shared `kind: "client"` cases
+  in `integration/test-matrix.json`; successful and failing auth/admin flows
+  should be represented as separate matrix cases when both are required coverage
 
 Event deduplication:
 

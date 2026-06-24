@@ -1,4 +1,9 @@
-import { type AsyncResult, type BaseError, isErr, UnexpectedError } from "@qlever-llc/result";
+import {
+  type AsyncResult,
+  type BaseError,
+  isErr,
+  UnexpectedError,
+} from "@qlever-llc/result";
 import { type StaticDecode, Type } from "typebox";
 import type { PreparedTrellisEvent } from "../trellis.ts";
 import { TypedKV } from "../kv.ts";
@@ -322,7 +327,11 @@ export class MemoryOutboxRepository implements OutboxRepository {
     return claimed;
   }
 
-  async markDispatched(id: string, now: Date, outcome?: unknown): Promise<void> {
+  async markDispatched(
+    id: string,
+    now: Date,
+    outcome?: unknown,
+  ): Promise<void> {
     const message = this.#messages.get(id);
     if (!message) return;
     this.#messages.set(id, {
@@ -435,7 +444,11 @@ export class SqlOutboxRepository implements OutboxRepository {
     return rows.map(rowToOutboxMessage);
   }
 
-  async markDispatched(id: string, now: Date, outcome?: unknown): Promise<void> {
+  async markDispatched(
+    id: string,
+    now: Date,
+    outcome?: unknown,
+  ): Promise<void> {
     const outcomeJson = outcome !== undefined ? JSON.stringify(outcome) : null;
     await this.executor.execute(
       `UPDATE ${this.tables.outbox} SET state = ${
@@ -607,13 +620,19 @@ export class NatsKvOutboxRepository implements OutboxRepository {
     return claimed;
   }
 
-  async markDispatched(id: string, now: Date, outcome?: unknown): Promise<void> {
+  async markDispatched(
+    id: string,
+    now: Date,
+    outcome?: unknown,
+  ): Promise<void> {
     const loaded = await this.kv.get(id).take();
     if (isErr(loaded)) {
       if (hasKvReason(loaded.error, "not found")) return;
       throw loaded.error;
     }
-    const outcomeStr = outcome !== undefined ? JSON.stringify(outcome) : undefined;
+    const outcomeStr = outcome !== undefined
+      ? JSON.stringify(outcome)
+      : undefined;
     const stored = await loaded.put({
       ...loaded.value,
       state: "dispatched",

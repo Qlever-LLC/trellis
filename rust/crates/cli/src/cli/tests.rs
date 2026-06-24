@@ -486,15 +486,51 @@ fn rejects_resource_local_grant_commands() {
 }
 
 #[test]
-fn parses_local_infra_init_keys_upgrade_version_and_completion() {
-    let cli = Cli::parse_from(["trellis", "local", "init", "--out", "./local"]);
+fn parses_init_config_infra_init_keys_upgrade_version_and_completion() {
+    let cli = Cli::parse_from([
+        "trellis",
+        "init",
+        "config",
+        "--out",
+        "./trellis",
+        "--name",
+        "Acme Trellis",
+        "--operator-name",
+        "LOCAL",
+        "--system-account",
+        "SYSTEM",
+        "--server-name",
+        "nats-local",
+    ]);
     match cli.command {
-        TopLevelCommand::Local(command) => match command.command {
-            LocalSubcommand::Init(args) => {
-                assert_eq!(args.out, std::path::PathBuf::from("./local"));
-                assert_eq!(args.container_runtime, LocalNatsContainerRuntimeArg::Auto);
+        TopLevelCommand::Init(command) => match command.command {
+            InitSubcommand::Config(args) => {
+                assert_eq!(args.out, std::path::PathBuf::from("./trellis"));
+                assert_eq!(args.name, "Acme Trellis");
+                assert_eq!(args.operator_name, "LOCAL");
+                assert_eq!(args.system_account, "SYSTEM");
+                assert_eq!(args.server_name.as_deref(), Some("nats-local"));
                 assert_eq!(args.trellis_port, 3000);
             }
+            other => panic!("unexpected init command: {other:?}"),
+        },
+        other => panic!("unexpected top-level command: {other:?}"),
+    }
+
+    let cli = Cli::parse_from(["trellis", "init", "config", "--out", "./trellis"]);
+    match cli.command {
+        TopLevelCommand::Init(command) => match command.command {
+            InitSubcommand::Config(args) => {
+                assert_eq!(args.out, std::path::PathBuf::from("./trellis"));
+                assert_eq!(args.name, trellis_bootstrap::DEFAULT_TRELLIS_NAME);
+                assert_eq!(args.operator_name, trellis_bootstrap::DEFAULT_OPERATOR_NAME);
+                assert_eq!(
+                    args.system_account,
+                    trellis_bootstrap::DEFAULT_SYSTEM_ACCOUNT
+                );
+                assert_eq!(args.server_name, None);
+            }
+            other => panic!("unexpected init command: {other:?}"),
         },
         other => panic!("unexpected top-level command: {other:?}"),
     }
@@ -566,6 +602,7 @@ fn parses_local_infra_init_keys_upgrade_version_and_completion() {
                     std::path::PathBuf::from("/tmp/trellis.sqlite")
                 );
             }
+            other => panic!("unexpected init command: {other:?}"),
         },
         other => panic!("unexpected top-level command: {other:?}"),
     }
@@ -604,6 +641,7 @@ fn rejects_removed_top_level_command_trees_and_aliases() {
         "dep",
         "d",
         "bootstrap",
+        "local",
         "self",
         "keygen",
     ] {

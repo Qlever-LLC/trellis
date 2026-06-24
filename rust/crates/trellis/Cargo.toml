@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Curated public Rust facade for Trellis clients and services."
+publish = false
 
 [dependencies]
 async-nats.workspace = true

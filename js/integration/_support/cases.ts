@@ -35,6 +35,20 @@ export const jsIntegrationCases: readonly JsIntegrationCase[] = [
     runtime: "live-trellis",
   },
   {
+    id: "rpc.invalid-annotated-input-schema-validation",
+    file: "rpc/invalid_annotated_input_schema_validation.integration_test.ts",
+    testName:
+      "rpc.invalid-annotated-input-schema-validation returns SchemaValidationError before handler dispatch",
+    runtime: "live-trellis",
+  },
+  {
+    id: "rpc.invalid-mixed-input-validation",
+    file: "rpc/invalid_mixed_input_validation.integration_test.ts",
+    testName:
+      "rpc.invalid-mixed-input-validation returns ValidationError before handler dispatch",
+    runtime: "live-trellis",
+  },
+  {
     id: "events.client-publishes-and-subscriber-receives",
     file: "events/client_publishes_and_subscriber_receives.integration_test.ts",
     testName:
@@ -74,6 +88,20 @@ export const jsIntegrationCases: readonly JsIntegrationCase[] = [
     file: "operations/client_waits_for_completion.integration_test.ts",
     testName:
       "operations.client-waits-for-completion observes completion on an operation watch",
+    runtime: "live-trellis",
+  },
+  {
+    id: "operations.client-cancels-operation",
+    file: "operations/client_cancels_operation.integration_test.ts",
+    testName:
+      "operations.client-cancels-operation cancels a running operation through the public ref",
+    runtime: "live-trellis",
+  },
+  {
+    id: "operations.client-signals-running-operation",
+    file: "operations/client_signals_running_operation.integration_test.ts",
+    testName:
+      "operations.client-signals-running-operation sends a typed signal to a running operation",
     runtime: "live-trellis",
   },
   {
@@ -147,6 +175,13 @@ export const jsIntegrationCases: readonly JsIntegrationCase[] = [
     runtime: "live-trellis",
   },
   {
+    id: "state.admin-inspect-and-delete-state",
+    file: "state/admin_inspect_and_delete_state.integration_test.ts",
+    testName:
+      "state.admin-inspect-and-delete-state inspects and deletes user app state through admin RPCs",
+    runtime: "live-trellis",
+  },
+  {
     id: "transfer.client-uploads-file-via-operation",
     file: "transfer/client_uploads_file_via_operation.integration_test.ts",
     testName:
@@ -201,6 +236,13 @@ export const jsIntegrationCases: readonly JsIntegrationCase[] = [
     file: "resources/service_kv_stale_revision_rejected.integration_test.ts",
     testName:
       "resources.service-kv-stale-revision-rejected fails on stale revision KV operations",
+    runtime: "live-trellis",
+  },
+  {
+    id: "jobs.keyed-jobs-serialize-same-key",
+    file: "jobs/keyed_jobs_serialize_same_key.integration_test.ts",
+    testName:
+      "jobs.keyed-jobs-serialize-same-key serializes same-key jobs until release",
     runtime: "live-trellis",
   },
   {
@@ -386,6 +428,20 @@ export const jsIntegrationCases: readonly JsIntegrationCase[] = [
     runtime: "live-trellis",
   },
   {
+    id: "auth.local-login-binds-approved-client",
+    file: "auth/local_login_binds_approved_client.integration_test.ts",
+    testName:
+      "auth.local-login-binds-approved-client binds local admin session and calls service",
+    runtime: "live-trellis",
+  },
+  {
+    id: "auth.session-revoke-denies-reconnect",
+    file: "auth/session_revoke_denies_reconnect.integration_test.ts",
+    testName:
+      "auth.session-revoke-denies-reconnect revokes an app session and denies reuse",
+    runtime: "live-trellis",
+  },
+  {
     id: "device-activation.admin-provisions-known-device",
     file: "device-activation/admin_provisions_known_device.integration_test.ts",
     testName:
@@ -406,6 +462,21 @@ export const jsIntegrationCases: readonly JsIntegrationCase[] = [
       "device-activation/admin_resolves_activation_operation.integration_test.ts",
     testName:
       "device-activation.admin-resolves-activation-operation completes resolve with activated status",
+    runtime: "live-trellis",
+  },
+  {
+    id: "device-activation.review-reject-denies-connect",
+    file: "device-activation/review_reject_denies_connect.integration_test.ts",
+    testName:
+      "device-activation.review-reject-denies-connect rejects review and denies device connect",
+    runtime: "live-trellis",
+  },
+  {
+    id: "device-activation.revoked-device-cannot-reconnect",
+    file:
+      "device-activation/revoked_device_cannot_reconnect.integration_test.ts",
+    testName:
+      "device-activation.revoked-device-cannot-reconnect revokes activation and denies device reuse",
     runtime: "live-trellis",
   },
   {

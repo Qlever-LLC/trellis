@@ -73,6 +73,7 @@ impl<'a> HealthHeartbeatEvent<'a> {
             .inner
             .subscribe_with_options::<super::events::HealthHeartbeatEventDescriptor>(
                 crate::client::EventSubscribeOptions {
+                    stream: None,
                     mode: crate::client::EventSubscriptionMode::Ephemeral,
                     replay: crate::client::EventReplayPolicy::New,
                     durable_name: None,

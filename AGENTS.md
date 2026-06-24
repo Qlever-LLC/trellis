@@ -26,6 +26,8 @@
 ## Repo-Wide Engineering Rules
 
 - Keep changes minimal and aligned with the existing architecture.
+- Do not add small or narrowly scoped helper functions that are rarely called.
+  Inline the logic until it is repeated enough to justify extraction.
 - Before adding aliases, migration code, compatibility shims, or dual-read or
   dual-write behavior for a breaking change, ask whether a compatibility path is
   actually wanted. Prefer a clean break unless the user asks for compatibility

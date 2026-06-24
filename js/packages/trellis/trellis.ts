@@ -761,7 +761,10 @@ export type OperationRegistration<
 > = {
   accept(args: {
     sessionKey: string;
-  }): AsyncResult<AcceptedOperation<TProgress, TOutput, TError>, UnexpectedError>;
+  }): AsyncResult<
+    AcceptedOperation<TProgress, TOutput, TError>,
+    UnexpectedError
+  >;
   /**
    * Loads an existing operation by id and returns a service-side control handle.
    * The operation must belong to this service and registration name.
@@ -771,7 +774,13 @@ export type OperationRegistration<
   ): AsyncResult<OperationRuntimeHandle<TProgress, TOutput, TError>, BaseError>;
   handle(
     handler: (
-      context: OperationHandlerContext<TInput, TProgress, TOutput, TTransfer, TError>,
+      context: OperationHandlerContext<
+        TInput,
+        TProgress,
+        TOutput,
+        TTransfer,
+        TError
+      >,
     ) => unknown | Promise<unknown>,
   ): Promise<void>;
 };
@@ -1197,6 +1206,12 @@ type RuntimeEventConsumerGroups = Readonly<
   Record<string, RuntimeEventConsumerGroup>
 >;
 
+/** @internal Hook used by Trellis-owned integration tests for durable event interleavings. */
+export type TrellisDurableEventConsumerBeforeReadinessCheckHook = (args: {
+  group: string;
+  subject: string;
+}) => void | Promise<void>;
+
 function eventConsumerGroupEvents(group: RuntimeEventConsumerGroup): string[] {
   const events = new Set<string>();
   for (const groupEvents of Object.values(group.uses ?? {})) {
@@ -1215,9 +1230,20 @@ function isConsumerNotFoundError(error: unknown): boolean {
 
 type TrellisInternalOpts<TA extends AnyTrellisAPI> = TrellisOpts<TA> & {
   eventConsumers?: RuntimeEventConsumers;
+  durableEventConsumerBeforeReadinessCheck?:
+    TrellisDurableEventConsumerBeforeReadinessCheckHook;
 };
 
-let pendingInternalEventConsumers: RuntimeEventConsumers | undefined;
+const internalEventConsumers = Symbol("trellis.internal.eventConsumers");
+const internalDurableEventConsumerBeforeReadinessCheck = Symbol(
+  "trellis.internal.durableEventConsumerBeforeReadinessCheck",
+);
+
+type InternalizedTrellisOpts<TA extends AnyTrellisAPI> = TrellisOpts<TA> & {
+  [internalEventConsumers]?: RuntimeEventConsumers;
+  [internalDurableEventConsumerBeforeReadinessCheck]?:
+    TrellisDurableEventConsumerBeforeReadinessCheckHook;
+};
 
 /**
  * Creates a Trellis runtime with bootstrap-resolved bindings.
@@ -1234,13 +1260,18 @@ export function createTrellisInternal<
   auth: TrellisAuth,
   opts?: TrellisInternalOpts<TA>,
 ): Trellis<TA, TMode, TState> {
-  const { eventConsumers, ...publicOpts } = opts ?? {};
-  pendingInternalEventConsumers = eventConsumers;
-  try {
-    return new Trellis<TA, TMode, TState>(name, nats, auth, publicOpts);
-  } finally {
-    pendingInternalEventConsumers = undefined;
-  }
+  const {
+    durableEventConsumerBeforeReadinessCheck,
+    eventConsumers,
+    ...publicOpts
+  } = opts ?? {};
+  const internalOpts: InternalizedTrellisOpts<TA> = {
+    ...publicOpts,
+    [internalEventConsumers]: eventConsumers,
+    [internalDurableEventConsumerBeforeReadinessCheck]:
+      durableEventConsumerBeforeReadinessCheck,
+  };
+  return new Trellis<TA, TMode, TState>(name, nats, auth, internalOpts);
 }
 
 type DurableEventRegistration<TA extends AnyTrellisAPI> = {
@@ -2121,6 +2152,8 @@ export class Trellis<
   #onSessionNotFound?: () => MaybePromise<void>;
   #operationStore?: Promise<TypedKV<typeof DurableOperationRecordSchema>>;
   #eventConsumers: RuntimeEventConsumers;
+  #durableEventConsumerBeforeReadinessCheck?:
+    TrellisDurableEventConsumerBeforeReadinessCheckHook;
   #durableEventLoops = new Map<string, DurableEventConsumerLoop<TA>>();
   #durableEventListenersStopped = false;
 
@@ -2130,6 +2163,7 @@ export class Trellis<
     auth: TrellisAuth,
     opts?: TrellisOpts<TA>,
   ) {
+    const internalOpts = opts as InternalizedTrellisOpts<TA> | undefined;
     const api = opts?.api;
 
     this.name = name;
@@ -2148,7 +2182,9 @@ export class Trellis<
     this.#noResponderRetryMs = opts?.noResponderRetry?.baseDelayMs ??
       DEFAULT_NO_RESPONDER_RETRY_MS;
     this.#onSessionNotFound = opts?.onSessionNotFound;
-    this.#eventConsumers = pendingInternalEventConsumers ?? {};
+    this.#eventConsumers = internalOpts?.[internalEventConsumers] ?? {};
+    this.#durableEventConsumerBeforeReadinessCheck = internalOpts
+      ?.[internalDurableEventConsumerBeforeReadinessCheck];
     this.connection = opts?.connection ??
       new TrellisConnection({ kind: "client" });
 
@@ -4581,6 +4617,10 @@ export class Trellis<
   ): AsyncResult<void, ValidationError | UnexpectedError> {
     return AsyncResult.try(async () => {
       for await (const msg of messages) {
+        await this.#durableEventConsumerBeforeReadinessCheck?.({
+          group,
+          subject: msg.subject,
+        });
         if (!this.#durableEventConsumerGroupReady(group, loop)) {
           messages.stop();
           break;

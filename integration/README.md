@@ -1,8 +1,9 @@
-# Client Integration Matrix
+# Integration Matrix
 
-`client-test-matrix.json` is the shared parity contract for Trellis client
-library integration tests. Each case describes a public client-library behavior
-that every supported client language must implement and pass.
+`test-matrix.json` is the canonical integration matrix. Cases with
+`"kind": "client"` are the shared parity contract for Trellis client-library
+integration tests, and cases with `"kind": "service"` drive Trellis service
+integration conformance.
 
 ## Matrix Rules
 
@@ -15,20 +16,27 @@ that every supported client language must implement and pass.
 - `coverage` values preserve the existing release-guide coverage vocabulary.
 - Every case must include a language-neutral `scenario` with `participants`,
   `given`, `when`, and `then` sections.
-- Every matrix case must map to one live TypeScript/Deno test and one live Rust
+- Every client case must map to one live TypeScript/Deno test and one live Rust
   test. Unit, descriptor-only, mock-only, or ignored tests do not satisfy matrix
   coverage.
+- Every service case must map to one live TypeScript/Deno service integration
+  test. Rust service coverage is tracked by the case `completion` metadata.
 
 ## Adding A Case
 
-1. Add the case to `client-test-matrix.json` first.
-2. Run the JS and Rust matrix conformance tests.
-3. Implement the matching case ID in both language-owned suites.
-4. Keep the same semantic case ID in both local manifests.
+1. Add the case to `test-matrix.json` first.
+2. For `kind: "client"`, implement the matching case ID in both language-owned
+   client suites.
+3. For `kind: "service"`, implement the TypeScript service/control-plane case
+   and set Rust completion metadata to `implemented` only when the matching Rust
+   live case exists. Use `required` with a documented blocker until then.
+4. Run the JS and Rust matrix conformance tests.
+5. Keep the same semantic case ID in every local manifest.
 
-The conformance tests should report the new case as missing until both suites
-declare it. Removing or renaming a case is a breaking test-contract change and
-should be called out in review.
+The conformance tests should report new client cases as missing until both
+client suites declare them, and new service cases as missing or Rust-required
+until the relevant runner metadata is complete. Removing or renaming a case is a
+breaking test-contract change and should be called out in review.
 
 ## Focused Runs
 

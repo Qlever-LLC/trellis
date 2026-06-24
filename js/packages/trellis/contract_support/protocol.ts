@@ -394,7 +394,7 @@ export function buildPageResponse<T>(
 /** Schema for a cursor pagination query. */
 export const CursorQuerySchema = Type.Object({
   cursor: Type.Optional(Type.String({ minLength: 1 })),
-  limit: Type.Optional(Type.Integer({ minimum: 0 })),
+  limit: Type.Optional(Type.Integer({ minimum: 0, maximum: 500 })),
 });
 
 /** Cursor pagination query. */

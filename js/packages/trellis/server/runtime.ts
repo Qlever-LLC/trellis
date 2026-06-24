@@ -1,4 +1,5 @@
 import type { NatsConnection } from "@nats-io/nats-core";
+import type { TrellisDurableEventConsumerBeforeReadinessCheckHook } from "../trellis.ts";
 
 // Keep the public server package runtime-neutral.
 //
@@ -28,4 +29,7 @@ export type TrellisServiceRuntimeDeps = {
   credsAuthenticator?: NatsCredsAuthenticatorFn;
   readFileSync?: ReadFileSyncFn;
   initTelemetry?: InitTelemetryFn;
+  /** @internal Test hook for deterministic durable event readiness interleavings. */
+  durableEventConsumerBeforeReadinessCheck?:
+    TrellisDurableEventConsumerBeforeReadinessCheckHook;
 };

@@ -120,10 +120,10 @@ Rules:
   raw worker-runtime helpers or stream bindings
 - transfer-aware operation contexts belong on the server runtime surface for
   transfer-capable operations
-- SQL outbox creation belongs on the service runtime surface:
-  TypeScript services create it with `service.createSqlOutbox(...)`, and
-  the returned object is a plain dependency that handlers close over at
-  registration without importing low-level repository or dispatcher internals
+- SQL outbox creation belongs on the service runtime surface: TypeScript
+  services create it with `service.createSqlOutbox(...)`, and the returned
+  object is a plain dependency that handlers close over at registration without
+  importing low-level repository or dispatcher internals
 - extracted service RPC handler aliases that need service-only helpers belong on
   `@qlever-llc/trellis/service*`, not the browser-safe root package, so handler
   types expose the canonical object argument shape and narrow injected `trellis`
@@ -153,6 +153,9 @@ Rules:
   expose app-scoped typed helpers to components
 - the adapter derives the connected client type from the app contract and
   delegates runtime bootstrap/reconnect to the core browser client
+- browser apps should not generate or import their own app SDK just to type the
+  connected client; use `TrellisClientFor<typeof contract>` and generated
+  service SDKs only for contract `uses` declarations
 - `trellis-svelte` should keep the typed Trellis client and reactive connection
   adapter scoped to app-owned context rather than exposing a synthetic runtime
   bag

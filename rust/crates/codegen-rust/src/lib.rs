@@ -2149,7 +2149,7 @@ fn render_operations_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
                 lines.push(format!("    /// `{error_type}` failure."));
                 lines.push(format!("    {variant} {{"));
                 lines.push(format!("        /// Human-facing error message."));
-                lines.push(format!("        pub message: String,"));
+                lines.push(format!("        message: String,"));
                 lines.push(format!("    }},"));
             }
             lines.push(String::new());
@@ -2158,7 +2158,7 @@ fn render_operations_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
             lines.push("}".to_string());
             lines.push(String::new());
             lines.push(format!(
-                "impl trellis_rs::service::OperationFailureLike for {base}OperationError {{"
+                "impl OperationFailureLike for {base}OperationError {{"
             ));
             lines.push("    fn error_type(&self) -> &str {".to_string());
             lines.push("        match self {".to_string());
@@ -2174,7 +2174,13 @@ fn render_operations_rs(loaded: &trellis_contracts::LoadedManifest) -> String {
             lines.push("    }".to_string());
             lines.push("    fn message(&self) -> String {".to_string());
             lines.push("        match self {".to_string());
-            lines.push("            _ => String::new(),".to_string());
+            for error_type in &error_types {
+                let variant = key_to_pascal(error_type);
+                lines.push(format!(
+                    "            Self::{variant} {{ message }} => message.clone(),"
+                ));
+            }
+            lines.push("            Self::Other { message } => message.clone(),".to_string());
             lines.push("        }".to_string());
             lines.push("    }".to_string());
             lines.push(
@@ -2406,7 +2412,7 @@ fn render_client_event_surface(
             leaf_lines.push("    }".to_string());
             leaf_lines.push(format!("    pub async fn listen<F, Fut>(&self, handler: F) -> Result<(), TrellisClientError> where F: Fn(crate::types::{base}Event) -> Fut, Fut: std::future::Future<Output = Result<(), TrellisClientError>> {{"));
             leaf_lines.push(format!(
-                "        let mut stream = self.inner.subscribe_with_options::<crate::events::{base}EventDescriptor>(trellis_rs::client::EventSubscribeOptions {{ mode: trellis_rs::client::EventSubscriptionMode::Ephemeral, replay: trellis_rs::client::EventReplayPolicy::New, durable_name: None }}).await?;"
+                "        let mut stream = self.inner.subscribe_with_options::<crate::events::{base}EventDescriptor>(trellis_rs::client::EventSubscribeOptions {{ stream: None, mode: trellis_rs::client::EventSubscriptionMode::Ephemeral, replay: trellis_rs::client::EventReplayPolicy::New, durable_name: None }}).await?;"
             ));
             leaf_lines.push("        while let Some(event) = futures_util::StreamExt::next(&mut stream).await {".to_string());
             leaf_lines.push("            handler(event?).await?;".to_string());
@@ -4946,7 +4952,7 @@ mod tests {
                 "description": "Operation with declared errors.",
                 "kind": "service",
                 "schemas": {
-                    "Input": {"type":"object","properties":{},"required":[]},
+                    "Input": {"type":"object","properties":{"id":{"type":"string"}},"required":["id"]},
                     "Progress": {"type":"object","properties":{"step":{"type":"string"}},"required":["step"]},
                     "Output": {"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"]}
                 },
@@ -4975,9 +4981,9 @@ mod tests {
             crate_name: "ops-sdk".to_string(),
             crate_version: "0.1.0".to_string(),
             runtime_deps: RustRuntimeDeps {
-                source: RustRuntimeSource::Registry,
+                source: RustRuntimeSource::Local,
                 version: "0.1.0".to_string(),
-                repo_root: None,
+                repo_root: Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")),
             },
             emit_service_runtime_facade: false,
         })
@@ -4992,12 +4998,47 @@ mod tests {
             operations_rs.contains("const ERRORS: &'static [&'static str] = &[\"NotFoundError\"];")
         );
         assert!(operations_rs.contains("pub enum ExampleProcessOperationError {"));
-        assert!(operations_rs.contains(
-            "impl trellis_rs::service::OperationFailureLike for ExampleProcessOperationError {"
-        ));
+        assert!(
+            operations_rs.contains("impl OperationFailureLike for ExampleProcessOperationError {")
+        );
+        assert!(operations_rs.contains("        message: String,"));
+        assert!(operations_rs.contains("Self::NotFoundError { message } => message.clone(),"));
+        assert!(operations_rs.contains("Self::Other { message } => message.clone(),"));
         assert!(operations_rs.contains("use trellis_rs::client::OperationDescriptor;"));
         assert!(operations_rs.contains("use trellis_rs::service::OperationFailureLike;"));
         assert!(!operations_rs.contains("TransferOperationDescriptor"));
+
+        let consumer_dir = out_dir.join("consumer");
+        fs::create_dir_all(consumer_dir.join("src")).unwrap();
+        fs::write(
+            consumer_dir.join("Cargo.toml"),
+            format!(
+                "[package]\nname = \"ops-consumer\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nops-sdk = {{ path = {:?} }}\ntrellis-rs = {{ path = {:?} }}\n",
+                out_dir.join("generated"),
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../trellis"),
+            ),
+        )
+        .unwrap();
+        fs::write(
+            consumer_dir.join("src/main.rs"),
+            r#"use ops_sdk::operations::ExampleProcessOperationError;
+use trellis_rs::service::OperationFailureLike;
+
+fn main() {
+    let declared = ExampleProcessOperationError::NotFoundError {
+        message: "missing".to_string(),
+    };
+    assert_eq!(declared.message(), "missing");
+
+    let other = ExampleProcessOperationError::Other {
+        message: "unexpected".to_string(),
+    };
+    assert_eq!(other.message(), "unexpected");
+}
+"#,
+        )
+        .unwrap();
+        cargo_check(&consumer_dir.join("Cargo.toml"));
 
         fs::remove_dir_all(out_dir).unwrap();
     }

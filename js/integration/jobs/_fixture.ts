@@ -22,6 +22,11 @@ export type JobsWorkflowOutput = {
   readonly traceId: string;
 };
 
+export type KeyedJobsWorkflowOutput = JobsWorkflowOutput & {
+  readonly groupKey: string;
+  readonly sequence: number;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -46,6 +51,25 @@ export function requireJobsWorkflowOutput(value: unknown): JobsWorkflowOutput {
   };
 }
 
+export function requireKeyedJobsWorkflowOutput(
+  value: unknown,
+): KeyedJobsWorkflowOutput {
+  const output = requireJobsWorkflowOutput(value);
+  if (!isRecord(value)) {
+    throw new Error("expected keyed jobs workflow output");
+  }
+  if (
+    typeof value.groupKey !== "string" || typeof value.sequence !== "number"
+  ) {
+    throw new Error("expected keyed jobs workflow output fields");
+  }
+  return {
+    ...output,
+    groupKey: value.groupKey,
+    sequence: value.sequence,
+  };
+}
+
 export function createJobsFixture(caseId: string) {
   const slug = integrationSlug(caseId);
   const jobsSchemas = {
@@ -57,9 +81,36 @@ export function createJobsFixture(caseId: string) {
       requestId: Type.String(),
       traceId: Type.String(),
     }),
+    KeyedWorkflowInput: Type.Object({
+      documentId: Type.String(),
+      groupKey: Type.String(),
+      sequence: Type.Number(),
+    }),
+    KeyedWorkflowOutput: Type.Object({
+      documentId: Type.String(),
+      groupKey: Type.String(),
+      sequence: Type.Number(),
+      jobId: Type.String(),
+      processedBy: Type.String(),
+      requestId: Type.String(),
+      traceId: Type.String(),
+    }),
     JobPayload: Type.Object({ documentId: Type.String() }),
     JobResult: Type.Object({
       documentId: Type.String(),
+      processedBy: Type.String(),
+      requestId: Type.String(),
+      traceId: Type.String(),
+    }),
+    KeyedJobPayload: Type.Object({
+      documentId: Type.String(),
+      groupKey: Type.String(),
+      sequence: Type.Number(),
+    }),
+    KeyedJobResult: Type.Object({
+      documentId: Type.String(),
+      groupKey: Type.String(),
+      sequence: Type.Number(),
       processedBy: Type.String(),
       requestId: Type.String(),
       traceId: Type.String(),
@@ -77,6 +128,22 @@ export function createJobsFixture(caseId: string) {
           payload: ref.schema("JobPayload"),
           result: ref.schema("JobResult"),
         },
+        keyedProcessDocument: {
+          payload: ref.schema("KeyedJobPayload"),
+          result: ref.schema("KeyedJobResult"),
+          concurrency: 2,
+          keyConcurrency: {
+            key: ["document", "/groupKey"],
+            maxActive: 1,
+            heartbeatIntervalMs: 1_000,
+            heartbeatTtlMs: 10_000,
+            stalePolicy: "fail-stale",
+          },
+          queue: {
+            maxQueuedPerKey: 1,
+            whenFull: "reject",
+          },
+        },
       },
       rpc: {
         "Documents.Process": {
@@ -91,6 +158,18 @@ export function createJobsFixture(caseId: string) {
           capabilities: { call: [] },
           errors: [],
         },
+        "Documents.KeyedProcess": {
+          version: "v1",
+          subject: caseScopedSubject(
+            "rpc.v1.Integration.Jobs",
+            caseId,
+            "Documents.KeyedProcess",
+          ),
+          input: ref.schema("KeyedWorkflowInput"),
+          output: ref.schema("KeyedWorkflowOutput"),
+          capabilities: { call: [] },
+          errors: [],
+        },
       },
     }),
   );
@@ -102,7 +181,7 @@ export function createJobsFixture(caseId: string) {
     uses: {
       required: {
         jobsService: serviceContract.use({
-          rpc: { call: ["Documents.Process"] },
+          rpc: { call: ["Documents.Process", "Documents.KeyedProcess"] },
         }),
       },
     },
@@ -169,6 +248,81 @@ export function createJobsFixture(caseId: string) {
     });
   }
 
+  async function mountKeyedSerializationWorkflow(
+    service: Awaited<ReturnType<typeof connectService>>,
+  ) {
+    const started: number[] = [];
+    const completed: number[] = [];
+    let released = false;
+    let secondStartedBeforeRelease = false;
+    let resolveFirstStarted!: () => void;
+    let resolveReleaseFirst!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      resolveFirstStarted = resolve;
+    });
+    const releaseFirstWait = new Promise<void>((resolve) => {
+      resolveReleaseFirst = resolve;
+    });
+
+    service.jobs.keyedProcessDocument.handle(async ({ job }) => {
+      started.push(job.payload.sequence);
+      if (job.payload.sequence === 1) {
+        resolveFirstStarted();
+        await releaseFirstWait;
+      } else if (!released) {
+        secondStartedBeforeRelease = true;
+      }
+      completed.push(job.payload.sequence);
+      return Result.ok({
+        documentId: job.payload.documentId,
+        groupKey: job.payload.groupKey,
+        sequence: job.payload.sequence,
+        processedBy: "ts-service-keyed-job",
+        requestId: job.context.requestId,
+        traceId: job.context.traceId,
+      });
+    });
+
+    await service.handle.rpc.documents.keyedProcess(
+      async ({ input, client }) => {
+        const ref = await client.jobs.keyedProcessDocument.create({
+          documentId: input.documentId,
+          groupKey: input.groupKey,
+          sequence: input.sequence,
+        }).orThrow();
+        const terminal = await assertJobCompleted(ref, {
+          documentId: input.documentId,
+          groupKey: input.groupKey,
+          sequence: input.sequence,
+          processedBy: "ts-service-keyed-job",
+        });
+        if (terminal.result === undefined) {
+          throw new Error(`job ${ref.id} completed without a result`);
+        }
+        return Result.ok({
+          documentId: terminal.result.documentId,
+          groupKey: terminal.result.groupKey,
+          sequence: terminal.result.sequence,
+          jobId: ref.id,
+          processedBy: terminal.result.processedBy,
+          requestId: terminal.result.requestId,
+          traceId: terminal.result.traceId,
+        });
+      },
+    );
+
+    return {
+      firstStarted,
+      releaseFirst() {
+        released = true;
+        resolveReleaseFirst();
+      },
+      started: () => [...started],
+      completed: () => [...completed],
+      secondStartedBeforeRelease: () => secondStartedBeforeRelease,
+    };
+  }
+
   return {
     slug,
     serviceContract,
@@ -178,5 +332,6 @@ export function createJobsFixture(caseId: string) {
     documentId: caseScopedName("doc", caseId),
     connectService,
     mountWorkflow,
+    mountKeyedSerializationWorkflow,
   };
 }

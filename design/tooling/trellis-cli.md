@@ -89,9 +89,9 @@ workspace build. Live client-library integration is language-owned and is run
 outside `cargo xtask build`: use `deno task -c js/deno.json test:integration`
 for the TypeScript suite and
 `cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration -- --nocapture`
-for the Rust suite. Both suites are governed by
-`integration/client-test-matrix.json`; every supported client language must
-cover every matrix case against a live Trellis runtime.
+for the Rust suite. Both suites are governed by the `kind: "client"` cases in
+`integration/test-matrix.json`; every supported client language must cover every
+client matrix case against a live Trellis runtime.
 
 `trellis-generate` still owns the explicit source-to-artifact interface for repo
 scripts, wrappers, and CI:
@@ -146,6 +146,11 @@ families such as `auth`, `deploy`, `deployment`, `deployments`, `dep`, `d`,
 prefer operator-facing resources (`users`, `svc`, `dev`) over implementation
 namespaces.
 
+These command surfaces describe the intended operator model. The current Rust
+`trellis-server` HTTP runtime exposes only `/healthz` and `/readyz`; auth,
+portal, and CLI login flows require a runtime path that explicitly includes the
+auth and portal services.
+
 ```text
 trellis login <url>
 trellis logout
@@ -198,7 +203,7 @@ trellis dev <id> reviews list [--instance <id>] [--state <pending|approved|rejec
 trellis dev <id> reviews approve <review-id> [--reason <code>]
 trellis dev <id> reviews reject <review-id> [--reason <code>]
 
-trellis local init --out <dir>
+trellis init config --out <dir> [--name <name>] [--server-name <name>]
 trellis infra apply --trellis-creds <path> --auth-creds <path> [--servers <servers>] [--jetstream-replicas <n>]
 trellis infra check --trellis-creds <path> --auth-creds <path> [--servers <servers>]
 trellis init admin --identity <provider>:<subject> [--db-path <path>]
@@ -317,25 +322,34 @@ Operational command behavior:
   specific browser contracts and origins, and configure device portal routing
   through device deployment metadata; install automation may offer convenience
   wrappers, but the underlying actions remain explicit admin calls
-- `trellis local init` is the ergonomic local development bootstrap. It
-  generates a runnable bundle containing local NATS operator/account/JWT
+- `trellis init config` is the Trellis configuration/bootstrap generator. It
+  generates a runnable bundle containing Rust-native NATS operator/account/JWT
   artifacts, Trellis/Auth service credentials, auth-callout signing and xkey
-  seeds, sentinel credentials, `trellis/config.jsonc`, a local session seed, a
-  local SQLite data directory, and a root manifest. The generated Trellis config
-  is local-identity-first: it enables username/password login and does not
-  require federated identity provider setup for the first local admin. The
+  seeds, sentinel credentials, `trellis/config.toml`, and a SQLite data
+  directory. It generates this material in-process using Rust NATS JWT/NKEY
+  libraries, without shelling out to external generators. The generated Rust
+  runtime config is local-identity-first: it enables username/password login and
+  does not require federated identity provider setup for the first admin. The
   generated Trellis config uses relative file paths so the bundle can be moved
   as a directory, and command flags allow overriding the public Trellis origin
-  plus native and websocket NATS URLs when containers map ports dynamically.
+  plus native and websocket NATS URLs when containers map ports dynamically. The
+  generated Trellis display name defaults to `Trellis`; the NATS operator name
+  also defaults to `Trellis`; the system account defaults to `SYS`; and the
+  generated NATS `server_name` defaults to a slug derived from the Trellis name,
+  with `--server-name` available for an explicit NATS server-name override.
+- `trellis-server <mode> --config <path>` is the canonical runtime process
+  entrypoint. Supported modes are `all`, `platform`, `jobs`, `health`, and
+  `eventlog`; the default production config path is `/etc/trellis/trellis.toml`.
+  Split deployments omit optional runtime work by not running that subsystem
+  process rather than by adding role flags to `trellis`.
 - `trellis infra apply` creates the shared event stream and Trellis-owned KV
   buckets needed before the runtime starts; these buckets are for OAuth state,
-  pending auth, browser flows, active connection presence, and the public
-  Trellis State API; `--jetstream-replicas` defaults to `1` for standalone
-  installs and should match the target NATS topology, commonly `3` for
-  production clusters. The Trellis runtime can auto-detect its own omitted
-  `nats.jetstream.replicas` value through the system account, but this CLI
-  bootstrap path should still receive the intended replica count explicitly when
-  creating shared resources for clustered production deployments
+  pending auth, browser flows, active connection presence, runtime leases, and
+  the public Trellis State API. It uses the credentials generated by
+  `trellis init config`; NATS account, user, auth-callout, and resolver material
+  belong to the configuration/bootstrap bundle rather than the stream/KV apply
+  step. `--jetstream-replicas` defaults to `1` for standalone installs and
+  should match the target NATS topology, commonly `3` for production clusters
 - `trellis infra check` reports whether the shared runtime infrastructure is
   ready for Trellis services without creating or updating streams or buckets
 - the normal first-admin path is the auth-owned admin bootstrap flow printed by
@@ -344,7 +358,10 @@ Operational command behavior:
   direct capabilities, so first-admin authority follows the same group model as
   later users. `trellis init admin --identity <provider>:<subject>` remains an
   offline initialization utility for explicit operator workflows, not the
-  beginner local setup path.
+  beginner local setup path. The current Rust runtime HTTP server does not yet
+  provide this bootstrap route or portal; until the platform/auth subsystem is
+  ported, first-admin setup remains available only through runtime paths that
+  explicitly include the auth and portal services.
 - `trellis keys new` remains an explicit offline utility for operators who want
   to separate key generation from install
 - `trellis upgrade check` and `trellis upgrade install` replace the previous

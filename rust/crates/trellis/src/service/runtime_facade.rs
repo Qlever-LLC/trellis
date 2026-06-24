@@ -1,19 +1,24 @@
 //! High-level Trellis service runtime facade for generated Rust services.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
+use async_nats::header::HeaderMap;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use bytes::Bytes;
 use futures_util::future::BoxFuture;
-use futures_util::Stream;
+use futures_util::{Stream, StreamExt};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use tokio::sync::Mutex;
+use tokio::task::{AbortHandle, JoinError, JoinHandle};
 
 pub use super::core_bootstrap::CoreBootstrapBinding;
 use super::request_loop::RequestHandler;
@@ -31,13 +36,65 @@ use super::{
     RpcDescriptor, ServerError, ServiceResourceBindings, StoreResourceBinding, StoreResourceClient,
     UploadTransferCompletion, UploadTransferSession,
 };
-use crate::client::{ServiceConnectWithContractOptions, TrellisClient, TrellisClientError};
+use crate::client::{
+    EventMessage, EventReplayPolicy, EventSubscribeOptions, EventSubscriptionMode,
+    ServiceConnectWithContractOptions, TrellisClient, TrellisClientError,
+};
 use crate::sdk::auth::types::{AuthRequestsValidateRequest, AuthRequestsValidateResponse};
 use crate::sdk::auth::AuthClient;
 use crate::sdk::core::types::TrellisBindingsGetResponseBinding;
 
 const AUTH_VALIDATE_SESSION_RETRY_ATTEMPTS: usize = 3;
 const AUTH_VALIDATE_SESSION_RETRY_MS: u64 = 25;
+const DURABLE_EVENT_CONSUMER_RETRY_MS: u64 = 100;
+static SERVICE_EVENT_HANDLER_ID: AtomicU64 = AtomicU64::new(1);
+
+type SharedDurableEventListeners =
+    Arc<Mutex<BTreeMap<DurableEventListenerKey, SharedDurableEventListener>>>;
+type SharedEventHandler = Arc<
+    dyn Fn(
+            Bytes,
+            ServiceEventListenerContext,
+        ) -> BoxFuture<'static, Result<(), ServiceRuntimeError>>
+        + Send
+        + Sync,
+>;
+
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+struct DurableEventListenerKey {
+    stream: String,
+    durable_name: String,
+}
+
+struct SharedDurableEventListener {
+    expected_subjects: BTreeSet<String>,
+    handlers: BTreeMap<String, BTreeMap<u64, SharedEventHandler>>,
+    pull_abort_handle: AbortHandle,
+}
+
+#[derive(Clone)]
+struct ServiceEventListenerRegistration {
+    event_listeners: SharedDurableEventListeners,
+    key: DurableEventListenerKey,
+    subject: String,
+    handler_id: u64,
+}
+
+struct ServiceEventListenerRegistryCleanup {
+    event_listeners: SharedDurableEventListeners,
+}
+
+impl ServiceEventListenerRegistryCleanup {
+    fn new(event_listeners: SharedDurableEventListeners) -> Self {
+        Self { event_listeners }
+    }
+}
+
+impl Drop for ServiceEventListenerRegistryCleanup {
+    fn drop(&mut self) {
+        spawn_service_event_listeners_cleanup(Arc::clone(&self.event_listeners));
+    }
+}
 
 #[derive(Clone)]
 struct LocalAuthRequestValidatorAdapter<C> {
@@ -222,6 +279,15 @@ pub enum ServiceRuntimeError {
     #[error(transparent)]
     Server(#[from] ServerError),
 
+    /// A service event listener handler failed while processing a concrete event message.
+    #[error("event handler failed: {source}")]
+    EventHandler {
+        /// Handler failure returned by the service implementation.
+        source: ServerError,
+        /// Event metadata observed from the delivered message.
+        context: ServiceEventListenerContext,
+    },
+
     /// The service bootstrap response did not include a resource binding.
     #[error("service bootstrap response did not include a binding")]
     MissingBootstrapBinding,
@@ -233,6 +299,164 @@ pub enum ServiceRuntimeError {
     /// The runtime was built without a client and cannot use the default runner.
     #[error("service runtime is missing a Trellis client")]
     MissingClient,
+
+    /// A durable event listener supplied a caller-owned durable name.
+    #[error(
+        "durable event consumer names are provisioned by Trellis event consumer bindings; remove caller durable name '{durable_name}'"
+    )]
+    CallerDurableName {
+        /// Caller-provided durable consumer name.
+        durable_name: String,
+    },
+
+    /// No durable event consumer group was declared for the requested event subject.
+    #[error("event subject '{subject}' is not declared in any event consumer group")]
+    MissingEventConsumerGroup {
+        /// Event subject requested by the listener.
+        subject: String,
+    },
+
+    /// More than one durable event consumer group matched the requested event subject.
+    #[error(
+        "event subject '{subject}' is declared in multiple event consumer groups: {}; specify a group",
+        groups.join(", ")
+    )]
+    AmbiguousEventConsumerGroup {
+        /// Event subject requested by the listener.
+        subject: String,
+        /// Matching group names.
+        groups: Vec<String>,
+    },
+
+    /// The requested event consumer group is not present in the bootstrap binding.
+    #[error("event consumer group '{group}' was not found in service bootstrap bindings")]
+    EventConsumerGroupNotFound {
+        /// Requested event consumer group name.
+        group: String,
+    },
+
+    /// The requested event consumer group does not include the event subject.
+    #[error("event consumer group '{group}' does not include event subject '{subject}'")]
+    EventConsumerGroupSubjectMismatch {
+        /// Requested event consumer group name.
+        group: String,
+        /// Event subject requested by the listener.
+        subject: String,
+    },
+}
+
+/// Options for registering a service event listener.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServiceEventListenOptions {
+    /// Listener delivery mode. Durable listeners use Trellis-provisioned bindings by default.
+    pub mode: ServiceEventListenerMode,
+    /// Contract-local event consumer group name. Required when more than one group matches.
+    pub group: Option<String>,
+    /// Caller-provided durable names are rejected because Trellis owns durable consumers.
+    pub durable_name: Option<String>,
+}
+
+impl Default for ServiceEventListenOptions {
+    fn default() -> Self {
+        Self {
+            mode: ServiceEventListenerMode::Durable,
+            group: None,
+            durable_name: None,
+        }
+    }
+}
+
+/// Runtime context passed to service event listener handlers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServiceEventListenerContext {
+    /// Listener delivery mode.
+    pub mode: ServiceEventListenerMode,
+    /// Contract-local event consumer group selected for durable listeners.
+    pub group: Option<String>,
+    /// Trellis event id from the `Nats-Msg-Id` header, when present.
+    pub id: Option<String>,
+    /// Trellis event timestamp from the `Trellis-Event-Time` header, when present.
+    pub time: Option<String>,
+    /// W3C traceparent propagated with the event, when present.
+    pub traceparent: Option<String>,
+    /// Raw event transport headers delivered with the message.
+    pub headers: HeaderMap,
+}
+
+/// Event listener delivery mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceEventListenerMode {
+    /// Delivery comes from a live NATS subscription without durable JetStream cursor metadata.
+    Ephemeral,
+    /// Delivery comes from a Trellis-provisioned durable JetStream consumer.
+    Durable,
+}
+
+/// Handle for a registered service event listener.
+///
+/// Call [`ServiceEventListenerHandle::abort`] to stop delivery for this handler
+/// registration. Durable listeners are removed from the shared listener registry;
+/// when the last handler for a durable consumer is removed, the shared pull task
+/// is also aborted.
+pub struct ServiceEventListenerHandle {
+    task: JoinHandle<Result<(), ServiceRuntimeError>>,
+    registration: StdMutex<Option<ServiceEventListenerRegistration>>,
+}
+
+impl std::fmt::Debug for ServiceEventListenerHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServiceEventListenerHandle")
+            .field(
+                "has_registration",
+                &self
+                    .registration
+                    .lock()
+                    .map(|registration| registration.is_some())
+                    .unwrap_or(false),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
+impl ServiceEventListenerHandle {
+    fn new(
+        task: JoinHandle<Result<(), ServiceRuntimeError>>,
+        registration: Option<ServiceEventListenerRegistration>,
+    ) -> Self {
+        Self {
+            task,
+            registration: StdMutex::new(registration),
+        }
+    }
+
+    /// Abort this listener and remove its durable handler registration, if any.
+    pub fn abort(&self) {
+        if let Ok(mut registration) = self.registration.lock() {
+            if let Some(registration) = registration.take() {
+                spawn_service_event_listener_cleanup(registration);
+            }
+        }
+        self.task.abort();
+    }
+}
+
+impl Drop for ServiceEventListenerHandle {
+    fn drop(&mut self) {
+        if let Ok(registration) = self.registration.get_mut() {
+            if let Some(registration) = registration.take() {
+                spawn_service_event_listener_cleanup(registration);
+            }
+        }
+        self.task.abort();
+    }
+}
+
+impl Future for ServiceEventListenerHandle {
+    type Output = Result<Result<(), ServiceRuntimeError>, JoinError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        Pin::new(&mut self.task).poll(cx)
+    }
 }
 
 /// Cloneable handle exposed to registered service handlers.
@@ -242,6 +466,7 @@ pub struct ServiceHandle {
     service_name: Arc<str>,
     binding: CoreBootstrapBinding,
     resources: ServiceResourceBindings,
+    event_listeners: SharedDurableEventListeners,
 }
 
 impl std::fmt::Debug for ServiceHandle {
@@ -315,6 +540,28 @@ impl ServiceHandle {
     /// Return an event publisher backed by the connected NATS client.
     pub fn event_publisher(&self) -> EventPublisher {
         EventPublisher::new(self.client().nats().clone())
+    }
+
+    /// Start a descriptor-backed event listener.
+    pub async fn listen_event<D, F, Fut>(
+        &self,
+        handler: F,
+        options: ServiceEventListenOptions,
+    ) -> Result<ServiceEventListenerHandle, ServiceRuntimeError>
+    where
+        D: crate::client::EventDescriptor + 'static,
+        D::Event: Send + 'static,
+        F: Fn(D::Event, ServiceEventListenerContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), ServerError>> + Send + 'static,
+    {
+        listen_event_with_bindings::<D, _, _>(
+            self.client(),
+            &self.resources.event_consumers,
+            Arc::clone(&self.event_listeners),
+            handler,
+            options,
+        )
+        .await
     }
 
     /// Open a NATS-backed KV resource client by contract-local resource name.
@@ -421,6 +668,8 @@ pub struct ConnectedServiceRuntime<C> {
     client: Option<Arc<TrellisClient>>,
     binding: CoreBootstrapBinding,
     resources: ServiceResourceBindings,
+    event_listeners: SharedDurableEventListeners,
+    _event_listener_cleanup: ServiceEventListenerRegistryCleanup,
     router: Router,
     service_name: String,
     registered_subjects: BTreeSet<String>,
@@ -445,10 +694,13 @@ impl<C> ConnectedServiceRuntime<C> {
         binding: CoreBootstrapBinding,
     ) -> Self {
         let resources = binding.resource_bindings();
+        let event_listeners = SharedDurableEventListeners::default();
         Self {
             client: Some(client),
             binding,
             resources,
+            event_listeners: Arc::clone(&event_listeners),
+            _event_listener_cleanup: ServiceEventListenerRegistryCleanup::new(event_listeners),
             router: Router::new(),
             service_name: service_name.into(),
             registered_subjects: BTreeSet::new(),
@@ -521,6 +773,28 @@ impl<C> ConnectedServiceRuntime<C> {
     /// Return an event publisher backed by the connected NATS client.
     pub fn event_publisher(&self) -> EventPublisher {
         EventPublisher::new(self.client().nats().clone())
+    }
+
+    /// Start a descriptor-backed event listener.
+    pub async fn listen_event<D, F, Fut>(
+        &self,
+        handler: F,
+        options: ServiceEventListenOptions,
+    ) -> Result<ServiceEventListenerHandle, ServiceRuntimeError>
+    where
+        D: crate::client::EventDescriptor + 'static,
+        D::Event: Send + 'static,
+        F: Fn(D::Event, ServiceEventListenerContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), ServerError>> + Send + 'static,
+    {
+        listen_event_with_bindings::<D, _, _>(
+            self.client(),
+            &self.resources.event_consumers,
+            Arc::clone(&self.event_listeners),
+            handler,
+            options,
+        )
+        .await
     }
 
     /// Open a NATS-backed KV resource client by contract-local resource name.
@@ -865,16 +1139,20 @@ impl<C> ConnectedServiceRuntime<C> {
             service_name: Arc::from(self.service_name.as_str()),
             binding: self.binding.clone(),
             resources: self.resources.clone(),
+            event_listeners: Arc::clone(&self.event_listeners),
         }
     }
 
     #[cfg(test)]
     fn from_test_binding(service_name: impl Into<String>, binding: CoreBootstrapBinding) -> Self {
         let resources = binding.resource_bindings();
+        let event_listeners = SharedDurableEventListeners::default();
         Self {
             client: None,
             binding,
             resources,
+            event_listeners: Arc::clone(&event_listeners),
+            _event_listener_cleanup: ServiceEventListenerRegistryCleanup::new(event_listeners),
             router: Router::new(),
             service_name: service_name.into(),
             registered_subjects: BTreeSet::new(),
@@ -1067,10 +1345,361 @@ fn parse_bootstrap_binding(
     Ok(CoreBootstrapBinding::new(binding))
 }
 
+fn service_event_context_from_message<T>(
+    mode: ServiceEventListenerMode,
+    group: Option<String>,
+    message: &EventMessage<T>,
+) -> ServiceEventListenerContext {
+    service_event_context_from_headers(mode, group, message.headers())
+}
+
+fn service_event_context_from_headers(
+    mode: ServiceEventListenerMode,
+    group: Option<String>,
+    headers: Option<&HeaderMap>,
+) -> ServiceEventListenerContext {
+    let headers = headers.cloned().unwrap_or_default();
+    ServiceEventListenerContext {
+        mode,
+        group,
+        id: headers
+            .get("Nats-Msg-Id")
+            .map(|value| value.as_str().to_string()),
+        time: headers
+            .get("Trellis-Event-Time")
+            .map(|value| value.as_str().to_string()),
+        traceparent: headers
+            .get("traceparent")
+            .map(|value| value.as_str().to_string()),
+        headers,
+    }
+}
+
+async fn listen_event_with_bindings<D, F, Fut>(
+    client: &Arc<TrellisClient>,
+    bindings: &BTreeMap<String, super::EventConsumerResourceBinding>,
+    event_listeners: SharedDurableEventListeners,
+    handler: F,
+    options: ServiceEventListenOptions,
+) -> Result<ServiceEventListenerHandle, ServiceRuntimeError>
+where
+    D: crate::client::EventDescriptor + 'static,
+    D::Event: Send + 'static,
+    F: Fn(D::Event, ServiceEventListenerContext) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<(), ServerError>> + Send + 'static,
+{
+    if let Some(durable_name) = options.durable_name.as_deref() {
+        return Err(ServiceRuntimeError::CallerDurableName {
+            durable_name: durable_name.to_string(),
+        });
+    }
+
+    if options.mode == ServiceEventListenerMode::Ephemeral {
+        let mut events = client
+            .nats()
+            .subscribe(D::SUBJECT.to_string())
+            .await
+            .map_err(|error| TrellisClientError::NatsRequest(error.to_string()))?;
+        client.flush().await?;
+        return Ok(ServiceEventListenerHandle::new(
+            tokio::spawn(async move {
+                while let Some(message) = events.next().await {
+                    let context = service_event_context_from_headers(
+                        ServiceEventListenerMode::Ephemeral,
+                        None,
+                        message.headers.as_ref(),
+                    );
+                    let event = serde_json::from_slice::<D::Event>(&message.payload)
+                        .map_err(TrellisClientError::from)?;
+                    if let Err(source) = handler(event, context.clone()).await {
+                        return Err(ServiceRuntimeError::EventHandler { source, context });
+                    }
+                }
+                Ok(())
+            }),
+            None,
+        ));
+    }
+
+    let (group, binding) =
+        resolve_event_consumer_binding(bindings, D::SUBJECT, options.group.as_deref(), None)?;
+    let key = DurableEventListenerKey {
+        stream: binding.stream.clone(),
+        durable_name: binding.consumer_name.clone(),
+    };
+    let context = ServiceEventListenerContext {
+        mode: ServiceEventListenerMode::Durable,
+        group: Some(group),
+        id: None,
+        time: None,
+        traceparent: None,
+        headers: HeaderMap::new(),
+    };
+    let handler = Arc::new(handler);
+    let handler_id = SERVICE_EVENT_HANDLER_ID.fetch_add(1, Ordering::Relaxed);
+    let handler: SharedEventHandler = Arc::new(move |payload, context| {
+        let handler = Arc::clone(&handler);
+        let event = serde_json::from_slice::<D::Event>(&payload)
+            .map_err(TrellisClientError::from)
+            .map_err(ServiceRuntimeError::from);
+        Box::pin(async move {
+            handler(event?, context.clone())
+                .await
+                .map_err(|source| ServiceRuntimeError::EventHandler { source, context })
+        })
+    });
+
+    {
+        let mut listeners = event_listeners.lock().await;
+        if let Some(listener) = listeners.get_mut(&key) {
+            listener
+                .handlers
+                .entry(D::SUBJECT.to_string())
+                .or_default()
+                .insert(handler_id, handler);
+            return Ok(ServiceEventListenerHandle::new(
+                tokio::spawn(async { futures_util::future::pending().await }),
+                Some(ServiceEventListenerRegistration {
+                    event_listeners: Arc::clone(&event_listeners),
+                    key,
+                    subject: D::SUBJECT.to_string(),
+                    handler_id,
+                }),
+            ));
+        }
+    }
+
+    let subscribe_options = EventSubscribeOptions {
+        stream: Some(binding.stream.clone()),
+        mode: EventSubscriptionMode::Durable,
+        replay: EventReplayPolicy::New,
+        durable_name: Some(binding.consumer_name.clone()),
+    };
+    let pull_client = Arc::clone(client);
+    let pull_event_listeners = Arc::clone(&event_listeners);
+    let pull_key = key.clone();
+    let pull_task = tokio::spawn(async move {
+        loop {
+            if !durable_listener_ready(&pull_event_listeners, &pull_key).await {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+                continue;
+            }
+
+            let mut messages = match pull_client
+                .subscribe_messages::<D>(subscribe_options.clone())
+                .await
+            {
+                Ok(messages) => messages,
+                Err(error) if is_missing_durable_event_consumer_error(&error) => {
+                    tokio::time::sleep(Duration::from_millis(DURABLE_EVENT_CONSUMER_RETRY_MS))
+                        .await;
+                    continue;
+                }
+                Err(error) => {
+                    return Err::<(), ServiceRuntimeError>(ServiceRuntimeError::from(error))
+                }
+            };
+
+            while durable_listener_ready(&pull_event_listeners, &pull_key).await {
+                let Some(result) = messages.next().await else {
+                    break;
+                };
+                let message = match result {
+                    Ok(message) => message,
+                    Err(error) if is_missing_durable_event_consumer_error(&error) => {
+                        tokio::time::sleep(Duration::from_millis(DURABLE_EVENT_CONSUMER_RETRY_MS))
+                            .await;
+                        break;
+                    }
+                    Err(error) => {
+                        return Err::<(), ServiceRuntimeError>(ServiceRuntimeError::from(error))
+                    }
+                };
+                if !durable_listener_ready(&pull_event_listeners, &pull_key).await {
+                    break;
+                }
+                let handlers = pull_event_listeners
+                    .lock()
+                    .await
+                    .get(&pull_key)
+                    .and_then(|listener| listener.handlers.get(message.subject()).cloned())
+                    .unwrap_or_default();
+                let mut handled = true;
+                for handler in handlers.values() {
+                    let context = service_event_context_from_message(
+                        context.mode,
+                        context.group.clone(),
+                        &message,
+                    );
+                    if let Err(_error) =
+                        handler(Bytes::copy_from_slice(message.payload()), context).await
+                    {
+                        let _ = message.nak().await;
+                        handled = false;
+                        break;
+                    }
+                }
+                if !handled {
+                    continue;
+                }
+                if !durable_listener_ready(&pull_event_listeners, &pull_key).await {
+                    break;
+                }
+                message.ack().await?;
+            }
+        }
+    });
+    let pull_abort_handle = pull_task.abort_handle();
+    event_listeners.lock().await.insert(
+        key.clone(),
+        SharedDurableEventListener {
+            expected_subjects: binding.filter_subjects.iter().cloned().collect(),
+            handlers: BTreeMap::from([(
+                D::SUBJECT.to_string(),
+                BTreeMap::from([(handler_id, handler)]),
+            )]),
+            pull_abort_handle,
+        },
+    );
+
+    Ok(ServiceEventListenerHandle::new(
+        tokio::spawn(async { futures_util::future::pending().await }),
+        Some(ServiceEventListenerRegistration {
+            event_listeners,
+            key,
+            subject: D::SUBJECT.to_string(),
+            handler_id,
+        }),
+    ))
+}
+
+async fn remove_service_event_listener_registration(
+    registration: ServiceEventListenerRegistration,
+) {
+    let mut listeners = registration.event_listeners.lock().await;
+    let Some(listener) = listeners.get_mut(&registration.key) else {
+        return;
+    };
+    if let Some(handlers) = listener.handlers.get_mut(&registration.subject) {
+        handlers.remove(&registration.handler_id);
+        if handlers.is_empty() {
+            listener.handlers.remove(&registration.subject);
+        }
+    }
+    if listener.handlers.values().all(BTreeMap::is_empty) {
+        let listener = listeners.remove(&registration.key);
+        if let Some(listener) = listener {
+            listener.pull_abort_handle.abort();
+        }
+    }
+}
+
+fn spawn_service_event_listener_cleanup(registration: ServiceEventListenerRegistration) {
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn(remove_service_event_listener_registration(registration));
+    }
+}
+
+async fn remove_service_event_listeners(event_listeners: SharedDurableEventListeners) {
+    let listeners = std::mem::take(&mut *event_listeners.lock().await);
+    for (_, listener) in listeners {
+        listener.pull_abort_handle.abort();
+    }
+}
+
+fn spawn_service_event_listeners_cleanup(event_listeners: SharedDurableEventListeners) {
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn(remove_service_event_listeners(event_listeners));
+    }
+}
+
+async fn durable_listener_ready(
+    event_listeners: &SharedDurableEventListeners,
+    key: &DurableEventListenerKey,
+) -> bool {
+    event_listeners
+        .lock()
+        .await
+        .get(key)
+        .map(|listener| {
+            listener
+                .expected_subjects
+                .iter()
+                .all(|subject| listener.handlers.contains_key(subject))
+        })
+        .unwrap_or(false)
+}
+
+fn resolve_event_consumer_binding(
+    bindings: &BTreeMap<String, super::EventConsumerResourceBinding>,
+    subject: &str,
+    group: Option<&str>,
+    durable_name: Option<&str>,
+) -> Result<(String, super::EventConsumerResourceBinding), ServiceRuntimeError> {
+    if let Some(durable_name) = durable_name {
+        return Err(ServiceRuntimeError::CallerDurableName {
+            durable_name: durable_name.to_string(),
+        });
+    }
+
+    if let Some(group) = group {
+        let binding =
+            bindings
+                .get(group)
+                .ok_or_else(|| ServiceRuntimeError::EventConsumerGroupNotFound {
+                    group: group.to_string(),
+                })?;
+        if !binding
+            .filter_subjects
+            .iter()
+            .any(|filter_subject| filter_subject == subject)
+        {
+            return Err(ServiceRuntimeError::EventConsumerGroupSubjectMismatch {
+                group: group.to_string(),
+                subject: subject.to_string(),
+            });
+        }
+        return Ok((group.to_string(), binding.clone()));
+    }
+
+    let matches = bindings
+        .iter()
+        .filter(|(_, binding)| {
+            binding
+                .filter_subjects
+                .iter()
+                .any(|filter_subject| filter_subject == subject)
+        })
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [] => Err(ServiceRuntimeError::MissingEventConsumerGroup {
+            subject: subject.to_string(),
+        }),
+        [(group, binding)] => Ok(((*group).clone(), (*binding).clone())),
+        _ => Err(ServiceRuntimeError::AmbiguousEventConsumerGroup {
+            subject: subject.to_string(),
+            groups: matches.iter().map(|(group, _)| (*group).clone()).collect(),
+        }),
+    }
+}
+
+fn is_missing_durable_event_consumer_error(error: &TrellisClientError) -> bool {
+    let TrellisClientError::NatsRequest(message) = error else {
+        return false;
+    };
+
+    let message = message.to_ascii_lowercase();
+    message.contains("consumer not found")
+        || message.contains("consumer does not exist")
+        || message.contains("no consumer")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::service::OperationFailure;
+    use crate::service::{
+        EventConsumerOrdering, EventConsumerReplay, EventConsumerResourceBinding, OperationFailure,
+    };
     use futures_util::future::ready;
     use serde::{Deserialize, Serialize};
     use std::collections::BTreeMap;
@@ -1218,6 +1847,127 @@ mod tests {
                 )])),
             },
         })
+    }
+
+    fn event_consumer_binding(subjects: &[&str]) -> EventConsumerResourceBinding {
+        EventConsumerResourceBinding {
+            stream: "trellis".to_string(),
+            consumer_name: "consumer".to_string(),
+            filter_subjects: subjects
+                .iter()
+                .map(|subject| (*subject).to_string())
+                .collect(),
+            replay: EventConsumerReplay::New,
+            ordering: EventConsumerOrdering::Strict,
+            concurrency: 1,
+            ack_wait_ms: 30_000,
+            max_deliver: 5,
+            backoff_ms: vec![1_000, 5_000],
+        }
+    }
+
+    #[test]
+    fn resolve_event_consumer_binding_infers_unique_group() {
+        let bindings = BTreeMap::from([(
+            "projection".to_string(),
+            event_consumer_binding(&["events.v1.Billing.Paid"]),
+        )]);
+
+        let (group, binding) =
+            resolve_event_consumer_binding(&bindings, "events.v1.Billing.Paid", None, None)
+                .expect("binding resolves");
+
+        assert_eq!(group, "projection");
+        assert_eq!(binding.consumer_name, "consumer");
+    }
+
+    #[test]
+    fn resolve_event_consumer_binding_rejects_invalid_group_selection() {
+        let bindings = BTreeMap::from([(
+            "projection".to_string(),
+            event_consumer_binding(&["events.v1.Billing.Paid"]),
+        )]);
+
+        assert!(matches!(
+            resolve_event_consumer_binding(
+                &bindings,
+                "events.v1.Billing.Paid",
+                None,
+                Some("caller-owned"),
+            ),
+            Err(ServiceRuntimeError::CallerDurableName { durable_name })
+                if durable_name == "caller-owned"
+        ));
+        assert!(matches!(
+            resolve_event_consumer_binding(&bindings, "events.v1.Missing", None, None),
+            Err(ServiceRuntimeError::MissingEventConsumerGroup { subject })
+                if subject == "events.v1.Missing"
+        ));
+        assert!(matches!(
+            resolve_event_consumer_binding(
+                &bindings,
+                "events.v1.Billing.Paid",
+                Some("missing"),
+                None,
+            ),
+            Err(ServiceRuntimeError::EventConsumerGroupNotFound { group })
+                if group == "missing"
+        ));
+        assert!(matches!(
+            resolve_event_consumer_binding(
+                &bindings,
+                "events.v1.Other",
+                Some("projection"),
+                None,
+            ),
+            Err(ServiceRuntimeError::EventConsumerGroupSubjectMismatch { group, subject })
+                if group == "projection" && subject == "events.v1.Other"
+        ));
+    }
+
+    #[test]
+    fn resolve_event_consumer_binding_requires_group_for_ambiguous_match() {
+        let bindings = BTreeMap::from([
+            (
+                "first".to_string(),
+                event_consumer_binding(&["events.v1.Billing.Paid"]),
+            ),
+            (
+                "second".to_string(),
+                event_consumer_binding(&["events.v1.Billing.Paid"]),
+            ),
+        ]);
+
+        assert!(matches!(
+            resolve_event_consumer_binding(
+                &bindings,
+                "events.v1.Billing.Paid",
+                None,
+                None,
+            ),
+            Err(ServiceRuntimeError::AmbiguousEventConsumerGroup { subject, groups })
+                if subject == "events.v1.Billing.Paid"
+                    && groups == vec!["first".to_string(), "second".to_string()]
+        ));
+    }
+
+    #[test]
+    fn is_missing_durable_event_consumer_error_matches_only_missing_consumer_requests() {
+        assert!(is_missing_durable_event_consumer_error(
+            &TrellisClientError::NatsRequest("consumer not found".to_string())
+        ));
+        assert!(is_missing_durable_event_consumer_error(
+            &TrellisClientError::NatsRequest("Consumer does not exist".to_string())
+        ));
+        assert!(is_missing_durable_event_consumer_error(
+            &TrellisClientError::NatsRequest("no consumer available".to_string())
+        ));
+        assert!(!is_missing_durable_event_consumer_error(
+            &TrellisClientError::NatsRequest("permissions violation".to_string())
+        ));
+        assert!(!is_missing_durable_event_consumer_error(
+            &TrellisClientError::Timeout
+        ));
     }
 
     #[test]

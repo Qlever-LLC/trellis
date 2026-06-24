@@ -1773,11 +1773,9 @@ fn manifest_operation_errors_without_schema_normalize() {
         }
     });
 
-    let normalized = normalize_manifest_value(manifest)
-        .expect("should normalize");
+    let normalized = normalize_manifest_value(manifest).expect("should normalize");
     let errors = normalized["operations"]["Example.Process"]["errors"]
         .as_array()
         .expect("operation errors should be present");
     assert_eq!(errors.len(), 1);
 }
-

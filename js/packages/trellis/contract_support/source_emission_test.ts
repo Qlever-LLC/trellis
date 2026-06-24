@@ -1,4 +1,9 @@
-import { assert, assertEquals, assertNotEquals, assertThrows } from "@std/assert";
+import {
+  assert,
+  assertEquals,
+  assertNotEquals,
+  assertThrows,
+} from "@std/assert";
 import { Type } from "typebox";
 
 import {
@@ -797,7 +802,6 @@ Deno.test("defineServiceContract emits operation error refs using declared wire 
   assertEquals(api.runtimeErrors[0].type, "NotFoundError");
   assertEquals(api.errors, ["NotFoundError", "UnexpectedError"]);
 });
-
 
 Deno.test("defineAppContract emits top-level named state declarations", async () => {
   const dashboardSchemas = {
@@ -2613,7 +2617,7 @@ Deno.test("defineServiceContract emits owned and used operations", () => {
   );
   assertEquals(
     billing.API.owned.operations["Billing.Refund"].controlCapabilities,
-    [globalCapabilityName("trellis.billing@v1", "control")],
+    ["trellis.billing::control"] as const,
   );
 });
 

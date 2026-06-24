@@ -35,9 +35,9 @@ If the full integration suites cannot be run, record the reason and the last foc
 
 ### Targeted integration loops
 
-`integration/client-test-matrix.json` is the parity contract for Trellis client-library integration coverage. The matrix is a language-neutral list of required semantic cases; it has no per-language feature list, opt-in field, or skip list. Every supported client language suite must register every matrix case in its local manifest, and a case that fails in one language is a client-library or runtime bug rather than an allowed language exception.
+The `kind: "client"` cases in `integration/test-matrix.json` are the parity contract for Trellis client-library integration coverage. The matrix is a language-neutral list of required semantic cases; it has no per-language feature list, opt-in field, or skip list. Every supported client language suite must register every client matrix case in its local manifest, and a case that fails in one language is a client-library or runtime bug rather than an allowed language exception.
 
-For focused local debugging, inspect `integration/client-test-matrix.json` and run the smallest matching fixture, case, or coverage slice. The JS runner supports repeated `--fixture`, `--case`, and `--coverage` filters, and keeps matrix conformance enabled by default:
+For focused local debugging, inspect `integration/test-matrix.json` and run the smallest matching fixture, case, or coverage slice. The JS runner supports repeated `--fixture`, `--case`, and `--coverage` filters, and keeps matrix conformance enabled by default:
 
 ```sh
 deno task -c js/deno.json test:integration -- --fixture rpc

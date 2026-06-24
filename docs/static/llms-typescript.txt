@@ -1,6 +1,6 @@
 # Trellis AI guidance for TypeScript services
 
-Last verified against Trellis main (2026-06-16).
+Last verified against Trellis main (2026-06-18).
 
 Use this file for AI coding agents working in a TypeScript service repository
 that consumes Trellis. The language-neutral guide is:
@@ -43,25 +43,18 @@ Rules:
   browser-auth, telemetry, generated SDK, and advanced contract tooling imports on
   their explicit subpaths.
 - `deno.json` should expose Trellis generation through `deno task prepare`
-- service-boundary integration tests can use `@qlever-llc/trellis-test`:
-  start it with an explicit `trellis.command` for the control-plane process, then
-  call `runtime.registerService(...)`, service `TrellisService.connect(...)`, and
-  `runtime.connectClient(...)` for app/client participants. Use
-  `runtime.captureEvents(...)` with `assertEventCaptured`,
-  `assertEventsCaptured`, `assertNoEventCaptured`, or `assertNoEventDuring` for
-  live generated event assertions. Use `assertJobCompleted`,
-  `assertOperationCompleted`, `assertRpcOk`, `assertRpcEventuallyOk`, and
-  `assertRpcErr` for terminal job, operation, immediate Result-style RPC, and
-  eventual projection assertions. Generated event captures and generated service
-  job refs can be passed directly to those helpers without local adapters. These
-  helpers exercise real bootstrap, auth, authority, resources, events, jobs, and
-  operations through generated client surfaces
-- the Trellis repo's language-owned JS client integration suite also uses
-  `@qlever-llc/trellis-test` and runs with
-  `deno task -c js/deno.json test:integration`. Focused repo-local runs support
-  `--fixture`, `--case`, and `--coverage` filters, all backed by
-  `integration/client-test-matrix.json`; every matrix case must also be
-  registered by the Rust `trellis-rs` integration suite.
+- service-boundary integration tests can use
+  `@qlever-llc/trellis-test/integration` and
+  `@qlever-llc/trellis-test/integration/runner`: define
+  `trellis.integration.ts` with an explicit `runtime.trellis.command`,
+  `denoTestArgs`, and case descriptors; use `trellisIntegrationTest(...)`,
+  `runtimeScopeForCase(CASE_ID)`, case-scoped contract ids, subjects, participant
+  names, state/resource keys, contract approval/provisioning,
+  `TrellisService.connect(...)`, `runtime.connectClient(...)`, and
+  `runtime.captureEvents(...)` when needed. Run serially with `--config`; run in
+  parallel with `--parallel --jobs <n>`. The runner maps `--jobs` to child
+  `DENO_JOBS`, not `deno test --jobs`. Keep one case per module and avoid relying
+  on cleanup or execution order.
 - the `prepare` task value should call the Trellis generator, for example
   `deno run -A @qlever-llc/trellis/generate prepare .`
 - generated SDKs, manifests, and package outputs belong under the service repo's
@@ -123,19 +116,18 @@ Do not call `Auth.Sessions.Logout` from the active app connection for normal
 browser logout, and let Trellis validate `returnTo` and build provider logout
 URLs instead of hard-coding IdP endpoints.
 
-For integration tests, prefer `@qlever-llc/trellis-test` over raw NATS subjects
-or hand-built bootstrap responses. The test runtime requires an explicit
-`trellis.command`, creates an isolated NATS/JetStream environment, and starts the
-real Trellis control plane as a spawned process; services under test still
-connect through public `TrellisService.connect(...)`. Use
-`runtime.connectClient(...)` or `runtime.registerClient(...)` plus
-`runtime.clientAuth(...)` for app/client participants, use
-`runtime.captureEvents(...)` for live event assertions with decoded
-`{ event, payload, context, receivedAt }` records, and prefer the exported
+For integration tests, prefer `@qlever-llc/trellis-test/integration` over raw
+NATS subjects or hand-built bootstrap responses. Serial runs isolate each
+selected test with the `runtime` option passed to `trellisIntegrationTest(...)`,
+usually imported from the same `trellis.integration.ts` module used by the runner
+config. Parallel runs start one shared runtime from the runner config while
+case-scoped deployments, contracts, subjects, participant names, and resource
+keys isolate behavior. Allow migration plans only in tests that intentionally
+cover migrations, using per-approval `allowPlanClassifications` or explicit
+authority-plan helpers.
+Use `runtime.connectClient(...)`, `runtime.captureEvents(...)`, and exported
 assertion helpers for captured events, terminal jobs and operations, and
-immediate or eventual `Result` RPC values. Generated captures and job refs are
-accepted directly. Allow migration plans only in explicit isolated mutable-dev
-tests with `authority.autoAccept` or per-approval `allowPlanClassifications`.
+immediate or eventual `Result` RPC values.
 
 For service-private jobs that must be singleton per logical key, declare
 `keyConcurrency` on the job queue. Keep the existing numeric `concurrency`

@@ -9,10 +9,14 @@ import {
   integrationSlug,
 } from "../_support/names.ts";
 
-export function createOperationsFixture(caseId: string) {
+export function createOperationsFixture(
+  caseId: string,
+  options: { readonly cancelable?: boolean; readonly signals?: boolean } = {},
+) {
   const slug = integrationSlug(caseId);
   const operationSchemas = {
     OperationInput: Type.Object({ message: Type.String() }),
+    OperationSignalInput: Type.Object({ suffix: Type.String() }),
     OperationProgress: Type.Object({
       message: Type.String(),
       step: Type.Number(),
@@ -50,8 +54,20 @@ export function createOperationsFixture(caseId: string) {
           progress: ref.schema("OperationProgress"),
           output: ref.schema("OperationOutput"),
           errors: [ref.error("UnexpectedError")],
-          capabilities: { call: ["process"], observe: ["process"] },
-          cancel: false,
+          capabilities: {
+            call: ["process"],
+            observe: ["process"],
+            ...(options.cancelable ? { cancel: ["process"] } : {}),
+            ...(options.signals ? { control: ["process"] } : {}),
+          },
+          cancel: options.cancelable === true,
+          ...(options.signals
+            ? {
+              signals: {
+                updateMessage: { input: ref.schema("OperationSignalInput") },
+              },
+            }
+            : {}),
         },
       },
     }),
@@ -65,7 +81,15 @@ export function createOperationsFixture(caseId: string) {
     uses: {
       required: {
         operationsService: serviceContract.use({
-          operations: { call: ["Entity.Process"] },
+          operations: {
+            call: ["Entity.Process"],
+            ...(options.cancelable === true
+              ? { cancel: ["Entity.Process"] }
+              : {}),
+            ...(options.signals === true
+              ? { control: ["Entity.Process"] }
+              : {}),
+          },
         }),
       },
     },

@@ -5,12 +5,15 @@ use std::time::{Duration, Instant};
 use futures_util::stream::{self, BoxStream};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use tokio::sync::watch;
+use serde_json::{json, Value};
+use tokio::sync::{watch, Notify};
 use tokio::task::JoinHandle;
-use trellis_rs::client::{OperationDescriptor, OperationEvent};
+use trellis_rs::client::{
+    OperationDescriptor, OperationEvent, OperationState as ClientOperationState,
+};
 use trellis_rs::service::{
-    AcceptedOperation, GeneratedServiceContract, OperationRefData, OperationSnapshot,
-    OperationState, ServerError,
+    AcceptedOperation, GeneratedServiceContract, OperationRefData, OperationSignalAccepted,
+    OperationSnapshot, OperationState as ServiceOperationState, ServerError,
 };
 
 use crate::support::assertions::assert_case_registered;
@@ -45,6 +48,11 @@ const OP_SERVICE_CONTRACT_JSON: &str = r#"{
         "step": { "type": "integer" }
       }
     },
+    "OperationSignalInput": {
+      "type": "object",
+      "required": ["suffix"],
+      "properties": { "suffix": { "type": "string" } }
+    },
     "OperationOutput": {
       "type": "object",
       "required": ["message", "done"],
@@ -69,8 +77,11 @@ const OP_SERVICE_CONTRACT_JSON: &str = r#"{
       "input": { "schema": "OperationInput" },
       "progress": { "schema": "OperationProgress" },
       "output": { "schema": "OperationOutput" },
-      "capabilities": { "call": ["process"], "observe": ["process"] },
-      "cancel": false
+      "capabilities": { "call": ["process"], "observe": ["process"], "cancel": ["process"], "control": ["process"] },
+      "signals": {
+        "updateMessage": { "input": { "schema": "OperationSignalInput" } }
+      },
+      "cancel": true
     }
   }
 }"#;
@@ -79,7 +90,7 @@ struct OperationsServiceContract;
 
 impl trellis_rs::service::GeneratedServiceContract for OperationsServiceContract {
     const CONTRACT_ID: &'static str = OP_SERVICE_ID;
-    const CONTRACT_DIGEST: &'static str = "nPkUGX7OXMfvxT18C6WxCa51Vq032moLu08QxUREyK0";
+    const CONTRACT_DIGEST: &'static str = "jkdtOIKRlVw0GkoNYiPntqi4xaEl50xfxPEwsnrQC7o";
     const CONTRACT_JSON: &'static str = OP_SERVICE_CONTRACT_JSON;
 }
 
@@ -106,16 +117,23 @@ impl trellis_rs::client::OperationDescriptor for EntityProcessOp {
     type Input = EntityProcessInput;
     type Progress = EntityProcessProgress;
     type Output = EntityProcessOutput;
-    type Error = String;
+    type Error = trellis_rs::service::OperationFailure;
 
     const KEY: &'static str = "Entity.Process";
     const SUBJECT: &'static str = "operations.v1.Entity.Process";
     const CALLER_CAPABILITIES: &'static [&'static str] = &["process"];
     const OBSERVE_CAPABILITIES: &'static [&'static str] = &["process"];
-    const CANCEL_CAPABILITIES: &'static [&'static str] = &[];
-    const CONTROL_CAPABILITIES: &'static [&'static str] = &[];
-    const CANCELABLE: bool = false;
+    const CANCEL_CAPABILITIES: &'static [&'static str] = &["process"];
+    const CONTROL_CAPABILITIES: &'static [&'static str] = &["process"];
+    const CANCELABLE: bool = true;
     const ERRORS: &'static [&'static str] = &[];
+    const INPUT_SCHEMA_JSON: &'static str =
+        r#"{"type":"object","required":["message"],"properties":{"message":{"type":"string"}}}"#;
+    const PROGRESS_SCHEMA_JSON: Option<&'static str> = Some(
+        r#"{"type":"object","required":["message","step"],"properties":{"message":{"type":"string"},"step":{"type":"integer"}}}"#,
+    );
+    const OUTPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","required":["message","done"],"properties":{"message":{"type":"string"},"done":{"type":"boolean"}}}"#;
+    const SIGNAL_INPUT_SCHEMAS_JSON: &'static str = r#"{"updateMessage":{"type":"object","required":["suffix"],"properties":{"suffix":{"type":"string"}}}}"#;
 }
 
 struct AbortOnDrop<T> {
@@ -146,22 +164,29 @@ impl<T> Drop for AbortOnDrop<T> {
 }
 
 struct SharedOperationState {
-    snapshots: tokio::sync::Mutex<
-        HashMap<String, OperationSnapshot<EntityProcessProgress, EntityProcessOutput>>,
-    >,
+    snapshots:
+        Mutex<HashMap<String, OperationSnapshot<EntityProcessProgress, EntityProcessOutput>>>,
     watchers: Mutex<
         HashMap<
             String,
             watch::Sender<OperationSnapshot<EntityProcessProgress, EntityProcessOutput>>,
         >,
     >,
+    cancelled: tokio::sync::Mutex<HashMap<String, bool>>,
+    cancel_notify: Notify,
+    signals: tokio::sync::Mutex<HashMap<String, Vec<String>>>,
+    signal_notify: Notify,
 }
 
 impl SharedOperationState {
     fn new() -> Arc<Self> {
         Arc::new(Self {
-            snapshots: tokio::sync::Mutex::new(HashMap::new()),
+            snapshots: Mutex::new(HashMap::new()),
             watchers: Mutex::new(HashMap::new()),
+            cancelled: tokio::sync::Mutex::new(HashMap::new()),
+            cancel_notify: Notify::new(),
+            signals: tokio::sync::Mutex::new(HashMap::new()),
+            signal_notify: Notify::new(),
         })
     }
 }
@@ -174,8 +199,10 @@ fn setup_operation_service(
     let shared_clone = Arc::clone(shared);
     let shared_for_getter = Arc::clone(shared);
     let shared_for_watcher = Arc::clone(shared);
+    let shared_for_cancel = Arc::clone(shared);
+    let shared_for_signal = Arc::clone(shared);
 
-    service.register_operation_with_watch::<EntityProcessOp, _, _, _, _, _, _, _>(
+    service.register_operation_with_watch_and_signal::<EntityProcessOp, _, _, _, _, _, _, _, _, _>(
         {
             let shared = shared_clone;
             move |_context: trellis_rs::service::ServiceHandlerContext,
@@ -183,20 +210,25 @@ fn setup_operation_service(
                 let shared = Arc::clone(&shared);
                 async move {
                     let operation_id = format!("op-{}", input.message);
+                    let initial_state = if spawn_completion {
+                        ServiceOperationState::Pending
+                    } else {
+                        ServiceOperationState::Running
+                    };
                     let (tx, _rx) = watch::channel(OperationSnapshot {
                         revision: 1,
-                        state: OperationState::Pending,
+                        state: initial_state.clone(),
                         ..Default::default()
                     });
                     let snapshot = OperationSnapshot {
                         revision: 1,
-                        state: OperationState::Pending,
+                        state: initial_state.clone(),
                         ..Default::default()
                     };
                     shared
                         .snapshots
                         .lock()
-                        .await
+                        .unwrap()
                         .insert(operation_id.clone(), snapshot);
                     shared
                         .watchers
@@ -211,13 +243,18 @@ fn setup_operation_service(
                             tokio::time::sleep(Duration::from_millis(50)).await;
                             let progress_snapshot = OperationSnapshot {
                                 revision: 2,
-                                state: OperationState::Running,
+                                state: ServiceOperationState::Running,
                                 progress: Some(EntityProcessProgress {
                                     message: input.message.clone(),
                                     step: 1,
                                 }),
                                 ..Default::default()
                             };
+                            shared
+                                .snapshots
+                                .lock()
+                                .unwrap()
+                                .insert(op_id.clone(), progress_snapshot.clone());
                             if let Some(tx) = shared.watchers.lock().unwrap().get(&op_id) {
                                 let _ = tx.send(progress_snapshot);
                             }
@@ -225,13 +262,18 @@ fn setup_operation_service(
                             tokio::time::sleep(Duration::from_millis(50)).await;
                             let complete_snapshot = OperationSnapshot {
                                 revision: 3,
-                                state: OperationState::Completed,
+                                state: ServiceOperationState::Completed,
                                 output: Some(EntityProcessOutput {
                                     message: input.message,
                                     done: true,
                                 }),
                                 ..Default::default()
                             };
+                            shared
+                                .snapshots
+                                .lock()
+                                .unwrap()
+                                .insert(op_id.clone(), complete_snapshot.clone());
                             if let Some(tx) = shared.watchers.lock().unwrap().get(&op_id) {
                                 let _ = tx.send(complete_snapshot);
                             }
@@ -247,7 +289,7 @@ fn setup_operation_service(
                         },
                         snapshot: OperationSnapshot {
                             revision: 1,
-                            state: OperationState::Pending,
+                            state: initial_state,
                             ..Default::default()
                         },
                         transfer: None,
@@ -260,7 +302,7 @@ fn setup_operation_service(
             move |_context: trellis_rs::service::ServiceHandlerContext, operation_id: String| {
                 let shared = Arc::clone(&shared);
                 async move {
-                    let snapshots = shared.snapshots.lock().await;
+                    let snapshots = shared.snapshots.lock().unwrap();
                     snapshots
                         .get(&operation_id)
                         .cloned()
@@ -272,11 +314,17 @@ fn setup_operation_service(
             let shared = shared_for_watcher;
             move |_context: trellis_rs::service::ServiceHandlerContext, operation_id: String| {
                 let shared = Arc::clone(&shared);
-                let initial = OperationSnapshot {
-                    revision: 1,
-                    state: OperationState::Pending,
-                    ..Default::default()
-                };
+                let initial = shared
+                    .snapshots
+                    .lock()
+                    .unwrap()
+                    .get(&operation_id)
+                    .cloned()
+                    .unwrap_or_else(|| OperationSnapshot {
+                        revision: 1,
+                        state: ServiceOperationState::Pending,
+                        ..Default::default()
+                    });
                 let rx: Option<
                     watch::Receiver<OperationSnapshot<EntityProcessProgress, EntityProcessOutput>>,
                 > = {
@@ -308,11 +356,112 @@ fn setup_operation_service(
                 stream
             }
         },
-        |_context: trellis_rs::service::ServiceHandlerContext, _operation_id: String| async move {
-            Err(ServerError::OperationUnsupportedControl {
-                operation: EntityProcessOp::KEY.to_string(),
-                action: "cancel".to_string(),
-            })
+        {
+            let shared = shared_for_cancel;
+            move |_context: trellis_rs::service::ServiceHandlerContext, operation_id: String| {
+                let shared = Arc::clone(&shared);
+                async move {
+                    let snapshot = OperationSnapshot {
+                        revision: 2,
+                        state: ServiceOperationState::Cancelled,
+                        ..Default::default()
+                    };
+                    shared
+                        .snapshots
+                        .lock()
+                        .unwrap()
+                        .insert(operation_id.clone(), snapshot.clone());
+                    if let Some(tx) = shared.watchers.lock().unwrap().get(&operation_id) {
+                        let _ = tx.send(snapshot.clone());
+                    }
+                    shared.cancelled.lock().await.insert(operation_id, true);
+                    shared.cancel_notify.notify_waiters();
+                    Ok(snapshot)
+                }
+            }
+        },
+        {
+            let shared = shared_for_signal;
+            move |_context: trellis_rs::service::ServiceHandlerContext,
+                  operation_id: String,
+                  signal_name: String,
+                  input: Option<Value>| {
+                let shared = Arc::clone(&shared);
+                async move {
+                    let suffix = input
+                        .as_ref()
+                        .and_then(|value| value.get("suffix"))
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| ServerError::Nats("missing signal suffix".to_string()))?
+                        .to_string();
+                    let operation_message = operation_id
+                        .strip_prefix("op-")
+                        .unwrap_or(&operation_id)
+                        .to_string();
+                    let signal_sequence = {
+                        let mut signals = shared.signals.lock().await;
+                        let entry = signals.entry(operation_id.clone()).or_default();
+                        entry.push(signal_name.clone());
+                        entry.len() as u64
+                    };
+                    shared.signal_notify.notify_waiters();
+
+                    let progress_snapshot = OperationSnapshot {
+                        revision: 2,
+                        state: ServiceOperationState::Running,
+                        progress: Some(EntityProcessProgress {
+                            message: format!("{operation_message}:{suffix}"),
+                            step: 2,
+                        }),
+                        ..Default::default()
+                    };
+                    shared
+                        .snapshots
+                        .lock()
+                        .unwrap()
+                        .insert(operation_id.clone(), progress_snapshot.clone());
+                    if let Some(tx) = shared.watchers.lock().unwrap().get(&operation_id) {
+                        let _ = tx.send(progress_snapshot.clone());
+                    }
+
+                    let complete_shared = Arc::clone(&shared);
+                    let complete_operation_id = operation_id.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                        let complete_snapshot = OperationSnapshot {
+                            revision: 3,
+                            state: ServiceOperationState::Completed,
+                            output: Some(EntityProcessOutput {
+                                message: format!("{operation_message}:{suffix}"),
+                                done: true,
+                            }),
+                            ..Default::default()
+                        };
+                        complete_shared
+                            .snapshots
+                            .lock()
+                            .unwrap()
+                            .insert(complete_operation_id.clone(), complete_snapshot.clone());
+                        if let Some(tx) = complete_shared
+                            .watchers
+                            .lock()
+                            .unwrap()
+                            .get(&complete_operation_id)
+                        {
+                            let _ = tx.send(complete_snapshot);
+                        }
+                    });
+
+                    Ok(OperationSignalAccepted {
+                        kind: "signal-accepted".to_string(),
+                        operation_id,
+                        signal: signal_name,
+                        signal_sequence,
+                        accepted_at: "2026-01-01T00:00:00Z".to_string(),
+                        snapshot: progress_snapshot,
+                    })
+                }
+            }
         },
     );
 }
@@ -538,6 +687,238 @@ async fn operations_client_waits_for_completion() {
     }
 
     assert!(saw_completed, "operation watch should observe completion");
+
+    service_task.abort_and_wait().await;
+}
+
+#[tokio::test]
+async fn operations_client_cancels_operation() {
+    assert_case_registered(
+        "operations.client-cancels-operation",
+        "operations",
+        "operations",
+    );
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    let service_contract =
+        trellis_test::TrellisTestContract::from_manifest_json(OP_SERVICE_CONTRACT_JSON)
+            .expect("build operations service test contract");
+    assert_eq!(
+        service_contract.digest(),
+        OperationsServiceContract::CONTRACT_DIGEST
+    );
+    let client_contract = operations_client_contract().expect("build operations client contract");
+
+    let service_key = admin
+        .provision_service_instance(&bootstrap_url, &service_contract, None, None)
+        .await
+        .expect("provision live operations service instance");
+    let mut service =
+        trellis_rs::service::ConnectedServiceRuntime::<OperationsServiceContract>::connect(
+            runtime.service_connect_options("operations-fixture-service", &service_key),
+        )
+        .await
+        .expect("connect live Rust operations service");
+
+    let shared = SharedOperationState::new();
+    setup_operation_service(&shared, &mut service, false);
+
+    let service_task = AbortOnDrop::new(tokio::spawn(async move { service.run().await }));
+
+    let client = admin
+        .connect_client(&bootstrap_url, &client_contract)
+        .await
+        .expect("connect live Rust operations client");
+
+    let operation_ref = start_operation_with_retry(&client, "operation-1").await;
+    let mut events = operation_ref.watch().await.expect("watch operation");
+
+    let cancelled = operation_ref.cancel().await.expect("cancel operation");
+    assert_eq!(cancelled.state, ClientOperationState::Cancelled);
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if shared
+                .cancelled
+                .lock()
+                .await
+                .get(operation_ref.id())
+                .copied()
+                .unwrap_or(false)
+            {
+                break;
+            }
+            shared.cancel_notify.notified().await;
+        }
+    })
+    .await
+    .expect("service should observe operation cancellation");
+
+    let waited = operation_ref
+        .wait()
+        .await
+        .expect("wait cancelled operation");
+    assert_eq!(waited.state, ClientOperationState::Cancelled);
+
+    let mut saw_cancelled = false;
+    while let Some(event) = tokio::time::timeout(Duration::from_secs(5), events.next())
+        .await
+        .expect("operation watch should produce a terminal event")
+    {
+        let event = event.expect("operation watch event");
+        if let OperationEvent::Cancelled { snapshot } = event {
+            assert_eq!(snapshot.state, ClientOperationState::Cancelled);
+            saw_cancelled = true;
+            break;
+        }
+    }
+    assert!(saw_cancelled, "operation watch should observe cancellation");
+
+    service_task.abort_and_wait().await;
+}
+
+#[tokio::test]
+async fn operations_client_signals_running_operation() {
+    assert_case_registered(
+        "operations.client-signals-running-operation",
+        "operations",
+        "operations",
+    );
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    let service_contract =
+        trellis_test::TrellisTestContract::from_manifest_json(OP_SERVICE_CONTRACT_JSON)
+            .expect("build operations service test contract");
+    assert_eq!(
+        service_contract.digest(),
+        OperationsServiceContract::CONTRACT_DIGEST
+    );
+    let client_contract = operations_client_contract().expect("build operations client contract");
+
+    let service_key = admin
+        .provision_service_instance(&bootstrap_url, &service_contract, None, None)
+        .await
+        .expect("provision live operations service instance");
+    let mut service =
+        trellis_rs::service::ConnectedServiceRuntime::<OperationsServiceContract>::connect(
+            runtime.service_connect_options("operations-fixture-service", &service_key),
+        )
+        .await
+        .expect("connect live Rust operations service");
+
+    let shared = SharedOperationState::new();
+    setup_operation_service(&shared, &mut service, false);
+
+    let service_task = AbortOnDrop::new(tokio::spawn(async move { service.run().await }));
+
+    let client = admin
+        .connect_client(&bootstrap_url, &client_contract)
+        .await
+        .expect("connect live Rust operations client");
+
+    let operation_ref = start_operation_with_retry(&client, "operation-1").await;
+    let running = operation_ref.get().await.expect("get running operation");
+    assert_eq!(running.state, ClientOperationState::Running);
+    let mut events = operation_ref.watch().await.expect("watch operation");
+
+    let ack = operation_ref
+        .signal("updateMessage", Some(json!({ "suffix": "from-signal" })))
+        .await
+        .expect("signal running operation");
+    assert_eq!(ack.kind, "signal-accepted");
+    assert_eq!(ack.signal, "updateMessage");
+    assert_eq!(ack.signal_sequence, 1);
+    assert_eq!(
+        ack.snapshot.progress,
+        Some(EntityProcessProgress {
+            message: "operation-1:from-signal".to_string(),
+            step: 2,
+        })
+    );
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if shared
+                .signals
+                .lock()
+                .await
+                .get(operation_ref.id())
+                .is_some_and(|signals| signals.iter().any(|signal| signal == "updateMessage"))
+            {
+                break;
+            }
+            shared.signal_notify.notified().await;
+        }
+    })
+    .await
+    .expect("service should observe operation signal");
+
+    let mut saw_signal_progress = false;
+    while let Some(event) = tokio::time::timeout(Duration::from_secs(5), events.next())
+        .await
+        .expect("operation watch should produce signal-derived events")
+    {
+        let event = event.expect("operation watch event");
+        match event {
+            OperationEvent::Progress { snapshot } => {
+                assert_eq!(
+                    snapshot.progress,
+                    Some(EntityProcessProgress {
+                        message: "operation-1:from-signal".to_string(),
+                        step: 2,
+                    })
+                );
+                saw_signal_progress = true;
+            }
+            OperationEvent::Completed { snapshot } => {
+                assert_eq!(snapshot.state, ClientOperationState::Completed);
+                assert_eq!(
+                    snapshot.output,
+                    Some(EntityProcessOutput {
+                        message: "operation-1:from-signal".to_string(),
+                        done: true,
+                    })
+                );
+                break;
+            }
+            _ => {}
+        }
+    }
+    assert!(
+        saw_signal_progress,
+        "operation watch should observe signal-derived progress"
+    );
+
+    let terminal = operation_ref
+        .wait()
+        .await
+        .expect("wait signalled operation completion");
+    assert_eq!(terminal.state, ClientOperationState::Completed);
+    assert_eq!(
+        terminal.output,
+        Some(EntityProcessOutput {
+            message: "operation-1:from-signal".to_string(),
+            done: true,
+        })
+    );
 
     service_task.abort_and_wait().await;
 }

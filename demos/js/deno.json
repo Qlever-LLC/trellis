@@ -18,6 +18,7 @@
   "imports": {
     "@qlever-llc/result": "../../js/packages/result/mod.ts",
     "@qlever-llc/trellis": "../../js/packages/trellis/index.ts",
+    "@qlever-llc/trellis/": "../../js/packages/trellis/",
     "@qlever-llc/trellis/contracts": "../../js/packages/trellis/contracts.ts",
     "@qlever-llc/trellis/device/deno": "../../js/packages/trellis/device/deno.ts",
     "@qlever-llc/trellis/errors": "../../js/packages/trellis/errors/index.ts",

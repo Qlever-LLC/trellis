@@ -86,6 +86,9 @@ impl trellis_rs::client::FeedDescriptor for EntityLiveFeed {
     const KEY: &'static str = "Entity.Live";
     const SUBJECT: &'static str = "feeds.v1.Entity.Live";
     const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &["readFeeds"];
+    const INPUT_SCHEMA_JSON: &'static str =
+        r#"{"type":"object","required":["topic"],"properties":{"topic":{"type":"string"}}}"#;
+    const EVENT_SCHEMA_JSON: &'static str = r#"{"type":"object","required":["topic","message","sequence"],"properties":{"topic":{"type":"string"},"message":{"type":"string"},"sequence":{"type":"number"}}}"#;
 }
 
 struct AbortOnDrop<T> {

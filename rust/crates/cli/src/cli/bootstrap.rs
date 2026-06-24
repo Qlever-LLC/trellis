@@ -1,62 +1,44 @@
 use std::path::PathBuf;
 
-use clap::{Args, Subcommand, ValueEnum};
+use clap::{Args, Subcommand};
 
 #[derive(Debug, Args)]
-/// Generate local Trellis development files.
-pub struct LocalCommand {
-    #[command(subcommand)]
-    pub command: LocalSubcommand,
-}
-
-#[derive(Debug, Subcommand)]
-/// Local development bootstrap operations.
-pub enum LocalSubcommand {
-    /// Generate a complete local Trellis bundle with NATS and service config.
-    Init(LocalInitArgs),
-}
-
-#[derive(Debug, Args)]
-/// Generate a complete local Trellis bundle with NATS and service config.
-pub struct LocalInitArgs {
+/// Generate Trellis runtime config and NATS bootstrap material.
+pub struct InitConfigArgs {
     #[arg(long)]
-    /// Output directory for generated local Trellis bootstrap files.
+    /// Output directory for generated Trellis bootstrap files.
     pub out: PathBuf,
 
     #[arg(long)]
     /// Replace an existing non-empty output directory.
     pub force: bool,
 
-    #[arg(long, value_enum, default_value_t = LocalNatsContainerRuntimeArg::Auto)]
-    /// Container runtime used to run nats-box and nsc.
-    pub container_runtime: LocalNatsContainerRuntimeArg,
+    #[arg(long, default_value_t = trellis_bootstrap::DEFAULT_TRELLIS_NAME.to_string())]
+    /// Human-readable Trellis name used in generated config.
+    pub name: String,
 
-    #[arg(long, default_value = "docker.io/natsio/nats-box:0.19.7")]
-    /// nats-box image containing nsc.
-    pub nats_box_image: String,
-
-    #[arg(long, default_value = "Qlever")]
+    #[arg(long, default_value_t = trellis_bootstrap::DEFAULT_OPERATOR_NAME.to_string())]
     /// NATS operator name.
     pub operator_name: String,
 
-    #[arg(long, default_value = "SYS")]
+    #[arg(long, default_value_t = trellis_bootstrap::DEFAULT_SYSTEM_ACCOUNT.to_string())]
     /// NATS system account name.
     pub system_account: String,
 
-    #[arg(long, default_value = "AUTH")]
+    #[arg(long, default_value_t = trellis_bootstrap::DEFAULT_AUTH_ACCOUNT.to_string())]
     /// Trellis auth account name.
     pub auth_account: String,
 
-    #[arg(long, default_value = "TRELLIS")]
+    #[arg(long, default_value_t = trellis_bootstrap::DEFAULT_TRELLIS_ACCOUNT.to_string())]
     /// Trellis runtime account name.
     pub trellis_account: String,
 
-    #[arg(long, default_value = "trellis-local")]
-    /// Local NATS server name written to nats.conf.
-    pub server_name: String,
+    #[arg(long)]
+    /// Override the NATS server name written to nats.conf.
+    pub server_name: Option<String>,
 
     #[arg(long, default_value_t = 3000)]
-    /// Trellis HTTP port written to trellis/config.jsonc.
+    /// Trellis HTTP port written to trellis/config.toml.
     pub trellis_port: u16,
 
     #[arg(long, default_value = "nats://127.0.0.1:4222")]
@@ -70,14 +52,6 @@ pub struct LocalInitArgs {
     #[arg(long, default_value = "http://localhost:3000")]
     /// Public Trellis HTTP origin for OAuth redirects.
     pub public_origin: String,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-/// Container runtime choices for local NATS bootstrap generation.
-pub enum LocalNatsContainerRuntimeArg {
-    Auto,
-    Podman,
-    Docker,
 }
 
 #[derive(Debug, Args)]
@@ -142,6 +116,8 @@ pub struct InitCommand {
 #[derive(Debug, Subcommand)]
 /// Initialization operations.
 pub enum InitSubcommand {
+    /// Generate Trellis runtime config and NATS bootstrap material.
+    Config(InitConfigArgs),
     /// Seed an initial admin account and linked identity.
     Admin(InitAdminArgs),
 }

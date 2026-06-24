@@ -1652,6 +1652,9 @@ export async function createConnectedService<
   contractEventConsumers?: ContractEventConsumers;
   server: TrellisServiceRuntimeCreateOpts<TOwnedApi, TTrellisApi>;
   bindings: ResourceBindings;
+  durableEventConsumerBeforeReadinessCheck?: TrellisServiceRuntimeDeps[
+    "durableEventConsumerBeforeReadinessCheck"
+  ];
 }): Promise<TrellisService<TOwnedApi, TTrellisApi, TJobs, TKv>> {
   const resolvedLog = resolveServiceLogger(args.server.log);
   const connection = observeNatsTrellisConnection({
@@ -1711,6 +1714,8 @@ export async function createConnectedService<
         metadata: args.contractEventConsumers,
         bindings: args.bindings.eventConsumers,
       },
+      durableEventConsumerBeforeReadinessCheck:
+        args.durableEventConsumerBeforeReadinessCheck,
       connection,
     },
   );
@@ -2670,6 +2675,7 @@ function createJobsFacade<
               instanceId: `${args.serviceName}-worker`,
               queueTypes: [queueType],
               manager,
+              heartbeatPublisher: args.nc,
               getProjectedJob: async (job) => {
                 return lifecycle.get({
                   service: job.service,
@@ -2952,6 +2958,8 @@ export function connectTrellisServiceWithRuntimeDeps<
           contractEventConsumers: args.contract.CONTRACT.eventConsumers,
           server,
           bindings: bootstrap.binding.resources,
+          durableEventConsumerBeforeReadinessCheck:
+            runtimeDeps.durableEventConsumerBeforeReadinessCheck,
         });
         recordTrellisDuration(
           "trellis.connect.duration",

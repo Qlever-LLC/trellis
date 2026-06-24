@@ -135,6 +135,8 @@ impl trellis_rs::client::RpcDescriptor for ResourcesExerciseRpc {
     const SUBJECT: &'static str = "rpc.v1.Resources.Exercise";
     const CALLER_CAPABILITIES: &'static [&'static str] = &[];
     const ERRORS: &'static [&'static str] = &[];
+    const INPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","required":["key","message"],"properties":{"key":{"type":"string"},"message":{"type":"string"}}}"#;
+    const OUTPUT_SCHEMA_JSON: &'static str = r#"{"type":"object","required":["provider","storeText","kvMessage"],"properties":{"provider":{"type":"string"},"storeText":{"type":"string"},"kvMessage":{"type":"string"}}}"#;
 }
 
 struct AbortOnDrop<T> {

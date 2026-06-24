@@ -109,6 +109,7 @@ export async function registerDeviceAdminAndActivation(
       | "deviceDeploymentStorage"
       | "deviceInstanceStorage"
       | "deviceProvisioningSecretStorage"
+      | "implementationOfferStorage"
       | "logger"
       | "natsAuth"
       | "natsSystem"
@@ -131,6 +132,7 @@ export async function registerDeviceAdminAndActivation(
       deps.contracts.validateActiveCatalogForRemoval,
     authorityReconciler: deps.authorityReconciler,
     getActiveCatalogIssues: deps.contracts.getActiveCatalogIssues,
+    implementationOfferStorage: deps.implementationOfferStorage,
     builtinContractDigests: deps.contracts.getBuiltinDigests(),
   });
   const kick = createKick(deps);
