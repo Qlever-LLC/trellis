@@ -8,4 +8,4 @@ description = "High-level Trellis service runtime facade for generated Rust serv
 publish = false
 
 [dependencies]
-trellis-rs = { path = "../trellis", version = "0.10.18" }
+trellis-rs = { path = "../trellis", version = "0.10.19" }

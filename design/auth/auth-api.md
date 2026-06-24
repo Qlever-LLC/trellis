@@ -67,6 +67,7 @@ Browser auth endpoints:
 - `POST /auth/flow/:flowId/register/local`
 - `POST /auth/flow/:flowId/approval`
 - `POST /auth/flow/:flowId/bind`
+- `POST /auth/sessions/logout`
 
 Global CORS behavior derives from `web.origins`:
 
@@ -496,6 +497,64 @@ Rules:
 - flow bind still rechecks identity authority and capabilities defensively
 - portal is a browser UX surface only; bind remains auth-owned
 
+### POST /auth/sessions/logout
+
+Terminates a browser session from the app side without relying on the active
+NATS app connection. Browser clients sign the logout intent with the session key
+and send it directly to Trellis HTTP.
+
+Request:
+
+```ts
+{
+  sessionKey: string;
+  iat: number;
+  sig: string; // sign(hash("logout-session:" + canonicalLogoutPayload))
+  providerLogout?: boolean;
+  federatedProviderLogout?: boolean;
+  returnTo?: string;
+  responseMode?: "json" | "redirect";
+}
+```
+
+JSON response:
+
+```ts
+{
+  success: true;
+  redirectTo?: string;
+}
+```
+
+Behavior:
+
+1. Parse and validate the JSON body
+2. Require a fresh `iat`
+3. Verify `sig` by `sessionKey` over the canonical logout payload
+4. Lookup the session by `sessionKey`
+5. Validate `returnTo`, when supplied
+6. If `providerLogout` is true for a user session, build an upstream provider
+   logout URL when the session provider supports one
+7. Delete the Trellis session
+8. Kick all matching live NATS connections and delete connection entries
+9. Return `{ success: true, redirectTo? }` for JSON mode, or redirect with 303
+   for redirect mode when a redirect target exists
+
+Rules:
+
+- valid `returnTo` values must be HTTP(S) and must match the bound app origin
+  for app-bound user sessions; sessions without an app origin may use explicit
+  configured `web.origins`
+- wildcard `web.origins` entries do not authorize logout return targets
+- apps cannot provide arbitrary external return URLs
+- provider logout is optional and best-effort: unsupported providers, missing
+  provider metadata, and provider URL construction failures still complete
+  Trellis session revocation unless the requested return URL itself is invalid
+- `redirectTo`, when returned, is the upstream provider logout URL when provider
+  logout is available, otherwise the validated `returnTo`
+- browser apps should use Trellis browser auth helpers for this endpoint and
+  clear local browser session-key storage before navigating away
+
 ## Identity Authority RPCs
 
 ### rpc.Auth.IdentityGrants.List
@@ -602,13 +661,7 @@ capabilities beyond successful authenticated user context:
 Request:
 
 ```ts
-{
-  browser?: {
-    returnTo?: string;
-    includeProviderLogout?: boolean;
-    federatedProviderLogout?: boolean;
-  };
-}
+{}
 ```
 
 Response:
@@ -616,7 +669,6 @@ Response:
 ```ts
 {
   success: boolean;
-  providerLogoutUrl?: string;
 }
 ```
 
@@ -624,37 +676,22 @@ Behavior:
 
 1. Validate headers
 2. Lookup session
-3. If browser provider logout is requested, validate `browser.returnTo` when
-   supplied and build a provider logout URL only when the session provider
-   supports one
-4. Delete the Trellis session
-5. Kick all matching live NATS connections
-6. Delete connection entries
-7. Return `{ success: true }` and, when provider logout URL construction
-   succeeded, `providerLogoutUrl`
+3. Delete the Trellis session
+4. Kick matching live NATS connections for the caller scope
+5. Delete matching connection entries
+6. Return `{ success: true }`
 
-Browser logout fields are optional so existing non-browser callers may continue
-to send `{}`. `browser.returnTo` is the final browser location after upstream
-provider logout. `browser.includeProviderLogout` opts into OIDC/provider logout;
-without it, logout revokes only the Trellis session.
-`browser.federatedProviderLogout` requests provider-specific upstream federation
-logout and is honored only when the configured provider allows it.
+`Auth.Sessions.Logout` is terminal Trellis session logout for the authenticated
+RPC caller. It does not carry browser/provider logout metadata and does not
+construct provider logout URLs. Browser apps that need provider logout use
+`POST /auth/sessions/logout` instead.
 
 Rules:
 
-- invalid `browser.returnTo` is rejected as `invalid_request` and the Trellis
-  session is not deleted
-- valid `browser.returnTo` values must be HTTP(S) and must match the bound app
-  origin for app-bound sessions; sessions without an app origin may use explicit
-  configured `web.origins`
-- wildcard `web.origins` entries do not authorize logout return targets
-- apps cannot provide arbitrary external return URLs
-- provider logout is optional and best-effort: unsupported providers, disabled
-  provider logout, missing provider metadata, and provider URL construction
-  failures still complete Trellis session revocation
-- `providerLogoutUrl`, when returned, is produced after local session
-  revocation; browser apps navigate to it after clearing local browser
-  session-key storage
+- callers may send `{}`; extra request fields are reserved for additive schema
+  evolution and are ignored by the terminal logout behavior
+- provider logout is intentionally not modeled on this RPC because the active
+  app connection may be terminated by the logout itself
 
 Digest changes are handled by restarting the normal auth request flow with the
 current contract body. Runtime reconnect auth is regenerated locally from

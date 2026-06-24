@@ -8,13 +8,20 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.19] - 2026-06-24
+
 ### Added
 
-- Added browser/provider logout support for Trellis user sessions, including
-  optional OIDC/Auth0 logout URL construction, validated post-logout return
-  targets, browser logout helpers, Console sign-out integration, and generated
-  TypeScript/Rust auth SDK models for the extended `Auth.Sessions.Logout`
-  request and response.
+- Added signed HTTP browser logout for Trellis user sessions, including
+  session-key logout proofs, validated post-logout return targets, optional
+  OIDC/Auth0 provider logout redirects, browser logout helpers, Console sign-out
+  integration, and service-author guidance updates.
+
+### Changed
+
+- Changed `Auth.Sessions.Logout` into terminal Trellis session revocation only;
+  browser apps should use the signed HTTP logout helpers for provider logout
+  instead of calling the active app connection RPC.
 
 ## [0.10.18] - 2026-06-22
 

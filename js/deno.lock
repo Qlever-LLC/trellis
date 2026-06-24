@@ -2400,11 +2400,11 @@
       }
     },
     "links": {
-      "jsr:@qlever-llc/trellis/sdk/auth@0.10.18": {},
-      "jsr:@qlever-llc/trellis/sdk/core@0.10.18": {},
-      "jsr:@qlever-llc/trellis/sdk/health@0.10.18": {},
-      "jsr:@qlever-llc/trellis/sdk/jobs@0.10.18": {},
-      "jsr:@qlever-llc/trellis/sdk/state@0.10.18": {}
+      "jsr:@qlever-llc/trellis/sdk/auth@0.10.19": {},
+      "jsr:@qlever-llc/trellis/sdk/core@0.10.19": {},
+      "jsr:@qlever-llc/trellis/sdk/health@0.10.19": {},
+      "jsr:@qlever-llc/trellis/sdk/jobs@0.10.19": {},
+      "jsr:@qlever-llc/trellis/sdk/state@0.10.19": {}
     }
   }
 }
