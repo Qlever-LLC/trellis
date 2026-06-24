@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto, afterNavigate } from "$app/navigation";
-  import { base } from "$app/paths";
+  import { base, resolve } from "$app/paths";
   import { page } from "$app/state";
   import type { AuthSessionsMeOutput } from "@qlever-llc/trellis/sdk/auth";
   import type { Snippet } from "svelte";
@@ -14,7 +14,7 @@
   } from "../control-panel.ts";
   import { errorMessage } from "../format";
   import { NotificationsController, setNotifications } from "../notifications.svelte";
-  import { getAuthenticatedUser, getConnection, getTrellis, logoutAuthenticatedUser, type ConnectionStatus } from "../trellis";
+  import { getAuthenticatedUser, getConnection, getTrellis, type ConnectionStatus } from "../trellis";
   import AppShell from "./AppShell.svelte";
 
   type Props = {
@@ -32,10 +32,6 @@
   let navSections = $state<NavSection[]>(getVisibleNavSections(null));
   let profile = $state<AuthSessionsMeOutput["user"] | null>(null);
   let profileLoaded = $state(false);
-
-  function resolveAppPath(path: string): string {
-    return `${base}${path}`;
-  }
 
   function toRoutePath(pathname: string): string {
     if (base && pathname === base) {
@@ -55,7 +51,7 @@
     }
 
     authFailure = "Administrator access is required for operations pages.";
-    void goto(resolveAppPath("/profile"));
+    void goto(resolve("/profile"));
   }
 
   async function authMe() {
@@ -63,7 +59,7 @@
   }
 
   async function signOut(): Promise<void> {
-    await auth.signOut((input) => logoutAuthenticatedUser(trellis, input));
+    await auth.signOut();
   }
 
   afterNavigate(({ to }) => {

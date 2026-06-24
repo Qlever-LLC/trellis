@@ -5,12 +5,7 @@ import {
   getTrellis,
   type TrellisConsoleClient,
 } from "./trellis-context.svelte.ts";
-export {
-  type AuthSessionsLogoutInput,
-  type AuthSessionsLogoutResponse,
-  getAuthenticatedUser,
-  logoutAuthenticatedUser,
-} from "./trellis-context.svelte.ts";
+export { getAuthenticatedUser } from "./trellis-context.svelte.ts";
 
 export { contract, getConnection, getTrellis };
 
