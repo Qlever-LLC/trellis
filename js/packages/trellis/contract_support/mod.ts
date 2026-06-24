@@ -89,6 +89,7 @@ export {
   type CursorPage,
   type CursorPageInfo,
   CursorPageInfoSchema,
+  type CursorPageResponseSchema,
   CursorPageSchema,
   type CursorQuery,
   type CursorQueryOptions,

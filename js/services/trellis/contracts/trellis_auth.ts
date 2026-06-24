@@ -151,7 +151,7 @@ import {
   ServiceDeploymentSchema,
   ServiceInstanceSchema,
 } from "../../../packages/trellis/auth/protocol.ts";
-import { defineServiceContract } from "@qlever-llc/trellis/contracts";
+import { defineServiceContract } from "@qlever-llc/trellis";
 import {
   HealthResponseSchema,
   HealthRpcSchema,

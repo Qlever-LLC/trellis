@@ -1,4 +1,4 @@
-import { isJsonValue, type JsonValue } from "@qlever-llc/trellis/contracts";
+import { isJsonValue, type JsonValue } from "@qlever-llc/trellis";
 
 export type AppliedApiContractDetail = {
   contract: JsonValue;

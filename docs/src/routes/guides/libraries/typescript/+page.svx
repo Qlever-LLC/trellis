@@ -8,11 +8,21 @@ see the [API Reference](/api).
 
 Common packages are:
 
-- `@qlever-llc/trellis`: core TypeScript runtime, contract helpers, client
-  connection helpers, generated Trellis-owned SDK re-exports, Result helpers,
-  operations, transfers, state, jobs, and errors.
+- `@qlever-llc/trellis`: browser-safe shared root for normal contract authoring,
+  app/device clients, Result helpers, operations, transfers, state, health, and
+  errors.
+- `@qlever-llc/trellis/contracts`: advanced contract-model and tooling surface;
+  use the root package for ordinary `defineAppContract(...)`,
+  `defineServiceContract(...)`, `defineDeviceContract(...)`, and
+  `defineAgentContract(...)` imports.
 - `@qlever-llc/trellis/service/deno`: service runtime entrypoint for Deno.
 - `@qlever-llc/trellis/service/node`: service runtime entrypoint for Node.js.
+- `@qlever-llc/trellis/service`: service-side helper types and utilities such as
+  outbox/inbox repositories.
+- `@qlever-llc/trellis/auth/browser`: browser auth helpers for login, portal, and
+  logout flows.
+- `@qlever-llc/trellis/device/deno`: Deno device activation helpers.
+- `@qlever-llc/trellis/sdk/*`: Trellis-owned generated SDK surfaces.
 - `@qlever-llc/trellis/telemetry`: OpenTelemetry helpers for tracing,
   propagation, initialization, and Trellis error metrics.
 - `@qlever-llc/trellis-svelte`: Svelte and SvelteKit integration helpers.
@@ -481,7 +491,7 @@ module shape Trellis needs: `CONTRACT`, `CONTRACT_DIGEST`, `API.trellis`, and
 contract metadata.
 
 ```ts
-import { defineAppContract } from "@qlever-llc/trellis/contracts";
+import { defineAppContract } from "@qlever-llc/trellis";
 import { sdk as orders } from "#trellis-generated-sdk/orders";
 
 const contract = defineAppContract(() => ({

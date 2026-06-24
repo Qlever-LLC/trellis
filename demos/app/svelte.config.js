@@ -26,6 +26,10 @@ const config = {
         rootDir,
         "../../js/packages/trellis/auth.ts",
       ),
+      "@qlever-llc/trellis/browser": resolve(
+        rootDir,
+        "../../js/packages/trellis/browser.ts",
+      ),
       "@qlever-llc/trellis/contracts": resolve(
         rootDir,
         "../../js/packages/trellis/contracts.ts",

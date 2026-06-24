@@ -43,6 +43,9 @@ Rules:
   `createTrellisApp(...)` require a module-shaped contract with `CONTRACT`,
   `CONTRACT_DIGEST`, and `API.trellis`. The source contract returned by
   `defineAppContract(...)` already has that shape.
+- Import `defineAppContract(...)` from the browser-safe `@qlever-llc/trellis`
+  root. Keep generated SDKs and browser auth helpers on their explicit subpaths
+  or local workspace aliases.
 - Do not pass the generated `CONTRACT` manifest constant to `createTrellisApp`.
   `CONTRACT` alone is only the manifest and will fail with missing `API`, digest,
   or metadata properties.
@@ -73,7 +76,7 @@ helper there. Do not depend on broad generated surfaces just to make client type
 appear.
 
 ```ts
-import { defineAppContract } from "@qlever-llc/trellis/contracts";
+import { defineAppContract } from "@qlever-llc/trellis";
 import { sdk as orders } from "#trellis-generated-sdk/orders";
 
 const contract = defineAppContract(() => ({

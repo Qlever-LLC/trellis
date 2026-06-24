@@ -1,7 +1,7 @@
 import { assertEquals, assertExists, assertInstanceOf } from "@std/assert";
 import { Type } from "typebox";
 import { AsyncResult, err, ok, type Result } from "../../result/mod.ts";
-import type { JsonValue } from "@qlever-llc/trellis/contracts";
+import type { JsonValue } from "@qlever-llc/trellis";
 import { defineServiceContract } from "../contract.ts";
 import {
   controlSubject,

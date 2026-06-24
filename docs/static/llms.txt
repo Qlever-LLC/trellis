@@ -27,6 +27,10 @@ commands.
 - Caller-visible communication is contract-driven and runs through generated
   RPC, event, feed, and operation surfaces. Resources, state, files, and jobs are
   contract-declared runtime surfaces; jobs are service-private background work.
+- Normal TypeScript contract authoring imports `define*Contract(...)` helpers from
+  the browser-safe `@qlever-llc/trellis` root. Runtime-specific helpers,
+  generated SDKs, browser auth, device activation, telemetry, and advanced
+  contract tooling stay on explicit subpaths.
 - Durable event processing uses contract-declared `eventConsumers` resources;
   `eventConsumers.<group>.uses` selects dependency events by top-level `uses`
   alias, and `eventConsumers.<group>.self` selects events owned by the same

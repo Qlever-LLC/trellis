@@ -8,7 +8,7 @@ import type {
   ContractUses,
   TrellisContractV1,
 } from "@qlever-llc/trellis/contracts";
-import { canonicalizeJson, isJsonValue } from "@qlever-llc/trellis/contracts";
+import { canonicalizeJson, isJsonValue } from "@qlever-llc/trellis";
 
 import {
   mergeCompatibleSchemaRefs,

@@ -74,6 +74,10 @@ Rules:
 
 - generated SDKs, manifests, and package outputs belong under the service repo's
   generated output locations; do not edit generated files by hand
+- normal TypeScript contract authoring imports `define*Contract(...)` helpers from
+  the browser-safe `@qlever-llc/trellis` root. Runtime-specific helpers,
+  generated SDKs, browser auth, device activation, telemetry, and advanced
+  contract tooling stay on explicit subpaths.
 - TypeScript service repos should expose Trellis generation as
   `deno task prepare`
 - TypeScript browser app repos should expose Trellis generation through the local

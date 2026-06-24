@@ -1,4 +1,4 @@
-import { defineServiceContract } from "@qlever-llc/trellis/contracts";
+import { defineServiceContract } from "@qlever-llc/trellis";
 import * as schemas from "./src/schemas/index.ts";
 
 export const contract = defineServiceContract(

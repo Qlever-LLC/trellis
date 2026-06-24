@@ -1,4 +1,4 @@
-import { defineServiceContract } from "@qlever-llc/trellis/contracts";
+import { defineServiceContract } from "@qlever-llc/trellis";
 import { HealthHeartbeatSchema } from "@qlever-llc/trellis/health";
 
 const schemas = {

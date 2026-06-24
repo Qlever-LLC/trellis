@@ -1,4 +1,4 @@
-import { defineAppContract } from "@qlever-llc/trellis/contracts";
+import { defineAppContract } from "@qlever-llc/trellis";
 
 import { sdk as trellisDemoService } from "@trellis-sdk/trellis-demo-service";
 import * as schemas from "./schemas/index.ts";

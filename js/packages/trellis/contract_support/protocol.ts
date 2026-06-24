@@ -1,4 +1,9 @@
-import Type, { type Static, type TSchema } from "typebox";
+import Type, {
+  type Static,
+  type TArray,
+  type TObject,
+  type TSchema,
+} from "typebox";
 
 function parseIsoDate(value: string): Date {
   const parsed = new Date(value);
@@ -356,8 +361,16 @@ export const CursorPageInfoSchema = Type.Object({
 /** Cursor pagination response metadata. */
 export type CursorPageInfo = Static<typeof CursorPageInfoSchema>;
 
+/** TypeBox schema for a cursor page response with typed items. */
+export type CursorPageResponseSchema<TItem extends TSchema> = TObject<{
+  items: TArray<TItem>;
+  page: typeof CursorPageInfoSchema;
+}>;
+
 /** Create a schema for a cursor page response with typed items. */
-export function CursorPageSchema<TItem extends TSchema>(item: TItem) {
+export function CursorPageSchema<TItem extends TSchema>(
+  item: TItem,
+): CursorPageResponseSchema<TItem> {
   return Type.Object({
     items: Type.Array(item, { default: [] }),
     page: CursorPageInfoSchema,
