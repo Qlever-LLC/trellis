@@ -8,6 +8,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.21] - 2026-06-25
+
+### Fixed
+
+- Rebuilt and republished `@qlever-llc/trellis` so the npm
+  `@qlever-llc/trellis/auth/browser` subpath includes `completeSessionLogout`,
+  and added npm smoke coverage for that export.
+
 ## [0.10.20] - 2026-06-24
 
 ### Added
