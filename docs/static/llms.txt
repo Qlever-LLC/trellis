@@ -84,6 +84,8 @@ commands.
 - TypeScript AI guide: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-typescript.txt
 - Svelte AI guide: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-svelte.txt
 - Rust AI guide: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-rust.txt
-- Copyable AGENTS template: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/templates/trellis-service-AGENTS.md
+- TypeScript AGENTS template: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/templates/trellis-service-typescript-AGENTS.md
+- Rust AGENTS template: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/templates/trellis-service-rust-AGENTS.md
+- Combined AGENTS template: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/templates/trellis-service-AGENTS.md
 - Docs-site path for the human guide: `/guides/ai/developing-trellis-services`
 - Docs-site path for the API reference: `/api`

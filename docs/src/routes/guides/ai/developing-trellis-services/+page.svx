@@ -8,7 +8,9 @@ Use the raw files as stable, pasteable references:
 - TypeScript guide: <https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-typescript.txt>
 - Svelte guide: <https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-svelte.txt>
 - Rust guide: <https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-rust.txt>
-- AGENTS template: `/templates/trellis-service-AGENTS.md`
+- TypeScript AGENTS template: `/templates/trellis-service-typescript-AGENTS.md`
+- Rust AGENTS template: `/templates/trellis-service-rust-AGENTS.md`
+- Combined AGENTS template: `/templates/trellis-service-AGENTS.md`
 
 ## When to use each file
 
@@ -29,24 +31,26 @@ Use `llms-svelte.txt` for Svelte or SvelteKit browser apps that need
 `createTrellisApp`, `TrellisProvider`, generated SDK aliases for contract
 `uses`, Vite aliases, or `svelte-check` path-map guidance.
 
-Copy `templates/trellis-service-AGENTS.md` into a service repository as
-`AGENTS.md`, then fill in the local commands and paths. Keep local rules in that
-file; keep Trellis-wide rules linked to the raw guides.
+Copy the TypeScript or Rust `templates/*-AGENTS.md` file into a service
+repository as `AGENTS.md`, then fill in the local commands and paths. Keep local
+rules in that file; keep Trellis-wide rules linked to the raw guides. The
+combined template remains available for mixed-language repositories.
 
 ## Recommended setup for a service repo
 
-1. Copy the template:
+1. Copy the matching template:
 
    ```sh
    curl -fsSL \
-     https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/templates/trellis-service-AGENTS.md \
+     https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/templates/trellis-service-typescript-AGENTS.md \
      -o AGENTS.md
    ```
 
 2. Fill in the repository-specific contract path, generation command, format
    command, typecheck command, test command, run command, and migration command.
-3. Link the raw `llms.txt`, `llms-full.txt`, and the relevant language-specific
-   guide URL from any other AI-facing project instructions.
+3. Link the raw `llms.txt`, `llms-full.txt`, the relevant language-specific
+   guide URL, and the matching AGENTS template from any other AI-facing project
+   instructions.
 4. Ask agents to read the short guide for all Trellis tasks, the full guide for
    contract or runtime-surface changes, and the relevant language guide before
    editing service or browser app code.
