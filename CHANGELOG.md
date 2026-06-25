@@ -8,6 +8,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.22] - 2026-06-25
+
+### Changed
+
+- Split service-author AI guidance into shared, TypeScript-specific, and
+  Rust-specific AGENTS templates so service repos can copy the smallest relevant
+  guidance set.
+
 ## [0.10.21] - 2026-06-25
 
 ### Fixed
