@@ -2236,7 +2236,7 @@
       "npm:zod@^4.1.11"
     ],
     "links": {
-      "jsr:@qlever-llc/result@0.10.19": {
+      "jsr:@qlever-llc/result@0.10.20": {
         "dependencies": [
           "npm:typebox@^1.1.33",
           "npm:ulid@^3.0.2"
@@ -2252,7 +2252,7 @@
           "npm:vite@*"
         ]
       },
-      "jsr:@qlever-llc/trellis-service-trellis@0.10.19": {
+      "jsr:@qlever-llc/trellis-service-trellis@0.10.20": {
         "dependencies": [
           "npm:@libsql/client@0.15.15",
           "npm:@noble/hashes@1.8.0",
@@ -2261,16 +2261,16 @@
           "npm:ulid@^3.0.2"
         ]
       },
-      "jsr:@qlever-llc/trellis-svelte@0.10.19": {},
-      "jsr:@qlever-llc/trellis/sdk/auth@0.10.19": {},
-      "jsr:@qlever-llc/trellis/sdk/core@0.10.19": {},
-      "jsr:@qlever-llc/trellis/sdk/health@0.10.19": {},
-      "jsr:@qlever-llc/trellis/sdk/jobs@0.10.19": {},
-      "jsr:@qlever-llc/trellis/sdk/state@0.10.19": {},
-      "jsr:@qlever-llc/trellis@0.10.19": {},
+      "jsr:@qlever-llc/trellis-svelte@0.10.20": {},
+      "jsr:@qlever-llc/trellis/sdk/auth@0.10.20": {},
+      "jsr:@qlever-llc/trellis/sdk/core@0.10.20": {},
+      "jsr:@qlever-llc/trellis/sdk/health@0.10.20": {},
+      "jsr:@qlever-llc/trellis/sdk/jobs@0.10.20": {},
+      "jsr:@qlever-llc/trellis/sdk/state@0.10.20": {},
+      "jsr:@qlever-llc/trellis@0.10.20": {},
       "jsr:@trellis-sdk/trellis-demo-service@0.0.0": {
         "dependencies": [
-          "jsr:@qlever-llc/trellis@~0.10.19"
+          "jsr:@qlever-llc/trellis@~0.10.20"
         ]
       }
     }

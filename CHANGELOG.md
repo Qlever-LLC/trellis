@@ -8,6 +8,26 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.20] - 2026-06-24
+
+### Added
+
+- Added the exported `CursorPageResponseSchema<TItem>` TypeBox return type for
+  `CursorPageSchema(...)` so service contracts can name cursor-page response
+  schemas cleanly.
+- Added public API regression coverage for root contract helpers and retained
+  auth, browser auth, device, service, and generated SDK subpath exports.
+
+### Changed
+
+- Clarified TypeScript package guidance so ordinary `define*Contract(...)`
+  imports use the browser-safe `@qlever-llc/trellis` root, with advanced
+  contract tooling and runtime-specific helpers kept on explicit subpaths.
+- Updated Trellis service, console, and demo TypeScript imports to use the
+  browser-safe root for normal contract helpers and shared JSON/schema helpers.
+- Updated demo workspace import maps and Vite aliases for the Trellis browser,
+  device, service, and error subpaths used by the local examples.
+
 ## [0.10.19] - 2026-06-24
 
 ### Added
