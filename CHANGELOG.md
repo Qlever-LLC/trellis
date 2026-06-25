@@ -15,6 +15,8 @@ and this project adheres to
 - Rebuilt and republished `@qlever-llc/trellis` so the npm
   `@qlever-llc/trellis/auth/browser` subpath includes `completeSessionLogout`,
   and added npm smoke coverage for that export.
+- Fixed the Trellis service image build by freezing the login portal static
+  build to `js/deno.lock` and using Deno 2.8.3 for the portal build stage.
 
 ## [0.10.20] - 2026-06-24
 
