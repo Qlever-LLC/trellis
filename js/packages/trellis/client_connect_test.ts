@@ -8,6 +8,7 @@ import type { SessionKeyHandle } from "./auth/browser.ts";
 import {
   ClientAuthHandledError,
   connectClientWithDeps,
+  TrellisClient,
 } from "./client_connect.ts";
 import type { TrellisAPI } from "./contracts.ts";
 import { AuthError, TransportError } from "./errors/index.ts";
@@ -1280,6 +1281,81 @@ Deno.test("connectClientWithDeps redirects browser to loginUrl using ClientAuthH
     assertEquals(
       testWindow.location.href,
       "https://trellis.example.com/_trellis/portal/users/login?flowId=flow-handled",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    Object.defineProperty(globalThis, "window", {
+      value: originalWindow,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "document", {
+      value: originalDocument,
+      configurable: true,
+      writable: true,
+    });
+  }
+});
+
+Deno.test("TrellisClient.connect preserves ClientAuthHandledError through orThrow", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  const originalDocument = globalThis.document;
+  const handle = await createBrowserHandle();
+  const testWindow = {
+    location: {
+      href: "https://app.example.com/callback?redirectTo=%2Fdashboard",
+    },
+  };
+
+  try {
+    Object.defineProperty(globalThis, "window", {
+      value: testWindow,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "document", {
+      value: {},
+      configurable: true,
+      writable: true,
+    });
+    globalThis.fetch = ((input: URL | Request | string, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/bootstrap/client")) {
+        return Promise.resolve(
+          Response.json({ status: "auth_required", serverNow: 1_700_000_000 }),
+        );
+      }
+      if (url.endsWith("/auth/requests")) {
+        const body = JSON.parse(String(init?.body ?? "null")) as {
+          redirectTo?: string;
+        };
+        assertEquals(body.redirectTo, "https://app.example.com/dashboard");
+        return Promise.resolve(
+          Response.json({
+            status: "flow_started",
+            flowId: "flow-handled",
+            loginUrl:
+              "https://trellis.example.com/_trellis/portal/users/login?flowId=flow-handled",
+          }),
+        );
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    await assertRejects(
+      () =>
+        TrellisClient.connect({
+          trellisUrl: "https://trellis.example.com",
+          contract: testContract,
+          auth: {
+            handle,
+            currentUrl: new URL(testWindow.location.href),
+          },
+        }).orThrow(),
+      ClientAuthHandledError,
+      "Client authentication was handled by the caller",
     );
   } finally {
     globalThis.fetch = originalFetch;

@@ -48,7 +48,12 @@ import {
   type TrellisOpts,
 } from "./trellis.ts";
 import { TransportError } from "./errors/index.ts";
-import { AsyncResult, Result, UnexpectedError } from "@qlever-llc/result";
+import {
+  AsyncResult,
+  BaseError,
+  Result,
+  UnexpectedError,
+} from "@qlever-llc/result";
 import { type StaticDecode, Type } from "typebox";
 import { Value } from "typebox/value";
 import {
@@ -115,13 +120,19 @@ function createConnectedClient(args: {
 
 function clientConnectResult<T>(
   promise: Promise<T>,
-): AsyncResult<T, TransportError | UnexpectedError> {
+): AsyncResult<T, TransportError | UnexpectedError | ClientAuthHandledError> {
   return AsyncResult.from(
     promise.then(
-      (value): Result<T, TransportError | UnexpectedError> => Result.ok(value),
-      (cause): Result<T, TransportError | UnexpectedError> =>
+      (value): Result<
+        T,
+        TransportError | UnexpectedError | ClientAuthHandledError
+      > => Result.ok(value),
+      (
+        cause,
+      ): Result<T, TransportError | UnexpectedError | ClientAuthHandledError> =>
         Result.err(
-          cause instanceof TransportError
+          cause instanceof TransportError ||
+            cause instanceof ClientAuthHandledError
             ? cause
             : new UnexpectedError({ cause }),
         ),
@@ -165,13 +176,27 @@ export type ClientAuthContinuation =
   | { status: "handled" }
   | void;
 
+export type ClientAuthHandledErrorData = {
+  id: string;
+  type: "ClientAuthHandledError";
+  message: string;
+  context?: Record<string, unknown>;
+  traceId?: string;
+};
+
 /**
  * Error raised when client authentication was delegated to caller-owned routing.
  */
-export class ClientAuthHandledError extends Error {
+export class ClientAuthHandledError
+  extends BaseError<ClientAuthHandledErrorData> {
+  override readonly name = "ClientAuthHandledError" as const;
+
   constructor() {
     super("Client authentication was handled by the caller");
-    this.name = "ClientAuthHandledError";
+  }
+
+  override toSerializable(): ClientAuthHandledErrorData {
+    return this.baseSerializable() as ClientAuthHandledErrorData;
   }
 }
 
@@ -1369,11 +1394,14 @@ export class TrellisClient {
     ConnectedTrellisClient<
       TContract & { API: { trellis: ApiForClientContract<TContract> } }
     >,
-    TransportError | UnexpectedError
+    TransportError | UnexpectedError | ClientAuthHandledError
   >;
   static connect(
     args: TrellisClientConnectArgs,
-  ): AsyncResult<unknown, TransportError | UnexpectedError> {
+  ): AsyncResult<
+    unknown,
+    TransportError | UnexpectedError | ClientAuthHandledError
+  > {
     return clientConnectResult(connectClientWithDeps(args, defaultDeps));
   }
 }
