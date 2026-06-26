@@ -98,6 +98,10 @@ type MaterializedAuthorityStorage = {
 
 type ImplementationOfferStorage = {
   get(offerId: string): Promise<ImplementationOffer | undefined>;
+  listByDeployment(
+    deploymentKind: ImplementationOffer["deploymentKind"],
+    deploymentId: string,
+  ): Promise<ImplementationOffer[]>;
   put(record: ImplementationOffer): Promise<void>;
   latestAcceptedByLineage(
     lineageKey: string,
@@ -802,16 +806,20 @@ async function acceptedServiceOfferRecord(input: {
     input.contract.id,
   );
   const existing = await input.storage.get(offerId);
-  const latestAccepted = await input.storage.latestAcceptedByLineage(
-    lineageKey,
+  const deploymentOffers = await input.storage.listByDeployment(
+    "service",
+    input.deploymentId,
   );
-  if (
-    latestAccepted && latestAccepted.offerId !== offerId &&
-    latestAccepted.contractDigest !== input.digest &&
-    latestAccepted.staleAt === null
-  ) {
+  for (const offer of deploymentOffers) {
+    if (
+      offer.lineageKey !== lineageKey || offer.status !== "accepted" ||
+      offer.offerId === offerId || offer.contractDigest === input.digest ||
+      offer.staleAt !== null
+    ) {
+      continue;
+    }
     await input.storage.put({
-      ...latestAccepted,
+      ...offer,
       liveness: "disconnected",
       lastRefreshedAt: input.now,
       staleAt: input.now,

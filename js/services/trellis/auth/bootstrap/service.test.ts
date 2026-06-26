@@ -568,6 +568,11 @@ async function createApp(args: {
       implementationOfferStorage: {
         get: async (offerId) =>
           offers.find((offer) => offer.offerId === offerId),
+        listByDeployment: async (deploymentKind, deploymentId) =>
+          offers.filter((offer) =>
+            offer.deploymentKind === deploymentKind &&
+            offer.deploymentId === deploymentId
+          ),
         put: async (offer) => {
           const index = offers.findIndex((stored) =>
             stored.offerId === offer.offerId
@@ -997,6 +1002,41 @@ Deno.test("POST /bootstrap/service accepts compatible same-contract digest repla
   );
   assertEquals(staleOffer?.staleAt, TEST_NOW);
   assertEquals(staleOffer?.liveness, "disconnected");
+});
+
+Deno.test("POST /bootstrap/service stales older active offers when refreshing newer digest", async () => {
+  const oldContract = await validatedContract(baseContract());
+  const newContract = await validatedContract(compatibleMetadataContract());
+  const setup = await createApp({
+    initialOffers: [
+      serviceOffer(oldContract, { acceptedAt: "2026-01-01T00:00:00.000Z" }),
+      serviceOffer(newContract, {
+        acceptedAt: "2026-01-01T00:00:01.000Z",
+        liveness: "disconnected",
+        staleAt: "2026-01-01T00:00:02.000Z",
+      }),
+    ],
+    initialBindings: [kvBinding("cache")],
+  });
+
+  const response = await setup.bootstrap({
+    contractId: newContract.contract.id,
+    contractDigest: newContract.digest,
+    contract: newContract.contract,
+  });
+
+  assertEquals(response.status, 200);
+  assertEquals(
+    setup.offers.find((offer) => offer.contractDigest === oldContract.digest)
+      ?.staleAt,
+    TEST_NOW,
+  );
+  assertEquals(
+    setup.offers.find((offer) => offer.contractDigest === newContract.digest)
+      ?.staleAt,
+    null,
+  );
+  assertEquals(setup.offers.at(-1)?.contractDigest, newContract.digest);
 });
 
 Deno.test("POST /bootstrap/service accepts older digest when it remains effective", async () => {
