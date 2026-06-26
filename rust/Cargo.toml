@@ -48,6 +48,7 @@ ed25519-dalek = "2.2.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 rusqlite = { version = "0.37.0", features = ["bundled"] }
+rustls = { version = "0.23.40", default-features = false, features = ["ring", "std"] }
 sha2 = "0.11.0"
 thiserror = "2.0.18"
 tokio = { version = "1.51.1", features = ["macros", "rt-multi-thread", "time"] }
@@ -58,7 +59,7 @@ clap = { version = "4.6.0", features = ["derive"] }
 clap_complete = "4.6.0"
 comfy-table = "7.2.2"
 heck = "0.5.0"
-jsonschema = "0.46.0"
+jsonschema = { version = "0.46.0", default-features = false }
 miette = { version = "7.6.0", features = ["fancy"] }
 owo-colors = "4.3.0"
 tracing = "0.1.44"

@@ -17,7 +17,7 @@ hkdf = "0.13.0"
 nkeys = "0.4"
 postgres = "0.19.12"
 rand = "0.10.0"
-reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls"] }
+reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls-no-provider"] }
 rusqlite.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
