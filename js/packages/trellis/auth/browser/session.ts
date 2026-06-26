@@ -6,6 +6,10 @@ import {
   utf8,
 } from "../utils.ts";
 import { createProof } from "../proof.ts";
+import {
+  buildLogoutSignaturePayload,
+  type LogoutSignaturePayloadInput,
+} from "../schemas.ts";
 import { buildNatsConnectSignaturePayload } from "../session_auth.ts";
 import {
   deleteKeyPair,
@@ -154,6 +158,17 @@ export async function natsConnectSigForIat(
     utf8(
       `nats-connect:${buildNatsConnectSignaturePayload(iat, contractDigest)}`,
     ),
+  );
+  const sig = await signBytes(handle, digest);
+  return base64urlEncode(sig);
+}
+
+export async function logoutSessionSig(
+  handle: SessionKeyHandle,
+  input: LogoutSignaturePayloadInput,
+): Promise<string> {
+  const digest = await sha256(
+    utf8(`logout-session:${buildLogoutSignaturePayload(input)}`),
   );
   const sig = await signBytes(handle, digest);
   return base64urlEncode(sig);

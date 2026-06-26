@@ -59,6 +59,13 @@ Deno.test("portalRedirectLocation returns auth-owned redirect locations", () => 
     "https://app.example.com/callback?authError=approval_denied",
   );
   assertEquals(portalRedirectLocation({ status: "expired" }), null);
+  assertEquals(
+    portalRedirectLocation({
+      status: "expired",
+      returnLocation: "https://app.example.com/callback",
+    }),
+    "https://app.example.com/callback",
+  );
 });
 
 Deno.test("fetchPortalFlowState returns auth-owned portal state directly", async () => {

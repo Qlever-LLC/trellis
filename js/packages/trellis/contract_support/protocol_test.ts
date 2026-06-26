@@ -5,6 +5,7 @@ import { Value } from "typebox/value";
 import {
   buildCursorPage,
   buildPageResponse,
+  type CursorPageResponseSchema,
   CursorPageSchema,
   CursorQuerySchema,
   normalizeCursorQuery,
@@ -23,7 +24,10 @@ Deno.test("cursor query schema accepts cursor and optional limit", () => {
 });
 
 Deno.test("cursor page schema wraps typed items and page info", () => {
-  const schema = CursorPageSchema(Type.Object({ id: Type.String() }));
+  const itemSchema = Type.Object({ id: Type.String() });
+  const schema: CursorPageResponseSchema<typeof itemSchema> = CursorPageSchema(
+    itemSchema,
+  );
 
   assertEquals(
     Value.Check(schema, { items: [{ id: "item_1" }], page: {} }),

@@ -8,6 +8,94 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.22] - 2026-06-25
+
+### Changed
+
+- Split service-author AI guidance into shared, TypeScript-specific, and
+  Rust-specific AGENTS templates so service repos can copy the smallest relevant
+  guidance set.
+
+## [0.10.21] - 2026-06-25
+
+### Fixed
+
+- Rebuilt and republished `@qlever-llc/trellis` so the npm
+  `@qlever-llc/trellis/auth/browser` subpath includes `completeSessionLogout`,
+  and added npm smoke coverage for that export.
+- Fixed the Trellis service image build by freezing the login portal static
+  build to `js/deno.lock` and using Deno 2.8.3 for the portal build stage.
+
+## [0.10.20] - 2026-06-24
+
+### Added
+
+- Added the exported `CursorPageResponseSchema<TItem>` TypeBox return type for
+  `CursorPageSchema(...)` so service contracts can name cursor-page response
+  schemas cleanly.
+- Added public API regression coverage for root contract helpers and retained
+  auth, browser auth, device, service, and generated SDK subpath exports.
+
+### Changed
+
+- Clarified TypeScript package guidance so ordinary `define*Contract(...)`
+  imports use the browser-safe `@qlever-llc/trellis` root, with advanced
+  contract tooling and runtime-specific helpers kept on explicit subpaths.
+- Updated Trellis service, console, and demo TypeScript imports to use the
+  browser-safe root for normal contract helpers and shared JSON/schema helpers.
+- Updated demo workspace import maps and Vite aliases for the Trellis browser,
+  device, service, and error subpaths used by the local examples.
+
+## [0.10.19] - 2026-06-24
+
+### Added
+
+- Added signed HTTP browser logout for Trellis user sessions, including
+  session-key logout proofs, validated post-logout return targets, optional
+  OIDC/Auth0 provider logout redirects, browser logout helpers, Console sign-out
+  integration, and service-author guidance updates.
+
+### Changed
+
+- Changed `Auth.Sessions.Logout` into terminal Trellis session revocation only;
+  browser apps should use the signed HTTP logout helpers for provider logout
+  instead of calling the active app connection RPC.
+
+## [0.10.18] - 2026-06-22
+
+### Changed
+
+- Changed the public deployment authority protocol so proposal and desired-state
+  `needs` are grouped by `contracts`, `surfaces`, `capabilities`, and
+  `resources`, and materialized authority `grants` are grouped by
+  `capabilities`, `surfaces`, and `nats`. The TypeScript
+  `DeploymentAuthorityNeed` union was replaced by `DeploymentAuthorityNeeds` and
+  family-specific need types.
+- Added browser auth recovery classification helpers and Svelte provider hooks
+  so browser apps can handle stale sessions, expired auth flows, and
+  auth-required reconnects by restarting sign-in instead of showing terminal
+  connection errors.
+
+### Fixed
+
+- Repaired stale or obsolete persisted materialized-authority projections
+  through storage upgrade and reconciliation while preserving the rule that
+  runtime permissions require current materialization.
+- Fixed stale Trellis browser sessions and expired browser login flows across
+  the Console, login portal, and Svelte provider surfaces so recoverable auth
+  failures clear local session state, return users to sign-in, and avoid brief
+  intermediate loading-card flicker during callback handoff.
+- Fixed OAuth browser callbacks so flows with already-satisfied approval and
+  capabilities redirect directly back to the app instead of forcing another
+  login-portal approval step.
+- Fixed login portal route management so disabled selectors can be reclaimed by
+  a different portal, and Console route edits can update selector fields by
+  replacing the old selector after the new route is saved.
+- Fixed capability and authority displays by de-duplicating capability catalog
+  entries, counting grouped materialized grants correctly in Console, and hiding
+  raw capability keys from the login portal's primary insufficient-access copy
+  when no capability metadata is available.
+
 ## [0.10.18-rc.1] - 2026-06-13
 
 ### Changed

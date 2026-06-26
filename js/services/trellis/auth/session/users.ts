@@ -64,14 +64,21 @@ type CapabilityDefinitionStorage = {
   listEnabled(): Promise<DeploymentAuthorityCapabilityDefinition[]>;
 };
 
+type CapabilityCatalogEntry = DeploymentAuthorityCapabilityDefinition | {
+  key: string;
+  displayName: string;
+  description: string;
+  source: "platform";
+};
+
 const ACCOUNT_PAGE_LIMIT = 100;
 
-const PLATFORM_CAPABILITIES = [{
+const PLATFORM_CAPABILITIES: CapabilityCatalogEntry[] = [{
   key: "admin",
   displayName: "Administer Trellis",
   description:
     "Manage Trellis users, sessions, deployments, and runtime policy.",
-  source: "platform" as const,
+  source: "platform",
 }];
 
 function capabilitySortParts(capability: {
@@ -86,6 +93,29 @@ function capabilitySortParts(capability: {
     capability.contractId ?? "",
     capability.contractDigest ?? "",
   ];
+}
+
+function compareCapabilityCatalogEntries(
+  left: CapabilityCatalogEntry,
+  right: CapabilityCatalogEntry,
+): number {
+  const leftParts = capabilitySortParts(left);
+  const rightParts = capabilitySortParts(right);
+  for (const [index, leftPart] of leftParts.entries()) {
+    const compared = leftPart.localeCompare(rightParts[index] ?? "");
+    if (compared !== 0) return compared;
+  }
+  return 0;
+}
+
+function uniqueCapabilityCatalogEntries(
+  entries: CapabilityCatalogEntry[],
+): CapabilityCatalogEntry[] {
+  const byKey = new Map<string, CapabilityCatalogEntry>();
+  for (const entry of entries) {
+    if (!byKey.has(entry.key)) byKey.set(entry.key, entry);
+  }
+  return [...byKey.values()];
 }
 
 function requireUserCaller(caller: {
@@ -397,18 +427,10 @@ export function createAuthCapabilitiesListHandler(
       "RPC request",
     );
 
-    const capabilities = [
+    const capabilities = uniqueCapabilityCatalogEntries([
       ...PLATFORM_CAPABILITIES,
       ...(await capabilityDefinitions.listEnabled()),
-    ].sort((left, right) => {
-      const leftParts = capabilitySortParts(left);
-      const rightParts = capabilitySortParts(right);
-      for (const [index, leftPart] of leftParts.entries()) {
-        const compared = leftPart.localeCompare(rightParts[index] ?? "");
-        if (compared !== 0) return compared;
-      }
-      return 0;
-    });
+    ].sort(compareCapabilityCatalogEntries));
 
     const offset = input.offset ?? 0;
     return Result.ok(listPage(

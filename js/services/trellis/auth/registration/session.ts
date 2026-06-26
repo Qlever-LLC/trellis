@@ -1,5 +1,6 @@
 import { createKick } from "../callout/kick.ts";
 import { createServiceLookup } from "../admin/service_lookup.ts";
+import type { Config } from "../../config.ts";
 import {
   createAuthConnectionsKickHandler,
   createAuthConnectionsListHandler,
@@ -32,6 +33,7 @@ type RevokeSessionEnvelope = Parameters<RevokeSessionHandler> extends [
   : never;
 
 export async function registerSessionRpcs(deps: {
+  config: Config;
   trellis: RpcRegistrar & AuthRuntimeDeps["trellis"];
   sessionStorage: SqlSessionRepository;
   userStorage: SqlUserProjectionRepository;
@@ -106,7 +108,7 @@ export async function registerSessionRpcs(deps: {
       logger: deps.logger,
       sessionStorage: deps.sessionStorage,
       connectionsKV: deps.connectionsKV,
-      natsSystem: deps.natsSystem,
+      kick,
     }),
   );
   await deps.trellis.handle.rpc.auth.sessionsList(

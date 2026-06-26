@@ -38,6 +38,10 @@ Rules:
 - every TypeScript contract source loaded by Trellis generation should
   default-export the `defineServiceContract(...)`, `defineAppContract(...)`,
   `defineAgentContract(...)`, or `defineDeviceContract(...)` result
+- import those normal contract helpers from the browser-safe
+  `@qlever-llc/trellis` root. Keep service runtime, device activation,
+  browser-auth, telemetry, generated SDK, and advanced contract tooling imports on
+  their explicit subpaths.
 - `deno.json` should expose Trellis generation through `deno task prepare`
 - the `prepare` task value should call the Trellis generator, for example
   `deno run -A @qlever-llc/trellis/generate prepare .`
@@ -86,6 +90,12 @@ handles. Use generated `rpc`, `event`, `feed`, `operation`, `state`, and
 `transfer` surfaces for communication, `service.kv` / `service.store` /
 `service.jobs` for service-owned resources, and `connection` for lifecycle status
 or shutdown.
+
+For browser app sign-out, use Trellis browser auth helpers so the app signs and
+POSTs the logout request over HTTP before navigating to any returned redirect.
+Do not call `Auth.Sessions.Logout` from the active app connection for normal
+browser logout, and let Trellis validate `returnTo` and build provider logout
+URLs instead of hard-coding IdP endpoints.
 
 ## Register handlers with `service.handle`
 
@@ -140,8 +150,8 @@ await app.handle.rpc.orders.get(async ({ input, client, deps }) => {
   envelopes. Offset pagination uses `PageRequestSchema`,
   `PageResponseSchema(entry)`, `normalizePageQuery(...)`, and
   `buildPageResponse(...)`. Stable ID/keyset pagination uses `CursorQuerySchema`,
-  `CursorPageSchema(item)`, `normalizeCursorQuery(...)`, and
-  `buildCursorPage(...)`.
+  `CursorPageSchema(item)`, `CursorPageResponseSchema<TItem>`,
+  `normalizeCursorQuery(...)`, and `buildCursorPage(...)`.
 - Return declared business errors through `Result` values. Use `.orThrow()` only
   at process boundaries where throwing is intentional.
 

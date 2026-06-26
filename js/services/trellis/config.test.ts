@@ -98,7 +98,13 @@ Deno.test("auth config loads structured provider map from file", async () => {
             "clientSecretFile": "./auth0.secret",
             "displayName": "Company SSO",
             "scopes": ["openid", "profile", "email",],
-            "organization": "org_krishi"
+            "organization": "org_krishi",
+            "logout": {
+              "enabled": true,
+              "endpoint": "https://tenant.example.auth0.com/logout",
+              "mode": "auth0",
+              "allowFederated": true
+            }
           },
         },
       },
@@ -154,6 +160,58 @@ Deno.test("auth config loads structured provider map from file", async () => {
         "email",
       ]);
       assertEquals(cfg.oauth.providers.auth0.organization, "org_krishi");
+      assertEquals(cfg.oauth.providers.auth0.logout, {
+        enabled: true,
+        endpoint: "https://tenant.example.auth0.com/logout",
+        mode: "auth0",
+        allowFederated: true,
+      });
+    },
+  );
+});
+
+Deno.test("auth config defaults OIDC logout fields when configured", async () => {
+  await withTempConfig(
+    `{
+      "nats": {
+        "servers": "localhost",
+        "auth": { "credsPath": "/tmp/auth.creds" },
+        "system": { "credsPath": "/tmp/system.creds" },
+        "trellis": { "credsPath": "/tmp/trellis.creds" },
+        "sentinelCredsPath": "/tmp/sentinel.creds",
+        "authCallout": {
+          "issuer": { "nkey": "AAAUZNB6EFNV5BTZEE3FUNQIZ2OFAD7NALJZ3RQY3TCOSFREMANAGSER", "signingSeedFile": "./issuer.seed" },
+          "target": { "nkey": "ADQCP2XPU3CAS2PLQKLSHQXWR64JEMOXLV53ABO7ERDTDV5QHJ4RUCSY", "signingSeedFile": "./target.seed" },
+          "sxSeedFile": "./sx.seed"
+        }
+      },
+      "sessionKeySeedFile": "./session.seed",
+      "client": { "natsServers": ["ws://localhost:8080"] },
+      "oauth": {
+        "redirectBase": "http://localhost:3000/auth/callback",
+        "providers": {
+          "auth0": {
+            "type": "oidc",
+            "issuer": "https://tenant.example.auth0.com/",
+            "clientId": "auth0-client",
+            "clientSecretFile": "./auth0.secret",
+            "logout": {}
+          }
+        }
+      }
+    }`,
+    async (configPath) => {
+      const cfg = await loadAuthConfigFromFile(configPath);
+      const provider = cfg.oauth.providers.auth0;
+
+      if (provider.type !== "oidc") {
+        throw new Error("expected auth0 to be configured as oidc");
+      }
+      assertEquals(provider.logout, {
+        enabled: false,
+        mode: "oidc",
+        allowFederated: false,
+      });
     },
   );
 });

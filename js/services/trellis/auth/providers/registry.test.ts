@@ -71,6 +71,12 @@ function createConfig(): Config {
           displayName: "Company SSO",
           scopes: ["openid", "deployment", "email"],
           organization: "org_krishi",
+          logout: {
+            enabled: true,
+            endpoint: "https://tenant.example.auth0.com/logout",
+            mode: "auth0",
+            allowFederated: true,
+          },
         },
       },
     },
@@ -86,6 +92,12 @@ Deno.test("createProviders builds configured GitHub and OIDC providers", () => {
   assertEquals(providers.github.displayName, "GitHub");
   assertEquals(providers.auth0.displayName, "Company SSO");
   assertEquals(providers.auth0.organization, "org_krishi");
+  assertEquals(providers.auth0.logout, {
+    enabled: true,
+    endpoint: "https://tenant.example.auth0.com/logout",
+    mode: "auth0",
+    allowFederated: true,
+  });
   assertEquals(
     providers.auth0.getRedirectUri(),
     "http://localhost:3000/auth/callback/auth0",

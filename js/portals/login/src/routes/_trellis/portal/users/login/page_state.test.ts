@@ -1,15 +1,21 @@
 import { assertEquals, assertRejects } from "@std/assert";
 
 import {
+  GENERIC_MISSING_CAPABILITY_LABEL,
   isFederatedRegistrationAvailable,
   isFederatedRegistrationProvider,
   isLocalRegistrationAvailable,
   localLoginErrorMessage,
   localRegistrationErrorMessage,
+  MISSING_PORTAL_FLOW_ID_ERROR,
+  portalCapabilityDisplayName,
+  portalReturnLocation,
   shouldOfferPortalReturnLink,
+  shouldShowPortalExpiredState,
   shouldStayOnPortalCompletionPage,
   submitLocalLogin,
   submitLocalRegistration,
+  visiblePortalFlowError,
 } from "./page_state.ts";
 
 Deno.test("shouldStayOnPortalCompletionPage keeps same-page detached completion in portal", () => {
@@ -57,6 +63,67 @@ Deno.test("shouldOfferPortalReturnLink still allows returning to app callbacks",
       "http://localhost:4173/callback?flowId=flow-1",
     ),
     true,
+  );
+});
+
+Deno.test("portalReturnLocation uses expired flow return location when present", () => {
+  assertEquals(
+    portalReturnLocation(
+      { status: "expired", returnLocation: "https://app.example.com/login" },
+      "https://auth.example.com",
+    ),
+    "https://app.example.com/login",
+  );
+});
+
+Deno.test("portalReturnLocation keeps detached expired flow on portal fallback", () => {
+  assertEquals(
+    portalReturnLocation({ status: "expired" }, "https://auth.example.com"),
+    "https://auth.example.com",
+  );
+});
+
+Deno.test("missing portal flow id maps to expired state without raw error", () => {
+  assertEquals(
+    shouldShowPortalExpiredState(MISSING_PORTAL_FLOW_ID_ERROR),
+    true,
+  );
+  assertEquals(visiblePortalFlowError(MISSING_PORTAL_FLOW_ID_ERROR), null);
+});
+
+Deno.test("recoverable shared expired-flow classification maps to expired portal state", () => {
+  assertEquals(
+    shouldShowPortalExpiredState("Trellis sign-in did not complete.", {
+      kind: "recoverable_expired_flow",
+      recoverable: true,
+      reason: "flow_expired",
+    }),
+    true,
+  );
+  assertEquals(
+    visiblePortalFlowError("Trellis sign-in did not complete.", {
+      kind: "recoverable_expired_flow",
+      recoverable: true,
+      reason: "flow_expired",
+    }),
+    null,
+  );
+});
+
+Deno.test("insufficient capabilities stay user-safe in primary display", () => {
+  const rawCapability = "workspace::workspace.read_sensitive";
+  assertEquals(
+    portalCapabilityDisplayName({}, rawCapability),
+    GENERIC_MISSING_CAPABILITY_LABEL,
+  );
+  assertEquals(
+    portalCapabilityDisplayName({
+      [rawCapability]: {
+        displayName: "Workspace profile access",
+        description: "Read workspace profile details.",
+      },
+    }, rawCapability),
+    "Workspace profile access",
   );
 });
 

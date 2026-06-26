@@ -601,7 +601,7 @@ Deno.test("auth start auto-approves contract changes when current session author
     }),
     getApprovalResolution: async () => resolutionFixture(),
     planContract: async () => resolutionFixture().plan,
-    bindApprovedSession: async () => {
+    bindApprovedSession: async (args) => {
       bindCalls += 1;
       return {
         status: "bound",

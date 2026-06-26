@@ -30,7 +30,6 @@
     "npm:typebox@^1.0.15": "1.1.37",
     "npm:typebox@^1.1.33": "1.1.37",
     "npm:typescript@6.0.3": "6.0.3",
-    "npm:ulid@^3.0.2": "3.0.2",
     "npm:vite@*": "8.0.10_@types+node@25.6.0",
     "npm:vite@8.0.10": "8.0.10_@types+node@25.6.0"
   },
@@ -737,10 +736,6 @@
       "integrity": "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==",
       "bin": true
     },
-    "ulid@3.0.2": {
-      "integrity": "sha512-yu26mwteFYzBAot7KVMqFGCVpsF6g8wXfJzQUHvu1no3+rRRSFcSV2nKeYvNPLD2J4b08jYBDhHUjeH0ygIl9w==",
-      "bin": true
-    },
     "undici-types@7.19.2": {
       "integrity": "sha512-qYVnV5OEm2AW8cJMCpdV20CDyaN3g0AjDlOGf1OW4iaDEx8MwdtChUp4zu4H0VP3nDRF/8RKWH+IPp9uW0YGZg=="
     },
@@ -810,7 +805,12 @@
       "npm:vite@8.0.10"
     ],
     "links": {
-      "jsr:@qlever-llc/result@0.9.0": {},
+      "jsr:@qlever-llc/result@0.10.19": {
+        "dependencies": [
+          "npm:typebox@^1.1.33",
+          "npm:ulid@^3.0.2"
+        ]
+      },
       "jsr:@qlever-llc/trellis-app-console@0.0.0": {
         "dependencies": [
           "npm:vite@*"
@@ -821,7 +821,7 @@
           "npm:vite@*"
         ]
       },
-      "jsr:@qlever-llc/trellis-service-trellis@0.9.0": {
+      "jsr:@qlever-llc/trellis-service-trellis@0.10.19": {
         "dependencies": [
           "npm:@libsql/client@0.15.15",
           "npm:@noble/hashes@1.8.0",
@@ -830,8 +830,18 @@
           "npm:ulid@^3.0.2"
         ]
       },
-      "jsr:@qlever-llc/trellis-svelte@0.9.0": {},
-      "jsr:@qlever-llc/trellis@0.9.0": {}
+      "jsr:@qlever-llc/trellis-svelte@0.10.19": {},
+      "jsr:@qlever-llc/trellis/sdk/auth@0.10.19": {},
+      "jsr:@qlever-llc/trellis/sdk/core@0.10.19": {},
+      "jsr:@qlever-llc/trellis/sdk/health@0.10.19": {},
+      "jsr:@qlever-llc/trellis/sdk/jobs@0.10.19": {},
+      "jsr:@qlever-llc/trellis/sdk/state@0.10.19": {},
+      "jsr:@qlever-llc/trellis@0.10.19": {},
+      "jsr:@trellis-sdk/trellis-demo-service@0.0.0": {
+        "dependencies": [
+          "jsr:@qlever-llc/trellis@~0.10.19"
+        ]
+      }
     }
   }
 }

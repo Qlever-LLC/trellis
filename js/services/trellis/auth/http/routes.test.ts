@@ -9,6 +9,7 @@ import {
   signDeviceWaitRequest,
   utf8,
 } from "@qlever-llc/trellis/auth";
+import { KVError } from "@qlever-llc/trellis";
 
 import type { Config } from "../../config.ts";
 import { createTestContracts } from "../../catalog/test_contracts.ts";
@@ -21,6 +22,7 @@ import { createLocalCredentialPassword } from "../local_credentials/passwords.ts
 import { registerDeviceActivationHttpRoutes } from "../device_activation/http.ts";
 import type {
   AccountFlow,
+  IdentityGrantRecord,
   LocalCredential,
   LoginPortalRecord,
   LoginPortalSettings,
@@ -277,6 +279,7 @@ async function registerTestRoutes(
     listPage: () => Promise.resolve([]),
     listByUser: () => Promise.resolve([]),
     listByDeployment: () => Promise.resolve([]),
+    listEnabled: () => Promise.resolve([]),
     listEnabledByContractId: () => Promise.resolve([]),
     getFirstEnabledForDeployments: () => Promise.resolve(undefined),
     ...storageOverride,
@@ -514,6 +517,249 @@ async function signedAuthStartRequest(provider?: string) {
   return request;
 }
 
+async function signedBindRequest(
+  auth: Awaited<ReturnType<typeof createAuth>>,
+  flowId: string,
+) {
+  const digest = await sha256(utf8(`bind-flow:${flowId}`));
+  return {
+    sessionKey: auth.sessionKey,
+    sig: base64urlEncode(await auth.sign(digest)),
+  };
+}
+
+function pendingBindAuth(args: {
+  sessionKey: string;
+  legacyProviderLogoutReturnTo?: string;
+}): PendingAuth & { browser?: { providerLogoutReturnTo: string } } {
+  const pending: PendingAuth = {
+    userId: "usr_oauth",
+    identity: {
+      identityId: "idn_github_user",
+      provider: "github",
+      subject: "user",
+    },
+    user: {
+      origin: "github",
+      id: "user",
+      name: "OAuth User",
+      email: "user@example.com",
+    },
+    sessionKey: args.sessionKey,
+    redirectTo: "http://localhost:5173/callback?redirectTo=%2Fprofile",
+    app: { contractId: "client.example@v1", origin: "http://localhost:5173" },
+    contract: callbackAppContract(),
+    createdAt: new Date("2026-05-09T00:00:00.000Z"),
+  };
+  return args.legacyProviderLogoutReturnTo
+    ? {
+      ...pending,
+      browser: { providerLogoutReturnTo: args.legacyProviderLogoutReturnTo },
+    }
+    : pending;
+}
+
+function recordFromObject(value: object): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value));
+}
+
+async function registerBindResponseTestRoutes(args: {
+  pending: PendingAuth;
+  provider?: Provider;
+}) {
+  const sessions = new Map<string, Session>();
+  return await registerTestRoutes(
+    {
+      flowId: "flow-bind",
+      kind: "login",
+      sessionKey: args.pending.sessionKey,
+      redirectTo: args.pending.redirectTo,
+      authToken: "token-bind",
+      app: args.pending.app,
+      contract: recordFromObject(args.pending.contract),
+      createdAt: new Date("2026-05-09T00:00:00.000Z"),
+      expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+    },
+    {
+      listByUser: (userId: string) =>
+        Promise.resolve(
+          userId === "usr_oauth" ? [storedCallbackApproval()] : [],
+        ),
+    },
+    args.provider ? { [args.provider.name]: args.provider } : {},
+    {},
+    {
+      pendingAuthKV: {
+        get: () =>
+          AsyncResult.ok({
+            value: args.pending,
+            delete: () => AsyncResult.ok(undefined),
+          }),
+        put: () => AsyncResult.ok(undefined),
+        create: () => AsyncResult.ok(undefined),
+        delete: () => AsyncResult.ok(undefined),
+        keys: () => AsyncResult.ok((async function* () {})()),
+      },
+      sessionStorage: {
+        getOneBySessionKey: (sessionKey: string) =>
+          Promise.resolve(sessions.get(sessionKey)),
+        put: (sessionKey: string, session: Session) => {
+          sessions.set(sessionKey, session);
+          return Promise.resolve(undefined);
+        },
+        deleteBySessionKey: (sessionKey: string) => {
+          sessions.delete(sessionKey);
+          return Promise.resolve(undefined);
+        },
+      },
+    },
+  );
+}
+
+function approvalCapabilities(keys: string[]) {
+  return Object.fromEntries(keys.map((key) => [key, {
+    displayName: key,
+    description: key,
+  }]));
+}
+
+function callbackAppContract(options: { requiresAudit?: boolean } = {}) {
+  const base = {
+    format: "trellis.contract.v1",
+    id: "client.example@v1",
+    displayName: "Example Client",
+    description: "Example browser client",
+    kind: "app",
+  };
+  if (!options.requiresAudit) return base;
+
+  return {
+    ...base,
+    capabilities: approvalCapabilities(["audit"]),
+    schemas: { Empty: { type: "object" } },
+    events: {
+      Audit: {
+        version: "v1",
+        subject: "events.v1.audit",
+        event: { schema: "Empty" },
+        capabilities: { publish: ["audit"] },
+      },
+    },
+  };
+}
+
+function storedCallbackApproval(): IdentityGrantRecord {
+  const answeredAt = new Date("2026-05-09T00:00:00.000Z");
+  return {
+    identityGrantId: "grant-client-example",
+    identityAuthorityId: "usr_oauth:github:user",
+    userTrellisId: "usr_oauth",
+    origin: "github",
+    id: "user",
+    identityAnchor: {
+      kind: "web",
+      contractId: "client.example@v1",
+      origin: "http://localhost:5173",
+    },
+    answer: "approved",
+    answeredAt,
+    updatedAt: answeredAt,
+    approvalEvidence: {
+      contractDigest: "digest",
+      contractId: "client.example@v1",
+      displayName: "Example Client",
+      description: "Example browser client",
+      participantKind: "app",
+      capabilities: {},
+    },
+    publishSubjects: [],
+    subscribeSubjects: [],
+  };
+}
+
+async function registerOAuthCallbackTestRoutes(options: {
+  contract?: Record<string, unknown>;
+  grants?: IdentityGrantRecord[];
+  userCapabilities?: string[];
+} = {}): Promise<Hono> {
+  const contract = options.contract ?? callbackAppContract();
+  const flowId = "flow-oauth";
+  const redirectTo = "http://localhost:5173/callback?redirectTo=%2Fprofile";
+  const account: UserAccount = {
+    userId: "usr_oauth",
+    name: "OAuth Account",
+    email: "account@example.com",
+    active: true,
+    capabilities: options.userCapabilities ?? [],
+    capabilityGroups: [],
+    createdAt: "2026-05-09T00:00:00.000Z",
+    updatedAt: "2026-05-09T00:00:00.000Z",
+  };
+  const identity: UserIdentity = {
+    identityId: "idn_github_user",
+    userId: account.userId,
+    provider: "github",
+    subject: "user",
+    displayName: "OAuth User",
+    email: "user@example.com",
+    emailVerified: true,
+    linkedAt: "2026-05-09T00:00:00.000Z",
+    lastLoginAt: null,
+  };
+  const oauthState: OAuthState = {
+    kind: "browser_login",
+    provider: "github",
+    flowId,
+    redirectTo,
+    codeVerifier: "verifier-123",
+    sessionKey: "session-local",
+    app: { contractId: "client.example@v1", origin: "http://localhost:5173" },
+    contract,
+    createdAt: new Date("2026-05-09T00:00:00.000Z"),
+  };
+
+  return await registerTestRoutes({
+    flowId,
+    kind: "login",
+    sessionKey: "session-local",
+    redirectTo,
+    authToken: undefined,
+    app: { contractId: "client.example@v1", origin: "http://localhost:5173" },
+    contract,
+    createdAt: new Date("2026-05-09T00:00:00.000Z"),
+    expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+  }, {
+    get: (id: string) =>
+      Promise.resolve(id === account.userId ? account : undefined),
+    getByProviderSubject: (provider: string, subject: string) =>
+      Promise.resolve(
+        provider === identity.provider && subject === identity.subject
+          ? identity
+          : undefined,
+      ),
+    listByUser: (userId: string) =>
+      Promise.resolve(userId === account.userId ? options.grants ?? [] : []),
+    put: (record: UserIdentity) => {
+      if (record.identityId === identity.identityId) {
+        Object.assign(identity, record);
+      }
+      return Promise.resolve(undefined);
+    },
+  }, {
+    github: testProvider("github", "GitHub"),
+  }, {
+    oauthCodeResponse: () => Promise.resolve({ accessToken: "access-token" }),
+  }, {
+    oauthStateKV: {
+      get: () =>
+        AsyncResult.ok({
+          value: oauthState,
+          delete: () => AsyncResult.ok(undefined),
+        }),
+    },
+  });
+}
+
 Deno.test({
   name: "auth HTTP routes register current auth request endpoint",
   sanitizeResources: false,
@@ -527,6 +773,42 @@ Deno.test({
 
     assertEquals(response.status, 400);
     assertEquals(await response.json(), { error: "Invalid JSON body" });
+  },
+});
+
+Deno.test({
+  name: "auth HTTP request start ignores legacy browser logout fields",
+  sanitizeResources: false,
+  fn: async () => {
+    let savedFlow: BrowserFlowRecord | undefined;
+    const app = await registerTestRoutes({}, {}, {}, {}, {
+      browserFlowsKV: {
+        get: () => AsyncResult.ok({ value: {} }),
+        put: (_key: string, value: BrowserFlowRecord) => {
+          savedFlow = value;
+          return AsyncResult.ok(undefined);
+        },
+        create: () => AsyncResult.ok(undefined),
+        delete: () => AsyncResult.ok(undefined),
+        keys: () => AsyncResult.ok((async function* () {})()),
+      },
+    });
+    const request = await signedAuthStartRequest();
+
+    const response = await app.request("http://trellis/auth/requests", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ...request,
+        browser: {
+          providerLogoutReturnTo: "http://localhost:5173/logout/complete",
+        },
+      }),
+    });
+
+    assertEquals(response.status, 200);
+    assertEquals((await response.json()).status, "flow_started");
+    assertEquals(savedFlow !== undefined && "browser" in savedFlow, false);
   },
 });
 
@@ -932,6 +1214,21 @@ Deno.test({
       "Expired browser flow",
     );
 
+    const expiredWithoutReturnApp = await registerTestRoutes(
+      { expiresAt: new Date("2020-01-01T00:00:00.000Z") },
+      {},
+      provider,
+    );
+    const expiredWithoutReturnResponse = await expiredWithoutReturnApp.request(
+      "http://trellis/auth/login/github?flowId=flow-oauth",
+    );
+
+    assertEquals(expiredWithoutReturnResponse.status, 404);
+    assertStringIncludes(
+      await expiredWithoutReturnResponse.text(),
+      "Expired browser flow",
+    );
+
     const app = await registerTestRoutes(
       { sessionKey: undefined },
       {},
@@ -947,7 +1244,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "auth HTTP OAuth login start redirects expired login flows to app",
+  name:
+    "auth HTTP OAuth login start redirects expired login flows to app without auth error",
   sanitizeResources: false,
   fn: async () => {
     const app = await registerTestRoutes(
@@ -964,10 +1262,12 @@ Deno.test({
     );
 
     assertEquals(response.status, 302);
+    const location = response.headers.get("location") ?? "";
     assertEquals(
-      response.headers.get("location"),
-      "http://localhost:5173/callback?redirectTo=%2Fprofile&authError=flow_expired",
+      location,
+      "http://localhost:5173/callback?redirectTo=%2Fprofile",
     );
+    assertEquals(new URL(location).searchParams.has("authError"), false);
   },
 });
 
@@ -1023,6 +1323,70 @@ Deno.test({
     assertEquals(
       new URL(location).searchParams.get("authError"),
       "Identity provider rejected sign-in: parameter organization is not allowed for this client",
+    );
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP OAuth callback redirects directly to app when approval is satisfied",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerOAuthCallbackTestRoutes({
+      grants: [storedCallbackApproval()],
+    });
+
+    const response = await app.request(
+      "http://trellis/auth/callback/github?state=state-123&code=code-123",
+      { headers: { cookie: "trellis_oauth=state-123" } },
+    );
+
+    assertEquals(response.status, 302);
+    assertEquals(
+      response.headers.get("location"),
+      "http://localhost:5173/callback?redirectTo=%2Fprofile&flowId=flow-oauth",
+    );
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP OAuth callback redirects to portal when approval is required",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerOAuthCallbackTestRoutes();
+
+    const response = await app.request(
+      "http://trellis/auth/callback/github?state=state-123&code=code-123",
+      { headers: { cookie: "trellis_oauth=state-123" } },
+    );
+
+    assertEquals(response.status, 302);
+    assertEquals(
+      response.headers.get("location"),
+      "http://localhost:3000/_trellis/portal/users/login?flowId=flow-oauth",
+    );
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP OAuth callback redirects to portal when capabilities are missing",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerOAuthCallbackTestRoutes({
+      contract: callbackAppContract({ requiresAudit: true }),
+    });
+
+    const response = await app.request(
+      "http://trellis/auth/callback/github?state=state-123&code=code-123",
+      { headers: { cookie: "trellis_oauth=state-123" } },
+    );
+
+    assertEquals(response.status, 302);
+    assertEquals(
+      response.headers.get("location"),
+      "http://localhost:3000/_trellis/portal/users/login?flowId=flow-oauth",
     );
   },
 });
@@ -1400,6 +1764,45 @@ Deno.test({
     assertEquals((await response.json()).providers, [
       { id: "auth0", displayName: "Qlever, LLC" },
     ]);
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP flow state returns expired return location for known expired flow",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({
+      authToken: undefined,
+      expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+      redirectTo: "http://localhost:5173/callback?redirectTo=%2Fprofile",
+    });
+
+    const response = await app.request("http://trellis/auth/flow/flow-local");
+
+    assertEquals(response.status, 200);
+    assertEquals(await response.json(), {
+      status: "expired",
+      returnLocation: "http://localhost:5173/callback?redirectTo=%2Fprofile",
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "auth HTTP flow state returns expired without return location for missing flow",
+  sanitizeResources: false,
+  fn: async () => {
+    const app = await registerTestRoutes({}, {}, {}, {}, {
+      browserFlowsKV: {
+        get: () => AsyncResult.err(new KVError({ operation: "get" })),
+      },
+    });
+
+    const response = await app.request("http://trellis/auth/flow/missing");
+
+    assertEquals(response.status, 200);
+    assertEquals(await response.json(), { status: "expired" });
   },
 });
 
@@ -1804,6 +2207,73 @@ Deno.test({
       response.headers.get("access-control-allow-credentials"),
       "true",
     );
+  },
+});
+
+Deno.test({
+  name: "auth HTTP bind ignores legacy provider logout return URLs",
+  sanitizeResources: false,
+  fn: async () => {
+    const auth = await createAuth({ sessionKeySeed: "A".repeat(43) });
+    const returnTo = "http://localhost:5173/logout/complete";
+    let providerLogoutCalls = 0;
+    const provider = Object.assign(testProvider("github", "GitHub"), {
+      buildLogoutUrl() {
+        providerLogoutCalls += 1;
+        return Promise.resolve("https://github.example/logout");
+      },
+    });
+    const app = await registerBindResponseTestRoutes({
+      pending: pendingBindAuth({
+        sessionKey: auth.sessionKey,
+        legacyProviderLogoutReturnTo: returnTo,
+      }),
+      provider,
+    });
+
+    const response = await app.request(
+      "http://trellis/auth/flow/flow-bind/bind",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(await signedBindRequest(auth, "flow-bind")),
+      },
+    );
+
+    assertEquals(response.status, 200);
+    const body = await response.json();
+    assertEquals(body.status, "bound");
+    assertEquals(body.providerLogout, undefined);
+    assertEquals(providerLogoutCalls, 0);
+  },
+});
+
+Deno.test({
+  name: "auth HTTP bind omits provider logout when return URL is absent",
+  sanitizeResources: false,
+  fn: async () => {
+    const auth = await createAuth({ sessionKeySeed: "A".repeat(43) });
+    const provider = Object.assign(testProvider("github", "GitHub"), {
+      buildLogoutUrl: () => Promise.resolve("https://github.example/logout"),
+    });
+    const app = await registerBindResponseTestRoutes({
+      pending: pendingBindAuth({ sessionKey: auth.sessionKey }),
+      provider,
+    });
+
+    const response = await app.request(
+      "http://trellis/auth/flow/flow-bind/bind",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(await signedBindRequest(auth, "flow-bind")),
+      },
+    );
+
+    assertEquals(response.status, 200);
+    const body = await response.json();
+    assertEquals(body.status, "bound");
+    assertEquals(body.providerLogout, undefined);
   },
 });
 

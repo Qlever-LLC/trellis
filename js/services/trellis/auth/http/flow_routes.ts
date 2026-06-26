@@ -111,7 +111,7 @@ export function registerFlowRoutes(
     const registration = context.registrationAvailability(selectedPortal);
     let resolution = null;
     let redirectLocation = undefined;
-    let returnLocation = undefined;
+    let returnLocation = flow.redirectTo;
     if (flow.authToken) {
       const pendingEntry = await pendingAuthKV.get(
         await hashKey(flow.authToken),

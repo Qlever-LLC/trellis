@@ -11,6 +11,136 @@ export type CreatePortalFlowConfig = AuthConfig & {
   getUrl?: () => URL;
 };
 
+export type PortalFlowErrorClassification = {
+  kind: string;
+  recoverable: boolean;
+  reason?: string;
+  code?: string;
+};
+
+type ErrorSignal = {
+  code?: string;
+  reason?: string;
+  message?: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
+}
+
+function normalize(value: string): string {
+  return value.trim().toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
+}
+
+const EXPIRED_FLOW_VALUES = new Set([
+  "flow_expired",
+  "flow_not_found",
+  "missing_flow",
+  "missing_flow_id",
+  "expired",
+  "trellis.auth.bind_expired",
+  "trellis.auth.flow_expired",
+]);
+
+const AUTH_REQUIRED_VALUES = new Set([
+  "auth_required",
+  "session_not_found",
+  "session_expired",
+  "trellis.bootstrap.auth_required",
+  "trellis.auth.session_not_found",
+  "trellis.auth.session_expired",
+]);
+
+function stringSignal(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function collectErrorSignals(error: unknown): ErrorSignal[] {
+  const values: unknown[] = [error];
+  if (isRecord(error) && isRecord(error.context)) values.push(error.context);
+
+  return values.flatMap((value) => {
+    if (typeof value === "string") return [{ message: value }];
+    if (!isRecord(value)) return [];
+
+    const code = stringSignal(value, "code") ?? stringSignal(value, "error");
+    const reason = stringSignal(value, "reason") ??
+      stringSignal(value, "status");
+    const message = value instanceof Error
+      ? value.message
+      : stringSignal(value, "causeMessage") ?? stringSignal(value, "message");
+
+    return code || reason || message
+      ? [{
+        ...(code ? { code } : {}),
+        ...(reason ? { reason } : {}),
+        ...(message ? { message } : {}),
+      }]
+      : [];
+  });
+}
+
+function matchingSignal(
+  signals: ErrorSignal[],
+  values: ReadonlySet<string>,
+  messages: readonly RegExp[],
+): ErrorSignal | undefined {
+  return signals.find((signal) => {
+    const identifiers = [signal.code, signal.reason];
+    return identifiers.some((value) => value && values.has(normalize(value))) ||
+      messages.some((pattern) =>
+        pattern.test(signal.message?.toLowerCase() ?? "")
+      );
+  });
+}
+
+function classification(
+  kind: string,
+  recoverable: boolean,
+  signal?: ErrorSignal,
+): PortalFlowErrorClassification {
+  const reason = signal?.reason ?? signal?.code ?? signal?.message;
+  return {
+    kind,
+    recoverable,
+    ...(reason ? { reason } : {}),
+    ...(signal?.code ? { code: signal.code } : {}),
+  };
+}
+
+function classifyPortalFlowError(
+  error: unknown,
+): PortalFlowErrorClassification {
+  const signals = collectErrorSignals(error);
+  const expiredFlow = matchingSignal(signals, EXPIRED_FLOW_VALUES, [
+    /flow .*expired/,
+    /flow .*not found/,
+    /missing flow/,
+    /sign\-in .*expired/,
+  ]);
+  if (expiredFlow) {
+    return classification("recoverable_expired_flow", true, expiredFlow);
+  }
+
+  const authRequired = matchingSignal(signals, AUTH_REQUIRED_VALUES, [
+    /auth required/,
+    /session .*expired/,
+    /session .*not found/,
+    /requires sign\-in/,
+    /requires signin/,
+    /requires authentication/,
+  ]);
+  if (authRequired) {
+    return classification("recoverable_auth_required", true, authRequired);
+  }
+
+  return classification("unknown", false);
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -24,6 +154,7 @@ export class PortalFlowController {
   state: PortalFlowState | null = $state(null);
   loading = $state(false);
   error: string | null = $state(null);
+  errorClassification: PortalFlowErrorClassification | null = $state(null);
 
   #config: AuthConfig;
   #getUrl: () => URL;
@@ -36,6 +167,7 @@ export class PortalFlowController {
   async load(): Promise<PortalFlowState | null> {
     this.loading = true;
     this.error = null;
+    this.errorClassification = null;
     this.state = null;
 
     try {
@@ -51,6 +183,7 @@ export class PortalFlowController {
       return state;
     } catch (error) {
       this.error = errorMessage(error);
+      this.errorClassification = classifyPortalFlowError(error);
       this.state = null;
       return null;
     } finally {
@@ -79,11 +212,13 @@ export class PortalFlowController {
   ): Promise<PortalFlowState | null> {
     if (!this.flowId) {
       this.error = "Missing flow id.";
+      this.errorClassification = null;
       return null;
     }
 
     this.loading = true;
     this.error = null;
+    this.errorClassification = null;
 
     try {
       const state = await submitPortalApproval(
@@ -95,6 +230,7 @@ export class PortalFlowController {
       return state;
     } catch (error) {
       this.error = errorMessage(error);
+      this.errorClassification = classifyPortalFlowError(error);
       return null;
     } finally {
       this.loading = false;

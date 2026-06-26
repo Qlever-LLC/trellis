@@ -18,9 +18,11 @@ export type TrellisProviderProps<
   client?: ClientOpts;
   children: Snippet;
   loading?: Snippet;
+  recoveringAuth?: Snippet;
   error?: Snippet<[unknown]>;
   onAuthRequired?: (
     loginUrl: string,
     context: ClientAuthRequiredContext,
   ) => void | Promise<void>;
+  onRecoverableAuthError?: (error: unknown) => void | Promise<void>;
 };

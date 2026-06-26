@@ -1,22 +1,28 @@
 # AGENTS.md
 
 This repository contains a Trellis service. Follow these local rules before
-making changes.
+making changes. Prefer the TypeScript or Rust AGENTS template for
+single-language repositories; use this combined template for mixed-language
+repositories.
 
-## Trellis AI references
+## Start Here
 
-- Short Trellis AI guide:
-  https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt
-- Full Trellis AI guide:
-  https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-full.txt
-- TypeScript Trellis AI guide:
-  https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-typescript.txt
-- Rust Trellis AI guide:
-  https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-rust.txt
-
-Read the short guide at the start of any Trellis task. Read the full guide
-before changing contracts, service handlers, events, operations, generated SDKs,
-or outbox/inbox code. Then read the language-specific guide for this repository.
+- Use the Trellis source that matches this checkout's Trellis dependency.
+- If Trellis dependencies are linked locally, first resolve the Trellis git
+  root: `git -C <linked-package-path> rev-parse --show-toplevel`.
+- Read Trellis AI guides relative to that git root, not relative to the linked
+  package directory: `<trellis-repo-root>/docs/static/llms.txt`,
+  `<trellis-repo-root>/docs/static/llms-full.txt`, and the relevant
+  language-specific guide under `<trellis-repo-root>/docs/static/`.
+- If no local Trellis path is linked, read the same files from the matching
+  Trellis release branch:
+  `https://raw.githubusercontent.com/qlever-llc/trellis/<release-branch>/docs/static/llms.txt`,
+  `https://raw.githubusercontent.com/qlever-llc/trellis/<release-branch>/docs/static/llms-full.txt`,
+  and the matching `llms-typescript.txt` or `llms-rust.txt` guide.
+- Read the short guide at the start of any Trellis task. Read the full guide
+  before changing contracts, service handlers, events, operations, generated
+  SDKs, or outbox/inbox code. Then read the language-specific guide for this
+  repository.
 
 ## Local project rules
 
@@ -33,6 +39,9 @@ or outbox/inbox code. Then read the language-specific guide for this repository.
   atomically with service-local durable state.
 - Do not add compatibility shims or migrations unless the task asks for them or
   existing deployed data requires them.
+- When upgrading the Trellis version, compare this repository's `AGENTS.md`
+  against the new Trellis template for that version and propose any missing
+  guidance updates before changing broad local agent rules.
 
 ## TypeScript local rules
 

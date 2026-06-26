@@ -11,6 +11,7 @@ import {
   createAuthHealthHandler,
   createAuthRequestsValidateHandler,
   createAuthSessionsListHandler,
+  createAuthSessionsLogoutHandler,
   createAuthSessionsMeHandler,
 } from "./rpc.ts";
 import { connectionKey } from "./connections.ts";
@@ -300,6 +301,103 @@ function testUserSession(overrides: Partial<UserSession> = {}): UserSession {
     ...overrides,
   };
 }
+
+function testUserContext(sessionKey: string, identity = TEST_IDENTITY) {
+  return {
+    sessionKey,
+    caller: {
+      type: "user",
+      participantKind: "app" as const,
+      userId: TEST_USER_ID,
+      identity,
+      email: "ada@example.com",
+      name: "Ada",
+      active: true,
+      capabilities: ["admin"],
+    },
+  };
+}
+
+Deno.test("Auth.Sessions.Logout with empty input deletes session and connections without provider URL", async () => {
+  const sessionKV = new InMemoryKV<Session>();
+  const connectionsKV = new InMemoryKV<{
+    serverId: string;
+    clientId: number;
+    connectedAt: Date;
+  }>();
+  const kicked: Array<{ serverId: string; clientId: number }> = [];
+  const sessionKey = "sk_logout";
+  sessionKV.seed(sessionKey, testUserSession());
+  connectionsKV.seed(connectionKey(sessionKey, TEST_USER_ID, "user_nkey"), {
+    serverId: "n1",
+    clientId: 7,
+    connectedAt: new Date("2026-04-10T00:00:00.000Z"),
+  });
+
+  const sessionStorage = sessionStorageFromKV(sessionKV);
+  const handler = createAuthSessionsLogoutHandler({
+    logger: createTestLogger(),
+    sessionStorage,
+    connectionsKV,
+    kick: (serverId, clientId) => {
+      kicked.push({ serverId, clientId });
+      return Promise.resolve();
+    },
+  });
+
+  const value = (await handler({
+    input: {},
+    context: testUserContext(sessionKey),
+  })).take();
+  if (isErr(value)) throw value.error;
+
+  assertEquals(value, { success: true });
+  assertEquals(await sessionStorage.getOneBySessionKey(sessionKey), undefined);
+  assert(isErr(
+    await connectionsKV.get(
+      connectionKey(sessionKey, TEST_USER_ID, "user_nkey"),
+    ).take(),
+  ));
+  assertEquals(kicked, [{ serverId: "n1", clientId: 7 }]);
+});
+
+Deno.test("Auth.Sessions.Logout deletes connection records when kick rejects", async () => {
+  const sessionKV = new InMemoryKV<Session>();
+  const connectionsKV = new InMemoryKV<{
+    serverId: string;
+    clientId: number;
+    connectedAt: Date;
+  }>();
+  const sessionKey = "sk_logout_rejecting_kick";
+  sessionKV.seed(sessionKey, testUserSession());
+  connectionsKV.seed(connectionKey(sessionKey, TEST_USER_ID, "user_nkey"), {
+    serverId: "n1",
+    clientId: 7,
+    connectedAt: new Date("2026-04-10T00:00:00.000Z"),
+  });
+
+  const sessionStorage = sessionStorageFromKV(sessionKV);
+  const handler = createAuthSessionsLogoutHandler({
+    logger: createTestLogger(),
+    sessionStorage,
+    connectionsKV,
+    kick: () => Promise.reject(new Error("kick failed")),
+  });
+
+  const value = (await handler({
+    input: {},
+    context: testUserContext(sessionKey),
+  })).take();
+  if (isErr(value)) throw value.error;
+
+  assertEquals(value, { success: true });
+  assertEquals(await sessionStorage.getOneBySessionKey(sessionKey), undefined);
+  assert(isErr(
+    await connectionsKV.get(
+      connectionKey(sessionKey, TEST_USER_ID, "user_nkey"),
+    ).take(),
+  ));
+});
 
 Deno.test("Auth.Sessions.Me returns user, device, and service envelopes", async () => {
   const sessionKV = new InMemoryKV<Session>();

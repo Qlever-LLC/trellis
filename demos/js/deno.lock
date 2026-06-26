@@ -58,9 +58,11 @@
     "npm:@nats-io/obj@^3.3.1": "3.3.1",
     "npm:@nats-io/transport-node@^3.3.1": "3.3.1",
     "npm:@opentelemetry/api@^1.9.1": "1.9.1",
+    "npm:@opentelemetry/exporter-metrics-otlp-proto@0.215": "0.215.0_@opentelemetry+api@1.9.1",
     "npm:@opentelemetry/exporter-trace-otlp-http@0.56": "0.56.0_@opentelemetry+api@1.9.1",
     "npm:@opentelemetry/exporter-trace-otlp-proto@0.215": "0.215.0_@opentelemetry+api@1.9.1",
     "npm:@opentelemetry/resources@^2.7.0": "2.7.0_@opentelemetry+api@1.9.1",
+    "npm:@opentelemetry/sdk-metrics@^2.7.0": "2.7.0_@opentelemetry+api@1.9.1",
     "npm:@opentelemetry/sdk-trace-base@^2.7.0": "2.7.0_@opentelemetry+api@1.9.1",
     "npm:@opentelemetry/sdk-trace-node@^2.7.0": "2.7.0_@opentelemetry+api@1.9.1",
     "npm:@opentelemetry/semantic-conventions@^1.40.0": "1.40.0",
@@ -105,8 +107,8 @@
     "npm:tweetnacl@1.0.3": "1.0.3",
     "npm:tweetnacl@^1.0.3": "1.0.3",
     "npm:type-fest@^5.0.1": "5.5.0",
-    "npm:typebox@^1.0.15": "1.2.8",
-    "npm:typebox@^1.1.33": "1.2.8",
+    "npm:typebox@^1.0.15": "1.3.0",
+    "npm:typebox@^1.1.33": "1.3.0",
     "npm:typescript@6.0.3": "6.0.3",
     "npm:ulid@^3.0.1": "3.0.2",
     "npm:ulid@^3.0.2": "3.0.2",
@@ -562,6 +564,29 @@
       "dependencies": [
         "@opentelemetry/api",
         "@opentelemetry/semantic-conventions@1.40.0"
+      ]
+    },
+    "@opentelemetry/exporter-metrics-otlp-http@0.215.0_@opentelemetry+api@1.9.1": {
+      "integrity": "sha512-FRydO5j7MWnXK9ghfykKxiSM8I5UeiicK/UNl3/mv86xoEKkb+LKz1I3WXgkuYVOQf22VNqbPO58s2W1mVWtEQ==",
+      "dependencies": [
+        "@opentelemetry/api",
+        "@opentelemetry/core@2.7.0_@opentelemetry+api@1.9.1",
+        "@opentelemetry/otlp-exporter-base@0.215.0_@opentelemetry+api@1.9.1",
+        "@opentelemetry/otlp-transformer@0.215.0_@opentelemetry+api@1.9.1",
+        "@opentelemetry/resources@2.7.0_@opentelemetry+api@1.9.1",
+        "@opentelemetry/sdk-metrics@2.7.0_@opentelemetry+api@1.9.1"
+      ]
+    },
+    "@opentelemetry/exporter-metrics-otlp-proto@0.215.0_@opentelemetry+api@1.9.1": {
+      "integrity": "sha512-d8/Sys9MtxLbn0S+RE1pUNcuoI9ZyI4SPfOO+yskSEQiPFoKCTMwwthB8MTY4S8qxCBAWyM+P7QMX+vEIT7PZw==",
+      "dependencies": [
+        "@opentelemetry/api",
+        "@opentelemetry/core@2.7.0_@opentelemetry+api@1.9.1",
+        "@opentelemetry/exporter-metrics-otlp-http",
+        "@opentelemetry/otlp-exporter-base@0.215.0_@opentelemetry+api@1.9.1",
+        "@opentelemetry/otlp-transformer@0.215.0_@opentelemetry+api@1.9.1",
+        "@opentelemetry/resources@2.7.0_@opentelemetry+api@1.9.1",
+        "@opentelemetry/sdk-metrics@2.7.0_@opentelemetry+api@1.9.1"
       ]
     },
     "@opentelemetry/exporter-trace-otlp-http@0.56.0_@opentelemetry+api@1.9.1": {
@@ -2049,8 +2074,8 @@
         "tagged-tag"
       ]
     },
-    "typebox@1.2.8": {
-      "integrity": "sha512-rlsKhsd7L3082m9nxhFIB4Gl8jizLd/6YlFAWaz96hdV8+VJRjwYaYmDlT0jlTRwkb48SxCSSirqUtrg/HilNw=="
+    "typebox@1.3.0": {
+      "integrity": "sha512-3HaX5iZ13wSzcLSflDH1UJwaXnRghtc8LhQtKnq8qnlcnZvmGOpBOM6rY9PdyPBKNOYBpDHfE9r6BmI41fvp4g=="
     },
     "typescript@6.0.3": {
       "integrity": "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==",
@@ -2211,7 +2236,7 @@
       "npm:zod@^4.1.11"
     ],
     "links": {
-      "jsr:@qlever-llc/result@0.10.18": {
+      "jsr:@qlever-llc/result@0.10.20": {
         "dependencies": [
           "npm:typebox@^1.1.33",
           "npm:ulid@^3.0.2"
@@ -2227,7 +2252,7 @@
           "npm:vite@*"
         ]
       },
-      "jsr:@qlever-llc/trellis-service-trellis@0.10.18": {
+      "jsr:@qlever-llc/trellis-service-trellis@0.10.20": {
         "dependencies": [
           "npm:@libsql/client@0.15.15",
           "npm:@noble/hashes@1.8.0",
@@ -2236,8 +2261,18 @@
           "npm:ulid@^3.0.2"
         ]
       },
-      "jsr:@qlever-llc/trellis-svelte@0.10.18": {},
-      "jsr:@qlever-llc/trellis@0.10.18": {}
+      "jsr:@qlever-llc/trellis-svelte@0.10.20": {},
+      "jsr:@qlever-llc/trellis/sdk/auth@0.10.20": {},
+      "jsr:@qlever-llc/trellis/sdk/core@0.10.20": {},
+      "jsr:@qlever-llc/trellis/sdk/health@0.10.20": {},
+      "jsr:@qlever-llc/trellis/sdk/jobs@0.10.20": {},
+      "jsr:@qlever-llc/trellis/sdk/state@0.10.20": {},
+      "jsr:@qlever-llc/trellis@0.10.20": {},
+      "jsr:@trellis-sdk/trellis-demo-service@0.0.0": {
+        "dependencies": [
+          "jsr:@qlever-llc/trellis@~0.10.20"
+        ]
+      }
     }
   }
 }

@@ -1,5 +1,5 @@
-import type { JsonValue } from "@qlever-llc/trellis/contracts";
-import { isJsonValue } from "@qlever-llc/trellis/contracts";
+import type { JsonValue } from "@qlever-llc/trellis";
+import { isJsonValue } from "@qlever-llc/trellis";
 import { trellisIdFromOriginId } from "@qlever-llc/trellis/auth";
 import { AuthRequestsValidateResponseSchema } from "@qlever-llc/trellis/auth";
 import type { StaticDecode } from "typebox";

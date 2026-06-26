@@ -1,7 +1,7 @@
 <script lang="ts">
   import { isErr, type BaseError, type Result } from "@qlever-llc/result";
   import type { DeploymentAuthority, DeploymentAuthorityMaterialization, DeploymentAuthorityPlan } from "@qlever-llc/trellis/auth";
-  import { base, resolve } from "$app/paths";
+  import { resolve } from "$app/paths";
   import { page } from "$app/state";
   import { onMount } from "svelte";
   import DataTable from "$lib/components/DataTable.svelte";
@@ -47,7 +47,7 @@
   const request = trellis.request.bind(trellis) as AuthorityRequest;
   const selectedDeploymentId = $derived(decodeURIComponent(page.url.pathname.split("/").filter(Boolean).at(-1) ?? ""));
   const tabs: Tab[] = ["desired", "materialized", "resources", "capabilities", "instances", "plans"];
-  const authorityPlansHref = `${base}/admin/authority/plans`;
+  const authorityPlansHref = resolve("/admin/authority/plans");
   const authorityPlanPreviewLimit = 10;
 
   let loading = $state(true);
@@ -147,10 +147,6 @@
 
   function materializedStatusLabel(status: string): string {
     return status === "not-materialized" ? "not materialized" : status;
-  }
-
-  function planHref(planId: string): string {
-    return `${base}/admin/authority/plans/${encodeURIComponent(planId)}`;
   }
 
   onMount(() => {
@@ -265,7 +261,7 @@
         {:else if activeTab === "instances"}
           <DataTable><thead><tr><th>Instance</th><th>Status</th><th>Created</th></tr></thead><tbody>{#each selectedInstances as instance (instance.instanceId)}<tr><td class="trellis-identifier">{instance.instanceId}</td><td><StatusBadge label={instance.disabled ? "Disabled" : "Enabled"} status={statusVariant(instance.disabled ? "Disabled" : "Enabled")} /></td><td>{instance.createdAt ? formatDate(instance.createdAt) : "—"}</td></tr>{:else}<tr><td colspan="3"><EmptyState title="No runtime instances" description="Service runtime instances appear after they connect." /></td></tr>{/each}</tbody></DataTable>
         {:else if activeTab === "plans"}
-          <DataTable><thead><tr><th>Plan</th><th>State</th><th>Class</th><th>Diff preview</th><th>Created</th></tr></thead><tbody>{#each planRows as row (row.planId)}<tr><td><a class="trellis-identifier font-medium link-hover" href={planHref(row.planId)}>{row.planId}</a></td><td><StatusBadge label={row.state} status={statusVariant(row.state)} /></td><td><span class="badge badge-outline badge-xs">{row.classification}</span></td><td>{row.requiredContracts + row.optionalContracts} contracts · {row.requiredSurfaces + row.optionalSurfaces} surfaces · {row.resources} resources · {row.capabilities} capabilities</td><td>{formatDate(row.createdAt)}</td></tr>{:else}<tr><td colspan="5"><EmptyState title="No authority plans" description="This deployment has no pending or historical authority plans." /></td></tr>{/each}</tbody></DataTable>
+          <DataTable><thead><tr><th>Plan</th><th>State</th><th>Class</th><th>Diff preview</th><th>Created</th></tr></thead><tbody>{#each planRows as row (row.planId)}<tr><td><a class="trellis-identifier font-medium link-hover" href={resolve(`/admin/authority/plans/${encodeURIComponent(row.planId)}`)}>{row.planId}</a></td><td><StatusBadge label={row.state} status={statusVariant(row.state)} /></td><td><span class="badge badge-outline badge-xs">{row.classification}</span></td><td>{row.requiredContracts + row.optionalContracts} contracts · {row.requiredSurfaces + row.optionalSurfaces} surfaces · {row.resources} resources · {row.capabilities} capabilities</td><td>{formatDate(row.createdAt)}</td></tr>{:else}<tr><td colspan="5"><EmptyState title="No authority plans" description="This deployment has no pending or historical authority plans." /></td></tr>{/each}</tbody></DataTable>
         {/if}
       </div>
     </Panel>

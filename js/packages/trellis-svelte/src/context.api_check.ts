@@ -56,6 +56,18 @@ const generatedProviderProps: Omit<
   trellisApp: generatedApp,
 };
 
+const recoverableAuthProviderProps: Omit<
+  TrellisProviderProps<typeof testContract>,
+  "children" | "recoveringAuth"
+> = {
+  trellisApp: app,
+  onRecoverableAuthError: async (error) => {
+    if (error instanceof Error) {
+      await Promise.resolve(error.message);
+    }
+  },
+};
+
 // @ts-expect-error createTrellisApp requires an options object
 const invalidBareContractApp = createTrellisApp(testContract);
 
@@ -134,6 +146,7 @@ async function typecheckContextApi(): Promise<void> {
 
 void providerProps;
 void generatedProviderProps;
+void recoverableAuthProviderProps;
 void invalidBareContractApp;
 void invalidProviderTrellisUrl;
 void invalidProviderAppProp;

@@ -53,6 +53,11 @@ class InMemoryKV<V> {
     this.#values.set(key, value);
     return AsyncResult.ok(undefined);
   }
+
+  delete(key: string): AsyncResult<void, UnexpectedError> {
+    this.#values.delete(key);
+    return AsyncResult.ok(undefined);
+  }
 }
 
 function sessionStorageFromKV(sessionKV: InMemoryKV<Session>) {
@@ -61,7 +66,18 @@ function sessionStorageFromKV(sessionKV: InMemoryKV<Session>) {
       const entry = await sessionKV.get(sessionKey).take();
       return isErr(entry) ? undefined : entry.value;
     },
+    async deleteBySessionKey(sessionKey: string): Promise<void> {
+      sessionKV.getValue(sessionKey); // exists check
+      await sessionKV.delete(sessionKey).take();
+    },
   };
+}
+
+function sessionExists(
+  sessionKV: InMemoryKV<Session>,
+  sessionKey: string,
+): boolean {
+  return sessionKV.getValue(sessionKey) !== undefined;
 }
 
 async function createValidatedClientContract() {
@@ -116,6 +132,9 @@ async function createVerifiedApp(args?: {
   contract?: ReturnType<typeof testClientContract>;
   nowSeconds?: number;
   userProjection?: UserProjectionEntry;
+  loadUserProjectionOverride?: (
+    userId: string,
+  ) => Promise<UserProjectionEntry | null>;
 }) {
   const auth = await createAuth({ sessionKeySeed: TEST_SEED });
   const store = createTestContracts();
@@ -178,8 +197,8 @@ async function createVerifiedApp(args?: {
       },
       sentinel,
       sessionStorage: sessionStorageFromKV(sessionKV),
-      loadUserProjection: async (trellisId) =>
-        usersKV.getValue(trellisId) ?? null,
+      loadUserProjection: args?.loadUserProjectionOverride ??
+        (async (trellisId) => usersKV.getValue(trellisId) ?? null),
       verifyIdentityProof: async ({ sessionKey, iat, sig }) =>
         sessionKey === auth.sessionKey &&
         sig === await signClientBootstrapProof(TEST_SEED, iat),
@@ -187,7 +206,7 @@ async function createVerifiedApp(args?: {
     }),
   );
 
-  return { app, auth, contract: validated };
+  return { app, auth, contract: validated, sessionKV };
 }
 
 Deno.test("POST /bootstrap/client returns runtime bootstrap info for bound browser sessions", async () => {
@@ -372,8 +391,8 @@ Deno.test("POST /bootstrap/client returns auth_required when no bound user sessi
   });
 });
 
-Deno.test("POST /bootstrap/client returns not_ready when the bound user is inactive", async () => {
-  const { app, auth } = await createVerifiedApp({
+Deno.test("POST /bootstrap/client returns auth_required when the bound user is inactive and deletes the session", async () => {
+  const { app, auth, sessionKV } = await createVerifiedApp({
     userProjection: {
       origin: "github",
       id: "123",
@@ -385,6 +404,7 @@ Deno.test("POST /bootstrap/client returns not_ready when the bound user is inact
     },
   });
 
+  assertEquals(sessionExists(sessionKV, auth.sessionKey), true);
   const response = await app.request("http://trellis/bootstrap/client", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -397,17 +417,18 @@ Deno.test("POST /bootstrap/client returns not_ready when the bound user is inact
 
   assertEquals(response.status, 200);
   assertEquals(await response.json(), {
-    status: "not_ready",
-    reason: "user_inactive",
+    status: "auth_required",
     serverNow: TEST_IAT,
   });
+  assertEquals(sessionExists(sessionKV, auth.sessionKey), false);
 });
 
-Deno.test("POST /bootstrap/client returns not_ready for known non-client contracts", async () => {
-  const { app, auth } = await createVerifiedApp({
+Deno.test("POST /bootstrap/client returns auth_required for known non-client contracts and deletes the session", async () => {
+  const { app, auth, sessionKV } = await createVerifiedApp({
     contract: testClientContract("Example service contract", "service"),
   });
 
+  assertEquals(sessionExists(sessionKV, auth.sessionKey), true);
   const response = await app.request("http://trellis/bootstrap/client", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -420,10 +441,166 @@ Deno.test("POST /bootstrap/client returns not_ready for known non-client contrac
 
   assertEquals(response.status, 200);
   assertEquals(await response.json(), {
-    status: "not_ready",
-    reason: "contract_not_active",
+    status: "auth_required",
     serverNow: TEST_IAT,
   });
+  assertEquals(sessionExists(sessionKV, auth.sessionKey), false);
+});
+
+Deno.test("POST /bootstrap/client returns auth_required when user projection is missing and deletes the session", async () => {
+  const { app, auth, sessionKV } = await createVerifiedApp({
+    loadUserProjectionOverride: async () => null,
+  });
+
+  assertEquals(sessionExists(sessionKV, auth.sessionKey), true);
+  const response = await app.request("http://trellis/bootstrap/client", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      iat: TEST_IAT,
+      sig: await signClientBootstrapProof(TEST_SEED, TEST_IAT),
+    }),
+  });
+
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), {
+    status: "auth_required",
+    serverNow: TEST_IAT,
+  });
+  assertEquals(sessionExists(sessionKV, auth.sessionKey), false);
+});
+
+Deno.test("POST /bootstrap/client returns auth_required when user lacks delegated capabilities and deletes the session", async () => {
+  const { app, auth, sessionKV } = await createVerifiedApp({
+    userProjection: {
+      origin: "github",
+      id: "123",
+      name: "Example User",
+      email: "user@example.com",
+      active: true,
+      capabilities: ["some-other-cap"],
+      capabilityGroups: [],
+    },
+  });
+
+  assertEquals(sessionExists(sessionKV, auth.sessionKey), true);
+  const response = await app.request("http://trellis/bootstrap/client", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      iat: TEST_IAT,
+      sig: await signClientBootstrapProof(TEST_SEED, TEST_IAT),
+    }),
+  });
+
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), {
+    status: "auth_required",
+    serverNow: TEST_IAT,
+  });
+  assertEquals(sessionExists(sessionKV, auth.sessionKey), false);
+});
+
+Deno.test("POST /bootstrap/client returns auth_required for unknown contract digest and deletes the session", async () => {
+  const auth = await createAuth({ sessionKeySeed: TEST_SEED });
+  const contracts = createTestContracts();
+  await contracts.validateContract(testClientContract());
+
+  const sessionKV = new InMemoryKV<Session>();
+  const usersKV = new InMemoryKV<UserProjectionEntry>();
+  sessionKV.seed(auth.sessionKey, {
+    type: "user",
+    participantKind: "app",
+    userId: "user-1",
+    identity: {
+      identityId: "idn_github_123",
+      provider: "github",
+      subject: "123",
+    },
+    email: "user@example.com",
+    name: "Example User",
+    contractDigest: "unknown-digest",
+    contractId: "client.example@v1",
+    contractDisplayName: "Example Client",
+    contractDescription: "Example browser client contract",
+    delegatedCapabilities: ["read:deployment"],
+    delegatedPublishSubjects: ["events.deployment.updated"],
+    delegatedSubscribeSubjects: ["events.deployment.*"],
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    lastAuth: new Date("2026-01-01T00:01:00.000Z"),
+  });
+  usersKV.seed("user-1", {
+    origin: "github",
+    id: "123",
+    name: "Example User",
+    email: "user@example.com",
+    active: true,
+    capabilities: ["read:deployment"],
+    capabilityGroups: [],
+  });
+
+  const app = new Hono();
+  app.post(
+    "/bootstrap/client",
+    createClientBootstrapHandler({
+      contracts,
+      transports: {
+        native: { natsServers: ["nats://127.0.0.1:4222"] },
+      },
+      sentinel: { jwt: "jwt", seed: "seed" },
+      sessionStorage: sessionStorageFromKV(sessionKV),
+      loadUserProjection: async (trellisId) =>
+        usersKV.getValue(trellisId) ?? null,
+      verifyIdentityProof: async ({ sessionKey, iat, sig }) =>
+        sessionKey === auth.sessionKey &&
+        sig === await signClientBootstrapProof(TEST_SEED, iat),
+      nowSeconds: () => TEST_IAT,
+    }),
+  );
+
+  assertEquals(sessionExists(sessionKV, auth.sessionKey), true);
+  const response = await app.request("http://trellis/bootstrap/client", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      iat: TEST_IAT,
+      sig: await signClientBootstrapProof(TEST_SEED, TEST_IAT),
+    }),
+  });
+
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), {
+    status: "auth_required",
+    serverNow: TEST_IAT,
+  });
+  assertEquals(sessionExists(sessionKV, auth.sessionKey), false);
+});
+
+Deno.test("POST /bootstrap/client returns auth_required for non-app stored contract and deletes the session", async () => {
+  const { app, auth, sessionKV } = await createVerifiedApp({
+    contract: testClientContract("Example device contract", "device"),
+  });
+
+  assertEquals(sessionExists(sessionKV, auth.sessionKey), true);
+  const response = await app.request("http://trellis/bootstrap/client", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionKey: auth.sessionKey,
+      iat: TEST_IAT,
+      sig: await signClientBootstrapProof(TEST_SEED, TEST_IAT),
+    }),
+  });
+
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), {
+    status: "auth_required",
+    serverNow: TEST_IAT,
+  });
+  assertEquals(sessionExists(sessionKV, auth.sessionKey), false);
 });
 
 Deno.test("POST /bootstrap/client returns serverNow when bootstrap proof iat is out of range", async () => {

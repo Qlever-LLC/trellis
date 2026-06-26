@@ -67,6 +67,7 @@ Browser auth endpoints:
 - `POST /auth/flow/:flowId/register/local`
 - `POST /auth/flow/:flowId/approval`
 - `POST /auth/flow/:flowId/bind`
+- `POST /auth/sessions/logout`
 
 Global CORS behavior derives from `web.origins`:
 
@@ -304,6 +305,7 @@ type PortalFlowState =
   }
   | {
     status: "expired";
+    returnLocation?: string;
   };
 ```
 
@@ -317,6 +319,11 @@ Rules:
 - portal MUST treat `redirect.location` as an opaque next auth step
 - `redirect.location` may point back to the originating browser app or to
   another auth-owned step in the same login flow
+- `expired.returnLocation`, when present, is a safe app restart target for a
+  known expired browser flow; portal helpers MAY treat it as an immediate
+  redirect target rather than rendering an expiration screen
+- when an expired flow is missing or has no `returnLocation`, portal MUST NOT
+  invent an app return URL locally
 - `approval_denied` is a fallback state for stored denied flow state; normal
   user denial returns `redirect` to the originating app with
   `authError=approval_denied`, and portal helpers MAY treat an
@@ -327,6 +334,9 @@ Rules:
   redirecting again
 - portal does not invent auth-protocol next-step URLs locally, though it may
   still use its own local routes and UI state while rendering the flow
+- recoverable stale or expired auth states should restart the caller's normal
+  auth request without a user-visible transient error screen when auth provides
+  a safe redirect target
 - portal-specific customization data travels through `app.context` rather than
   ad hoc query parameters between app and portal
 - portal registration UI is gated by auth-owned flow state; clients MUST use
@@ -399,6 +409,10 @@ Rules:
 - callers that receive `authError=approval_denied` SHOULD surface a denial
   result and clean the callback query parameters rather than immediately
   starting another sign-in flow
+- expired provider-login continuations with a stored app `redirectTo` redirect
+  directly to that app restart URL without adding `authError=flow_expired`;
+  callers should treat the plain callback as a normal opportunity to restart the
+  current auth request
 
 Request:
 
@@ -482,6 +496,64 @@ Rules:
   browser flow after Trellis has already recorded a consent decision
 - flow bind still rechecks identity authority and capabilities defensively
 - portal is a browser UX surface only; bind remains auth-owned
+
+### POST /auth/sessions/logout
+
+Terminates a browser session from the app side without relying on the active
+NATS app connection. Browser clients sign the logout intent with the session key
+and send it directly to Trellis HTTP.
+
+Request:
+
+```ts
+{
+  sessionKey: string;
+  iat: number;
+  sig: string; // sign(hash("logout-session:" + canonicalLogoutPayload))
+  providerLogout?: boolean;
+  federatedProviderLogout?: boolean;
+  returnTo?: string;
+  responseMode?: "json" | "redirect";
+}
+```
+
+JSON response:
+
+```ts
+{
+  success: true;
+  redirectTo?: string;
+}
+```
+
+Behavior:
+
+1. Parse and validate the JSON body
+2. Require a fresh `iat`
+3. Verify `sig` by `sessionKey` over the canonical logout payload
+4. Lookup the session by `sessionKey`
+5. Validate `returnTo`, when supplied
+6. If `providerLogout` is true for a user session, build an upstream provider
+   logout URL when the session provider supports one
+7. Delete the Trellis session
+8. Kick all matching live NATS connections and delete connection entries
+9. Return `{ success: true, redirectTo? }` for JSON mode, or redirect with 303
+   for redirect mode when a redirect target exists
+
+Rules:
+
+- valid `returnTo` values must be HTTP(S) and must match the bound app origin
+  for app-bound user sessions; sessions without an app origin may use explicit
+  configured `web.origins`
+- wildcard `web.origins` entries do not authorize logout return targets
+- apps cannot provide arbitrary external return URLs
+- provider logout is optional and best-effort: unsupported providers, missing
+  provider metadata, and provider URL construction failures still complete
+  Trellis session revocation unless the requested return URL itself is invalid
+- `redirectTo`, when returned, is the upstream provider logout URL when provider
+  logout is available, otherwise the validated `returnTo`
+- browser apps should use Trellis browser auth helpers for this endpoint and
+  clear local browser session-key storage before navigating away
 
 ## Identity Authority RPCs
 
@@ -604,10 +676,22 @@ Behavior:
 
 1. Validate headers
 2. Lookup session
-3. List connections for the session
-4. Delete the session
-5. Kick all connections
-6. Delete connection entries
+3. Delete the Trellis session
+4. Kick matching live NATS connections for the caller scope
+5. Delete matching connection entries
+6. Return `{ success: true }`
+
+`Auth.Sessions.Logout` is terminal Trellis session logout for the authenticated
+RPC caller. It does not carry browser/provider logout metadata and does not
+construct provider logout URLs. Browser apps that need provider logout use
+`POST /auth/sessions/logout` instead.
+
+Rules:
+
+- callers may send `{}`; extra request fields are reserved for additive schema
+  evolution and are ignored by the terminal logout behavior
+- provider logout is intentionally not modeled on this RPC because the active
+  app connection may be terminated by the logout itself
 
 Digest changes are handled by restarting the normal auth request flow with the
 current contract body. Runtime reconnect auth is regenerated locally from

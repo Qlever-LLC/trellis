@@ -1194,6 +1194,108 @@ Deno.test("connectClientWithDeps requires explicit browser redirect state when r
   }
 });
 
+Deno.test("connectClientWithDeps redirects browser to loginUrl using ClientAuthHandledError when no onAuthRequired is set", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  const originalDocument = globalThis.document;
+  const handle = await createBrowserHandle();
+  const testWindow = {
+    location: {
+      href: "https://app.example.com/callback?redirectTo=%2Fdashboard",
+    },
+  };
+  const fetchUrls: string[] = [];
+
+  try {
+    Object.defineProperty(globalThis, "window", {
+      value: testWindow,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "document", {
+      value: {},
+      configurable: true,
+      writable: true,
+    });
+    globalThis.fetch = ((input: URL | Request | string, init?: RequestInit) => {
+      const url = String(input);
+      fetchUrls.push(url);
+      if (url.endsWith("/bootstrap/client")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "auth_required",
+              serverNow: 1_700_000_000,
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+      if (url.endsWith("/auth/requests")) {
+        const body = JSON.parse(String(init?.body ?? "null")) as {
+          redirectTo?: string;
+        };
+        assertEquals(body.redirectTo, "https://app.example.com/dashboard");
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "flow_started",
+              flowId: "flow-handled",
+              loginUrl:
+                "https://trellis.example.com/_trellis/portal/users/login?flowId=flow-handled",
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    await assertRejects(
+      () =>
+        connectClientWithDeps({
+          trellisUrl: "https://trellis.example.com",
+          contract: testContract,
+          auth: {
+            handle,
+            currentUrl: new URL(testWindow.location.href),
+          },
+        }, {
+          loadTransport: async () => {
+            throw new Error("loadTransport should not be called");
+          },
+          now: () => 1_700_000_000_000,
+        }),
+      ClientAuthHandledError,
+      "Client authentication was handled by the caller",
+    );
+
+    assertEquals(
+      testWindow.location.href,
+      "https://trellis.example.com/_trellis/portal/users/login?flowId=flow-handled",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    Object.defineProperty(globalThis, "window", {
+      value: originalWindow,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "document", {
+      value: originalDocument,
+      configurable: true,
+      writable: true,
+    });
+  }
+});
+
 Deno.test("connectClientWithDeps lets auth continuation handle browser login without redirect", async () => {
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;

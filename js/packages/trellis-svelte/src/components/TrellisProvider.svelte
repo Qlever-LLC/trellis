@@ -1,5 +1,6 @@
 <script lang="ts" generics="TContract extends TrellisContractLike">
   import {
+    classifyBrowserAuthError,
     ClientAuthHandledError,
     TrellisClient,
     type ClientAuthOptions,
@@ -17,12 +18,17 @@
     client,
     children,
     loading,
+    recoveringAuth,
     error: errorSnippet,
     onAuthRequired,
+    onRecoverableAuthError,
   }: TrellisProviderProps<TContract> = $props();
+
+  type ProviderState = "connecting" | "connected" | "auth_handled" | "failed";
 
   let trellis = $state<ConnectedTrellisClient<TContract> | null>(null);
   let connectError = $state<unknown>(null);
+  let providerState = $state<ProviderState>("connecting");
 
   type SerializableTrellisError = {
     message?: unknown;
@@ -98,6 +104,7 @@
       connectError = new TypeError(
         "Expected trellisApp to resolve a Trellis URL",
       );
+      providerState = "failed";
       return;
     }
 
@@ -118,14 +125,43 @@
 
         if (active) {
           trellis = connected;
+          providerState = "connected";
         } else {
           await connected.connection.close();
         }
       } catch (error) {
         if (!active) return;
-        if (error instanceof ClientAuthHandledError) return;
+        if (error instanceof ClientAuthHandledError) {
+          providerState = "auth_handled";
+          return;
+        }
+        const authRecovery = classifyBrowserAuthError(error);
+        if (authRecovery.recoverable) {
+          if (onRecoverableAuthError) {
+            providerState = "auth_handled";
+            try {
+              await onRecoverableAuthError(error);
+              return;
+            } catch (recoveryError) {
+              if (!active) return;
+              console.error("TrellisProvider auth recovery callback failed", {
+                recoveryError,
+                error,
+              });
+              logConnectionError(recoveryError);
+              connectError = recoveryError;
+              providerState = "failed";
+              return;
+            }
+          }
+          if (recoveringAuth) {
+            providerState = "auth_handled";
+            return;
+          }
+        }
         logConnectionError(error);
         connectError = error;
+        providerState = "failed";
       }
     })();
 
@@ -133,6 +169,7 @@
       active = false;
       const connected = trellis;
       trellis = null;
+      providerState = "connecting";
       if (connected) {
         void connected.connection.close();
       }
@@ -142,10 +179,12 @@
 
 {#if trellis}
   <TrellisContextProvider {trellisApp} {trellis} {children} />
-{:else if connectError}
+{:else if providerState === "failed" && connectError}
   {#if errorSnippet}
     {@render errorSnippet(connectError)}
   {/if}
+{:else if providerState === "auth_handled" && recoveringAuth}
+  {@render recoveringAuth()}
 {:else if loading}
   {@render loading()}
 {/if}

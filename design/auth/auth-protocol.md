@@ -501,11 +501,16 @@ Flow summary:
    Trellis-owned browser flow plus a short `flowId`-based `loginUrl`.
 2. `GET /auth/login/:provider` requires `flowId` and stores the provider choice
    in the same browser flow. The provider must be allowed by the selected login
-   portal policy.
+   portal policy. If the referenced login flow is expired but still carries an
+   app `redirectTo`, auth redirects to that app URL without adding an auth error
+   so the app can restart its current auth request.
 3. `GET /auth/callback/:provider` provisions or refreshes the auth-local user
    projection, stores the resulting `authToken` server-side against the browser
    flow, and redirects back to the portal with the same `flowId`.
-4. `GET /auth/flow/:flowId` returns `PortalFlowState`.
+4. `GET /auth/flow/:flowId` returns `PortalFlowState`. For a known expired
+   browser flow, the expired state may include `returnLocation` so portals can
+   return to the originating app without showing a transient expiration screen;
+   missing flows do not receive an invented return URL.
 5. `POST /auth/flow/:flowId/approval` records an account-scoped durable identity
    grant when the user accepts, or ends the browser flow and redirects to the
    caller with `authError=approval_denied` when the user denies.

@@ -1,9 +1,14 @@
 import { base64urlDecode, verifyProof } from "@qlever-llc/trellis/auth";
-import { AsyncResult, type BaseError, isErr, Result } from "@qlever-llc/result";
+import {
+  type AsyncResult,
+  type BaseError,
+  isErr,
+  Result,
+} from "@qlever-llc/result";
 import { AuthError } from "../../../../packages/trellis/errors/AuthError.ts";
 import type { AuthConnectionRow } from "../../../../packages/trellis/models/auth/rpc/ListConnections.ts";
 import type { AuthSessionRow } from "../../../../packages/trellis/models/auth/rpc/ListSessions.ts";
-import type { Session } from "../schemas.ts";
+import type { AuthSessionsLogoutRequest, Session } from "../schemas.ts";
 import type { CapabilityGroupLoader } from "../capability_groups.ts";
 import { resolveCapabilities } from "../capability_groups.ts";
 import { resolveSessionPrincipal } from "./principal.ts";
@@ -11,6 +16,7 @@ import {
   connectionFilterForSession,
   parseConnectionKey,
 } from "./connections.ts";
+import { terminateSession } from "./logout.ts";
 export { createAuthSessionsRevokeHandler } from "./revoke.ts";
 import { createAuthSessionsRevokeHandler } from "./revoke.ts";
 import type {
@@ -916,42 +922,35 @@ export function createAuthRequestsValidateHandler(deps: {
 
 export function createAuthSessionsLogoutHandler(deps: {
   logger: Pick<SessionRpcLogger, "trace">;
-  sessionStorage: Pick<SessionStorage, "deleteBySessionKey">;
-  connectionsKV: AuthRuntimeDeps["connectionsKV"];
-  natsSystem: Pick<AuthRuntimeDeps["natsSystem"], "request">;
+  sessionStorage: Pick<
+    SessionStorage,
+    "deleteBySessionKey" | "getOneBySessionKey"
+  >;
+  connectionsKV: Pick<
+    AuthRuntimeDeps["connectionsKV"],
+    "keys" | "get" | "delete"
+  >;
+  kick: (serverId: string, clientId: number) => Promise<void>;
 }) {
   return async (
-    { context: { caller, sessionKey } }: { context: SessionContext },
+    { input: _input = {}, context: { caller, sessionKey } }: {
+      input?: AuthSessionsLogoutRequest;
+      context: SessionContext;
+    },
   ) => {
     const user = requireUserCaller(caller);
     deps.logger.trace(
       { rpc: "Auth.Sessions.Logout", sessionKey, userId: user.userId },
       "RPC request",
     );
-    await deps.sessionStorage.deleteBySessionKey(sessionKey);
 
-    const connKeys = await deps.connectionsKV.keys(
-      connectionFilterForSession(sessionKey),
-    )
-      .take();
-    if (!isErr(connKeys)) {
-      for await (const key of connKeys) {
-        const parsedKey = parseConnectionKey(key);
-        if (!parsedKey || parsedKey.scopeId !== user.userId) continue;
-        const entry = await deps.connectionsKV.get(key).take();
-        if (!isErr(entry)) {
-          const connection = unwrapConnectionEntry(entry);
-          if (!connection) continue;
-          await AsyncResult.try(() =>
-            deps.natsSystem.request(
-              `$SYS.REQ.SERVER.${connection.serverId}.KICK`,
-              JSON.stringify({ cid: connection.clientId }),
-            )
-          );
-        }
-        await deps.connectionsKV.delete(key);
-      }
-    }
+    await terminateSession({
+      sessionKey,
+      scopeId: user.userId,
+      sessionStorage: deps.sessionStorage,
+      connectionsKV: deps.connectionsKV,
+      kick: deps.kick,
+    });
 
     return Result.ok({ success: true });
   };

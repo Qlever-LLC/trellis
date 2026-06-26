@@ -5,8 +5,15 @@ import { resolveCapabilities } from "./capability_groups.ts";
 import {
   AppIdentitySchema,
   AuthBrowserFlowSchema,
+  AuthLogoutRequestSchema,
+  AuthLogoutResponseSchema,
   AuthRequestsValidateRequestSchema,
+  AuthSessionsLogoutRequestSchema,
+  AuthSessionsLogoutResponseSchema,
+  AuthStartRequestSchema,
   BindResponseSchema,
+  BindSuccessResponseSchema,
+  buildLogoutSignaturePayload,
   DeploymentAuthorityCapabilityDefinitionSchema,
   DeploymentAuthorityGrantOverrideSchema,
   DeploymentAuthorityMaterializationSchema,
@@ -172,6 +179,7 @@ Deno.test("Portal and browser-flow schemas validate", () => {
     createdAt: new Date().toISOString(),
     expiresAt: new Date().toISOString(),
   }));
+  assertFalse(Object.hasOwn(AuthBrowserFlowSchema.properties, "browser"));
   assert(Value.Check(AuthBrowserFlowSchema, {
     flowId: "flow_456",
     kind: "device_activation",
@@ -184,6 +192,94 @@ Deno.test("Portal and browser-flow schemas validate", () => {
     },
     createdAt: new Date().toISOString(),
     expiresAt: new Date().toISOString(),
+  }));
+});
+
+Deno.test("AuthStartRequestSchema has no browser provider logout metadata", () => {
+  const request = {
+    redirectTo: "https://app.example.com/dashboard",
+    sessionKey,
+    sig,
+    contractDigest: "digest",
+  };
+
+  assert(Value.Check(AuthStartRequestSchema, request));
+  assertFalse(Object.hasOwn(AuthStartRequestSchema.properties, "browser"));
+});
+
+Deno.test("AuthLogout schemas validate signed HTTP logout requests", () => {
+  const request = {
+    sessionKey,
+    iat: 1_735_689_600,
+    sig,
+    providerLogout: false,
+    federatedProviderLogout: true,
+    returnTo: "https://app.example.com/signed-out",
+    responseMode: "json",
+  };
+
+  assert(Value.Check(AuthLogoutRequestSchema, request));
+  assert(Value.Check(AuthLogoutRequestSchema, {
+    ...request,
+    futureField: "preserved-by-schema-evolution",
+  }));
+  assertFalse(Value.Check(AuthLogoutRequestSchema, {
+    ...request,
+    sessionKey: "not-a-session-key",
+  }));
+  assertFalse(Value.Check(AuthLogoutRequestSchema, {
+    ...request,
+    returnTo: "",
+  }));
+  assertFalse(Value.Check(AuthLogoutRequestSchema, {
+    ...request,
+    responseMode: "html",
+  }));
+  assert(Value.Check(AuthLogoutResponseSchema, { success: true }));
+  assert(Value.Check(AuthLogoutResponseSchema, {
+    success: true,
+    redirectTo: "https://tenant.example.com/signed-out",
+  }));
+  assertFalse(Value.Check(AuthLogoutResponseSchema, { success: false }));
+  assertFalse(Value.Check(AuthLogoutResponseSchema, {
+    success: true,
+    extraField: "not part of the clean-break response",
+  }));
+});
+
+Deno.test("buildLogoutSignaturePayload canonicalizes optional logout fields", () => {
+  assertEquals(
+    buildLogoutSignaturePayload({ iat: 1_735_689_600 }),
+    '{"iat":1735689600}',
+  );
+  assertEquals(
+    buildLogoutSignaturePayload({
+      iat: 1_735_689_600,
+      responseMode: "redirect",
+      returnTo: "https://app.example.com/signed-out",
+      providerLogout: false,
+      federatedProviderLogout: true,
+    }),
+    '{"federatedProviderLogout":true,"iat":1735689600,"providerLogout":false,"responseMode":"redirect","returnTo":"https://app.example.com/signed-out"}',
+  );
+});
+
+Deno.test("AuthSessionsLogout schemas validate terminal logout shape", () => {
+  assert(Value.Check(AuthSessionsLogoutRequestSchema, {}));
+  assert(Value.Check(AuthSessionsLogoutRequestSchema, {
+    browser: {
+      returnTo: "https://app.example.com/signed-out",
+      includeProviderLogout: true,
+      federatedProviderLogout: false,
+    },
+  }));
+  assert(Value.Check(AuthSessionsLogoutResponseSchema, { success: true }));
+  assertFalse(Value.Check(AuthSessionsLogoutResponseSchema, {
+    success: true,
+    extraField: "not part of the response",
+  }));
+  assertFalse(Value.Check(AuthSessionsLogoutResponseSchema, {
+    extraField: "not part of the response",
   }));
 });
 
@@ -525,6 +621,7 @@ Deno.test("PendingAuthSchema validates explicit app identity", () => {
     contract: { id: "trellis.console@v1" },
     createdAt: new Date().toISOString(),
   }));
+  assertFalse(Object.hasOwn(PendingAuthSchema.properties, "browser"));
 });
 
 Deno.test("BindResponseSchema validates insufficient-capabilities responses", () => {
@@ -551,20 +648,23 @@ Deno.test("BindResponseSchema validates insufficient-capabilities responses", ()
 });
 
 Deno.test("BindResponseSchema validates bound responses with explicit transports", () => {
-  assert(
-    Value.Check(BindResponseSchema, {
-      status: "bound",
-      inboxPrefix: "_INBOX.abc",
-      expires: new Date().toISOString(),
-      sentinel: {
-        jwt: "jwt",
-        seed: "seed",
-      },
-      transports: {
-        native: { natsServers: ["nats://127.0.0.1:4222"] },
-        websocket: { natsServers: ["ws://localhost:8080"] },
-      },
-    }),
+  const boundResponse = {
+    status: "bound",
+    inboxPrefix: "_INBOX.abc",
+    expires: new Date().toISOString(),
+    sentinel: {
+      jwt: "jwt",
+      seed: "seed",
+    },
+    transports: {
+      native: { natsServers: ["nats://127.0.0.1:4222"] },
+      websocket: { natsServers: ["ws://localhost:8080"] },
+    },
+  };
+
+  assert(Value.Check(BindResponseSchema, boundResponse));
+  assertFalse(
+    Object.hasOwn(BindSuccessResponseSchema.properties, "providerLogout"),
   );
 });
 

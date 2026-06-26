@@ -13,7 +13,7 @@ const CONTRACT_MODULE_METADATA = Symbol.for(
 
 export const CONTRACT_ID = "trellis.auth@v1" as const;
 export const CONTRACT_DIGEST =
-  "U-Y6P1smzJB4MeG6NdhDuZ0CTT2BWOud9iL1zIQktMM" as const;
+  "x-9_MjfSThvbn1yc9jAWbaraniKLZ74oUeUqqtZijXQ" as const;
 export const CONTRACT = {
   "capabilities": {
     "trellis.auth::device.review": {
@@ -7322,8 +7322,13 @@ export const CONTRACT = {
       "required": ["entries", "count", "offset", "limit"],
       "type": "object",
     },
-    "AuthSessionsLogoutRequest": { "properties": {}, "type": "object" },
+    "AuthSessionsLogoutRequest": {
+      "additionalProperties": true,
+      "properties": {},
+      "type": "object",
+    },
     "AuthSessionsLogoutResponse": {
+      "additionalProperties": false,
       "properties": { "success": { "type": "boolean" } },
       "required": ["success"],
       "type": "object",
@@ -9575,7 +9580,10 @@ export const CONTRACT = {
         "required": ["status", "location"],
         "type": "object",
       }, {
-        "properties": { "status": { "const": "expired", "type": "string" } },
+        "properties": {
+          "returnLocation": { "minLength": 1, "type": "string" },
+          "status": { "const": "expired", "type": "string" },
+        },
         "required": ["status"],
         "type": "object",
       }],

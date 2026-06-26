@@ -1352,7 +1352,7 @@ async function resolveAuthRequired<
 
   if (isBrowserRuntime()) {
     window.location.href = loginUrl;
-    throw new Error("Redirecting to Trellis login");
+    throw new ClientAuthHandledError();
   }
 
   throw new Error(

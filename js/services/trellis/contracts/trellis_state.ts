@@ -1,4 +1,4 @@
-import { defineServiceContract } from "@qlever-llc/trellis/contracts";
+import { defineServiceContract } from "@qlever-llc/trellis";
 import {
   StateAdminDeleteResponseSchema,
   StateAdminDeleteSchema,

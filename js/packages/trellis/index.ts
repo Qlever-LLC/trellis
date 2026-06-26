@@ -69,6 +69,7 @@ export {
 export type {
   CursorPage,
   CursorPageInfo,
+  CursorPageResponseSchema,
   CursorQuery,
   CursorQueryOptions,
   ErrorClass,

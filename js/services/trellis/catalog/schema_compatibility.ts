@@ -3,7 +3,7 @@ import type {
   ContractSchemas,
   JsonSchema,
 } from "@qlever-llc/trellis/contracts";
-import { canonicalizeJson, isJsonValue } from "@qlever-llc/trellis/contracts";
+import { canonicalizeJson, isJsonValue } from "@qlever-llc/trellis";
 
 type JsonObject = { [key: string]: JsonSchema };
 

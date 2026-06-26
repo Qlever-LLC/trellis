@@ -29,6 +29,7 @@ export function createProviders(config: Config): Record<string, Provider> {
           redirectBase: config.oauth.redirectBase,
           scopes: provider.scopes,
           organization: provider.organization,
+          logout: provider.logout,
         }),
       ];
     }),

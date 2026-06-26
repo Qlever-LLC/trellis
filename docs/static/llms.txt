@@ -27,6 +27,10 @@ commands.
 - Caller-visible communication is contract-driven and runs through generated
   RPC, event, feed, and operation surfaces. Resources, state, files, and jobs are
   contract-declared runtime surfaces; jobs are service-private background work.
+- Normal TypeScript contract authoring imports `define*Contract(...)` helpers from
+  the browser-safe `@qlever-llc/trellis` root. Runtime-specific helpers,
+  generated SDKs, browser auth, device activation, telemetry, and advanced
+  contract tooling stay on explicit subpaths.
 - Durable event processing uses contract-declared `eventConsumers` resources;
   `eventConsumers.<group>.uses` selects dependency events by top-level `uses`
   alias, and `eventConsumers.<group>.self` selects events owned by the same
@@ -55,6 +59,12 @@ commands.
 - Browser app repos should read the Svelte AI guide before wiring
   `createTrellisApp`, `TrellisProvider`, generated SDK aliases for contract
   `uses`, Vite aliases, or `svelte-check` path maps.
+- Browser apps should let Trellis helpers own auth redirects and treat plain
+  callbacks after expired login as auth-restart opportunities, not errors.
+- Browser apps that sign users out should use Trellis browser auth helpers for
+  signed HTTP logout; do not call `Auth.Sessions.Logout` from the active app
+  connection, hard-code IdP logout endpoints, or invent arbitrary post-logout
+  return URLs.
 - Record the local contract path, generation command, format command, typecheck
   command, test command, run command, and database migration command in the local
   `AGENTS.md`.
@@ -74,6 +84,8 @@ commands.
 - TypeScript AI guide: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-typescript.txt
 - Svelte AI guide: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-svelte.txt
 - Rust AI guide: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms-rust.txt
-- Copyable AGENTS template: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/templates/trellis-service-AGENTS.md
+- TypeScript AGENTS template: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/templates/trellis-service-typescript-AGENTS.md
+- Rust AGENTS template: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/templates/trellis-service-rust-AGENTS.md
+- Combined AGENTS template: https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/templates/trellis-service-AGENTS.md
 - Docs-site path for the human guide: `/guides/ai/developing-trellis-services`
 - Docs-site path for the API reference: `/api`

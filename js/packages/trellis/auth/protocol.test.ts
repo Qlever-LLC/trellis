@@ -855,6 +855,10 @@ Deno.test("generated auth contract exposes deployment authority RPC keys only", 
 
 Deno.test("PortalFlowStateSchema accepts returnLocation for restartable portal states", () => {
   assert(Value.Check(PortalFlowStateSchema, {
+    status: "expired",
+    returnLocation: "https://app.example.com/callback",
+  }));
+  assert(Value.Check(PortalFlowStateSchema, {
     status: "approval_denied",
     flowId: "flow_1",
     approval: {

@@ -15,6 +15,7 @@ const runtimeImports = [
   "@qlever-llc/result",
   "@qlever-llc/trellis",
   "@qlever-llc/trellis/auth",
+  "@qlever-llc/trellis/auth/browser",
   "@qlever-llc/trellis/browser",
   "@qlever-llc/trellis/contracts",
   "@qlever-llc/trellis/errors",
@@ -287,6 +288,7 @@ async function writeConsumerProject(projectDir: string) {
     join(projectDir, "index.ts"),
     `import { Result } from "@qlever-llc/result";
 import { ValidationError } from "@qlever-llc/trellis";
+import { completeSessionLogout } from "@qlever-llc/trellis/auth/browser";
 import { API, sdk as auth, type Client } from "@qlever-llc/trellis/sdk/auth";
 import { sdk as health } from "@qlever-llc/trellis/sdk/health";
 import { sdk as state } from "@qlever-llc/trellis/sdk/state";
@@ -302,6 +304,7 @@ const rpc = API.owned.rpc;
 
 void Result;
 void ValidationError;
+void completeSessionLogout;
 void createTrellisApp;
 void TrellisProvider;
 void authUse;

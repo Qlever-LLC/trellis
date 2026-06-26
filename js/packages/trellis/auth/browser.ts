@@ -18,6 +18,11 @@ export {
   startAuthRequest,
 } from "./browser/login.ts";
 export {
+  completeSessionLogout,
+  type CompleteSessionLogoutArgs,
+  logoutSession,
+} from "./browser/logout.ts";
+export {
   type ApprovalDecision,
   fetchPortalFlowState,
   portalFlowIdFromUrl,
@@ -36,6 +41,7 @@ export {
   getPublicSessionKey,
   hasSessionKey,
   loadSessionKey,
+  logoutSessionSig,
   natsConnectSigForIat,
   type SessionKeyHandle,
   type SessionKeyOptions,
@@ -44,9 +50,23 @@ export {
 } from "./browser/session.ts";
 export { deleteKeyPair, hasKeyPair } from "./browser/storage.ts";
 export {
+  classifyBrowserAuthError,
+  isRecoverableBrowserAuthError,
+} from "./browser_recovery.ts";
+export type {
+  BrowserAuthRecoveryClassification,
+  BrowserAuthRecoveryKind,
+} from "./browser_recovery.ts";
+export {
   approvalCapabilityKeys,
   type ApprovalDecision as ApprovalDecisionData,
   ApprovalDecisionSchema,
+  type AuthLogoutRequest as AuthLogoutRequestData,
+  AuthLogoutRequestSchema,
+  type AuthLogoutResponse as AuthLogoutResponseData,
+  type AuthLogoutResponseMode as AuthLogoutResponseModeData,
+  AuthLogoutResponseModeSchema,
+  AuthLogoutResponseSchema,
   type AuthStartFlowResponse as AuthStartFlowResponseData,
   AuthStartFlowResponseSchema,
   type AuthStartRequest as AuthStartRequestData,
@@ -57,6 +77,7 @@ export {
   BindResponseSchema,
   type BindSuccessResponse as BindSuccessResponseData,
   BindSuccessResponseSchema,
+  buildLogoutSignaturePayload,
   type ClientTransportEndpoints as ClientTransportEndpointsData,
   ClientTransportEndpointsSchema,
   type ClientTransports as ClientTransportsData,
@@ -64,6 +85,7 @@ export {
   type ContractApproval as ContractApprovalData,
   type ContractApprovalCapability as ContractApprovalCapabilityData,
   ContractApprovalSchema,
+  type LogoutSignaturePayloadInput as LogoutSignaturePayloadInputData,
   type NatsAuthTokenV1 as NatsAuthTokenV1Data,
   NatsAuthTokenV1Schema,
   type SentinelCreds as SentinelCredsData,

@@ -1,5 +1,5 @@
-import type { TrellisContractV1 } from "@qlever-llc/trellis/contracts";
-import { isJsonValue } from "@qlever-llc/trellis/contracts";
+import type { TrellisContractV1 } from "@qlever-llc/trellis";
+import { isJsonValue } from "@qlever-llc/trellis";
 import type {
   SqlDeviceDeploymentRepository,
   SqlDeviceInstanceRepository,

@@ -92,18 +92,23 @@ export type ClientBootstrapResult =
     user: ClientBootstrapUserView;
     binding: ClientBootstrapBindingView;
   }
-  | { status: "auth_required"; serverNow: number }
-  | {
-    status: "not_ready";
-    serverNow: number;
-    reason:
-      | "contract_not_active"
-      | "insufficient_permissions"
-      | "user_inactive"
-      | "user_not_found";
-  };
+  | { status: "auth_required"; serverNow: number };
 
-type SessionStore = Pick<SqlSessionRepository, "getOneBySessionKey">;
+type SessionStore = Pick<
+  SqlSessionRepository,
+  "getOneBySessionKey" | "deleteBySessionKey"
+>;
+
+async function deleteClientSession(
+  sessionStore: SessionStore,
+  sessionKey: string,
+): Promise<void> {
+  try {
+    await sessionStore.deleteBySessionKey(sessionKey);
+  } catch {
+    // Non-critical cleanup; do not block bootstrap.
+  }
+}
 
 export type ClientBootstrapDeps = {
   contracts: Pick<ContractsModule, "getKnownContract">;
@@ -167,11 +172,8 @@ export async function resolveClientBootstrap(
       case "user_not_found":
       case "user_inactive":
       case "insufficient_permissions":
-        return {
-          status: "not_ready",
-          reason: principal.error.reason,
-          serverNow: nowSeconds,
-        };
+        await deleteClientSession(deps.sessionStorage, request.sessionKey);
+        return { status: "auth_required", serverNow: nowSeconds };
       default:
         return { status: "auth_required", serverNow: nowSeconds };
     }
@@ -185,11 +187,8 @@ export async function resolveClientBootstrap(
     knownContract.id !== session.contractId ||
     (knownContract.kind !== "app" && knownContract.kind !== "agent")
   ) {
-    return {
-      status: "not_ready",
-      reason: "contract_not_active",
-      serverNow: nowSeconds,
-    };
+    await deleteClientSession(deps.sessionStorage, request.sessionKey);
+    return { status: "auth_required", serverNow: nowSeconds };
   }
   const contractView = buildContractView(
     knownContract,

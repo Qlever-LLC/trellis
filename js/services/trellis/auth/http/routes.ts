@@ -12,6 +12,7 @@ import {
   type AuthHttpRouteOptions,
   createAuthHttpRouteContext,
 } from "./route_context.ts";
+import { registerSessionLogoutRoutes } from "./session_logout_routes.ts";
 
 type RateLimitContext = {
   env?: unknown;
@@ -273,6 +274,7 @@ export function registerHttpRoutes(
   registerBootstrapRoutes(app, context);
   registerAccountFlowRoutes(app, context);
   registerBrowserAuthRoutes(app, context);
+  registerSessionLogoutRoutes(app, context);
   registerDeviceActivationHttpRoutes(app, {
     deploymentPortalRouteStorage: opts.deploymentPortalRouteStorage,
     contracts: opts.contracts,

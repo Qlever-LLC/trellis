@@ -1,5 +1,13 @@
 import type { OAuth2User } from "./oauth2_user.ts";
 
+/** Logout behavior supported by an identity provider. */
+export type ProviderLogoutConfig = {
+  enabled: boolean;
+  endpoint?: string;
+  mode: "oidc" | "auth0";
+  allowFederated: boolean;
+};
+
 export abstract class Provider {
   abstract name: string;
   abstract displayName: string;
@@ -14,6 +22,7 @@ export abstract class Provider {
   clientId: string;
   clientSecret: string;
   redirectBase: string;
+  logout?: ProviderLogoutConfig;
 
   constructor(clientId: string, clientSecret: string, redirectBase: string) {
     this.clientId = clientId;
