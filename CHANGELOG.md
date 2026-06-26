@@ -31,8 +31,8 @@ and this project adheres to
   all older active accepted offers for the same service lineage, not only the
   latest lineage record.
 - Fixed Rust TLS setup for `reqwest` with `rustls-no-provider` by installing the
-  ring crypto provider in the CLI and disabling unwanted default features in the
-  shared Rust dependency graph.
+  ring crypto provider in the CLI and Jobs service, and disabling unwanted
+  default features in the shared Rust dependency graph.
 
 ## [0.10.22] - 2026-06-25
 

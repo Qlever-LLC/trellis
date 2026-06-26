@@ -16,6 +16,8 @@ fn service_mode() -> JobsServiceMode {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let trellis_url = required_env("TRELLIS_URL")?;
     let session_key_seed_base64url = required_env("SESSION_KEY_SEED_BASE64URL")?;
     let timeout_ms = env::var("TRELLIS_TIMEOUT_MS")
