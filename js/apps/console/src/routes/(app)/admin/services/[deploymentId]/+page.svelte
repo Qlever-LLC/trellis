@@ -48,6 +48,7 @@
   const selectedDeploymentId = $derived(decodeURIComponent(page.url.pathname.split("/").filter(Boolean).at(-1) ?? ""));
   const tabs: Tab[] = ["desired", "materialized", "resources", "capabilities", "instances", "plans"];
   const authorityPlansHref = `${base}/admin/authority/plans`;
+  const authorityPlanPreviewLimit = 10;
 
   let loading = $state(true);
   let reconciling = $state(false);
@@ -92,7 +93,7 @@
       const [detailResponse, instancesResponse, plansResponse, capabilitiesResponse] = await Promise.all([
         request("Auth.DeploymentAuthority.Get", { deploymentId: selectedDeploymentId }).take(),
         request("Auth.ServiceInstances.List", { limit: 500, offset: 0 }).take(),
-        request("Auth.DeploymentAuthority.Plans.List", { deploymentId: selectedDeploymentId, limit: 500, offset: 0 }).take(),
+        request("Auth.DeploymentAuthority.Plans.List", { deploymentId: selectedDeploymentId, limit: authorityPlanPreviewLimit, offset: 0 }).take(),
         request("Auth.Capabilities.List", { limit: 500, offset: 0 }).take(),
       ]);
       if (isErr(detailResponse)) { error = errorMessage(detailResponse); return; }

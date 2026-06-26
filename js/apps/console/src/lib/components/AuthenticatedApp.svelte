@@ -35,7 +35,11 @@
   let profileLoaded = $state(false);
 
   function resolveAppPath(path: string): string {
-    return `${base}${path}`;
+    if (base && (path === base || path.startsWith(`${base}/`))) {
+      return path;
+    }
+
+    return `${base}${path.startsWith("/") ? path : `/${path}`}`;
   }
 
   function toRoutePath(pathname: string): string {

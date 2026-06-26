@@ -71,6 +71,7 @@
   const trellis = getTrellis();
   const coreRequest = trellis.request.bind(trellis) as CoreRequest;
   const authorityRequest = trellis.request.bind(trellis) as AuthorityRequest;
+  const authorityPlanPreviewLimit = 10;
 
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -207,7 +208,7 @@
         trellis.request("Auth.Connections.List", { limit: 500, offset: 0 }).take(),
         trellis.request("Auth.ServiceInstances.List", { limit: 500, offset: 0 }).take(),
         authorityRequest("Auth.DeploymentAuthority.List", { limit: 500, offset: 0 }).take(),
-        authorityRequest("Auth.DeploymentAuthority.Plans.List", { state: "pending", limit: 500, offset: 0 }).take(),
+        authorityRequest("Auth.DeploymentAuthority.Plans.List", { state: "pending", limit: authorityPlanPreviewLimit, offset: 0 }).take(),
         trellis.request("Auth.DeviceUserAuthorities.Reviews.List", { state: "pending", limit: 500, offset: 0 }).take(),
         coreRequest("Trellis.Catalog", {}).take(),
       ]);
