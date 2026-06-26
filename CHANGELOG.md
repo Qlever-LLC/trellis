@@ -8,6 +8,32 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.23-rc.1] - 2026-06-26
+
+### Changed
+
+- Bumped release-managed Trellis package and crate base versions to `0.10.23`
+  for the `0.10.23` release line.
+- Reduced Console authority-plan preview queries to bounded page sizes and added
+  pagination to the authority plan register so large pending-plan sets do not
+  overload admin views.
+
+### Fixed
+
+- Fixed Console path resolution when the app is mounted under a base path so
+  already-resolved paths are not prefixed twice and relative paths still resolve
+  correctly.
+- Fixed repeated browser auth handoffs by preserving `ClientAuthHandledError`
+  through `TrellisClient.connect(...).orThrow()` instead of wrapping it as an
+  unexpected error, allowing caller-owned redirects and flow handling to remain
+  distinguishable.
+- Fixed service bootstrap refreshes so accepting a newer contract digest stales
+  all older active accepted offers for the same service lineage, not only the
+  latest lineage record.
+- Fixed Rust TLS setup for `reqwest` with `rustls-no-provider` by installing the
+  ring crypto provider in the CLI and disabling unwanted default features in the
+  shared Rust dependency graph.
+
 ## [0.10.22] - 2026-06-25
 
 ### Changed
