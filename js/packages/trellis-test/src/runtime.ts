@@ -1,5 +1,7 @@
 import { join } from "@std/path";
+import { Kvm } from "@nats-io/kv";
 import type { ConsumerInfo } from "@nats-io/jetstream";
+import { connect, credsAuthenticator } from "@nats-io/transport-deno";
 import {
   type ClientAuthContinuation,
   type ClientAuthRequiredContext,
@@ -45,6 +47,7 @@ import type {
   TrellisTestContractApproval,
   TrellisTestContractLike,
   TrellisTestControlPlane,
+  TrellisTestRawAuthConnectionPresence,
   TrellisTestRuntimeStartOptions,
   TrellisTestServiceKey,
   WaitForOptions,
@@ -422,6 +425,26 @@ export class TrellisTestRuntime implements AsyncDisposable {
     name: string,
   ): Promise<boolean> {
     return await this.#nats.deleteJetStreamConsumer(stream, name);
+  }
+
+  /** Seeds one raw auth connection-presence KV entry for malformed-entry tests. */
+  async seedRawAuthConnectionPresence(
+    args: TrellisTestRawAuthConnectionPresence,
+  ): Promise<void> {
+    const nc = await connect({
+      servers: this.#nats.natsUrl,
+      authenticator: credsAuthenticator(
+        await Deno.readFile(
+          join(this.workdir, "nats", "creds", "auth-auth.creds"),
+        ),
+      ),
+    });
+    try {
+      const kv = await new Kvm(nc).open("trellis_connections");
+      await kv.put(args.key, JSON.stringify(args.value));
+    } finally {
+      await nc.close().catch(() => undefined);
+    }
   }
 
   /** Observes JetStream ACK reply frames on the scratch NATS server. */

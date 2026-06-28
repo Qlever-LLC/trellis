@@ -90,6 +90,7 @@ pub(crate) struct ScenarioParticipant {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) enum ScenarioParticipantKind {
     App,
+    Agent,
     Service,
     Device,
     Admin,
@@ -100,6 +101,7 @@ impl fmt::Display for ScenarioParticipantKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ScenarioParticipantKind::App => write!(f, "app"),
+            ScenarioParticipantKind::Agent => write!(f, "agent"),
             ScenarioParticipantKind::Service => write!(f, "service"),
             ScenarioParticipantKind::Device => write!(f, "device"),
             ScenarioParticipantKind::Admin => write!(f, "admin"),
@@ -116,12 +118,13 @@ impl<'de> Deserialize<'de> for ScenarioParticipantKind {
         let s = String::deserialize(deserializer)?;
         match s.as_str() {
             "app" => Ok(ScenarioParticipantKind::App),
+            "agent" => Ok(ScenarioParticipantKind::Agent),
             "service" => Ok(ScenarioParticipantKind::Service),
             "device" => Ok(ScenarioParticipantKind::Device),
             "admin" => Ok(ScenarioParticipantKind::Admin),
             "control-plane" => Ok(ScenarioParticipantKind::ControlPlane),
             other => Err(de::Error::custom(format!(
-                "invalid participant kind: {other}, expected one of: app, service, device, admin, control-plane"
+                "invalid participant kind: {other}, expected one of: app, agent, service, device, admin, control-plane"
             ))),
         }
     }

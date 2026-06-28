@@ -49,6 +49,12 @@ and this project adheres to
   prepared events, outbox flows, state admin, and authority planning.
 - Added service-repo integration helper surfaces and documentation updates for
   Trellis test harness workflows.
+- Added live TypeScript and Rust auth integration coverage for bootstrap client
+  branches, generated Auth session RPCs, request validation, session and
+  connection metadata, and revoke/logout cleanup paths, replacing fake runtime
+  unit coverage.
+- Added narrow `trellis-test` live-runtime helpers for one-shot logout kick
+  failures and raw auth connection-presence seeding.
 
 ### Changed
 
@@ -78,6 +84,8 @@ and this project adheres to
   lint and keep new Rust runtime/bootstrap surfaces documented.
 - Fixed bootstrap CLI reporting and `trellis init config --format json` output,
   while preserving structured `BootstrapError` diagnostics.
+- Fixed `Auth.Sessions.Logout` cleanup ordering so durable session and
+  connection records are removed before runtime access is kicked.
 
 ## [0.19.0-rc.5] - 2026-06-15
 

@@ -4,6 +4,7 @@ import type {
 } from "@qlever-llc/trellis";
 import type {
   TrellisTestAuthorityPlanClassification,
+  TrellisTestRawAuthConnectionPresence,
   TrellisTestServiceKey,
 } from "../types.ts";
 
@@ -89,6 +90,10 @@ export type TrellisIntegrationCoordinatorEndpoints = {
   };
   "/flush": {
     request: Record<string, never>;
+    response: { readonly ok: true };
+  };
+  "/auth/connection-presence/seed-raw": {
+    request: TrellisTestRawAuthConnectionPresence;
     response: { readonly ok: true };
   };
   "/authority/plans/list": {

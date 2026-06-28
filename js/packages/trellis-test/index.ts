@@ -67,6 +67,7 @@ export type {
   TrellisTestContractDescriptor,
   TrellisTestContractLike,
   TrellisTestControlPlane,
+  TrellisTestRawAuthConnectionPresence,
   TrellisTestRuntimeStartOptions,
   TrellisTestServiceKey,
   WaitForOptions,

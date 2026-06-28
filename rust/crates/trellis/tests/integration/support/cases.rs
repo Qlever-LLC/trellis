@@ -70,6 +70,21 @@ pub(crate) const RUST_INTEGRATION_CASES: &[IntegrationCase] = &[
         "rpc_auth_validation_retries_transient_session_not_found",
     ),
     IntegrationCase::live(
+        "auth.requests-validate-enforces-proof-signature-time-replay-and-permissions",
+        "rpc",
+        "auth_requests_validate_enforces_proof_signature_time_replay_and_permissions",
+    ),
+    IntegrationCase::live(
+        "auth.sessions-list-and-connections-list-report-participant-metadata",
+        "app_identity_approval",
+        "auth_sessions_list_and_connections_list_report_participant_metadata",
+    ),
+    IntegrationCase::live(
+        "auth.connections-list-skips-malformed-connection-entries",
+        "app_identity_approval",
+        "auth_connections_list_skips_malformed_connection_entries",
+    ),
+    IntegrationCase::live(
         "events.client-publishes-and-subscriber-receives",
         "events",
         "events_client_publishes_and_subscriber_receives",
@@ -450,6 +465,41 @@ pub(crate) const RUST_INTEGRATION_CASES: &[IntegrationCase] = &[
         "auth_local_login_replaces_session_when_identity_changes",
     ),
     IntegrationCase::live(
+        "auth.sessions-logout-deletes-session-and-connections",
+        "app_identity_approval",
+        "auth_sessions_logout_deletes_session_and_connections",
+    ),
+    IntegrationCase::live(
+        "auth.sessions-logout-cleans-connections-after-kick-failure",
+        "app_identity_approval",
+        "auth_sessions_logout_cleans_connections_after_kick_failure",
+    ),
+    IntegrationCase::live(
+        "auth.sessions-me-reports-app-envelope",
+        "app_identity_approval",
+        "auth_sessions_me_reports_app_envelope",
+    ),
+    IntegrationCase::live(
+        "auth.sessions-me-reports-service-envelope-and-current-user-state",
+        "app_identity_approval",
+        "auth_sessions_me_reports_service_envelope_and_current_user_state",
+    ),
+    IntegrationCase::live(
+        "auth.sessions-me-reports-device-envelope",
+        "device_activation",
+        "auth_sessions_me_reports_device_envelope",
+    ),
+    IntegrationCase::live(
+        "auth.sessions-me-rejects-stale-user-principals",
+        "app_identity_approval",
+        "auth_sessions_me_rejects_stale_user_principals",
+    ),
+    IntegrationCase::live(
+        "auth.sessions-me-rejects-stale-device-principals",
+        "device_activation",
+        "auth_sessions_me_rejects_stale_device_principals",
+    ),
+    IntegrationCase::live(
         "auth.session-revoke-denies-reconnect",
         "app_identity_approval",
         "auth_session_revoke_denies_reconnect",
@@ -458,6 +508,21 @@ pub(crate) const RUST_INTEGRATION_CASES: &[IntegrationCase] = &[
         "auth.session-revoke-cleans-runtime-connection-presence",
         "app_identity_approval",
         "auth_session_revoke_cleans_runtime_connection_presence",
+    ),
+    IntegrationCase::live(
+        "auth.sessions-revoke-cascades-app-grants",
+        "app_identity_approval",
+        "auth_sessions_revoke_cascades_app_grants",
+    ),
+    IntegrationCase::live(
+        "auth.sessions-revoke-cascades-agent-grants",
+        "app_identity_approval",
+        "auth_sessions_revoke_cascades_agent_grants",
+    ),
+    IntegrationCase::live(
+        "auth.sessions-revoke-revokes-device-and-service-access",
+        "device_activation",
+        "auth_sessions_revoke_revokes_device_and_service_access",
     ),
     IntegrationCase::live(
         "device-activation.admin-provisions-known-device",
@@ -531,6 +596,41 @@ pub(crate) const RUST_SERVICE_INTEGRATION_CASES: &[IntegrationCase] = &[
         "control-plane.bootstrap-rejects-non-client-contract",
         "control_plane",
         "control_plane_bootstrap_rejects_non_client_contract",
+    ),
+    IntegrationCase::live(
+        "control-plane.bootstrap-selects-exact-session-contract-digest",
+        "control_plane",
+        "control_plane_bootstrap_selects_exact_session_contract_digest",
+    ),
+    IntegrationCase::live(
+        "control-plane.bootstrap-deletes-session-for-inactive-user",
+        "control_plane",
+        "control_plane_bootstrap_deletes_session_for_inactive_user",
+    ),
+    IntegrationCase::live(
+        "control-plane.bootstrap-deletes-session-for-missing-user-projection",
+        "control_plane",
+        "control_plane_bootstrap_deletes_session_for_missing_user_projection",
+    ),
+    IntegrationCase::live(
+        "control-plane.bootstrap-deletes-session-for-insufficient-user-capabilities",
+        "control_plane",
+        "control_plane_bootstrap_deletes_session_for_insufficient_user_capabilities",
+    ),
+    IntegrationCase::live(
+        "control-plane.bootstrap-reports-server-time-for-stale-proof",
+        "control_plane",
+        "control_plane_bootstrap_reports_server_time_for_stale_proof",
+    ),
+    IntegrationCase::live(
+        "control-plane.bootstrap-rejects-invalid-signature",
+        "control_plane",
+        "control_plane_bootstrap_rejects_invalid_signature",
+    ),
+    IntegrationCase::live(
+        "control-plane.bootstrap-allows-known-inactive-app-digest",
+        "control_plane",
+        "control_plane_bootstrap_allows_known_inactive_app_digest",
     ),
     IntegrationCase::live(
         "control-plane.session-logout-deletes-session-and-denies-reuse",

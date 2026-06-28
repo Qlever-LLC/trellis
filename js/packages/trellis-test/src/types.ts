@@ -38,6 +38,12 @@ export type TrellisTestControlPlane = {
   readonly sqlite: TrellisControlPlaneSqlite;
 };
 
+/** Raw auth connection-presence entry seeded for malformed live-runtime tests. */
+export type TrellisTestRawAuthConnectionPresence = {
+  readonly key: string;
+  readonly value: Record<string, unknown>;
+};
+
 /** Local command override for the spawned Trellis control-plane process. */
 export type TrellisTestRuntimeTrellisCommand = {
   cmd: string;

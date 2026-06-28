@@ -12,6 +12,7 @@ import type {
   TrellisTestClientKey,
   TrellisTestConnectedClient,
   TrellisTestContractLike,
+  TrellisTestRawAuthConnectionPresence,
   TrellisTestRuntimeStartOptions,
   TrellisTestServiceKey,
   WaitForOptions,
@@ -92,6 +93,10 @@ export type TrellisIntegrationRuntime = {
   ): Promise<T>;
   /** Flushes runtime transport work that should be visible before assertions. */
   flush(): Promise<void>;
+  /** Seeds one raw auth connection-presence KV entry for malformed-entry tests. */
+  seedRawAuthConnectionPresence?(
+    args: TrellisTestRawAuthConnectionPresence,
+  ): Promise<void>;
   /** Observes raw NATS messages on a runtime-owned scratch NATS server. */
   startNatsMessageObserver?(
     subject: string,

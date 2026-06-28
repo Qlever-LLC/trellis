@@ -24,6 +24,8 @@ import type {
   SqlUserProjectionRepository,
 } from "../storage.ts";
 import type { RpcRegistrar } from "./types.ts";
+import type { TrellisTestHooks } from "../test_hooks.ts";
+import { withTrellisTestHook } from "../test_hooks.ts";
 
 type RevokeSessionHandler = ReturnType<typeof createAuthSessionsRevokeHandler>;
 type RevokeSessionEnvelope = Parameters<RevokeSessionHandler> extends [
@@ -53,8 +55,14 @@ export async function registerSessionRpcs(deps: {
   natsAuth: AuthRuntimeDeps["natsAuth"];
   natsSystem: AuthRuntimeDeps["natsSystem"];
   logger: AuthRuntimeDeps["logger"];
+  testHooks?: TrellisTestHooks;
 }): Promise<void> {
   const kick = createKick({ logger: deps.logger, natsSystem: deps.natsSystem });
+  const logoutKick = withTrellisTestHook(
+    deps.testHooks,
+    "auth.sessions.logout.kickRuntimeAccess",
+    kick,
+  );
   const serviceLookup = createServiceLookup(deps);
   const revokeSessionHandler = createAuthSessionsRevokeHandler({
     sessionStorage: deps.sessionStorage,
@@ -108,7 +116,7 @@ export async function registerSessionRpcs(deps: {
       logger: deps.logger,
       sessionStorage: deps.sessionStorage,
       connectionsKV: deps.connectionsKV,
-      kick,
+      kick: logoutKick,
     }),
   );
   await deps.trellis.handle.rpc.auth.sessionsList(

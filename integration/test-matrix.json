@@ -3186,6 +3186,468 @@
     },
     {
       "kind": "client",
+      "id": "auth.sessions-logout-deletes-session-and-connections",
+      "fixture": "auth",
+      "title": "Auth.Sessions.Logout deletes the caller session and connection presence",
+      "coverage": [
+        "app-identity-grant-approval",
+        "auth-protocol-matrix",
+        "capability-permission-matrix",
+        "cross-runtime-rpc"
+      ],
+      "description": "An authenticated app/client session calls Auth.Sessions.Logout with empty input through the generated RPC surface; the session row and matching runtime connection presence disappear, and the old session can no longer call Auth.Sessions.Me.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.auth@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.auth-local-login-service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.auth-local-login-client@v1"
+          }
+        ],
+        "given": [
+          "a registered service handles an RPC required by the app client contract",
+          "the app client has an authenticated approved session",
+          "Auth.Connections.List shows runtime connection presence for the app session"
+        ],
+        "when": [
+          "the app client calls Auth.Sessions.Logout with empty input"
+        ],
+        "then": [
+          "Auth.Sessions.List no longer shows the logged-out app session",
+          "Auth.Connections.List no longer shows runtime presence for the logged-out session",
+          "the existing app session is denied for subsequent Auth.Sessions.Me calls"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "auth.sessions-logout-cleans-connections-after-kick-failure",
+      "fixture": "auth",
+      "title": "Auth.Sessions.Logout removes connection presence when kick fails",
+      "coverage": [
+        "app-identity-grant-approval",
+        "auth-protocol-matrix",
+        "cross-runtime-rpc"
+      ],
+      "description": "An authenticated app/client session calls Auth.Sessions.Logout while the live kick path rejects; logout still succeeds and durable session and connection presence are removed.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.auth@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.auth-local-login-service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.auth-local-login-client@v1"
+          }
+        ],
+        "given": [
+          "the app client has an authenticated approved session",
+          "Auth.Connections.List shows runtime connection presence for the app session",
+          "the Trellis test hook makes the logout kick reject once"
+        ],
+        "when": [
+          "the app client calls Auth.Sessions.Logout with empty input"
+        ],
+        "then": [
+          "Auth.Sessions.Logout succeeds",
+          "Auth.Sessions.List no longer shows the logged-out app session",
+          "Auth.Connections.List no longer shows runtime presence for the logged-out session"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "auth.sessions-me-reports-app-envelope",
+      "fixture": "auth",
+      "title": "Auth.Sessions.Me reports the app user envelope",
+      "coverage": [
+        "app-identity-grant-approval",
+        "auth-protocol-matrix",
+        "cross-runtime-rpc"
+      ],
+      "description": "An authenticated app/client session calls Auth.Sessions.Me through the generated RPC surface and receives app participant metadata with a live user envelope and null device/service envelopes.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.auth-local-login-service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.auth-local-login-client@v1"
+          }
+        ],
+        "given": [
+          "the app client has an authenticated approved session"
+        ],
+        "when": [
+          "the app client calls Auth.Sessions.Me"
+        ],
+        "then": [
+          "the response participantKind is app",
+          "the response includes an active user envelope with current capabilities",
+          "the response device and service envelopes are null"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "auth.sessions-list-and-connections-list-report-participant-metadata",
+      "fixture": "auth",
+      "title": "Auth list RPCs report participant metadata",
+      "coverage": [
+        "app-identity-grant-approval",
+        "auth-protocol-matrix",
+        "cross-runtime-rpc"
+      ],
+      "description": "An admin app lists live app, agent, activated device, and service sessions and app/agent runtime connections through generated Auth.Sessions.List and Auth.Connections.List, proving participantKind and explicit principal metadata are present on list rows.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.auth@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.auth-local-login-service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.auth-local-login-client@v1"
+          },
+          {
+            "name": "agent",
+            "kind": "agent",
+            "contract": "trellis.integration.auth-local-login-agent@v1"
+          },
+          {
+            "name": "device",
+            "kind": "device",
+            "contract": "trellis.integration.device-activation-device@v1"
+          }
+        ],
+        "given": [
+          "a registered service is connected",
+          "the app client and agent have authenticated approved sessions",
+          "a known device is provisioned and activated"
+        ],
+        "when": [
+          "the admin calls Auth.Sessions.List and Auth.Connections.List"
+        ],
+        "then": [
+          "Auth.Sessions.List includes app user participant metadata",
+          "Auth.Sessions.List includes agent user participant metadata",
+          "Auth.Sessions.List includes activated device participant metadata",
+          "Auth.Sessions.List includes service participant metadata",
+          "Auth.Connections.List includes app connection participant metadata",
+          "Auth.Connections.List includes agent connection participant metadata"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "auth.connections-list-skips-malformed-connection-entries",
+      "fixture": "auth",
+      "title": "Auth.Connections.List skips malformed connection presence",
+      "coverage": [
+        "app-identity-grant-approval",
+        "auth-protocol-matrix",
+        "cross-runtime-rpc"
+      ],
+      "description": "A malformed raw auth connection-presence entry is seeded beside a valid live app connection; Auth.Connections.List skips the malformed entry and still returns the valid connection.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.auth@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.auth-local-login-service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.auth-local-login-client@v1"
+          }
+        ],
+        "given": [
+          "the app client has an authenticated approved session",
+          "Auth.Connections.List shows one valid runtime connection for the app session",
+          "a test helper seeds one malformed raw connection presence entry for the same session"
+        ],
+        "when": [
+          "the admin calls Auth.Connections.List for the session"
+        ],
+        "then": [
+          "the malformed connection presence entry is skipped",
+          "the valid connection entry is still returned"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "auth.sessions-me-reports-service-envelope-and-current-user-state",
+      "fixture": "auth",
+      "title": "Auth.Sessions.Me reports service envelope and current user state",
+      "coverage": [
+        "app-identity-grant-approval",
+        "auth-protocol-matrix",
+        "cross-runtime-rpc"
+      ],
+      "description": "An authenticated app session observes current SQL-backed user active/capability state through Auth.Sessions.Me, and a connected service observes the service envelope from durable service instance state even when the stored service session deployment is stale.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.auth-local-login-service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.auth-local-login-client@v1"
+          }
+        ],
+        "given": [
+          "the app client has an authenticated approved session",
+          "a registered service is connected"
+        ],
+        "when": [
+          "the durable user projection is updated",
+          "the service session deployment is made stale while the durable service instance remains current",
+          "the app and service call Auth.Sessions.Me"
+        ],
+        "then": [
+          "Auth.Sessions.Me reports current user active and resolved capability state",
+          "Auth.Sessions.Me reports participantKind service with an active service envelope",
+          "the service envelope capabilities come from the current durable service instance"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "auth.sessions-me-reports-device-envelope",
+      "fixture": "auth",
+      "title": "Auth.Sessions.Me reports the activated device envelope",
+      "coverage": [
+        "auth-protocol-matrix",
+        "device-activation-parity",
+        "cross-runtime-rpc"
+      ],
+      "description": "An activated device session calls Auth.Sessions.Me and receives device participant metadata with the activated device envelope and activating user context.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.auth@v1"
+          },
+          {
+            "name": "device",
+            "kind": "device",
+            "contract": "trellis.integration.device-activation-device@v1"
+          }
+        ],
+        "given": [
+          "a known device is provisioned and activated"
+        ],
+        "when": [
+          "the activated device calls Auth.Sessions.Me"
+        ],
+        "then": [
+          "the response participantKind is device",
+          "the response includes the activated device deployment and runtime public key",
+          "the response includes activating user context"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "auth.sessions-me-rejects-stale-user-principals",
+      "fixture": "auth",
+      "title": "Auth.Sessions.Me rejects stale user session state",
+      "coverage": [
+        "app-identity-grant-approval",
+        "auth-protocol-matrix",
+        "cross-runtime-rpc"
+      ],
+      "description": "An authenticated app session is made stale by deleting the durable session row and then the durable user projection; Auth.Sessions.Me rejects both stale user principal states.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.auth-local-login-service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.auth-local-login-client@v1"
+          }
+        ],
+        "given": [
+          "the app client has an authenticated approved session"
+        ],
+        "when": [
+          "the session row is deleted",
+          "the user projection row is deleted"
+        ],
+        "then": [
+          "Auth.Sessions.Me rejects the deleted session",
+          "Auth.Sessions.Me rejects the session whose durable user projection is missing"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "auth.sessions-me-rejects-stale-device-principals",
+      "fixture": "auth",
+      "title": "Auth.Sessions.Me rejects stale device session state",
+      "coverage": [
+        "auth-protocol-matrix",
+        "device-activation-parity",
+        "cross-runtime-rpc"
+      ],
+      "description": "An activated device session is made stale by deleting the durable session row, changing the device instance deployment, and changing the activation identity key; Auth.Sessions.Me rejects each stale device principal state.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.auth@v1"
+          },
+          {
+            "name": "device",
+            "kind": "device",
+            "contract": "trellis.integration.device-activation-device@v1"
+          }
+        ],
+        "given": [
+          "a known device is provisioned and activated"
+        ],
+        "when": [
+          "the device session row is deleted",
+          "the device instance deployment no longer matches the activation",
+          "the activation identity key no longer matches the session"
+        ],
+        "then": [
+          "Auth.Sessions.Me rejects the deleted device session",
+          "Auth.Sessions.Me rejects the stale activation deployment",
+          "Auth.Sessions.Me rejects the stale activation identity key"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "auth.requests-validate-enforces-proof-signature-time-replay-and-permissions",
+      "fixture": "auth",
+      "title": "Auth.Requests.Validate enforces live request proof validation",
+      "coverage": [
+        "app-identity-grant-approval",
+        "auth-protocol-matrix",
+        "capability-permission-matrix",
+        "cross-runtime-rpc"
+      ],
+      "description": "A live service calls Auth.Requests.Validate for a live app session and service session, proving malformed payload hashes, stale proof timestamps, replayed request ids, missing-session replay behavior, delegated publish-subject checks, and current service-instance capabilities through the control-plane validator.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.auth-validate-service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.auth-validate-client@v1"
+          }
+        ],
+        "given": [
+          "a registered service can call Auth.Requests.Validate",
+          "an app client has an authenticated approved session for one service RPC subject"
+        ],
+        "when": [
+          "the service validates signed app requests with valid, malformed, stale, replayed, denied-subject, and missing-session inputs",
+          "the service validates its own service session after current service-instance capabilities change"
+        ],
+        "then": [
+          "malformed payload hashes return invalid_signature",
+          "stale proofs return iat_out_of_range",
+          "replayed request ids return invalid_signature",
+          "missing sessions return session_not_found without consuming replay state",
+          "delegated publish subjects gate app validation",
+          "current service-instance capabilities gate service validation"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
       "id": "auth.session-revoke-denies-reconnect",
       "fixture": "auth",
       "title": "Revoked app session cannot continue or reconnect",
@@ -3277,6 +3739,158 @@
           "Auth.Sessions.List no longer shows the revoked app session",
           "Auth.Connections.List no longer shows runtime presence for the revoked session",
           "the existing app session is denied for subsequent Auth.Sessions.Me calls"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "auth.sessions-revoke-cascades-app-grants",
+      "fixture": "auth",
+      "title": "Auth.Sessions.Revoke cascades app grant revocation",
+      "coverage": [
+        "app-identity-grant-approval",
+        "auth-protocol-matrix",
+        "capability-permission-matrix",
+        "cross-runtime-rpc"
+      ],
+      "description": "Two authenticated app sessions share the same approved identity grant. Revoking one through Auth.Sessions.Revoke deletes the durable grant, removes both app sessions and their runtime connection presence, and denies both old sessions.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.auth@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.auth-local-login-service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.auth-local-login-client@v1"
+          }
+        ],
+        "given": [
+          "two app sessions are bound for the same user and app contract",
+          "both sessions share one approved durable identity grant",
+          "Auth.Connections.List shows runtime connection presence for both sessions"
+        ],
+        "when": [
+          "the admin revokes one app session through Auth.Sessions.Revoke"
+        ],
+        "then": [
+          "the durable identity grant is deleted",
+          "Auth.Sessions.List no longer shows either sibling app session",
+          "Auth.Connections.List no longer shows runtime presence for either sibling app session",
+          "both existing app sessions are denied for subsequent Auth.Sessions.Me calls"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "auth.sessions-revoke-cascades-agent-grants",
+      "fixture": "auth",
+      "title": "Auth.Sessions.Revoke cascades agent grant revocation",
+      "coverage": [
+        "app-identity-grant-approval",
+        "auth-protocol-matrix",
+        "capability-permission-matrix",
+        "cross-runtime-rpc"
+      ],
+      "description": "Two authenticated agent sessions share the same approved identity grant. Revoking one through Auth.Sessions.Revoke deletes the durable grant, removes both agent sessions and their runtime connection presence, and denies both old sessions.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.auth@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.auth-local-login-service@v1"
+          },
+          {
+            "name": "agent",
+            "kind": "agent",
+            "contract": "trellis.integration.auth-local-login-agent@v1"
+          }
+        ],
+        "given": [
+          "two agent sessions are bound for the same user and agent contract",
+          "both sessions share one approved durable identity grant",
+          "Auth.Connections.List shows runtime connection presence for both sessions"
+        ],
+        "when": [
+          "the admin revokes one agent session through Auth.Sessions.Revoke"
+        ],
+        "then": [
+          "the durable identity grant is deleted",
+          "Auth.Sessions.List no longer shows either sibling agent session",
+          "Auth.Connections.List no longer shows runtime presence for either sibling agent session",
+          "both existing agent sessions are denied for subsequent Auth.Sessions.Me calls"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "auth.sessions-revoke-revokes-device-and-service-access",
+      "fixture": "auth",
+      "title": "Auth.Sessions.Revoke revokes device and service runtime access",
+      "coverage": [
+        "device-activation-end-to-end",
+        "service-bootstrap-authority",
+        "auth-protocol-matrix",
+        "cross-runtime-rpc"
+      ],
+      "description": "Revoking a live device session through Auth.Sessions.Revoke revokes the durable device activation and blocks device reconnect. Revoking a live service session through Auth.Sessions.Revoke disables the durable service instance and blocks service reconnect.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.auth@v1"
+          },
+          {
+            "name": "device",
+            "kind": "device",
+            "contract": "trellis.integration.device-activation-device@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.service-approval-service@v1"
+          }
+        ],
+        "given": [
+          "an activated device is connected with a live device session",
+          "a provisioned service instance is connected with a live service session"
+        ],
+        "when": [
+          "the admin revokes the device session through Auth.Sessions.Revoke",
+          "the admin revokes the service session through Auth.Sessions.Revoke"
+        ],
+        "then": [
+          "the durable device activation is listed as revoked",
+          "the old device session is removed and denied",
+          "the device cannot reconnect with the same root secret",
+          "the durable service instance is listed as disabled",
+          "the old service session is removed",
+          "the service cannot reconnect with the same instance key"
         ]
       },
       "completion": {
@@ -4096,6 +4710,354 @@
         "rust": {
           "module": "control_plane",
           "function": "control_plane_bootstrap_rejects_non_client_contract"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.bootstrap-selects-exact-session-contract-digest",
+      "fixture": "control-plane",
+      "title": "Bootstrap client selects the exact session contract digest",
+      "coverage": [
+        "auth",
+        "bootstrap-client"
+      ],
+      "description": "A live app session remains bound to its exact stored contract digest when another known app digest shares the same contract id.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis bootstrap/client HTTP route and catalog"
+          },
+          {
+            "name": "client app",
+            "kind": "app",
+            "contract": "two known revisions of the same app contract id"
+          }
+        ],
+        "given": [
+          "Two app contract digests with the same contract id are known.",
+          "The live session row is bound to the second digest."
+        ],
+        "when": [
+          "The client fetches /bootstrap/client with that session key."
+        ],
+        "then": [
+          "The route returns ready with the exact session-bound digest."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/bootstrap_selects_exact_session_contract_digest.integration_test.ts",
+          "testName": "control-plane.bootstrap-selects-exact-session-contract-digest returns the stored session digest when multiple known digests share a contract id"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_bootstrap_selects_exact_session_contract_digest"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.bootstrap-deletes-session-for-inactive-user",
+      "fixture": "control-plane",
+      "title": "Bootstrap client deletes sessions for inactive users",
+      "coverage": [
+        "auth",
+        "bootstrap-client",
+        "session-cleanup"
+      ],
+      "description": "A live bound app session whose user projection is inactive returns auth_required from /bootstrap/client and is deleted.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis bootstrap/client HTTP route and session storage"
+          },
+          {
+            "name": "client app",
+            "kind": "app",
+            "contract": "case-scoped app auth contract"
+          }
+        ],
+        "given": [
+          "An app has a bound user session.",
+          "The live user projection is marked inactive."
+        ],
+        "when": [
+          "The client fetches /bootstrap/client with that session key."
+        ],
+        "then": [
+          "The route returns auth_required.",
+          "The invalid session row is deleted."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/bootstrap_deletes_session_for_inactive_user.integration_test.ts",
+          "testName": "control-plane.bootstrap-deletes-session-for-inactive-user returns auth_required and deletes the session"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_bootstrap_deletes_session_for_inactive_user"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.bootstrap-deletes-session-for-missing-user-projection",
+      "fixture": "control-plane",
+      "title": "Bootstrap client deletes sessions for missing user projections",
+      "coverage": [
+        "auth",
+        "bootstrap-client",
+        "session-cleanup"
+      ],
+      "description": "A live bound app session whose user projection is missing returns auth_required from /bootstrap/client and is deleted.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis bootstrap/client HTTP route and session storage"
+          },
+          {
+            "name": "client app",
+            "kind": "app",
+            "contract": "case-scoped app auth contract"
+          }
+        ],
+        "given": [
+          "An app has a bound user session.",
+          "The live user projection row is deleted."
+        ],
+        "when": [
+          "The client fetches /bootstrap/client with that session key."
+        ],
+        "then": [
+          "The route returns auth_required.",
+          "The invalid session row is deleted."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/bootstrap_deletes_session_for_missing_user_projection.integration_test.ts",
+          "testName": "control-plane.bootstrap-deletes-session-for-missing-user-projection returns auth_required and deletes the session"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_bootstrap_deletes_session_for_missing_user_projection"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.bootstrap-deletes-session-for-insufficient-user-capabilities",
+      "fixture": "control-plane",
+      "title": "Bootstrap client deletes sessions when user capabilities no longer cover delegated access",
+      "coverage": [
+        "auth",
+        "bootstrap-client",
+        "session-cleanup"
+      ],
+      "description": "A live bound app session whose user projection no longer includes the delegated capabilities returns auth_required from /bootstrap/client and is deleted.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis bootstrap/client HTTP route and session storage"
+          },
+          {
+            "name": "client app",
+            "kind": "app",
+            "contract": "case-scoped app auth contract with delegated Auth.Sessions.Me access"
+          }
+        ],
+        "given": [
+          "An app has a bound user session with delegated capabilities.",
+          "The live user projection capabilities are cleared."
+        ],
+        "when": [
+          "The client fetches /bootstrap/client with that session key."
+        ],
+        "then": [
+          "The route returns auth_required.",
+          "The invalid session row is deleted."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/bootstrap_deletes_session_for_insufficient_user_capabilities.integration_test.ts",
+          "testName": "control-plane.bootstrap-deletes-session-for-insufficient-user-capabilities returns auth_required and deletes the session"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_bootstrap_deletes_session_for_insufficient_user_capabilities"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.bootstrap-reports-server-time-for-stale-proof",
+      "fixture": "control-plane",
+      "title": "Bootstrap client reports server time for stale proofs",
+      "coverage": [
+        "auth",
+        "bootstrap-client"
+      ],
+      "description": "A live /bootstrap/client request with an out-of-range proof iat returns iat_out_of_range and a fresh serverNow value.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis bootstrap/client HTTP route"
+          },
+          {
+            "name": "client app",
+            "kind": "app",
+            "contract": "case-scoped app auth contract"
+          }
+        ],
+        "given": [
+          "An app has a bound user session."
+        ],
+        "when": [
+          "The client fetches /bootstrap/client with a stale signed iat."
+        ],
+        "then": [
+          "The route rejects the request with iat_out_of_range.",
+          "The response includes serverNow."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/bootstrap_reports_server_time_for_stale_proof.integration_test.ts",
+          "testName": "control-plane.bootstrap-reports-server-time-for-stale-proof returns iat_out_of_range with serverNow"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_bootstrap_reports_server_time_for_stale_proof"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.bootstrap-rejects-invalid-signature",
+      "fixture": "control-plane",
+      "title": "Bootstrap client rejects invalid signatures",
+      "coverage": [
+        "auth",
+        "bootstrap-client"
+      ],
+      "description": "A live /bootstrap/client request for a bound app session with an invalid bootstrap signature returns invalid_signature.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis bootstrap/client HTTP route"
+          },
+          {
+            "name": "client app",
+            "kind": "app",
+            "contract": "case-scoped app auth contract"
+          }
+        ],
+        "given": [
+          "An app has a bound user session."
+        ],
+        "when": [
+          "The client fetches /bootstrap/client with a signature that does not match the proof payload."
+        ],
+        "then": [
+          "The route rejects the request with invalid_signature."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/bootstrap_rejects_invalid_signature.integration_test.ts",
+          "testName": "control-plane.bootstrap-rejects-invalid-signature returns invalid_signature"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_bootstrap_rejects_invalid_signature"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.bootstrap-allows-known-inactive-app-digest",
+      "fixture": "control-plane",
+      "title": "Bootstrap client allows known inactive app digests",
+      "coverage": [
+        "auth",
+        "bootstrap-client"
+      ],
+      "description": "A live app session bound to a known app contract digest succeeds even though user app contracts are not active service catalog entries.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis bootstrap/client HTTP route and catalog"
+          },
+          {
+            "name": "client app",
+            "kind": "app",
+            "contract": "case-scoped app auth contract"
+          }
+        ],
+        "given": [
+          "An app has a bound user session for a known app contract digest.",
+          "The app contract is not an active service catalog entry."
+        ],
+        "when": [
+          "The client fetches /bootstrap/client with that session key."
+        ],
+        "then": [
+          "The route returns ready for the known app digest."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/bootstrap_allows_known_inactive_app_digest.integration_test.ts",
+          "testName": "control-plane.bootstrap-allows-known-inactive-app-digest returns ready for a known app digest outside the active catalog"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_bootstrap_allows_known_inactive_app_digest"
         }
       },
       "completion": {

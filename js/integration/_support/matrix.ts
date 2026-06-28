@@ -1,4 +1,9 @@
-export type ScenarioParticipantKind = "app" | "service" | "device" | "admin";
+export type ScenarioParticipantKind =
+  | "app"
+  | "agent"
+  | "service"
+  | "device"
+  | "admin";
 
 export type ScenarioParticipant = {
   readonly name: string;
@@ -168,7 +173,7 @@ function parseParticipant(
 
   const name = expectNonEmptyString(p.name, `${context} name`);
   const kind = expectNonEmptyString(p.kind, `${context} kind`);
-  const validKinds = ["app", "service", "device", "admin"];
+  const validKinds = ["app", "agent", "service", "device", "admin"];
   if (!validKinds.includes(kind)) {
     throw new Error(
       `${context} kind must be one of: ${validKinds.join(", ")}`,

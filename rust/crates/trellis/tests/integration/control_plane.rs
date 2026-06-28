@@ -51,6 +51,34 @@ const BOOTSTRAP_NON_CLIENT_DEVICE_ADMIN_ID: &str =
     "trellis.integration.control-plane.bootstrap-non-client-contract-device-admin@v1";
 const BOOTSTRAP_NON_CLIENT_DEVICE_ID: &str =
     "trellis.integration.control-plane.bootstrap-non-client-contract-device@v1";
+const BOOTSTRAP_EXACT_DIGEST_CASE_ID: &str =
+    "control-plane.bootstrap-selects-exact-session-contract-digest";
+const BOOTSTRAP_EXACT_DIGEST_CLIENT_ID: &str =
+    "trellis.integration.control-plane.bootstrap-exact-digest-client.control-plane-bootstrap-selects-exact-session-contract-digest@v1";
+const BOOTSTRAP_INACTIVE_USER_CASE_ID: &str =
+    "control-plane.bootstrap-deletes-session-for-inactive-user";
+const BOOTSTRAP_INACTIVE_USER_CLIENT_ID: &str =
+    "trellis.integration.control-plane.bootstrap-inactive-user-client.control-plane-bootstrap-deletes-session-for-inactive-user@v1";
+const BOOTSTRAP_MISSING_USER_CASE_ID: &str =
+    "control-plane.bootstrap-deletes-session-for-missing-user-projection";
+const BOOTSTRAP_MISSING_USER_CLIENT_ID: &str =
+    "trellis.integration.control-plane.bootstrap-missing-user-client.control-plane-bootstrap-deletes-session-for-missing-user-projection@v1";
+const BOOTSTRAP_INSUFFICIENT_USER_CASE_ID: &str =
+    "control-plane.bootstrap-deletes-session-for-insufficient-user-capabilities";
+const BOOTSTRAP_INSUFFICIENT_USER_CLIENT_ID: &str =
+    "trellis.integration.control-plane.bootstrap-insufficient-user-client.control-plane-bootstrap-deletes-session-for-insufficient-user-capabilities@v1";
+const BOOTSTRAP_STALE_PROOF_CASE_ID: &str =
+    "control-plane.bootstrap-reports-server-time-for-stale-proof";
+const BOOTSTRAP_STALE_PROOF_CLIENT_ID: &str =
+    "trellis.integration.control-plane.bootstrap-stale-proof-client.control-plane-bootstrap-reports-server-time-for-stale-proof@v1";
+const BOOTSTRAP_INVALID_SIGNATURE_CASE_ID: &str =
+    "control-plane.bootstrap-rejects-invalid-signature";
+const BOOTSTRAP_INVALID_SIGNATURE_CLIENT_ID: &str =
+    "trellis.integration.control-plane.bootstrap-invalid-signature-client.control-plane-bootstrap-rejects-invalid-signature@v1";
+const BOOTSTRAP_KNOWN_INACTIVE_CASE_ID: &str =
+    "control-plane.bootstrap-allows-known-inactive-app-digest";
+const BOOTSTRAP_KNOWN_INACTIVE_CLIENT_ID: &str =
+    "trellis.integration.control-plane.bootstrap-known-inactive-client.control-plane-bootstrap-allows-known-inactive-app-digest@v1";
 const SESSION_LOGOUT_DELETE_CASE_ID: &str =
     "control-plane.session-logout-deletes-session-and-denies-reuse";
 const SESSION_LOGOUT_KICK_CASE_ID: &str = "control-plane.session-logout-kicks-runtime-access";
@@ -1192,6 +1220,299 @@ async fn control_plane_bootstrap_rejects_non_client_contract() {
         &device_contract,
     )
     .await;
+}
+
+#[tokio::test]
+async fn control_plane_bootstrap_selects_exact_session_contract_digest() {
+    assert_service_case_registered(
+        BOOTSTRAP_EXACT_DIGEST_CASE_ID,
+        "control-plane",
+        "control_plane",
+    );
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+    let first_contract = bootstrap_plain_contract(
+        BOOTSTRAP_EXACT_DIGEST_CLIENT_ID,
+        "Trellis Bootstrap Exact Digest Client",
+        "First known client contract revision.",
+        trellis_rs::contracts::ContractKind::App,
+    )
+    .expect("build first exact digest contract");
+    let session_contract = bootstrap_auth_sessions_me_contract(
+        BOOTSTRAP_EXACT_DIGEST_CLIENT_ID,
+        "Trellis Bootstrap Exact Digest Client",
+        "Session-bound client contract revision.",
+    )
+    .expect("build session exact digest contract");
+
+    let first = admin
+        .connect_client(&bootstrap_url, &first_contract)
+        .await
+        .expect("connect first exact digest client");
+    drop(first);
+    let (seed, _) =
+        connect_bootstrap_client_session(&mut admin, &bootstrap_url, &session_contract).await;
+
+    let response = fetch_client_bootstrap(runtime.trellis_url(), &seed)
+        .await
+        .expect("fetch exact digest bootstrap");
+    assert_eq!(response.status, 200);
+    assert_eq!(
+        response.body.get("status").and_then(Value::as_str),
+        Some("ready")
+    );
+    assert_eq!(
+        response
+            .body
+            .get("connectInfo")
+            .and_then(Value::as_object)
+            .and_then(|connect_info| connect_info.get("contractDigest"))
+            .and_then(Value::as_str),
+        Some(session_contract.digest())
+    );
+    assert_eq!(
+        response
+            .body
+            .get("contract")
+            .and_then(Value::as_object)
+            .and_then(|contract| contract.get("description"))
+            .and_then(Value::as_str),
+        Some("Session-bound client contract revision.")
+    );
+}
+
+#[tokio::test]
+async fn control_plane_bootstrap_deletes_session_for_inactive_user() {
+    assert_service_case_registered(
+        BOOTSTRAP_INACTIVE_USER_CASE_ID,
+        "control-plane",
+        "control_plane",
+    );
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+    let contract = bootstrap_plain_contract(
+        BOOTSTRAP_INACTIVE_USER_CLIENT_ID,
+        "Trellis Bootstrap Inactive User Client",
+        "Creates a bound app session for inactive-user bootstrap cleanup.",
+        trellis_rs::contracts::ContractKind::App,
+    )
+    .expect("build inactive user bootstrap contract");
+    let (seed, session_key) =
+        connect_bootstrap_client_session(&mut admin, &bootstrap_url, &contract).await;
+
+    mark_session_user_inactive(&runtime.control_plane_sqlite(), &session_key)
+        .expect("mark session user inactive");
+    assert_bootstrap_auth_required_and_session_deleted(&runtime, &seed, &session_key).await;
+}
+
+#[tokio::test]
+async fn control_plane_bootstrap_deletes_session_for_missing_user_projection() {
+    assert_service_case_registered(
+        BOOTSTRAP_MISSING_USER_CASE_ID,
+        "control-plane",
+        "control_plane",
+    );
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+    let contract = bootstrap_plain_contract(
+        BOOTSTRAP_MISSING_USER_CLIENT_ID,
+        "Trellis Bootstrap Missing User Client",
+        "Creates a bound app session for missing-user bootstrap cleanup.",
+        trellis_rs::contracts::ContractKind::App,
+    )
+    .expect("build missing user bootstrap contract");
+    let (seed, session_key) =
+        connect_bootstrap_client_session(&mut admin, &bootstrap_url, &contract).await;
+
+    delete_session_user_projection(&runtime.control_plane_sqlite(), &session_key)
+        .expect("delete session user projection");
+    assert_bootstrap_auth_required_and_session_deleted(&runtime, &seed, &session_key).await;
+}
+
+#[tokio::test]
+async fn control_plane_bootstrap_deletes_session_for_insufficient_user_capabilities() {
+    assert_service_case_registered(
+        BOOTSTRAP_INSUFFICIENT_USER_CASE_ID,
+        "control-plane",
+        "control_plane",
+    );
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+    let contract = bootstrap_auth_sessions_me_contract(
+        BOOTSTRAP_INSUFFICIENT_USER_CLIENT_ID,
+        "Trellis Bootstrap Insufficient User Client",
+        "Creates a bound app session for insufficient-capability bootstrap cleanup.",
+    )
+    .expect("build insufficient user bootstrap contract");
+    let (seed, session_key) =
+        connect_bootstrap_client_session(&mut admin, &bootstrap_url, &contract).await;
+
+    clear_session_user_capabilities(&runtime.control_plane_sqlite(), &session_key)
+        .expect("clear session user capabilities");
+    assert_bootstrap_auth_required_and_session_deleted(&runtime, &seed, &session_key).await;
+}
+
+#[tokio::test]
+async fn control_plane_bootstrap_reports_server_time_for_stale_proof() {
+    assert_service_case_registered(
+        BOOTSTRAP_STALE_PROOF_CASE_ID,
+        "control-plane",
+        "control_plane",
+    );
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+    let contract = bootstrap_plain_contract(
+        BOOTSTRAP_STALE_PROOF_CLIENT_ID,
+        "Trellis Bootstrap Stale Proof Client",
+        "Creates a bound app session for stale bootstrap proof coverage.",
+        trellis_rs::contracts::ContractKind::App,
+    )
+    .expect("build stale proof bootstrap contract");
+    let (seed, _) = connect_bootstrap_client_session(&mut admin, &bootstrap_url, &contract).await;
+    let stale_iat = current_iat() - 120;
+
+    let before = current_iat();
+    let response = fetch_client_bootstrap_with_iat(runtime.trellis_url(), &seed, stale_iat)
+        .await
+        .expect("fetch stale bootstrap proof");
+    let after = current_iat();
+
+    assert_eq!(response.status, 400);
+    assert_eq!(
+        response.body.get("reason").and_then(Value::as_str),
+        Some("iat_out_of_range")
+    );
+    let server_now = response
+        .body
+        .get("serverNow")
+        .and_then(Value::as_u64)
+        .expect("stale proof response includes serverNow");
+    assert!(server_now >= before && server_now <= after + 1);
+}
+
+#[tokio::test]
+async fn control_plane_bootstrap_rejects_invalid_signature() {
+    assert_service_case_registered(
+        BOOTSTRAP_INVALID_SIGNATURE_CASE_ID,
+        "control-plane",
+        "control_plane",
+    );
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+    let contract = bootstrap_plain_contract(
+        BOOTSTRAP_INVALID_SIGNATURE_CLIENT_ID,
+        "Trellis Bootstrap Invalid Signature Client",
+        "Creates a bound app session for invalid bootstrap signature coverage.",
+        trellis_rs::contracts::ContractKind::App,
+    )
+    .expect("build invalid signature bootstrap contract");
+    let (seed, _) = connect_bootstrap_client_session(&mut admin, &bootstrap_url, &contract).await;
+    let auth = trellis_rs::client::SessionAuth::from_seed_base64url(&seed)
+        .expect("build session auth for invalid signature");
+    let iat = current_iat();
+    let sig = auth.sign_sha256_domain("bootstrap-client", &iat.to_string());
+
+    let response = fetch_client_bootstrap_with_sig(runtime.trellis_url(), &seed, iat + 1, sig)
+        .await
+        .expect("fetch invalid signature bootstrap");
+    assert_eq!(response.status, 400);
+    assert_eq!(
+        response.body.get("reason").and_then(Value::as_str),
+        Some("invalid_signature")
+    );
+}
+
+#[tokio::test]
+async fn control_plane_bootstrap_allows_known_inactive_app_digest() {
+    assert_service_case_registered(
+        BOOTSTRAP_KNOWN_INACTIVE_CASE_ID,
+        "control-plane",
+        "control_plane",
+    );
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+    let contract = bootstrap_plain_contract(
+        BOOTSTRAP_KNOWN_INACTIVE_CLIENT_ID,
+        "Trellis Bootstrap Known Inactive Client",
+        "Creates a known user app contract, which is not an active service catalog entry.",
+        trellis_rs::contracts::ContractKind::App,
+    )
+    .expect("build known inactive bootstrap contract");
+    let (seed, _) = connect_bootstrap_client_session(&mut admin, &bootstrap_url, &contract).await;
+
+    let response = fetch_client_bootstrap(runtime.trellis_url(), &seed)
+        .await
+        .expect("fetch known inactive app bootstrap");
+    assert_eq!(response.status, 200);
+    assert_eq!(
+        response.body.get("status").and_then(Value::as_str),
+        Some("ready")
+    );
+    assert_eq!(
+        response
+            .body
+            .get("connectInfo")
+            .and_then(Value::as_object)
+            .and_then(|connect_info| connect_info.get("contractDigest"))
+            .and_then(Value::as_str),
+        Some(contract.digest())
+    );
 }
 
 #[tokio::test]
@@ -3756,7 +4077,7 @@ fn admin_bootstrap_probe_contract(
     .use_ref(
         "auth",
         trellis_rs::contracts::use_contract(trellis_rs::sdk::auth::CONTRACT_ID)
-            .with_rpc_call(["Auth.Sessions.Me"]),
+            .with_rpc_call(["Auth.Users.List"]),
     )
     .build()?;
 
@@ -3821,6 +4142,27 @@ fn bootstrap_non_client_app_contract(
         "Creates bound app sessions for non-client digest cleanup coverage.",
         trellis_rs::contracts::ContractKind::App,
     )
+}
+
+fn bootstrap_auth_sessions_me_contract(
+    id: &str,
+    display_name: &str,
+    description: &str,
+) -> Result<trellis_test::TrellisTestContract, trellis_test::TrellisTestError> {
+    let manifest = trellis_rs::contracts::ContractManifestBuilder::new(
+        id,
+        display_name,
+        description,
+        trellis_rs::contracts::ContractKind::App,
+    )
+    .use_ref(
+        "auth",
+        trellis_rs::contracts::use_contract(trellis_rs::sdk::auth::CONTRACT_ID)
+            .with_rpc_call(["Auth.Users.List"]),
+    )
+    .build()?;
+
+    trellis_test::TrellisTestContract::from_manifest_value(serde_json::to_value(manifest)?)
 }
 
 fn bootstrap_non_client_device_admin_contract(
@@ -5111,6 +5453,102 @@ async fn assert_bootstrap_rejects_stored_contract(
     assert_session_absent(&runtime.control_plane_sqlite(), &session_key);
 }
 
+async fn connect_bootstrap_client_session(
+    admin: &mut trellis_test::TrellisTestAdmin,
+    bootstrap_url: &str,
+    contract: &trellis_test::TrellisTestContract,
+) -> (String, String) {
+    let (seed, session_key) = trellis_rs::auth::generate_session_keypair();
+    let client = admin
+        .connect_client_with_session_seed(bootstrap_url, contract, seed.clone())
+        .await
+        .expect("connect live Rust bootstrap client session");
+    drop(client);
+    (seed, session_key)
+}
+
+async fn assert_bootstrap_auth_required_and_session_deleted(
+    runtime: &trellis_test::TrellisTestRuntime,
+    seed: &str,
+    session_key: &str,
+) {
+    let response = fetch_client_bootstrap(runtime.trellis_url(), seed)
+        .await
+        .expect("fetch bootstrap for invalidated user session");
+    assert_eq!(response.status, 200);
+    assert_eq!(
+        response.body.get("status").and_then(Value::as_str),
+        Some("auth_required")
+    );
+    assert_session_absent(&runtime.control_plane_sqlite(), session_key);
+}
+
+fn session_row_user_id(
+    sqlite: &trellis_test::TrellisControlPlaneSqlite,
+    session_key: &str,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let rows = sqlite.query(
+        "SELECT trellis_id AS trellisId FROM sessions WHERE session_key = ?",
+        [session_key],
+    )?;
+    rows.first()
+        .and_then(|row| row.get("trellisId"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| format!("session user id not found for {session_key}").into())
+}
+
+fn mark_session_user_inactive(
+    sqlite: &trellis_test::TrellisControlPlaneSqlite,
+    session_key: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    sqlite.execute(
+        "UPDATE users SET active = 0 WHERE user_id = ?",
+        params![session_row_user_id(sqlite, session_key)?],
+    )?;
+    Ok(())
+}
+
+fn delete_session_user_projection(
+    sqlite: &trellis_test::TrellisControlPlaneSqlite,
+    session_key: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    sqlite.execute(
+        "DELETE FROM users WHERE user_id = ?",
+        params![session_row_user_id(sqlite, session_key)?],
+    )?;
+    Ok(())
+}
+
+fn clear_session_user_capabilities(
+    sqlite: &trellis_test::TrellisControlPlaneSqlite,
+    session_key: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let rows = sqlite.query(
+        "SELECT session FROM sessions WHERE session_key = ?",
+        [session_key],
+    )?;
+    let session_text = rows
+        .first()
+        .and_then(|row| row.get("session"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("session row not found for {session_key}"))?;
+    let session: Value = serde_json::from_str(session_text)?;
+    let delegated = session
+        .get("delegatedCapabilities")
+        .and_then(Value::as_array)
+        .ok_or("session missing delegatedCapabilities")?;
+    assert!(
+        !delegated.is_empty(),
+        "test session must have delegated capabilities before clearing the user"
+    );
+    sqlite.execute(
+        "UPDATE users SET capabilities = ?, capability_groups = ? WHERE user_id = ?",
+        params!["[]", "[]", session_row_user_id(sqlite, session_key)?],
+    )?;
+    Ok(())
+}
+
 async fn approve_bootstrap_non_client_device_contract(
     admin: &mut trellis_test::TrellisTestAdmin,
     bootstrap_url: &str,
@@ -5659,10 +6097,31 @@ async fn fetch_client_bootstrap(
 ) -> Result<ClientBootstrapFetch, Box<dyn std::error::Error + Send + Sync>> {
     let auth = trellis_rs::client::SessionAuth::from_seed_base64url(session_seed)?;
     let iat = current_iat();
+    let sig = auth.sign_sha256_domain("bootstrap-client", &iat.to_string());
+    fetch_client_bootstrap_with_sig(trellis_url, session_seed, iat, sig).await
+}
+
+async fn fetch_client_bootstrap_with_iat(
+    trellis_url: &str,
+    session_seed: &str,
+    iat: u64,
+) -> Result<ClientBootstrapFetch, Box<dyn std::error::Error + Send + Sync>> {
+    let auth = trellis_rs::client::SessionAuth::from_seed_base64url(session_seed)?;
+    let sig = auth.sign_sha256_domain("bootstrap-client", &iat.to_string());
+    fetch_client_bootstrap_with_sig(trellis_url, session_seed, iat, sig).await
+}
+
+async fn fetch_client_bootstrap_with_sig(
+    trellis_url: &str,
+    session_seed: &str,
+    iat: u64,
+    sig: String,
+) -> Result<ClientBootstrapFetch, Box<dyn std::error::Error + Send + Sync>> {
+    let auth = trellis_rs::client::SessionAuth::from_seed_base64url(session_seed)?;
     let body = ClientBootstrapRequest {
         session_key: &auth.session_key,
         iat,
-        sig: auth.sign_sha256_domain("bootstrap-client", &iat.to_string()),
+        sig,
     };
     let response = reqwest::Client::builder()
         .no_proxy()

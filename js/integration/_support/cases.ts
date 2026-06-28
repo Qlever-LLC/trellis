@@ -582,6 +582,84 @@ export const jsIntegrationCases: readonly JsIntegrationCase[] = [
     runtime: "live-trellis",
   },
   {
+    id: "auth.sessions-logout-deletes-session-and-connections",
+    file:
+      "auth/sessions_logout_deletes_session_and_connections.integration_test.ts",
+    testName:
+      "auth.sessions-logout-deletes-session-and-connections deletes the app session and connection presence",
+    runtime: "live-trellis",
+  },
+  {
+    id: "auth.sessions-logout-cleans-connections-after-kick-failure",
+    file:
+      "auth/sessions_logout_cleans_connections_after_kick_failure.integration_test.ts",
+    testName:
+      "auth.sessions-logout-cleans-connections-after-kick-failure deletes connection presence when kick rejects",
+    runtime: "live-trellis",
+  },
+  {
+    id: "auth.sessions-me-reports-app-envelope",
+    file: "auth/sessions_me_reports_app_envelope.integration_test.ts",
+    testName:
+      "auth.sessions-me-reports-app-envelope reports the app user envelope",
+    runtime: "live-trellis",
+  },
+  {
+    id: "auth.connections-list-skips-malformed-connection-entries",
+    file:
+      "auth/connections_list_skips_malformed_connection_entries.integration_test.ts",
+    testName:
+      "auth.connections-list-skips-malformed-connection-entries skips malformed presence and returns valid entries",
+    runtime: "live-trellis",
+  },
+  {
+    id: "auth.sessions-me-reports-service-envelope-and-current-user-state",
+    file:
+      "auth/sessions_me_reports_service_envelope_and_current_user_state.integration_test.ts",
+    testName:
+      "auth.sessions-me-reports-service-envelope-and-current-user-state reports service and current user state",
+    runtime: "live-trellis",
+  },
+  {
+    id: "auth.sessions-list-and-connections-list-report-participant-metadata",
+    file:
+      "auth/sessions_list_and_connections_list_report_participant_metadata.integration_test.ts",
+    testName:
+      "auth.sessions-list-and-connections-list-report-participant-metadata reports app, agent, device, and service metadata",
+    runtime: "live-trellis",
+  },
+  {
+    id: "auth.sessions-me-reports-device-envelope",
+    file: "auth/sessions_me_reports_device_envelope.integration_test.ts",
+    testName:
+      "auth.sessions-me-reports-device-envelope reports the activated device envelope",
+    runtime: "live-trellis",
+  },
+  {
+    id: "auth.sessions-me-rejects-stale-user-principals",
+    file: "auth/sessions_me_rejects_stale_user_principals.integration_test.ts",
+    testName:
+      "auth.sessions-me-rejects-stale-user-principals rejects deleted sessions and missing user projections",
+    runtime: "live-trellis",
+  },
+  {
+    id: "auth.sessions-me-rejects-stale-device-principals",
+    file:
+      "auth/sessions_me_rejects_stale_device_principals.integration_test.ts",
+    testName:
+      "auth.sessions-me-rejects-stale-device-principals rejects missing and mismatched device state",
+    runtime: "live-trellis",
+  },
+  {
+    id:
+      "auth.requests-validate-enforces-proof-signature-time-replay-and-permissions",
+    file:
+      "auth/requests_validate_enforces_proof_signature_time_replay_and_permissions.integration_test.ts",
+    testName:
+      "auth.requests-validate-enforces-proof-signature-time-replay-and-permissions validates live request proofs",
+    runtime: "live-trellis",
+  },
+  {
     id: "auth.session-revoke-denies-reconnect",
     file: "auth/session_revoke_denies_reconnect.integration_test.ts",
     testName:
@@ -594,6 +672,28 @@ export const jsIntegrationCases: readonly JsIntegrationCase[] = [
       "auth/session_revoke_cleans_runtime_connection_presence.integration_test.ts",
     testName:
       "auth.session-revoke-cleans-runtime-connection-presence removes runtime connection presence for a revoked app session",
+    runtime: "live-trellis",
+  },
+  {
+    id: "auth.sessions-revoke-cascades-app-grants",
+    file: "auth/sessions_revoke_cascades_app_grants.integration_test.ts",
+    testName:
+      "auth.sessions-revoke-cascades-app-grants revokes sibling app sessions and deletes the grant",
+    runtime: "live-trellis",
+  },
+  {
+    id: "auth.sessions-revoke-cascades-agent-grants",
+    file: "auth/sessions_revoke_cascades_agent_grants.integration_test.ts",
+    testName:
+      "auth.sessions-revoke-cascades-agent-grants revokes sibling agent sessions and deletes the grant",
+    runtime: "live-trellis",
+  },
+  {
+    id: "auth.sessions-revoke-revokes-device-and-service-access",
+    file:
+      "auth/sessions_revoke_revokes_device_and_service_access.integration_test.ts",
+    testName:
+      "auth.sessions-revoke-revokes-device-and-service-access revokes device activation and disables service instance",
     runtime: "live-trellis",
   },
   {

@@ -51,8 +51,11 @@ const ADMIN_RPC_CALLS: &[&str] = &[
     "Auth.DeviceUserAuthorities.Reviews.List",
     "Auth.DeviceUserAuthorities.Revoke",
     "Auth.Devices.Provision",
-    "Auth.Sessions.Me",
+    "Auth.ServiceInstances.List",
     "Auth.ServiceInstances.Provision",
+    "Auth.Sessions.List",
+    "Auth.Sessions.Me",
+    "Auth.Sessions.Revoke",
     "Auth.Users.Update",
 ];
 
@@ -537,6 +540,15 @@ pub struct TrellisNatsMessageFrame {
     pub payload: String,
 }
 
+/// Raw auth connection-presence entry seeded for malformed live-runtime tests.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrellisRawAuthConnectionPresence {
+    /// Raw key in the `trellis_connections` KV bucket.
+    pub key: String,
+    /// Raw JSON value written to the `trellis_connections` KV bucket.
+    pub value: Value,
+}
+
 /// Live NATS observer for JetStream acknowledgement protocol frames.
 pub struct TrellisJetStreamAckObserver {
     _client: async_nats::Client,
@@ -887,6 +899,28 @@ impl TrellisTestRuntime {
             Err(error) if is_jetstream_not_found_error(&error) => Ok(false),
             Err(error) => Err(io::Error::new(io::ErrorKind::Other, error).into()),
         }
+    }
+
+    /// Seeds one raw auth connection-presence KV entry for malformed-entry tests.
+    pub async fn seed_raw_auth_connection_presence(
+        &self,
+        entry: TrellisRawAuthConnectionPresence,
+    ) -> Result<(), TrellisTestError> {
+        let client = ConnectOptions::new()
+            .credentials_file(auth_creds_path(self.workdir.path()))
+            .await?
+            .connect(&self.nats_url)
+            .await
+            .map_err(|error| io::Error::new(io::ErrorKind::ConnectionRefused, error))?;
+        let js = jetstream::new(client);
+        let kv = js
+            .get_key_value("trellis_connections")
+            .await
+            .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+        kv.put(entry.key, entry.value.to_string().into())
+            .await
+            .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+        Ok(())
     }
 
     /// Return the generated local bootstrap manifest.
@@ -2328,6 +2362,10 @@ fn render_test_trellis_config(
 
 fn trellis_creds_path(workdir: &Path) -> PathBuf {
     workdir.join("nats/creds/trellis-auth.creds")
+}
+
+fn auth_creds_path(workdir: &Path) -> PathBuf {
+    workdir.join("nats/creds/auth-auth.creds")
 }
 
 fn control_plane_sqlite_path(workdir: &Path) -> PathBuf {

@@ -216,6 +216,14 @@ async function handleCoordinatorRequest(
       return { ok: true };
     }
 
+    case "/auth/connection-presence/seed-raw": {
+      const args = body as TrellisIntegrationCoordinatorRequest<
+        "/auth/connection-presence/seed-raw"
+      >;
+      await runtime.seedRawAuthConnectionPresence(args);
+      return { ok: true };
+    }
+
     case "/authority/plans/list": {
       const args = body as TrellisIntegrationCoordinatorRequest<
         "/authority/plans/list"

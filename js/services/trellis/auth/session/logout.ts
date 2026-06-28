@@ -61,6 +61,7 @@ export async function terminateSession(args: {
     return session;
   }
 
+  const connectionsToKick: RuntimeConnection[] = [];
   for await (const key of connectionKeys) {
     const parsedKey = parseConnectionKey(key);
     if (!parsedKey) continue;
@@ -72,14 +73,18 @@ export async function terminateSession(args: {
     if (!isErr(entry)) {
       const connection = unwrapConnection(entry);
       if (connection) {
-        try {
-          await args.kick(connection.serverId, connection.clientId);
-        } catch {
-          // Session termination must still remove durable connection records.
-        }
+        connectionsToKick.push(connection);
       }
     }
     await args.connectionsKV.delete(key).take();
+  }
+
+  for (const connection of connectionsToKick) {
+    setTimeout(() => {
+      void args.kick(connection.serverId, connection.clientId).catch(() => {
+        // Session termination must still remove durable connection records.
+      });
+    }, 0);
   }
 
   return session;

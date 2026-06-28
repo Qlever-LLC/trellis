@@ -1,10 +1,14 @@
 import {
+  defineAgentContract,
   defineAppContract,
   defineServiceContract,
   Result,
 } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
-import { sdk as trellisAuth } from "@qlever-llc/trellis/sdk/auth";
+import {
+  type AuthSessionsMeOutput,
+  sdk as trellisAuth,
+} from "@qlever-llc/trellis/sdk/auth";
 import { Type } from "typebox";
 import type { LiveTrellisRuntime } from "../_support/runtime.ts";
 import {
@@ -21,6 +25,9 @@ export function createAuthLocalLoginFixture(caseId: string) {
     PingOutput: Type.Object({
       message: Type.String(),
       accepted: Type.Boolean(),
+      participantKind: Type.Optional(Type.String()),
+      serviceActive: Type.Optional(Type.Boolean()),
+      serviceCapabilities: Type.Optional(Type.Array(Type.String())),
     }),
   } as const;
 
@@ -36,6 +43,11 @@ export function createAuthLocalLoginFixture(caseId: string) {
       authLocalLoginPing: {
         displayName: "Call local-login ping",
         description: "Call the RPC used by the auth local-login fixture.",
+      },
+    },
+    uses: {
+      required: {
+        auth: trellisAuth.use({ rpc: { call: ["Auth.Sessions.Me"] } }),
       },
     },
     rpc: {
@@ -58,6 +70,8 @@ export function createAuthLocalLoginFixture(caseId: string) {
     `Trellis Integration Auth Local Login Client (${slug})`;
   const updatedClientDisplayName =
     `Trellis Integration Auth Local Login Client Updated (${slug})`;
+  const agentDisplayName =
+    `Trellis Integration Auth Local Login Agent (${slug})`;
 
   const clientContract = defineAppContract(() => ({
     id: caseScopedContractId(
@@ -68,7 +82,28 @@ export function createAuthLocalLoginFixture(caseId: string) {
     description: "App participant for the auth local-login binding fixture.",
     uses: {
       required: {
-        auth: trellisAuth.use({ rpc: { call: ["Auth.Sessions.Me"] } }),
+        auth: trellisAuth.use({
+          rpc: { call: ["Auth.Sessions.Logout", "Auth.Sessions.Me"] },
+        }),
+        loginService: serviceContract.use({
+          rpc: { call: ["AuthLogin.Ping"] },
+        }),
+      },
+    },
+  }));
+
+  const agentContract = defineAgentContract(() => ({
+    id: caseScopedContractId(
+      "trellis.integration.auth-local-login-agent",
+      caseId,
+    ),
+    displayName: agentDisplayName,
+    description: "Agent participant for the auth local-login binding fixture.",
+    uses: {
+      required: {
+        auth: trellisAuth.use({
+          rpc: { call: ["Auth.Sessions.Me"] },
+        }),
         loginService: serviceContract.use({
           rpc: { call: ["AuthLogin.Ping"] },
         }),
@@ -128,7 +163,7 @@ export function createAuthLocalLoginFixture(caseId: string) {
   );
   const clientName = caseScopedName("auth-local-login-fixture-client", caseId);
 
-  async function setupService(runtime: LiveTrellisRuntime) {
+  async function setupServiceWithKey(runtime: LiveTrellisRuntime) {
     const serviceKey = await runtime.registerService({
       name: serviceName,
       contract: serviceContract,
@@ -142,10 +177,28 @@ export function createAuthLocalLoginFixture(caseId: string) {
       server: { log: false },
     }).orThrow();
 
-    service.handle.rpc.authLogin.ping(({ input }) =>
-      Result.ok({ message: input.message, accepted: true })
-    );
+    service.handle.rpc.authLogin.ping(async ({ input, client }) => {
+      if (input.message !== "sessions-me") {
+        return Result.ok({ message: input.message, accepted: true });
+      }
+      const me: AuthSessionsMeOutput = await client.request(
+        "Auth.Sessions.Me",
+        {},
+      ).orThrow();
+      return Result.ok({
+        message: input.message,
+        accepted: true,
+        participantKind: me.participantKind,
+        serviceActive: me.service?.active,
+        serviceCapabilities: me.service?.capabilities,
+      });
+    });
 
+    return { service, serviceKey };
+  }
+
+  async function setupService(runtime: LiveTrellisRuntime) {
+    const { service } = await setupServiceWithKey(runtime);
     return service;
   }
 
@@ -165,6 +218,8 @@ export function createAuthLocalLoginFixture(caseId: string) {
   }
 
   return {
+    agentContract,
+    agentDisplayName,
     clientContract,
     clientDisplayName,
     clientName,
@@ -172,6 +227,7 @@ export function createAuthLocalLoginFixture(caseId: string) {
     setupClientRegistration,
     setupSessionAdmin,
     setupService,
+    setupServiceWithKey,
     updatedClientContract,
     updatedClientDisplayName,
   };

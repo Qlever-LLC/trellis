@@ -2330,6 +2330,7 @@
           "jsr:@std/path@^1.1.4",
           "npm:@libsql/client@~0.15.15",
           "npm:@nats-io/jetstream@^3.3.1",
+          "npm:@nats-io/kv@^3.3.1",
           "npm:@nats-io/nats-core@^3.3.1"
         ]
       },
