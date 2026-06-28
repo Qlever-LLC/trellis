@@ -9,6 +9,10 @@ import {
 import { withTrellisValidation } from "../contract_support/mod.ts";
 import { BUILTIN_RPC_ERRORS } from "../errors/index.ts";
 
+// Retained unit coverage: pure error serialization and annotation parsing are
+// function-level invariants. Over-wire schema failures are covered by TS/Rust
+// live RPC matrix rows.
+
 Deno.test("SchemaValidationError class", async (t) => {
   await t.step("constructor stores issues", () => {
     const issues = [

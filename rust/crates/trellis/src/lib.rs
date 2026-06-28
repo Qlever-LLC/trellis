@@ -103,7 +103,6 @@ mod tests {
             "contracts/Cargo.toml",
             "core-bootstrap/Cargo.toml",
             "generate-runner/Cargo.toml",
-            "integration-harness/Cargo.toml",
             "jobs/Cargo.toml",
             "local-bootstrap/Cargo.toml",
             "runtime/Cargo.toml",

@@ -16,6 +16,11 @@ import { connectionKey } from "../session/connections.ts";
 import type { Session, UserSession } from "../schemas.ts";
 import { registerHttpRoutes } from "./routes.ts";
 
+// Retained unit coverage: malformed signed logout requests, signature/iat
+// validation, redirect-mode shape, and route parser edges are deterministic
+// HTTP/crypto checks. Session deletion, kick, returnTo, and provider logout are
+// covered by TS/Rust live matrix rows.
+
 const config: Config = {
   logLevel: "info",
   port: 3000,
@@ -26,7 +31,13 @@ const config: Config = {
   },
   httpRateLimit: { windowMs: 60_000, max: 0 },
   storage: { dbPath: ":memory:" },
-  auth: { localIdentity: { enabled: true, passwordPolicy: { minLength: 8 } } },
+  auth: {
+    localIdentity: {
+      enabled: true,
+      passwordPolicy: { minLength: 8 },
+      passwordHashing: { profile: "insecure-test-fast" },
+    },
+  },
   ttlMs: {
     sessions: 1,
     oauth: 1,
@@ -74,28 +85,6 @@ type TestRoutes = {
   deletedConnections: string[];
   kicked: Array<{ serverId: string; clientId: number }>;
 };
-
-class LogoutProvider extends Provider {
-  override name = "github";
-  override displayName = "GitHub";
-  override issuer = "https://github.example";
-  override authorizationEndpoint = "https://github.example/authorize";
-  override tokenEndpoint = "https://github.example/token";
-  override scope = "openid profile email";
-  override supportsDiscovery = true;
-  override supportsPKCE = true;
-
-  constructor() {
-    super("github-client", "github-secret", "http://localhost:3000/callback");
-  }
-
-  buildLogoutUrl(args: { returnTo?: string; federated?: boolean } = {}) {
-    const url = new URL("https://github.example/logout");
-    if (args.returnTo) url.searchParams.set("returnTo", args.returnTo);
-    if (args.federated) url.searchParams.set("federated", "true");
-    return Promise.resolve(url.toString());
-  }
-}
 
 function testUserSession(overrides: Partial<UserSession> = {}): UserSession {
   return {
@@ -294,43 +283,6 @@ function postLogout(body: unknown): RequestInit {
   };
 }
 
-Deno.test("HTTP session logout deletes and kicks all session connections", async () => {
-  const auth = await createTestAuth(1);
-  const routes = registerLogoutTestRoutes({
-    auth,
-    session: testUserSession(),
-    provider: new LogoutProvider(),
-  });
-  const returnTo = "http://localhost:5173/signed-out";
-  const request = await signedLogoutRequest(auth, {
-    providerLogout: true,
-    federatedProviderLogout: true,
-    returnTo,
-  });
-
-  const response = await routes.app.request(
-    "http://trellis/auth/sessions/logout",
-    postLogout(request),
-  );
-
-  const providerUrl =
-    "https://github.example/logout?returnTo=http%3A%2F%2Flocalhost%3A5173%2Fsigned-out&federated=true";
-  assertEquals(response.status, 200);
-  assertEquals(await response.json(), {
-    success: true,
-    redirectTo: providerUrl,
-  });
-  assertEquals(routes.sessions.has(auth.sessionKey), false);
-  assertEquals(routes.kicked, [
-    { serverId: "srv-a", clientId: 7 },
-    { serverId: "srv-b", clientId: 8 },
-  ]);
-  assertEquals(routes.deletedConnections, [
-    connectionKey(auth.sessionKey, "usr_oauth", "UAPP"),
-    connectionKey(auth.sessionKey, "device_abc", "DAPP"),
-  ]);
-});
-
 Deno.test("HTTP session logout accepts unknown additive fields", async () => {
   const auth = await createTestAuth(2);
   const routes = registerLogoutTestRoutes({
@@ -420,44 +372,6 @@ Deno.test("HTTP session logout rejects missing sessions", async () => {
 
   assertEquals(response.status, 401);
   assertEquals(await response.json(), { error: "logout_session_not_found" });
-});
-
-Deno.test("HTTP session logout accepts safe same-origin returnTo", async () => {
-  const auth = await createTestAuth(7);
-  const routes = registerLogoutTestRoutes({
-    auth,
-    session: testUserSession(),
-  });
-  const returnTo = "http://localhost:5173/signed-out?next=%2F";
-  const request = await signedLogoutRequest(auth, { returnTo });
-
-  const response = await routes.app.request(
-    "http://trellis/auth/sessions/logout",
-    postLogout(request),
-  );
-
-  assertEquals(response.status, 200);
-  assertEquals(await response.json(), { success: true, redirectTo: returnTo });
-});
-
-Deno.test("HTTP session logout rejects cross-origin returnTo", async () => {
-  const auth = await createTestAuth(8);
-  const routes = registerLogoutTestRoutes({
-    auth,
-    session: testUserSession(),
-  });
-  const request = await signedLogoutRequest(auth, {
-    returnTo: "https://evil.example/signed-out",
-  });
-
-  const response = await routes.app.request(
-    "http://trellis/auth/sessions/logout",
-    postLogout(request),
-  );
-
-  assertEquals(response.status, 400);
-  assertEquals(await response.json(), { error: "invalid_return_to" });
-  assertEquals(routes.sessions.has(auth.sessionKey), true);
 });
 
 Deno.test("HTTP session logout redirect mode returns 303", async () => {

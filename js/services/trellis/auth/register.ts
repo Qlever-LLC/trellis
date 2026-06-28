@@ -26,6 +26,7 @@ import { registerAuthHttpRoutes } from "./registration/http_routes.ts";
 import { registerPortalAdminRpcs } from "./registration/portals_admin.ts";
 import { registerServiceAdminRpcs } from "./registration/service_admin.ts";
 import { registerSessionRpcs } from "./registration/session.ts";
+import { createTrellisTestHooks } from "./test_hooks.ts";
 import type {
   AuthContractsRuntime,
   AuthRuntime,
@@ -208,6 +209,38 @@ function transferGrantsForOwnedSurface(input: {
   return [];
 }
 
+function transferGrantsForUsedSurface(input: {
+  contract: TrellisContractV1;
+  surface: DeploymentAuthoritySurface;
+}): MaterializedAuthorityNatsGrant[] {
+  const { contract, surface } = input;
+  if (surface.kind === "operation" && surface.action === "call") {
+    const operation: ContractOperation | undefined = contract.operations?.[
+      surface.name
+    ];
+    if (operation?.transfer?.direction !== "send") return [];
+    return [{
+      direction: "publish",
+      subject: `${TRANSFER_UPLOAD_SUBJECT_PREFIX}.*.*`,
+      surface: { ...surface, kind: "operation" },
+      requiredCapabilities: operation.capabilities?.call ?? [],
+      grantSource: "transfer",
+    }];
+  }
+  if (surface.kind === "rpc" && surface.action === "call") {
+    const method: ContractRpcMethod | undefined = contract.rpc?.[surface.name];
+    if (method?.transfer?.direction !== "receive") return [];
+    return [{
+      direction: "publish",
+      subject: `${TRANSFER_DOWNLOAD_SUBJECT_PREFIX}.*.*`,
+      surface: { ...surface, kind: "rpc" },
+      requiredCapabilities: method.capabilities?.call ?? [],
+      grantSource: "transfer",
+    }];
+  }
+  return [];
+}
+
 function jobsAdminRuntimeGrants(
   contract: TrellisContractV1,
 ): MaterializedAuthorityNatsGrant[] {
@@ -337,7 +370,7 @@ export async function materializeAcceptedOfferNatsGrants(input: {
     if (!grant) return [];
     return grantSource === "owned-surface"
       ? [grant, ...transferGrantsForOwnedSurface({ contract, surface })]
-      : [grant];
+      : [grant, ...transferGrantsForUsedSurface({ contract, surface })];
   }).concat([...ownedContractIds].flatMap((contractId) => {
     const contract = contracts.get(contractId);
     return contract ? jobsAdminRuntimeGrants(contract) : [];
@@ -442,6 +475,7 @@ export async function registerAuth(deps: AuthRegistrationDeps): Promise<void> {
   const registrationDeps = {
     ...deps,
     authorityReconciler,
+    testHooks: createTrellisTestHooks(deps.config),
     deploymentResourceBindingStorage: createMaterializedResourceBindingAdapter(
       deps.materializedResourceBindingStorage,
     ),

@@ -60,9 +60,36 @@ export type TrellisControlPlaneConfig = {
   oauth: {
     redirectBase: string;
     alwaysShowProviderChooser: boolean;
-    providers: Record<string, never>;
+    providers: Record<string, TrellisControlPlaneOAuthProvider>;
+  };
+  trellisTest: {
+    failOnce: string[];
   };
 };
+
+/** Serializable OAuth/OIDC provider config for test control planes. */
+export type TrellisControlPlaneOAuthProvider =
+  | {
+    type: "github";
+    clientId: string;
+    clientSecret?: string;
+    displayName?: string;
+  }
+  | {
+    type: "oidc";
+    issuer: string;
+    clientId: string;
+    clientSecret?: string;
+    displayName?: string;
+    scopes?: string[];
+    organization?: string;
+    logout?: {
+      enabled?: boolean;
+      endpoint?: string;
+      mode?: "oidc" | "auth0";
+      allowFederated?: boolean;
+    };
+  };
 
 function base64url(bytes: Uint8Array): string {
   let binary = "";
@@ -95,6 +122,8 @@ export function buildControlPlaneConfig(args: {
   websocketUrl: string;
   manifest: LocalNatsBootstrapManifest;
   port: number;
+  oauthProviders?: Record<string, TrellisControlPlaneOAuthProvider>;
+  failOnceHooks?: readonly string[];
 }): TrellisControlPlaneConfig {
   const natsDir = join(args.workdir, "nats");
   const publicOrigin = `http://127.0.0.1:${args.port}`;
@@ -161,8 +190,9 @@ export function buildControlPlaneConfig(args: {
     oauth: {
       redirectBase: `${publicOrigin}/auth/callback`,
       alwaysShowProviderChooser: false,
-      providers: {},
+      providers: args.oauthProviders ?? {},
     },
+    trellisTest: { failOnce: [...args.failOnceHooks ?? []] },
   };
 }
 

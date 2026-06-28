@@ -116,7 +116,9 @@
         ],
         "then": [
           "the client result surface preserves the declared error code",
-          "the client result surface preserves the declared error data"
+          "the client result surface preserves the declared error data",
+          "the declared error payload includes handler context metadata",
+          "the declared error payload does not expose the raw NATS subject"
         ]
       },
       "completion": {
@@ -236,6 +238,49 @@
           "the client receives ValidationError over the RPC wire",
           "the client does not receive SchemaValidationError",
           "the service handler is not called"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "rpc.auth-validation-retries-transient-session-not-found",
+      "fixture": "rpc",
+      "title": "RPC auth validation retries when the first live session lookup is transiently missing",
+      "coverage": [
+        "cross-runtime-rpc",
+        "auth-protocol-matrix"
+      ],
+      "description": "A live client RPC reaches a service while the client session row is transiently absent from the control-plane database; the first Auth.Requests.Validate returns session_not_found, the retry succeeds after the row is restored, and the service handler runs once.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.rpc-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.rpc-service@v1"
+          }
+        ],
+        "given": [
+          "a live Trellis runtime",
+          "a connected client and service",
+          "the client's persisted session row is saved and then deleted"
+        ],
+        "when": [
+          "the client calls Entity.Get through the generated RPC surface",
+          "the saved session row is restored after the first Auth.Requests.Validate attempt is observed"
+        ],
+        "then": [
+          "the RPC succeeds after retry",
+          "the service handler runs once",
+          "Auth.Requests.Validate is attempted exactly twice"
         ]
       },
       "completion": {
@@ -469,6 +514,47 @@
     },
     {
       "kind": "client",
+      "id": "operations.watch-callbacks-deliver-accepted-first-in-order",
+      "fixture": "operations",
+      "title": "Operation watch callbacks deliver accepted first in order",
+      "coverage": [
+        "cross-runtime-operations",
+        "observability-trace-matrix"
+      ],
+      "description": "The generated operation callback/watch surface observes accepted before progress and completion, including fast completion, and the final result matches the typed output.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.operations-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.operations-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected and handles Entity.Process operation"
+        ],
+        "when": [
+          "the client starts Entity.Process with ordered callbacks",
+          "the service completes the operation quickly"
+        ],
+        "then": [
+          "accepted is observed before progress and completion",
+          "fast completion still observes accepted first",
+          "the terminal output matches the operation output"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
       "id": "operations.client-cancels-operation",
       "fixture": "operations",
       "title": "Client cancels a running operation through public operation APIs",
@@ -511,6 +597,89 @@
     },
     {
       "kind": "client",
+      "id": "operations.cancel-uses-cancel-capability",
+      "fixture": "operations",
+      "title": "Operation cancel authorization uses cancel capability",
+      "coverage": [
+        "cross-runtime-operations",
+        "auth-protocol-matrix",
+        "capability-permission-matrix"
+      ],
+      "description": "A client with operation cancel authority but without operation control authority cancels a running operation through the public operation reference.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.operations-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.operations-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected and handles a cancelable Entity.Process operation",
+          "the client has cancel authority for Entity.Process but not signal/control authority"
+        ],
+        "when": [
+          "the client cancels the running operation through the generated public operation reference"
+        ],
+        "then": [
+          "the cancel call is authorized by the cancel capability",
+          "the operation reaches a canceled terminal state",
+          "signal/control authority is not required for cancellation"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "operations.rejects-cancel-for-noncancelable-operation",
+      "fixture": "operations",
+      "title": "Cancel is rejected for non-cancelable operations",
+      "coverage": [
+        "cross-runtime-operations",
+        "auth-protocol-matrix",
+        "capability-permission-matrix"
+      ],
+      "description": "A client starts an operation whose descriptor is not cancelable, then cancel returns an expected public failure without mutating operation state.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.operations-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.operations-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected and handles a non-cancelable operation",
+          "the client starts that operation"
+        ],
+        "when": [
+          "the client calls cancel through the generated public operation reference"
+        ],
+        "then": [
+          "cancel returns an expected error",
+          "the operation state and revision are unchanged"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
       "id": "operations.client-signals-running-operation",
       "fixture": "operations",
       "title": "Client signals a running operation through public operation APIs",
@@ -544,6 +713,451 @@
           "the signal call returns a typed accepted acknowledgement",
           "the service observes the typed signal input",
           "the client observes signal-derived progress or completion"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "operations.signals-persist-and-consume-in-acceptance-order",
+      "fixture": "operations",
+      "title": "Operation signals persist and are consumed in acceptance order",
+      "coverage": [
+        "cross-runtime-operations",
+        "auth-protocol-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "The client submits two typed operation signals, receives monotonic signal acknowledgements, and the service consumes the accepted signals in order.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.operations-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.operations-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected and handles an Entity.Process operation with typed signals",
+          "the client starts a running Entity.Process operation"
+        ],
+        "when": [
+          "the client sends two typed operation signals"
+        ],
+        "then": [
+          "the signal acknowledgements use sequences 1 and 2",
+          "the service consumes the accepted signals in the same order"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "operations.queued-signal-delivered-before-live-signal",
+      "fixture": "operations",
+      "title": "Queued operation signal is delivered before later live signal",
+      "coverage": [
+        "cross-runtime-operations",
+        "auth-protocol-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "A signal submitted before the service starts consuming the signal stream is delivered before a later live signal.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.operations-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.operations-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected and delays signal consumption for Entity.Process",
+          "the client starts a running Entity.Process operation"
+        ],
+        "when": [
+          "the client sends one signal before service consumption is released",
+          "the client sends a second signal after service consumption is released"
+        ],
+        "then": [
+          "both signal calls are acknowledged in acceptance order",
+          "the service consumes the queued signal before the later live signal"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "operations.rejects-invalid-signal-payload",
+      "fixture": "operations",
+      "title": "Invalid operation signal payload is rejected",
+      "coverage": [
+        "cross-runtime-operations",
+        "auth-protocol-matrix",
+        "schema-validation-matrix"
+      ],
+      "description": "A client signal whose payload violates the declared signal schema returns an expected failure and is not consumed by the service.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.operations-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.operations-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected and waits for typed Entity.Process signals",
+          "the client starts a running Entity.Process operation"
+        ],
+        "when": [
+          "the client sends an invalid signal payload"
+        ],
+        "then": [
+          "the signal call returns an expected failure",
+          "the invalid signal is not consumed by the service"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "operations.rejects-signal-after-terminal-state",
+      "fixture": "operations",
+      "title": "Operation signal is rejected after terminal state",
+      "coverage": [
+        "cross-runtime-operations",
+        "auth-protocol-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "After an operation reaches a terminal state, a later signal returns an expected failure and does not mutate the operation.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.operations-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.operations-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected and completes an Entity.Process operation",
+          "the client observes the operation terminal state"
+        ],
+        "when": [
+          "the client sends another signal to the terminal operation"
+        ],
+        "then": [
+          "the signal call returns an expected failure",
+          "no additional signal is consumed after terminal state"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "operations.service-attach-job-waits-for-completion",
+      "fixture": "operations",
+      "title": "Service operation attach waits for attached work completion",
+      "coverage": [
+        "cross-runtime-operations",
+        "jobs-service-local-parity",
+        "observability-trace-matrix"
+      ],
+      "description": "The service operation attach helper keeps the operation non-terminal while attached service-owned work is still running, then completes with the attached work result.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.operations-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.operations-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected and handles Entity.Process by attaching service-owned work"
+        ],
+        "when": [
+          "the client starts Entity.Process",
+          "the attached work reports progress and waits before completing"
+        ],
+        "then": [
+          "the public operation remains running while attached work is waiting",
+          "the public operation exposes attached-work progress",
+          "the public operation completes with the attached-work output after release"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "operations.service-handler-receives-client-context",
+      "fixture": "operations",
+      "title": "Service operation handler receives client context",
+      "coverage": [
+        "cross-runtime-operations",
+        "observability-trace-matrix"
+      ],
+      "description": "A live service operation handler receives typed input plus authenticated caller/client context from the public service facade.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.operations-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.operations-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected and handles Entity.Process through the generated service operation facade"
+        ],
+        "when": [
+          "the client starts Entity.Process"
+        ],
+        "then": [
+          "the handler receives the typed input",
+          "the handler receives authenticated caller metadata",
+          "the handler receives a service client context"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "operations.service-defer-keeps-operation-running",
+      "fixture": "operations",
+      "title": "Service operation defer keeps operation running",
+      "coverage": [
+        "cross-runtime-operations",
+        "observability-trace-matrix"
+      ],
+      "description": "A service operation handler defers terminal ownership, and the public operation remains running with progress instead of auto-completing.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.operations-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.operations-service@v1"
+          }
+        ],
+        "given": [
+          "a service handler starts Entity.Process, publishes progress, and defers terminal completion"
+        ],
+        "when": [
+          "the client starts Entity.Process and reads the snapshot after the handler settles"
+        ],
+        "then": [
+          "the operation remains running",
+          "the operation retains the service progress",
+          "the operation has no terminal output"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "operations.service-control-resumes-deferred-operation",
+      "fixture": "operations",
+      "title": "Service control resumes a deferred operation",
+      "coverage": [
+        "cross-runtime-operations",
+        "observability-trace-matrix"
+      ],
+      "description": "The service operation control helper loads a deferred operation by id, completes it, and does not rerun the original handler.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.operations-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.operations-service@v1"
+          }
+        ],
+        "given": [
+          "a service handler defers Entity.Process after starting it"
+        ],
+        "when": [
+          "the service resumes control by operation id and completes it"
+        ],
+        "then": [
+          "the client wait observes completed output",
+          "the original operation handler ran exactly once"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "operations.service-control-loads-durable-record-after-restart",
+      "fixture": "operations",
+      "title": "Service control loads durable operation records after restart",
+      "coverage": [
+        "cross-runtime-operations",
+        "observability-trace-matrix"
+      ],
+      "description": "After a service restart, service-side operation control loads an existing deferred operation record and completes it.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.operations-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.operations-service@v1"
+          }
+        ],
+        "given": [
+          "a deferred Entity.Process operation exists before service restart"
+        ],
+        "when": [
+          "the service reconnects and controls the existing operation by id"
+        ],
+        "then": [
+          "the restarted service completes the operation",
+          "the original client reference observes the completed output"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "operations.service-accept-resume-completes-durable-operation",
+      "fixture": "operations",
+      "title": "Service accept plus client resume completes durable operation",
+      "coverage": [
+        "cross-runtime-operations",
+        "observability-trace-matrix"
+      ],
+      "description": "The service accepts a durable operation directly, the client resumes from its ref, and observes service-side completion.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.operations-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.operations-service@v1"
+          }
+        ],
+        "given": [
+          "a service accepts an Entity.Process operation for an authenticated client session"
+        ],
+        "when": [
+          "the client resumes the accepted operation ref and the service completes it"
+        ],
+        "then": [
+          "the resumed client reference waits to completed output"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "operations.service-control-rejects-invalid-mismatch-payload-terminal",
+      "fixture": "operations",
+      "title": "Service operation control rejects mismatch, invalid payload, and terminal updates",
+      "coverage": [
+        "cross-runtime-operations",
+        "schema-validation-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "Service-side operation control returns modeled failures for missing ids, operation/service mismatches, invalid payloads, and terminal mutations.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.operations-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.operations-service@v1"
+          }
+        ],
+        "given": [
+          "a service accepted Entity.Process operation exists",
+          "the operations fixture also exposes a distinct Entity.Status operation"
+        ],
+        "when": [
+          "service control is requested with missing ids, wrong operation/service, invalid payloads, and after terminal completion"
+        ],
+        "then": [
+          "control returns modeled missing and mismatch errors",
+          "invalid progress and output payloads are rejected",
+          "terminal operation updates are rejected"
         ]
       },
       "completion": {
@@ -997,10 +1611,93 @@
           "the client sends bytes through the transfer operation"
         ],
         "then": [
+          "the returned send grant is usable immediately without caller retry",
           "the service observes completed upload size",
           "the service observes completed upload key",
           "the service observes completed upload contentType",
           "the terminal output matches the upload"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "transfer.upload-rejects-over-max-bytes",
+      "fixture": "transfer",
+      "title": "Upload rejects bytes over the store-derived maximum",
+      "coverage": [
+        "transfer-parity",
+        "auth-protocol-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "The service store binding lowers the upload grant maximum and the public upload helper rejects an oversized upload with attempted and maximum byte counts.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.transfer-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.transfer-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected with a store max object size smaller than the operation transfer max"
+        ],
+        "when": [
+          "the client sends an upload larger than the store-derived transfer max"
+        ],
+        "then": [
+          "the upload is rejected before storing the oversized body",
+          "the public error includes the effective maximum byte count",
+          "the public error includes the attempted byte count"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "transfer.upload-stores-object-before-completion",
+      "fixture": "transfer",
+      "title": "Upload stores the object before operation completion",
+      "coverage": [
+        "transfer-parity",
+        "auth-protocol-matrix",
+        "observability-trace-matrix"
+      ],
+      "description": "After upload transfer completion, the service reads the stored object bytes from its store before returning the terminal operation output.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.transfer-client@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.transfer-service@v1"
+          }
+        ],
+        "given": [
+          "a service is connected that handles file uploads"
+        ],
+        "when": [
+          "the client sends bytes through the transfer operation"
+        ],
+        "then": [
+          "the service reads the stored object by key before completing the operation",
+          "the stored object body matches the uploaded bytes",
+          "the stored object size matches the uploaded byte count"
         ]
       },
       "completion": {
@@ -1041,6 +1738,7 @@
           "the client downloads bytes through the transfer helper"
         ],
         "then": [
+          "the returned receive grant is usable immediately without caller retry",
           "the downloaded payload matches the expected content"
         ]
       },
@@ -2387,6 +3085,107 @@
     },
     {
       "kind": "client",
+      "id": "auth.local-login-rebinds-existing-session-with-updated-authority",
+      "fixture": "auth",
+      "title": "Local login rebinds an existing session with updated authority",
+      "coverage": [
+        "app-identity-grant-approval",
+        "auth-protocol-matrix",
+        "capability-permission-matrix",
+        "cross-runtime-rpc",
+        "observability-trace-matrix"
+      ],
+      "description": "An app client authenticates with local login, then presents the same session key with an updated app contract requiring additional authority. The second local login rebinds the existing session, preserves the session key and createdAt, refreshes the stored authority, and removes stale runtime connection presence.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.auth@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.auth-local-login-service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.auth-local-login-client@v1"
+          }
+        ],
+        "given": [
+          "a registered service handles an RPC required by the app client contract",
+          "the app client has an authenticated approved session",
+          "the same app session key presents an updated contract requiring additional authority"
+        ],
+        "when": [
+          "local admin login and approval complete for the updated contract"
+        ],
+        "then": [
+          "Auth.Sessions.List still shows the same app session key",
+          "the app session createdAt is preserved",
+          "the app session reflects the updated contract authority",
+          "stale runtime connection presence from the old authority is removed"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "auth.local-login-replaces-session-when-identity-changes",
+      "fixture": "auth",
+      "title": "Local login replaces a session when the authenticated identity changes",
+      "coverage": [
+        "app-identity-grant-approval",
+        "auth-protocol-matrix",
+        "capability-permission-matrix",
+        "cross-runtime-rpc",
+        "observability-trace-matrix"
+      ],
+      "description": "An app client authenticates with local login, then the same session key completes a later local-login bind as a different local identity. Auth replaces the session principal and removes stale runtime access from the previous identity.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.auth@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.auth-local-login-service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.auth-local-login-client@v1"
+          }
+        ],
+        "given": [
+          "a registered service handles an RPC required by the app client contract",
+          "the app client has an authenticated approved session for one local identity",
+          "a second active local admin identity exists"
+        ],
+        "when": [
+          "the same app session key completes local login and approval as the second identity"
+        ],
+        "then": [
+          "Auth.Sessions.List shows the app session principal has changed",
+          "Auth.Sessions.Me on the replacement connection reports the second identity",
+          "the previous live connection is denied after replacement"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
       "id": "auth.session-revoke-denies-reconnect",
       "fixture": "auth",
       "title": "Revoked app session cannot continue or reconnect",
@@ -2428,6 +3227,56 @@
           "Auth.Sessions.List no longer shows the revoked app session",
           "the existing app session is denied for subsequent Auth.Sessions.Me or service RPC calls",
           "the app client cannot reconnect with the revoked session without completing a new auth flow"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "auth.session-revoke-cleans-runtime-connection-presence",
+      "fixture": "auth",
+      "title": "Revoking an app session removes runtime connection presence",
+      "coverage": [
+        "app-identity-grant-approval",
+        "auth-protocol-matrix",
+        "capability-permission-matrix",
+        "cross-runtime-rpc",
+        "observability-trace-matrix"
+      ],
+      "description": "An authenticated app session appears in Auth.Connections.List, an admin revokes the session through Auth.Sessions.Revoke, and the matching runtime connection presence disappears from Auth.Connections.List along with the session row.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "admin",
+            "kind": "admin",
+            "contract": "trellis.auth@v1"
+          },
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.auth-local-login-service@v1"
+          },
+          {
+            "name": "client",
+            "kind": "app",
+            "contract": "trellis.integration.auth-local-login-client@v1"
+          }
+        ],
+        "given": [
+          "a registered service handles an RPC required by the app client contract",
+          "the app client has an authenticated approved session",
+          "Auth.Connections.List shows runtime connection presence for the app session"
+        ],
+        "when": [
+          "the admin revokes the app session through Auth.Sessions.Revoke"
+        ],
+        "then": [
+          "Auth.Sessions.List no longer shows the revoked app session",
+          "Auth.Connections.List no longer shows runtime presence for the revoked session",
+          "the existing app session is denied for subsequent Auth.Sessions.Me calls"
         ]
       },
       "completion": {
@@ -3094,6 +3943,381 @@
     },
     {
       "kind": "service",
+      "id": "control-plane.bootstrap-requires-auth-for-unbound-client",
+      "fixture": "control-plane",
+      "title": "Bootstrap client requires auth for an unbound session",
+      "coverage": [
+        "auth",
+        "bootstrap-client"
+      ],
+      "description": "Fetches /bootstrap/client with valid proof material for a session key that is not bound to a user session and receives auth_required.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis bootstrap/client HTTP route"
+          },
+          {
+            "name": "unbound client",
+            "kind": "app",
+            "contract": "unbound session-key proof"
+          }
+        ],
+        "given": [
+          "No user session exists for a valid client session key proof."
+        ],
+        "when": [
+          "The client fetches /bootstrap/client."
+        ],
+        "then": [
+          "The route returns auth_required."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/bootstrap_requires_auth_for_unbound_client.integration_test.ts",
+          "testName": "control-plane.bootstrap-requires-auth-for-unbound-client returns auth_required without a bound session"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_bootstrap_requires_auth_for_unbound_client"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.bootstrap-rejects-unknown-contract-digest",
+      "fixture": "control-plane",
+      "title": "Bootstrap client rejects an unknown stored contract digest",
+      "coverage": [
+        "auth",
+        "bootstrap-client",
+        "session-cleanup"
+      ],
+      "description": "A live bound app session whose stored contract digest no longer resolves returns auth_required from /bootstrap/client and is deleted.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis bootstrap/client HTTP route and session storage"
+          },
+          {
+            "name": "client app",
+            "kind": "app",
+            "contract": "case-scoped app auth contract"
+          }
+        ],
+        "given": [
+          "An app has a bound user session.",
+          "The live session row is updated to reference an unknown contract digest."
+        ],
+        "when": [
+          "The client fetches /bootstrap/client with that session key."
+        ],
+        "then": [
+          "The route returns auth_required.",
+          "The invalid session row is deleted."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/bootstrap_rejects_unknown_contract_digest.integration_test.ts",
+          "testName": "control-plane.bootstrap-rejects-unknown-contract-digest returns auth_required and deletes the session"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_bootstrap_rejects_unknown_contract_digest"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.bootstrap-rejects-non-client-contract",
+      "fixture": "control-plane",
+      "title": "Bootstrap client rejects known non-client contract digests",
+      "coverage": [
+        "auth",
+        "bootstrap-client",
+        "session-cleanup"
+      ],
+      "description": "A live bound app session whose stored contract digest resolves to a service or device contract returns auth_required from /bootstrap/client and is deleted.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis bootstrap/client HTTP route and catalog"
+          },
+          {
+            "name": "client app",
+            "kind": "app",
+            "contract": "case-scoped app auth contract"
+          },
+          {
+            "name": "service contract",
+            "kind": "service",
+            "contract": "case-scoped service contract"
+          },
+          {
+            "name": "device contract",
+            "kind": "service",
+            "contract": "case-scoped device contract made known through device deployment authority"
+          }
+        ],
+        "given": [
+          "An app has a bound user session.",
+          "A known service contract exists in the control-plane catalog.",
+          "A known device contract exists in the control-plane catalog.",
+          "The live app session row is updated to reference each non-client digest."
+        ],
+        "when": [
+          "The client fetches /bootstrap/client with each mutated session key."
+        ],
+        "then": [
+          "The route returns auth_required.",
+          "Each invalid session row is deleted."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/bootstrap_rejects_non_client_contract.integration_test.ts",
+          "testName": "control-plane.bootstrap-rejects-non-client-contract returns auth_required and deletes the session"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_bootstrap_rejects_non_client_contract"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.session-logout-deletes-session-and-denies-reuse",
+      "fixture": "control-plane",
+      "title": "HTTP session logout deletes the session and denies reuse",
+      "coverage": [
+        "auth",
+        "sessions",
+        "logout",
+        "session-cleanup"
+      ],
+      "description": "A signed HTTP logout for a live app session deletes the Trellis session and the same session key can no longer bootstrap.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis HTTP session logout route and session storage"
+          },
+          {
+            "name": "client app",
+            "kind": "app",
+            "contract": "case-scoped app auth contract"
+          }
+        ],
+        "given": [
+          "An app has a bound user session."
+        ],
+        "when": [
+          "The app sends a signed HTTP session logout request.",
+          "The app attempts to reuse the same session key for /bootstrap/client."
+        ],
+        "then": [
+          "The logout request succeeds.",
+          "The session row is deleted.",
+          "The reused session key receives auth_required."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/session_logout_deletes_session_and_denies_reuse.integration_test.ts",
+          "testName": "control-plane.session-logout-deletes-session-and-denies-reuse deletes the session and returns auth_required on reuse"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_session_logout_deletes_session_and_denies_reuse"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.session-logout-kicks-runtime-access",
+      "fixture": "control-plane",
+      "title": "HTTP session logout kicks live runtime access",
+      "coverage": [
+        "auth",
+        "sessions",
+        "logout",
+        "runtime-access"
+      ],
+      "description": "A signed HTTP logout for a live app session kicks every active connection using that session key so in-flight clients lose authenticated runtime access.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis HTTP session logout route and auth callout"
+          },
+          {
+            "name": "client app",
+            "kind": "app",
+            "contract": "case-scoped app auth contract"
+          }
+        ],
+        "given": [
+          "Two live app connections are authenticated with the same session key."
+        ],
+        "when": [
+          "The app sends a signed HTTP session logout request."
+        ],
+        "then": [
+          "Both live app connections lose authenticated Auth.Sessions.Me access."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/session_logout_kicks_runtime_access.integration_test.ts",
+          "testName": "control-plane.session-logout-kicks-runtime-access kicks all live connections for the session key"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_session_logout_kicks_runtime_access"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.session-logout-validates-return-to",
+      "fixture": "control-plane",
+      "title": "HTTP session logout validates returnTo targets",
+      "coverage": [
+        "auth",
+        "sessions",
+        "logout",
+        "http-route-security"
+      ],
+      "description": "A live signed HTTP logout rejects a cross-origin returnTo without deleting the session and accepts a same-origin returnTo.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis HTTP session logout route"
+          },
+          {
+            "name": "client app",
+            "kind": "app",
+            "contract": "case-scoped app auth contract"
+          }
+        ],
+        "given": [
+          "An app has a bound user session whose app origin is known to Trellis."
+        ],
+        "when": [
+          "The app sends a signed logout request with a cross-origin returnTo.",
+          "The app sends a signed logout request with a same-origin returnTo."
+        ],
+        "then": [
+          "The cross-origin returnTo is rejected as invalid_return_to.",
+          "The rejected request preserves the session.",
+          "The same-origin returnTo is accepted and returned as redirectTo."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/session_logout_validates_return_to.integration_test.ts",
+          "testName": "control-plane.session-logout-validates-return-to rejects cross-origin returnTo and accepts same-origin returnTo"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_session_logout_validates_return_to"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.session-logout-uses-provider-logout-redirect",
+      "fixture": "control-plane",
+      "title": "HTTP session logout uses provider logout redirect",
+      "coverage": [
+        "auth",
+        "sessions",
+        "logout",
+        "provider-logout"
+      ],
+      "description": "A live signed HTTP logout for a user session whose provider has logout metadata returns the upstream provider logout URL and deletes the Trellis session.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis HTTP session logout route and provider registry"
+          },
+          {
+            "name": "client app",
+            "kind": "app",
+            "contract": "case-scoped app auth contract"
+          },
+          {
+            "name": "logout-capable provider",
+            "kind": "service",
+            "contract": "test OIDC provider logout metadata"
+          }
+        ],
+        "given": [
+          "An app has a bound user session associated with a configured logout-capable OIDC provider."
+        ],
+        "when": [
+          "The app sends a signed HTTP session logout request with providerLogout and returnTo."
+        ],
+        "then": [
+          "The response redirectTo is the provider logout URL.",
+          "The provider logout URL includes the configured client id and validated return target.",
+          "The Trellis session is deleted."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/session_logout_uses_provider_logout_redirect.integration_test.ts",
+          "testName": "control-plane.session-logout-uses-provider-logout-redirect returns provider logout redirect and deletes the session"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_session_logout_uses_provider_logout_redirect"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
       "id": "control-plane.catalog-active-contracts-survive-restart",
       "fixture": "control-plane",
       "title": "Catalog active contracts survive control-plane restart",
@@ -3463,6 +4687,83 @@
     },
     {
       "kind": "service",
+      "id": "control-plane.catalog-surface-status-reports-provider-runtime",
+      "fixture": "control-plane",
+      "title": "Catalog Contract.Get and Surface.Status report provider runtime state",
+      "coverage": [
+        "catalog",
+        "surface-status",
+        "runtime-availability",
+        "capability-permission-matrix",
+        "generated-rpc"
+      ],
+      "description": "Uses generated Core Contract.Get, Core Surface.Status, and Auth admin RPCs against live services to verify catalog manifest projection, edge statuses, validation failures, no-live filtering, same-contract old-digest filtering, unrelated-live-service filtering, and provider runtime states.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis Core Surface.Status and Auth admin RPC"
+          },
+          {
+            "name": "service provider",
+            "kind": "service",
+            "contract": "case-scoped provider RPC contract"
+          },
+          {
+            "name": "authorized client app",
+            "kind": "app",
+            "contract": "case-scoped app contract with Core Surface.Status and provider RPC authority"
+          },
+          {
+            "name": "observer client app",
+            "kind": "app",
+            "contract": "case-scoped app contract with Core Surface.Status but no provider RPC authority"
+          }
+        ],
+        "given": [
+          "A documented provider service contract shape is approved before the provider is active."
+        ],
+        "when": [
+          "An authorized client calls generated Trellis.Contract.Get for the provider digest.",
+          "An authorized client calls generated Trellis.Surface.Status for unknown and invalid surface requests.",
+          "An authorized client calls generated Trellis.Surface.Status before and after the provider connects.",
+          "An observer lacking provider RPC authority calls generated Trellis.Surface.Status.",
+          "The provider live connection is kicked through generated Auth connection RPCs.",
+          "An older same-contract provider digest without the requested surface connects while the provider remains no-live.",
+          "An unrelated service for another contract connects while the provider remains no-live.",
+          "The provider service instance is disabled through generated Auth admin RPCs."
+        ],
+        "then": [
+          "Contract.Get preserves canonical exports and contract, RPC, operation, and event docs.",
+          "Surface.Status reports unknown contract and unknown surface responses and rejects invalid actions.",
+          "Surface.Status reports the public pre-provider state.",
+          "Surface.Status reports the provider as available and live after connection.",
+          "Surface.Status reports valid event publish and feed subscribe requests as available when the provider is live.",
+          "Surface.Status reports unauthorized with the provider capability for the observer.",
+          "Surface.Status reports the provider as available without a live implementer after the provider connection is kicked.",
+          "Surface.Status keeps reporting the provider as no-live when an older same-contract digest without the requested surface is live.",
+          "Surface.Status keeps reporting the provider as no-live when an unrelated service is live.",
+          "Surface.Status reports the disabled provider runtime state after instance disable."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/catalog_surface_status_reports_provider_runtime.integration_test.ts",
+          "testName": "control-plane.catalog-surface-status-reports-provider-runtime reports provider runtime through Surface.Status"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_catalog_surface_status_reports_provider_runtime"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
       "id": "control-plane.jobs-admin-lists-and-cancels-job",
       "fixture": "control-plane",
       "title": "Jobs admin lists and cancels a service-local job",
@@ -3508,6 +4809,732 @@
         "rust": {
           "module": "control_plane_jobs_admin",
           "function": "control_plane_jobs_admin_lists_and_cancels_job"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.admin-service-deployment-rollback-fault",
+      "fixture": "control-plane",
+      "title": "Auth admin rolls back service deployment fault edges",
+      "coverage": [
+        "auth-admin",
+        "deployments",
+        "rollback",
+        "fault-injection",
+        "generated-rpc"
+      ],
+      "description": "Uses generated Auth admin RPCs and one-shot trellis-test hooks to verify service deployment create-authority rollback and cascade removal rollback with a provisioned service instance, then retries successfully.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis Auth admin RPC"
+          },
+          {
+            "name": "local admin",
+            "kind": "admin",
+            "contract": "Trellis built-in admin identity"
+          }
+        ],
+        "given": [
+          "A live Trellis control plane has create-authority and cascade-delete fail-once hooks enabled for service deployments."
+        ],
+        "when": [
+          "The admin creates a service deployment, provisions a service instance, and removes the deployment with cascade through generated Auth admin RPCs."
+        ],
+        "then": [
+          "The create-authority fault leaves no deployment, the cascade-delete fault restores a deleted service instance while the deployment remains available, and the retry removes both records."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/admin_service_deployment_rollback_fault.integration_test.ts",
+          "testName": "control-plane.admin-service-deployment-rollback-fault rolls back service admin faults and retries successfully"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_admin_service_deployment_rollback_fault"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.admin-device-deployment-rollback-fault",
+      "fixture": "control-plane",
+      "title": "Auth admin rolls back device deployment fault edges",
+      "coverage": [
+        "auth-admin",
+        "deployments",
+        "rollback",
+        "fault-injection",
+        "generated-rpc"
+      ],
+      "description": "Uses generated Auth admin RPCs and one-shot trellis-test hooks to verify device deployment create-authority rollback and cascade removal rollback with a provisioned device, then retries successfully.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis Auth admin RPC"
+          },
+          {
+            "name": "local admin",
+            "kind": "admin",
+            "contract": "Trellis built-in admin identity"
+          }
+        ],
+        "given": [
+          "A live Trellis control plane has create-authority and cascade-delete fail-once hooks enabled for device deployments."
+        ],
+        "when": [
+          "The admin creates a device deployment, provisions a device, and removes the deployment with cascade through generated Auth admin RPCs."
+        ],
+        "then": [
+          "The create-authority fault leaves no deployment, the cascade-delete fault restores a deleted device while the deployment remains available, and the retry removes both records."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/admin_device_deployment_rollback_fault.integration_test.ts",
+          "testName": "control-plane.admin-device-deployment-rollback-fault rolls back device admin faults and retries successfully"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_admin_device_deployment_rollback_fault"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.admin-service-deployment-validate-before-persist-kick",
+      "fixture": "control-plane",
+      "title": "Auth admin validates service deployment disable before persisting or kicking",
+      "coverage": [
+        "auth-admin",
+        "deployments",
+        "rollback",
+        "fault-injection",
+        "generated-rpc",
+        "runtime-kick"
+      ],
+      "description": "Uses generated Auth admin RPCs, a live ping service/client, and a one-shot trellis-test validation hook to verify a failed service deployment disable validation leaves the deployment enabled and the connected service callable.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis Auth admin RPC"
+          },
+          {
+            "name": "local admin",
+            "kind": "admin",
+            "contract": "Trellis built-in admin identity"
+          },
+          {
+            "name": "validation probe service",
+            "kind": "service",
+            "contract": "case-scoped ping service"
+          },
+          {
+            "name": "validation probe client",
+            "kind": "app",
+            "contract": "case-scoped ping client"
+          }
+        ],
+        "given": [
+          "A live Trellis control plane has an enabled service deployment with a connected service and ping client.",
+          "The service deployment validateActiveCatalog fail-once hook is enabled."
+        ],
+        "when": [
+          "The admin disables the service deployment through generated Auth admin RPCs."
+        ],
+        "then": [
+          "Disable returns the injected validation error.",
+          "Auth.Deployments.List still shows the deployment enabled.",
+          "The already connected client can still call the already connected service."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/admin_service_deployment_validate_before_persist_kick.integration_test.ts",
+          "testName": "control-plane.admin-service-deployment-validate-before-persist-kick validates before persisting disabled state or kicking service"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_admin_service_deployment_validate_before_persist_kick"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.admin-service-deployment-disable-refresh-rollback",
+      "fixture": "control-plane",
+      "title": "Auth admin rolls back service deployment disable refresh failure",
+      "coverage": [
+        "auth-admin",
+        "deployments",
+        "rollback",
+        "fault-injection",
+        "generated-rpc"
+      ],
+      "description": "Uses generated Auth admin RPCs and a one-shot trellis-test refresh hook to verify failed service deployment disable leaves the public deployment enabled.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis Auth admin RPC"
+          },
+          {
+            "name": "local admin",
+            "kind": "admin",
+            "contract": "Trellis built-in admin identity"
+          }
+        ],
+        "given": [
+          "A live Trellis control plane has the service deployment refresh fail-once hook enabled."
+        ],
+        "when": [
+          "The admin creates a service deployment and disables it through generated Auth admin RPCs."
+        ],
+        "then": [
+          "Disable returns an error and Auth.Deployments.List still shows the deployment enabled."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/admin_service_deployment_disable_refresh_rollback.integration_test.ts",
+          "testName": "control-plane.admin-service-deployment-disable-refresh-rollback rolls back failed service deployment disable refresh"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_admin_service_deployment_disable_refresh_rollback"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.admin-service-deployment-enable-refresh-rollback",
+      "fixture": "control-plane",
+      "title": "Auth admin rolls back service deployment enable refresh failure",
+      "coverage": [
+        "auth-admin",
+        "deployments",
+        "rollback",
+        "fault-injection",
+        "generated-rpc"
+      ],
+      "description": "Uses generated Auth admin RPCs and a one-shot trellis-test refresh hook to verify failed service deployment enable leaves the public deployment disabled.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis Auth admin RPC"
+          },
+          {
+            "name": "local admin",
+            "kind": "admin",
+            "contract": "Trellis built-in admin identity"
+          }
+        ],
+        "given": [
+          "A live Trellis control plane has a disabled service deployment and the service deployment refresh fail-once hook enabled."
+        ],
+        "when": [
+          "The admin enables the service deployment through generated Auth admin RPCs."
+        ],
+        "then": [
+          "Enable returns an error and Auth.Deployments.List still shows the deployment disabled."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/admin_service_deployment_enable_refresh_rollback.integration_test.ts",
+          "testName": "control-plane.admin-service-deployment-enable-refresh-rollback rolls back failed service deployment enable refresh"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_admin_service_deployment_enable_refresh_rollback"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.admin-service-instance-disable-refresh-rollback",
+      "fixture": "control-plane",
+      "title": "Auth admin rolls back service instance disable refresh failure",
+      "coverage": [
+        "auth-admin",
+        "service-instances",
+        "rollback",
+        "fault-injection",
+        "generated-rpc"
+      ],
+      "description": "Uses generated Auth admin RPCs and a one-shot trellis-test refresh hook to verify failed service instance disable leaves the instance enabled.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis Auth admin RPC"
+          },
+          {
+            "name": "local admin",
+            "kind": "admin",
+            "contract": "Trellis built-in admin identity"
+          }
+        ],
+        "given": [
+          "A live Trellis control plane has a provisioned service instance and the service instance refresh fail-once hook enabled."
+        ],
+        "when": [
+          "The admin disables the service instance through generated Auth admin RPCs."
+        ],
+        "then": [
+          "Disable returns an error and Auth.ServiceInstances.List still shows the instance enabled."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/admin_service_instance_disable_refresh_rollback.integration_test.ts",
+          "testName": "control-plane.admin-service-instance-disable-refresh-rollback rolls back failed service instance disable refresh"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_admin_service_instance_disable_refresh_rollback"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.admin-service-instance-enable-refresh-rollback",
+      "fixture": "control-plane",
+      "title": "Auth admin rolls back service instance enable refresh failure",
+      "coverage": [
+        "auth-admin",
+        "service-instances",
+        "rollback",
+        "fault-injection",
+        "generated-rpc"
+      ],
+      "description": "Uses generated Auth admin RPCs and a one-shot trellis-test refresh hook to verify failed service instance enable leaves the instance disabled.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis Auth admin RPC"
+          },
+          {
+            "name": "local admin",
+            "kind": "admin",
+            "contract": "Trellis built-in admin identity"
+          }
+        ],
+        "given": [
+          "A live Trellis control plane has a disabled service instance and the service instance refresh fail-once hook enabled."
+        ],
+        "when": [
+          "The admin enables the service instance through generated Auth admin RPCs."
+        ],
+        "then": [
+          "Enable returns an error and Auth.ServiceInstances.List still shows the instance disabled."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/admin_service_instance_enable_refresh_rollback.integration_test.ts",
+          "testName": "control-plane.admin-service-instance-enable-refresh-rollback rolls back failed service instance enable refresh"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_admin_service_instance_enable_refresh_rollback"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.admin-service-instance-remove-refresh-rollback",
+      "fixture": "control-plane",
+      "title": "Auth admin rolls back service instance remove refresh failure",
+      "coverage": [
+        "auth-admin",
+        "service-instances",
+        "rollback",
+        "fault-injection",
+        "generated-rpc"
+      ],
+      "description": "Uses generated Auth admin RPCs and a one-shot trellis-test refresh hook to verify failed service instance remove leaves the instance present.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis Auth admin RPC"
+          },
+          {
+            "name": "local admin",
+            "kind": "admin",
+            "contract": "Trellis built-in admin identity"
+          }
+        ],
+        "given": [
+          "A live Trellis control plane has a provisioned service instance and the service instance refresh fail-once hook enabled."
+        ],
+        "when": [
+          "The admin removes the service instance through generated Auth admin RPCs."
+        ],
+        "then": [
+          "Remove returns an error and Auth.ServiceInstances.List still shows the instance present."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/admin_service_instance_remove_refresh_rollback.integration_test.ts",
+          "testName": "control-plane.admin-service-instance-remove-refresh-rollback rolls back failed service instance remove refresh"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_admin_service_instance_remove_refresh_rollback"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.admin-device-deployment-disable-refresh-rollback",
+      "fixture": "control-plane",
+      "title": "Auth admin rolls back device deployment disable refresh failure",
+      "coverage": [
+        "auth-admin",
+        "deployments",
+        "rollback",
+        "fault-injection",
+        "generated-rpc"
+      ],
+      "description": "Uses generated Auth admin RPCs and a one-shot trellis-test refresh hook to verify failed device deployment disable leaves the public deployment enabled.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis Auth admin RPC"
+          },
+          {
+            "name": "local admin",
+            "kind": "admin",
+            "contract": "Trellis built-in admin identity"
+          }
+        ],
+        "given": [
+          "A live Trellis control plane has the device deployment refresh fail-once hook enabled."
+        ],
+        "when": [
+          "The admin creates a device deployment and disables it through generated Auth admin RPCs."
+        ],
+        "then": [
+          "Disable returns an error and Auth.Deployments.List still shows the deployment enabled."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/admin_device_deployment_disable_refresh_rollback.integration_test.ts",
+          "testName": "control-plane.admin-device-deployment-disable-refresh-rollback rolls back failed device deployment disable refresh"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_admin_device_deployment_disable_refresh_rollback"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.admin-device-deployment-enable-refresh-rollback",
+      "fixture": "control-plane",
+      "title": "Auth admin rolls back device deployment enable refresh failure",
+      "coverage": [
+        "auth-admin",
+        "deployments",
+        "rollback",
+        "fault-injection",
+        "generated-rpc"
+      ],
+      "description": "Uses generated Auth admin RPCs and a one-shot trellis-test refresh hook to verify failed device deployment enable leaves the public deployment disabled.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis Auth admin RPC"
+          },
+          {
+            "name": "local admin",
+            "kind": "admin",
+            "contract": "Trellis built-in admin identity"
+          }
+        ],
+        "given": [
+          "A live Trellis control plane has a disabled device deployment and the device deployment refresh fail-once hook enabled."
+        ],
+        "when": [
+          "The admin enables the device deployment through generated Auth admin RPCs."
+        ],
+        "then": [
+          "Enable returns an error and Auth.Deployments.List still shows the deployment disabled."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/admin_device_deployment_enable_refresh_rollback.integration_test.ts",
+          "testName": "control-plane.admin-device-deployment-enable-refresh-rollback rolls back failed device deployment enable refresh"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_admin_device_deployment_enable_refresh_rollback"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.admin-device-instance-disable-refresh-rollback",
+      "fixture": "control-plane",
+      "title": "Auth admin rolls back device instance disable refresh failure",
+      "coverage": [
+        "auth-admin",
+        "device-instances",
+        "rollback",
+        "fault-injection",
+        "generated-rpc"
+      ],
+      "description": "Uses generated Auth admin RPCs and a one-shot trellis-test refresh hook to verify failed device instance disable leaves the device registered.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis Auth admin RPC"
+          },
+          {
+            "name": "local admin",
+            "kind": "admin",
+            "contract": "Trellis built-in admin identity"
+          }
+        ],
+        "given": [
+          "A live Trellis control plane has a provisioned device and the device instance refresh fail-once hook enabled."
+        ],
+        "when": [
+          "The admin disables the device through generated Auth admin RPCs."
+        ],
+        "then": [
+          "Disable returns an error and Auth.Devices.List still shows the device registered."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/admin_device_instance_disable_refresh_rollback.integration_test.ts",
+          "testName": "control-plane.admin-device-instance-disable-refresh-rollback rolls back failed device instance disable refresh"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_admin_device_instance_disable_refresh_rollback"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.admin-device-instance-enable-refresh-rollback",
+      "fixture": "control-plane",
+      "title": "Auth admin rolls back device instance enable refresh failure",
+      "coverage": [
+        "auth-admin",
+        "device-instances",
+        "rollback",
+        "fault-injection",
+        "generated-rpc"
+      ],
+      "description": "Uses generated Auth admin RPCs and a one-shot trellis-test refresh hook to verify failed device instance enable leaves the device disabled.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis Auth admin RPC"
+          },
+          {
+            "name": "local admin",
+            "kind": "admin",
+            "contract": "Trellis built-in admin identity"
+          }
+        ],
+        "given": [
+          "A live Trellis control plane has a disabled device and the device instance refresh fail-once hook enabled."
+        ],
+        "when": [
+          "The admin enables the device through generated Auth admin RPCs."
+        ],
+        "then": [
+          "Enable returns an error and Auth.Devices.List still shows the device disabled."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/admin_device_instance_enable_refresh_rollback.integration_test.ts",
+          "testName": "control-plane.admin-device-instance-enable-refresh-rollback rolls back failed device instance enable refresh"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_admin_device_instance_enable_refresh_rollback"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.admin-device-instance-remove-refresh-rollback",
+      "fixture": "control-plane",
+      "title": "Auth admin rolls back device instance remove refresh failure",
+      "coverage": [
+        "auth-admin",
+        "device-instances",
+        "rollback",
+        "fault-injection",
+        "generated-rpc"
+      ],
+      "description": "Uses generated Auth admin RPCs and a one-shot trellis-test refresh hook to verify failed device instance remove leaves the device present.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis Auth admin RPC"
+          },
+          {
+            "name": "local admin",
+            "kind": "admin",
+            "contract": "Trellis built-in admin identity"
+          }
+        ],
+        "given": [
+          "A live Trellis control plane has a provisioned device and the device instance refresh fail-once hook enabled."
+        ],
+        "when": [
+          "The admin removes the device through generated Auth admin RPCs."
+        ],
+        "then": [
+          "Remove returns an error and Auth.Devices.List still shows the device present."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/admin_device_instance_remove_refresh_rollback.integration_test.ts",
+          "testName": "control-plane.admin-device-instance-remove-refresh-rollback rolls back failed device instance remove refresh"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_admin_device_instance_remove_refresh_rollback"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
+      "id": "control-plane.admin-service-deployment-lifecycle",
+      "fixture": "control-plane",
+      "title": "Auth admin manages service deployments through generated RPCs",
+      "coverage": [
+        "auth-admin",
+        "deployments",
+        "generated-rpc"
+      ],
+      "description": "Uses generated Auth.Deployments admin RPCs to create, list, disable, enable, remove, and reject a second remove for a service deployment through the live control plane.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "trellis control plane",
+            "kind": "control-plane",
+            "contract": "Trellis Auth admin RPC"
+          },
+          {
+            "name": "local admin",
+            "kind": "admin",
+            "contract": "Trellis built-in admin identity"
+          }
+        ],
+        "given": [
+          "A live Trellis control plane has an authenticated local admin client."
+        ],
+        "when": [
+          "The admin creates, lists, disables, enables, and removes a service deployment through generated Auth.Deployments RPCs."
+        ],
+        "then": [
+          "The deployment lifecycle state is visible through list responses, removal succeeds once, and removing the missing deployment returns a modeled failure."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "control-plane/admin_service_deployment_lifecycle.integration_test.ts",
+          "testName": "control-plane.admin-service-deployment-lifecycle manages service deployments through generated Auth RPCs"
+        },
+        "rust": {
+          "module": "control_plane",
+          "function": "control_plane_admin_service_deployment_lifecycle"
         }
       },
       "completion": {

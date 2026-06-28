@@ -9,6 +9,17 @@ import { AuthError } from "../errors/index.ts";
 import { API as CORE_API } from "../sdk/core.ts";
 import { createTrellisInternal, type TrellisAuth } from "../trellis.ts";
 
+// Retained unit coverage: these are API/facade guards that should fail before a
+// network request is made. Live event-consumer and RPC recovery behavior has
+// moved to TS/Rust matrix rows.
+
+type MockNatsConnection =
+  & Omit<
+    NatsConnection,
+    "setServers" | "getServers" | typeof Symbol.asyncDispose
+  >
+  & { options: { inboxPrefix: string } };
+
 function createMockAuth(token = "test-token"): TrellisAuth {
   return {
     sessionKey: token,
@@ -16,7 +27,7 @@ function createMockAuth(token = "test-token"): TrellisAuth {
   };
 }
 
-function createMockNatsConnection(): NatsConnection {
+function createMockNatsConnection(): MockNatsConnection {
   const closed: NatsConnection["closed"] = async () => undefined;
   const close: NatsConnection["close"] = async () => {};
   const publish: NatsConnection["publish"] = () => {};
@@ -47,8 +58,7 @@ function createMockNatsConnection(): NatsConnection {
   });
   const rtt: NatsConnection["rtt"] = async () => 0;
   const reconnect: NatsConnection["reconnect"] = async () => {};
-
-  const connection: NatsConnection & { options: { inboxPrefix: string } } = {
+  const connection: MockNatsConnection = {
     options: {
       inboxPrefix: "_INBOX",
     },
@@ -74,10 +84,8 @@ function createMockNatsConnection(): NatsConnection {
   return connection;
 }
 
-function createErrorResponseConnection(error: AuthError): NatsConnection {
-  const connection = createMockNatsConnection() as NatsConnection & {
-    request: NatsConnection["request"];
-  };
+function createErrorResponseConnection(error: AuthError): MockNatsConnection {
+  const connection = createMockNatsConnection();
   const headers = {
     get: (name: string) => name === "status" ? "error" : undefined,
   } as Msg["headers"];
@@ -116,6 +124,12 @@ const rpcTestContract = defineServiceContract(
   }),
 );
 
+const emptyRpcContract = defineServiceContract({}, () => ({
+  id: "trellis.empty.rpc-guard-test@v1",
+  displayName: "Empty RPC Guard Test",
+  description: "Covers empty RPC facade behavior.",
+}));
+
 Deno.test("generated core SDK keeps internal bindings RPC descriptor", () => {
   assertEquals(
     CORE_API.owned.rpc["Trellis.Bindings.Get"].subject,
@@ -126,6 +140,7 @@ Deno.test("generated core SDK keeps internal bindings RPC descriptor", () => {
 Deno.test("Trellis explains how to provide an API surface when none was configured", async () => {
   const trellis = createTrellisInternal(
     "test-client",
+    // @ts-expect-error This test mock deliberately omits unused NATS compatibility members.
     createMockNatsConnection(),
     createMockAuth(),
   );
@@ -143,11 +158,13 @@ Deno.test("Trellis explains how to provide an API surface when none was configur
 
 Deno.test("Trellis invokes session recovery for session_not_found RPC errors", async () => {
   let recoveries = 0;
+  const nats = createErrorResponseConnection(
+    new AuthError({ reason: "session_not_found" }),
+  );
   const trellis = createTrellisInternal(
     "test-client",
-    createErrorResponseConnection(
-      new AuthError({ reason: "session_not_found" }),
-    ),
+    // @ts-expect-error This test mock deliberately omits unused NATS compatibility members.
+    nats,
     createMockAuth(),
     {
       api: rpcTestContract.API.owned,
@@ -164,4 +181,17 @@ Deno.test("Trellis invokes session recovery for session_not_found RPC errors", a
   assert(value.error instanceof AuthError);
   assertEquals(value.error.reason, "session_not_found");
   assertEquals(recoveries, 1);
+});
+
+Deno.test("RPC handle facade omits unknown RPC methods", () => {
+  const nats = { options: { inboxPrefix: "_INBOX" } };
+  const service = createTrellisInternal(
+    "unknown-rpc-service",
+    // @ts-expect-error Facade construction only needs JetStream's inbox prefix read.
+    nats,
+    createMockAuth(),
+    { api: emptyRpcContract.API.owned },
+  );
+
+  assertEquals(Reflect.get(service.handle.rpc, "does"), undefined);
 });

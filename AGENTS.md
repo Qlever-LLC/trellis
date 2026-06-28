@@ -71,10 +71,13 @@
   on generated artifacts, run `cd js && deno task prepare` and
   `cd rust && cargo xtask prepare` as part of verification.
 - Follow `docs/src/routes/guides/releasing-trellis/+page.svx` for testing and
-  release practice. New features must explicitly check whether they need
-  integration coverage, and runtime or public API behavior changes should run
-  the full integration harness before commit or at the end of the implementation
-  cycle.
+  release practice and `design/core/testing-patterns.md` for test design.
+  Trellis runtime-observable behavior belongs in live TypeScript and Rust
+  integration tests, not fake NATS, fake Hono, fake storage, fake runtime, fake
+  auth, or fake generated-client units. Unit tests should be rare and limited to
+  pure parser/codec/crypto/schema/type/export/tooling/UI helper checks. When
+  live coverage needs a hook, extend `trellis-test` with the smallest named
+  helper rather than enriching a fake.
 - Release work must keep release-managed Trellis versions consistent through the
   Rust xtask release commands, verify `CHANGELOG.md` against changes since the
   previous release, and run the release verification checklist before the
@@ -126,4 +129,5 @@
 - State semantics and migrations: `design/core/state-patterns.md`
 - Observability, correlation, and JSDoc expectations:
   `design/core/observability-patterns.md`
+- Testing policy and live integration parity: `design/core/testing-patterns.md`
 - Frontend conventions: `design/core/frontend-svelte-patterns.md`

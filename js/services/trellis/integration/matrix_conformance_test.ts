@@ -59,9 +59,22 @@ Deno.test("service integration manifest conforms to shared matrix", async () => 
       );
     }
 
-    if (!content.includes("runtimeScopeForCase(")) {
+    const usesCaseScope = content.includes("runtimeScopeForCase(");
+    const usesIsolatedScope = content.includes("runtimeScopeIsolated(");
+
+    if (!usesCaseScope && !usesIsolatedScope) {
       throw new Error(
-        `case ${caseEntry.id} in ${caseEntry.file} must use runtimeScopeForCase(`,
+        `case ${caseEntry.id} in ${caseEntry.file} must use runtimeScopeForCase( or runtimeScopeIsolated(`,
+      );
+    }
+
+    if (
+      usesIsolatedScope && !content.includes("failOnceHooks") &&
+      !content.includes("restartControlPlane") &&
+      !content.includes("restartWithFailOnceHook")
+    ) {
+      throw new Error(
+        `case ${caseEntry.id} in ${caseEntry.file} uses runtimeScopeIsolated( without fail-once or restart behavior`,
       );
     }
 

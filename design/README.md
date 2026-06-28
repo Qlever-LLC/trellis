@@ -83,6 +83,7 @@ These headings are intentionally named for fast human and AI lookup.
 | `core/store-resource-patterns.md`  | You are changing service-owned blob store resources                | Store resource shape, runtime semantics, and auth boundaries                                  |
 | `core/type-system-patterns.md`     | You are changing schemas, Result, or error modeling                | Shared type-system and validation rules                                                       |
 | `core/service-development.md`      | You are implementing service code or service runtime ergonomics    | Service layout, lifecycle, jobs vs operations                                                 |
+| `core/testing-patterns.md`         | You are adding, moving, or deleting tests for Trellis behavior     | Live-first integration coverage, matrix parity, and rare retained unit-test rules             |
 | `core/observability-patterns.md`   | You are changing telemetry, correlation, health, or docs guidance  | Observability and request-correlation rules                                                   |
 | `core/frontend-svelte-patterns.md` | You are changing Svelte frontend conventions                       | Trellis frontend state patterns                                                               |
 | `core/capability-patterns.md`      | You are changing capability naming or deployment-role guidance     | Capability taxonomy and assignment guidance                                                   |
@@ -151,6 +152,13 @@ For ordinary app/service library usage, prefer `/guides/libraries/typescript`,
 1. `core/type-system-patterns.md`
 2. relevant subsystem design doc
 3. `/api` for exact language API signatures when needed
+
+### Add, move, or delete tests for Trellis behavior
+
+1. `core/testing-patterns.md`
+2. relevant subsystem design doc
+3. `docs/src/routes/guides/releasing-trellis/+page.svx` for verification
+   commands
 
 ### Work on KV resources or projections
 

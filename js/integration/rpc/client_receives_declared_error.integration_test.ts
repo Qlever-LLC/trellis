@@ -1,4 +1,5 @@
-import { assert } from "@std/assert";
+import { assert, assertEquals, assertInstanceOf } from "@std/assert";
+import { Result } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import { liveTrellisTest, runtimeScopeForCase } from "../_support/runtime.ts";
 import { createRpcFixture } from "./_fixture.ts";
@@ -24,12 +25,9 @@ liveTrellisTest({
     }).orThrow();
 
     try {
-      await service.handle.rpc.entity.get(({ input }) => {
-        throw Object.assign(new Error("NOT_FOUND"), {
-          code: "NOT_FOUND",
-          data: { id: input.id },
-        });
-      });
+      await service.handle.rpc.entity.get(({ input }) =>
+        Result.err(new fixture.NotFoundError({ entityId: input.id }))
+      );
 
       const client = await runtime.connectClient({
         name: fixture.clientName,
@@ -38,6 +36,22 @@ liveTrellisTest({
 
       const result = await client.rpc.entity.get({ id: fixture.entityId });
       assert(result.isErr());
+      assertInstanceOf(result.error, fixture.NotFoundError);
+      const serialized = result.error.toSerializable();
+      assertEquals(serialized.type, "NOT_FOUND");
+      assertEquals(serialized.entityId, fixture.entityId);
+      assertEquals(serialized.context?.method, "Entity.Get");
+      assertEquals(serialized.context?.service, fixture.serviceName);
+      assertEquals(
+        serialized.context?.contractId,
+        fixture.serviceContract.CONTRACT_ID,
+      );
+      assertEquals(
+        serialized.context?.contractDigest,
+        fixture.serviceContract.CONTRACT_DIGEST,
+      );
+      assert(typeof serialized.context?.requestId === "string");
+      assert(!Object.hasOwn(serialized.context ?? {}, "subject"));
     } finally {
       await service.stop();
     }

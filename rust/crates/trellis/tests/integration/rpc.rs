@@ -541,6 +541,32 @@ async fn rpc_client_receives_declared_error() {
         .expect("connect live Rust RPC client");
     let result = call_entity_get_expecting_error(&client, "entity-1").await;
     assert_eq!(result.error_type(), Some("NOT_FOUND"));
+    let value = result.value().expect("declared error payload is JSON");
+    let context = value
+        .get("context")
+        .and_then(Value::as_object)
+        .expect("declared error payload has handler context");
+    assert_eq!(
+        context.get("method").and_then(Value::as_str),
+        Some("Entity.Get")
+    );
+    assert_eq!(
+        context.get("service").and_then(Value::as_str),
+        Some(service_name())
+    );
+    assert_eq!(
+        context.get("contractId").and_then(Value::as_str),
+        Some(RPC_SERVICE_ID)
+    );
+    assert_eq!(
+        context.get("contractDigest").and_then(Value::as_str),
+        Some(contract_digest.as_str())
+    );
+    assert!(context
+        .get("requestId")
+        .and_then(Value::as_str)
+        .is_some_and(|request_id| !request_id.is_empty()));
+    assert!(!context.contains_key("subject"));
 
     service_task.abort_and_wait().await;
 }
@@ -790,6 +816,138 @@ async fn rpc_invalid_mixed_input_validation() {
     service_task.abort_and_wait().await;
     assert_eq!(error.error_type, "ValidationError");
     assert_eq!(handler_call_count.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn rpc_auth_validation_retries_transient_session_not_found() {
+    assert_case_registered(
+        "rpc.auth-validation-retries-transient-session-not-found",
+        "rpc",
+        "rpc",
+    );
+
+    let runtime =
+        trellis_test::TrellisTestRuntime::start(trellis_test::TrellisTestRuntimeOptions::default())
+            .await
+            .expect("start live Trellis test runtime");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+
+    let service_contract =
+        trellis_test::TrellisTestContract::from_manifest_json(RpcServiceContract::CONTRACT_JSON)
+            .expect("build RPC service test contract");
+    let client_contract = rpc_client_contract().expect("build RPC client test contract");
+
+    let service_key = admin
+        .provision_service_instance(&bootstrap_url, &service_contract, None, None)
+        .await
+        .expect("provision live RPC service instance");
+    let contract_digest = service_contract.digest().to_string();
+
+    let trellis_url = runtime.trellis_url().to_string();
+    let seed = service_key.seed.clone();
+    let mut service: RpcServiceRuntime = ConnectedServiceRuntime::from_connected_client(
+        service_name(),
+        Arc::new(
+            TrellisClient::connect_service_with_contract(ServiceConnectWithContractOptions {
+                trellis_url: &trellis_url,
+                contract_id: RPC_SERVICE_ID,
+                contract_digest: &contract_digest,
+                contract_json: RPC_SERVICE_CONTRACT_JSON,
+                session_key_seed_base64url: &seed,
+                timeout_ms: trellis_rs::service::DEFAULT_TIMEOUT_MS,
+                retry_delay_ms: trellis_rs::service::DEFAULT_RETRY_DELAY_MS,
+                authority_pending_timeout_ms:
+                    trellis_rs::service::DEFAULT_AUTHORITY_PENDING_TIMEOUT_MS,
+            })
+            .await
+            .expect("connect live Rust RPC service"),
+        ),
+    )
+    .expect("build connected service runtime");
+
+    let handler_call_count = Arc::new(AtomicUsize::new(0));
+    let handler_counter = Arc::clone(&handler_call_count);
+    service.register_rpc::<EntityGetRpc, _, _>(move |_context, input| {
+        let handler_counter = Arc::clone(&handler_counter);
+        async move {
+            handler_counter.fetch_add(1, Ordering::SeqCst);
+            Ok(EntityGetOutput {
+                id: input.id,
+                found: true,
+            })
+        }
+    });
+    let service_task = AbortOnDrop::new(tokio::spawn(async move { service.run().await }));
+
+    let (client_seed, client_session_key) = trellis_rs::auth::generate_session_keypair();
+    let client = admin
+        .connect_client_with_session_seed(&bootstrap_url, &client_contract, client_seed)
+        .await
+        .expect("connect live Rust RPC client");
+    let observer = runtime
+        .start_nats_message_observer("rpc.v1.Auth.Requests.Validate")
+        .await
+        .expect("start auth validation NATS observer");
+    let auth_reply_observer = runtime
+        .start_nats_message_observer(format!("_INBOX.{}.>", &service_key.session_key[..16]))
+        .await
+        .expect("start auth validation reply NATS observer");
+    let session_snapshot = runtime
+        .control_plane_sqlite()
+        .take_session(&client_session_key)
+        .expect("take client session row")
+        .expect("client session row exists");
+
+    let call_task = tokio::spawn(async move {
+        client
+            .call::<EntityGetRpc>(&EntityGetInput {
+                id: "entity-1".to_string(),
+            })
+            .await
+    });
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let frames = auth_reply_observer.frames();
+        if frames.iter().any(|frame| {
+            let Ok(value) = serde_json::from_str::<Value>(&frame.payload) else {
+                return false;
+            };
+            value.get("type").and_then(Value::as_str) == Some("AuthError")
+                && value.get("reason").and_then(Value::as_str) == Some("session_not_found")
+        }) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for session_not_found AuthError reply; frames: {frames:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    session_snapshot
+        .restore()
+        .expect("restore client session row");
+
+    let output = call_task
+        .await
+        .expect("join live Rust RPC call")
+        .expect("call live Entity.Get RPC after transient missing session");
+    service_task.abort_and_wait().await;
+    assert_eq!(
+        output,
+        EntityGetOutput {
+            id: "entity-1".to_string(),
+            found: true,
+        }
+    );
+    assert_eq!(handler_call_count.load(Ordering::SeqCst), 1);
+    assert_eq!(observer.frames().len(), 2);
+    auth_reply_observer.stop().await;
+    observer.stop().await;
 }
 
 async fn call_entity_get_with_retry(

@@ -8,6 +8,10 @@ import { Type } from "typebox";
 import { defineServiceContract } from "../contract.ts";
 import { Trellis, type TrellisAuth } from "../trellis.ts";
 
+// Retained unit coverage: only deterministic prepare-time invariants remain.
+// Live prepared publish headers and handler-error annotation are covered by the
+// TS/Rust service-matrix row.
+
 function createMockAuth(): TrellisAuth {
   return { sessionKey: "test", sign: () => new Uint8Array(64) };
 }
@@ -27,7 +31,6 @@ function createMockNatsConnection(): NatsConnection {
     getID: () => 1,
     getMax: () => undefined,
     [Symbol.asyncIterator]: async function* () {},
-    [Symbol.asyncDispose]: async () => {},
   };
   const requestMessage: Msg = {
     subject: "",
@@ -54,13 +57,10 @@ function createMockNatsConnection(): NatsConnection {
     isClosed: () => false,
     isDraining: () => false,
     getServer: () => "nats://127.0.0.1:4222",
-    getServers: () => [],
-    setServers: () => {},
     status: async function* () {},
     stats: () => ({ inBytes: 0, outBytes: 0, inMsgs: 0, outMsgs: 0 }),
     rtt: async () => 0,
     reconnect: async () => {},
-    [Symbol.asyncDispose]: async () => {},
   };
   return connection;
 }

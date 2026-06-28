@@ -15,6 +15,7 @@ import type { AuthRuntimeDeps } from "../runtime_deps.ts";
 import type { AuthContractsRuntime, AuthRuntime } from "./types.ts";
 import type { Config } from "../../config.ts";
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
+import { type TrellisTestHooks, withTrellisTestHook } from "../test_hooks.ts";
 import type {
   BoundedListQuery,
   SqlMaterializedAuthorityRepository,
@@ -98,6 +99,7 @@ export async function registerDeviceAdminAndActivation(
       contractApprovalStorage: LegacyIdentityGrantStorage;
       serviceDeploymentStorage: SqlServiceDeploymentRepository;
       serviceInstanceStorage: SqlServiceInstanceRepository;
+      testHooks?: TrellisTestHooks;
     }
     & Pick<
       AuthRuntimeDeps,
@@ -119,23 +121,78 @@ export async function registerDeviceAdminAndActivation(
       | "userStorage"
     >,
 ): Promise<void> {
+  const kick = createKick(deps);
   const handlers = createDeviceAdminHandlers({
     ...deps,
     eventPublisher: deps.trellis,
-    kick: createKick(deps),
+    kick: withTrellisTestHook(
+      deps.testHooks,
+      "auth.admin.deviceDeployments.kickRuntimeAccess",
+      kick,
+    ),
+    deviceInstanceKick: withTrellisTestHook(
+      deps.testHooks,
+      "auth.admin.deviceInstances.kickRuntimeAccess",
+      kick,
+    ),
     operationCompletion: deps.trellis.operationCompletion,
-    refreshActiveContracts: deps.contracts.refreshActiveContracts,
+    refreshActiveContracts: withTrellisTestHook(
+      deps.testHooks,
+      "auth.admin.deviceDeployments.refreshActiveContracts",
+      deps.contracts.refreshActiveContracts,
+    ),
+    deviceInstanceRefreshActiveContracts: withTrellisTestHook(
+      deps.testHooks,
+      "auth.admin.deviceInstances.refreshActiveContracts",
+      deps.contracts.refreshActiveContracts,
+    ),
     refreshActiveContractsForRemoval:
-      deps.contracts.refreshActiveContractsForRemoval,
-    validateActiveCatalog: deps.contracts.validateActiveCatalog,
+      deps.contracts.refreshActiveContractsForRemoval
+        ? withTrellisTestHook(
+          deps.testHooks,
+          "auth.admin.deviceDeployments.refreshActiveContracts",
+          deps.contracts.refreshActiveContractsForRemoval,
+        )
+        : undefined,
+    deviceInstanceRefreshActiveContractsForRemoval:
+      deps.contracts.refreshActiveContractsForRemoval
+        ? withTrellisTestHook(
+          deps.testHooks,
+          "auth.admin.deviceInstances.refreshActiveContracts",
+          deps.contracts.refreshActiveContractsForRemoval,
+        )
+        : undefined,
+    validateActiveCatalog: withTrellisTestHook(
+      deps.testHooks,
+      "auth.admin.deviceDeployments.validateActiveCatalog",
+      deps.contracts.validateActiveCatalog,
+    ),
+    deviceInstanceValidateActiveCatalog: withTrellisTestHook(
+      deps.testHooks,
+      "auth.admin.deviceInstances.validateActiveCatalog",
+      deps.contracts.validateActiveCatalog,
+    ),
     validateActiveCatalogForRemoval:
-      deps.contracts.validateActiveCatalogForRemoval,
+      deps.contracts.validateActiveCatalogForRemoval
+        ? withTrellisTestHook(
+          deps.testHooks,
+          "auth.admin.deviceDeployments.validateActiveCatalog",
+          deps.contracts.validateActiveCatalogForRemoval,
+        )
+        : undefined,
+    deviceInstanceValidateActiveCatalogForRemoval:
+      deps.contracts.validateActiveCatalogForRemoval
+        ? withTrellisTestHook(
+          deps.testHooks,
+          "auth.admin.deviceInstances.validateActiveCatalog",
+          deps.contracts.validateActiveCatalogForRemoval,
+        )
+        : undefined,
     authorityReconciler: deps.authorityReconciler,
     getActiveCatalogIssues: deps.contracts.getActiveCatalogIssues,
     implementationOfferStorage: deps.implementationOfferStorage,
     builtinContractDigests: deps.contracts.getBuiltinDigests(),
   });
-  const kick = createKick(deps);
   const serviceAdminDeps = {
     logger: deps.logger,
     deploymentAuthorityStorage: deps.deploymentAuthorityStorage,
@@ -143,17 +200,35 @@ export async function registerDeviceAdminAndActivation(
     serviceInstanceStorage: deps.serviceInstanceStorage,
   };
   const createServiceDeployment = createAuthDeploymentsServiceCreateHandler(
-    serviceAdminDeps,
+    { ...serviceAdminDeps, testHooks: deps.testHooks },
   );
   const listServiceDeployments = createAuthDeploymentsServiceListHandler(
     serviceAdminDeps,
   );
   const disableServiceDeployment = createAuthDeploymentsServiceDisableHandler({
-    kick,
-    refreshActiveContracts: deps.contracts.refreshActiveContracts,
-    validateActiveCatalog: deps.contracts.validateActiveCatalog,
+    kick: withTrellisTestHook(
+      deps.testHooks,
+      "auth.admin.serviceDeployments.kickRuntimeAccess",
+      kick,
+    ),
+    refreshActiveContracts: withTrellisTestHook(
+      deps.testHooks,
+      "auth.admin.serviceDeployments.refreshActiveContracts",
+      deps.contracts.refreshActiveContracts,
+    ),
+    validateActiveCatalog: withTrellisTestHook(
+      deps.testHooks,
+      "auth.admin.serviceDeployments.validateActiveCatalog",
+      deps.contracts.validateActiveCatalog,
+    ),
     validateActiveCatalogForRemoval:
-      deps.contracts.validateActiveCatalogForRemoval,
+      deps.contracts.validateActiveCatalogForRemoval
+        ? withTrellisTestHook(
+          deps.testHooks,
+          "auth.admin.serviceDeployments.validateActiveCatalog",
+          deps.contracts.validateActiveCatalogForRemoval,
+        )
+        : undefined,
     authorityReconciler: deps.authorityReconciler,
     connectionsKV: deps.connectionsKV,
     sessionStorage: deps.sessionStorage,
@@ -162,8 +237,16 @@ export async function registerDeviceAdminAndActivation(
     serviceInstanceStorage: deps.serviceInstanceStorage,
   });
   const enableServiceDeployment = createAuthDeploymentsServiceEnableHandler({
-    refreshActiveContracts: deps.contracts.refreshActiveContracts,
-    validateActiveCatalog: deps.contracts.validateActiveCatalog,
+    refreshActiveContracts: withTrellisTestHook(
+      deps.testHooks,
+      "auth.admin.serviceDeployments.refreshActiveContracts",
+      deps.contracts.refreshActiveContracts,
+    ),
+    validateActiveCatalog: withTrellisTestHook(
+      deps.testHooks,
+      "auth.admin.serviceDeployments.validateActiveCatalog",
+      deps.contracts.validateActiveCatalog,
+    ),
     deploymentAuthorityStorage: deps.deploymentAuthorityStorage,
     serviceDeploymentStorage: deps.serviceDeploymentStorage,
     authorityReconciler: deps.authorityReconciler,
@@ -171,19 +254,44 @@ export async function registerDeviceAdminAndActivation(
   });
   const removeServiceDeployment = createAuthDeploymentsServiceRemoveHandler({
     connectionsKV: deps.connectionsKV,
-    kick,
+    kick: withTrellisTestHook(
+      deps.testHooks,
+      "auth.admin.serviceDeployments.kickRuntimeAccess",
+      kick,
+    ),
     logger: deps.logger,
-    refreshActiveContracts: deps.contracts.refreshActiveContracts,
+    refreshActiveContracts: withTrellisTestHook(
+      deps.testHooks,
+      "auth.admin.serviceDeployments.refreshActiveContracts",
+      deps.contracts.refreshActiveContracts,
+    ),
     refreshActiveContractsForRemoval:
-      deps.contracts.refreshActiveContractsForRemoval,
+      deps.contracts.refreshActiveContractsForRemoval
+        ? withTrellisTestHook(
+          deps.testHooks,
+          "auth.admin.serviceDeployments.refreshActiveContracts",
+          deps.contracts.refreshActiveContractsForRemoval,
+        )
+        : undefined,
     sessionStorage: deps.sessionStorage,
-    validateActiveCatalog: deps.contracts.validateActiveCatalog,
+    validateActiveCatalog: withTrellisTestHook(
+      deps.testHooks,
+      "auth.admin.serviceDeployments.validateActiveCatalog",
+      deps.contracts.validateActiveCatalog,
+    ),
     validateActiveCatalogForRemoval:
-      deps.contracts.validateActiveCatalogForRemoval,
+      deps.contracts.validateActiveCatalogForRemoval
+        ? withTrellisTestHook(
+          deps.testHooks,
+          "auth.admin.serviceDeployments.validateActiveCatalog",
+          deps.contracts.validateActiveCatalogForRemoval,
+        )
+        : undefined,
     serviceDeploymentStorage: deps.serviceDeploymentStorage,
     serviceInstanceStorage: deps.serviceInstanceStorage,
     deploymentAuthorityStorage: deps.deploymentAuthorityStorage,
     authorityReconciler: deps.authorityReconciler,
+    testHooks: deps.testHooks,
   });
   await deps.trellis.handle.rpc.auth.deploymentsCreate(async (args) => {
     if (args.input.kind === "service") {

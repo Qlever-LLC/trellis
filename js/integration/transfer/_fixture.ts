@@ -84,8 +84,17 @@ export function requireReceiveTransferGrant(
   };
 }
 
-export function createTransferFixture(caseId: string) {
+export function createTransferFixture(
+  caseId: string,
+  options: {
+    maxObjectBytes?: number;
+    onStored?: (
+      object: { key: string; body: Uint8Array; size: number },
+    ) => Promise<void> | void;
+  } = {},
+) {
   const slug = integrationSlug(caseId);
+  const maxObjectBytes = options.maxObjectBytes ?? 1048576;
   const transferSchemas = {
     UploadInput: Type.Object({
       key: Type.String(),
@@ -129,7 +138,7 @@ export function createTransferFixture(caseId: string) {
             purpose: "Temporary integration transfer files",
             required: true,
             ttlMs: 0,
-            maxObjectBytes: 1048576,
+            maxObjectBytes,
             maxTotalBytes: 4194304,
           },
         },
@@ -212,8 +221,17 @@ export function createTransferFixture(caseId: string) {
 
     try {
       await service.handle.operation.files.upload(
-        async ({ input, op, transfer }) => {
+        async ({ input, op, transfer, client }) => {
           const transferred = await transfer.completed().orThrow();
+          if (options.onStored) {
+            const store = await client.store.uploads.open().orThrow();
+            const entry = await store.get(input.key).orThrow();
+            await options.onStored({
+              key: entry.info.key,
+              body: await entry.bytes().orThrow(),
+              size: entry.info.size,
+            });
+          }
           await op.started().orThrow();
           return Result.ok({
             key: input.key,

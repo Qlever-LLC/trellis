@@ -19,8 +19,9 @@ use std::{collections::HashSet, fmt};
 use async_nats::jetstream::{self, stream};
 use async_nats::ConnectOptions;
 use futures_util::StreamExt;
+use rusqlite::{params_from_iter, types::Value as SqliteValue, Connection, Params};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+use serde_json::{json, Map, Number, Value};
 use tempfile::TempDir;
 use tokio::task::JoinHandle;
 use trellis_local_bootstrap::{
@@ -81,6 +82,10 @@ pub enum TrellisTestError {
     /// Public Trellis client operation failed.
     #[error(transparent)]
     TrellisClient(#[from] TrellisClientError),
+
+    /// Control-plane SQLite access failed.
+    #[error(transparent)]
+    Sqlite(#[from] rusqlite::Error),
 
     /// Contract manifest parsing or digesting failed.
     #[error(transparent)]
@@ -317,6 +322,10 @@ pub struct TrellisTestRuntimeOptions {
     pub reconciliation_timeout: Duration,
     /// Optional first-admin password. A random test password is generated when absent.
     pub admin_password: Option<String>,
+    /// OAuth/OIDC providers injected into the isolated test control-plane config.
+    pub oauth_providers: Map<String, Value>,
+    /// Named fail-once hooks injected into the isolated test control-plane config.
+    pub fail_once_hooks: Vec<String>,
 }
 
 impl TrellisTestRuntimeOptions {
@@ -333,6 +342,8 @@ impl TrellisTestRuntimeOptions {
             default_mutable_dev: true,
             reconciliation_timeout: DEFAULT_RECONCILIATION_TIMEOUT,
             admin_password: None,
+            oauth_providers: Map::new(),
+            fail_once_hooks: Vec::new(),
         }
     }
 }
@@ -362,6 +373,135 @@ pub struct TrellisTestRuntime {
     trellis_command: TrellisProcessCommand,
 }
 
+/// Row returned by a control-plane SQLite query.
+pub type TrellisControlPlaneSqliteRow = Map<String, Value>;
+
+/// Result returned by a control-plane SQLite write.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrellisControlPlaneSqliteExecuteResult {
+    /// Number of rows affected by the write.
+    pub rows_affected: usize,
+}
+
+/// Snapshot of a removed control-plane session row.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TrellisControlPlaneSessionSnapshot {
+    sqlite: TrellisControlPlaneSqlite,
+    row: TrellisControlPlaneSqliteRow,
+}
+
+impl TrellisControlPlaneSessionSnapshot {
+    /// Restores the captured session row if it has not already been recreated.
+    pub fn restore(&self) -> Result<TrellisControlPlaneSqliteExecuteResult, TrellisTestError> {
+        let columns = self.row.keys().cloned().collect::<Vec<_>>();
+        let column_sql = columns
+            .iter()
+            .map(|column| format!("\"{}\"", column.replace('"', "\"\"")))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let placeholders = vec!["?"; columns.len()].join(", ");
+        let values = columns
+            .iter()
+            .map(|column| json_to_sqlite_value(&self.row[column]))
+            .collect::<Vec<_>>();
+
+        self.sqlite.execute(
+            &format!("INSERT OR IGNORE INTO sessions ({column_sql}) VALUES ({placeholders})"),
+            params_from_iter(values),
+        )
+    }
+}
+
+/// Direct SQLite access for the isolated Trellis control plane under test.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrellisControlPlaneSqlite {
+    path: PathBuf,
+}
+
+impl TrellisControlPlaneSqlite {
+    /// Build a handle for a control-plane SQLite database path.
+    #[must_use]
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
+    }
+
+    /// Return the backing SQLite database path.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Runs a SQL query against the live control-plane database.
+    pub fn query<P>(
+        &self,
+        sql: &str,
+        params: P,
+    ) -> Result<Vec<TrellisControlPlaneSqliteRow>, TrellisTestError>
+    where
+        P: Params,
+    {
+        let connection = self.connection()?;
+        let mut statement = connection.prepare(sql)?;
+        let column_names = statement
+            .column_names()
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect::<Vec<_>>();
+        let mut rows = statement.query(params)?;
+        let mut result = Vec::new();
+
+        while let Some(row) = rows.next()? {
+            let mut object = Map::new();
+            for (index, name) in column_names.iter().enumerate() {
+                let value = row.get::<_, SqliteValue>(index)?;
+                object.insert(name.clone(), sqlite_value_to_json(value));
+            }
+            result.push(object);
+        }
+
+        Ok(result)
+    }
+
+    /// Runs a SQL write against the live control-plane database.
+    pub fn execute<P>(
+        &self,
+        sql: &str,
+        params: P,
+    ) -> Result<TrellisControlPlaneSqliteExecuteResult, TrellisTestError>
+    where
+        P: Params,
+    {
+        let connection = self.connection()?;
+        let rows_affected = connection.execute(sql, params)?;
+        Ok(TrellisControlPlaneSqliteExecuteResult { rows_affected })
+    }
+
+    /// Deletes and returns one session row so tests can restore it later.
+    pub fn take_session(
+        &self,
+        session_key: &str,
+    ) -> Result<Option<TrellisControlPlaneSessionSnapshot>, TrellisTestError> {
+        let rows = self.query(
+            "SELECT * FROM sessions WHERE session_key = ?",
+            [session_key],
+        )?;
+        let Some(row) = rows.into_iter().next() else {
+            return Ok(None);
+        };
+        self.execute("DELETE FROM sessions WHERE session_key = ?", [session_key])?;
+        Ok(Some(TrellisControlPlaneSessionSnapshot {
+            sqlite: self.clone(),
+            row,
+        }))
+    }
+
+    fn connection(&self) -> Result<Connection, TrellisTestError> {
+        let connection = Connection::open(&self.path)?;
+        connection.busy_timeout(Duration::from_millis(5_000))?;
+        Ok(connection)
+    }
+}
+
 /// JetStream consumer metadata exposed by the Rust integration-test harness.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TrellisJetStreamConsumerInfo {
@@ -385,6 +525,15 @@ pub struct TrellisJetStreamAckFrame {
     /// ACK protocol subject the frame was published to.
     pub subject: String,
     /// UTF-8 lossy payload text, such as `+ACK` or `-NAK`.
+    pub payload: String,
+}
+
+/// One observed raw NATS message frame.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrellisNatsMessageFrame {
+    /// NATS subject the frame was published to.
+    pub subject: String,
+    /// UTF-8 lossy payload text.
     pub payload: String,
 }
 
@@ -432,6 +581,57 @@ impl Drop for TrellisJetStreamAckObserver {
     }
 }
 
+/// Live NATS observer for raw messages on a selected subject.
+pub struct TrellisNatsMessageObserver {
+    subject: String,
+    _client: async_nats::Client,
+    frames: Arc<Mutex<Vec<TrellisNatsMessageFrame>>>,
+    task: Option<JoinHandle<()>>,
+}
+
+impl fmt::Debug for TrellisNatsMessageObserver {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TrellisNatsMessageObserver")
+            .field("subject", &self.subject)
+            .field("frame_count", &self.frames().len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl TrellisNatsMessageObserver {
+    /// Return the subject pattern observed by this observer.
+    #[must_use]
+    pub fn subject(&self) -> &str {
+        &self.subject
+    }
+
+    /// Return a snapshot of observed NATS message frames.
+    #[must_use]
+    pub fn frames(&self) -> Vec<TrellisNatsMessageFrame> {
+        self.frames
+            .lock()
+            .expect("lock NATS message observer frames")
+            .clone()
+    }
+
+    /// Stop the observer task.
+    pub async fn stop(mut self) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+            let _ = task.await;
+        }
+    }
+}
+
+impl Drop for TrellisNatsMessageObserver {
+    fn drop(&mut self) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+    }
+}
+
 impl TrellisTestRuntime {
     /// Start an isolated NATS container and repo-local Trellis control plane.
     pub async fn start(options: TrellisTestRuntimeOptions) -> Result<Self, TrellisTestError> {
@@ -454,7 +654,7 @@ impl TrellisTestRuntime {
             let started_nats = NatsContainer::start(resolved_runtime, &workdir)?;
             bootstrap_options.nats_server_url = started_nats.nats_url();
             bootstrap_options.nats_websocket_url = started_nats.websocket_url();
-            rewrite_trellis_config(workdir.path(), &manifest, &bootstrap_options)?;
+            rewrite_trellis_config(workdir.path(), &manifest, &bootstrap_options, &options)?;
             ensure_shared_streams(
                 &started_nats.nats_url(),
                 &trellis_creds_path(workdir.path()),
@@ -537,6 +737,12 @@ impl TrellisTestRuntime {
         self.workdir.path()
     }
 
+    /// Return direct SQLite access for the runtime-owned Trellis control plane.
+    #[must_use]
+    pub fn control_plane_sqlite(&self) -> TrellisControlPlaneSqlite {
+        TrellisControlPlaneSqlite::new(control_plane_sqlite_path(self.workdir.path()))
+    }
+
     /// List JetStream consumers on the shared Trellis event stream.
     pub async fn list_trellis_jetstream_consumers(
         &self,
@@ -612,6 +818,49 @@ impl TrellisTestRuntime {
             _client: client,
             frames,
             errors,
+            task: Some(task),
+        })
+    }
+
+    /// Start a live NATS observer for raw messages on a selected subject.
+    pub async fn start_nats_message_observer(
+        &self,
+        subject: impl Into<String>,
+    ) -> Result<TrellisNatsMessageObserver, TrellisTestError> {
+        let subject = subject.into();
+        let client = ConnectOptions::new()
+            .credentials_file(trellis_creds_path(self.workdir.path()))
+            .await?
+            .connect(&self.nats_url)
+            .await
+            .map_err(|error| io::Error::new(io::ErrorKind::ConnectionRefused, error))?;
+        let mut subscription = client
+            .subscribe(subject.clone())
+            .await
+            .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+        client
+            .flush()
+            .await
+            .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+
+        let frames = Arc::new(Mutex::new(Vec::new()));
+        let task_frames = Arc::clone(&frames);
+        let task = tokio::spawn(async move {
+            while let Some(message) = subscription.next().await {
+                task_frames
+                    .lock()
+                    .expect("lock NATS message observer frames")
+                    .push(TrellisNatsMessageFrame {
+                        subject: message.subject.to_string(),
+                        payload: String::from_utf8_lossy(&message.payload).into_owned(),
+                    });
+            }
+        });
+
+        Ok(TrellisNatsMessageObserver {
+            subject,
+            _client: client,
+            frames,
             task: Some(task),
         })
     }
@@ -2030,25 +2279,92 @@ fn rewrite_trellis_config(
     workdir: &Path,
     manifest: &LocalTrellisBootstrapManifest,
     options: &LocalTrellisBootstrapOptions,
+    runtime_options: &TrellisTestRuntimeOptions,
 ) -> Result<(), TrellisTestError> {
     let config_path = workdir.join(&manifest.paths.trellis_config);
-    fs::write(config_path, render_test_trellis_config(options, manifest))?;
+    fs::write(
+        config_path,
+        render_test_trellis_config(options, manifest, runtime_options),
+    )?;
     Ok(())
 }
 
 fn render_test_trellis_config(
     options: &LocalTrellisBootstrapOptions,
     manifest: &LocalTrellisBootstrapManifest,
+    runtime_options: &TrellisTestRuntimeOptions,
 ) -> String {
-    render_trellis_config(options, &manifest.nats).replacen(
+    let config = render_trellis_config(options, &manifest.nats).replacen(
         "  \"storage\": {",
         "  \"httpRateLimit\": {\n    \"windowMs\": 60000,\n    \"max\": 0\n  },\n  \"storage\": {",
+        1,
+    );
+    let config = if runtime_options.oauth_providers.is_empty() {
+        config
+    } else {
+        config.replacen(
+            "    \"providers\": {}",
+            &format!(
+                "    \"providers\": {}",
+                serde_json::to_string_pretty(&runtime_options.oauth_providers)
+                    .expect("serialize test OAuth providers")
+            ),
+            1,
+        )
+    };
+    if runtime_options.fail_once_hooks.is_empty() {
+        return config;
+    }
+    config.replacen(
+        "  \"oauth\": {",
+        &format!(
+            "  \"trellisTest\": {{\n    \"failOnce\": {}\n  }},\n  \"oauth\": {{",
+            serde_json::to_string_pretty(&runtime_options.fail_once_hooks)
+                .expect("serialize test fail-once hooks")
+        ),
         1,
     )
 }
 
 fn trellis_creds_path(workdir: &Path) -> PathBuf {
     workdir.join("nats/creds/trellis-auth.creds")
+}
+
+fn control_plane_sqlite_path(workdir: &Path) -> PathBuf {
+    workdir.join("trellis/data/trellis.sqlite")
+}
+
+fn sqlite_value_to_json(value: SqliteValue) -> Value {
+    match value {
+        SqliteValue::Null => Value::Null,
+        SqliteValue::Integer(value) => Value::Number(Number::from(value)),
+        SqliteValue::Real(value) => Number::from_f64(value).map_or(Value::Null, Value::Number),
+        SqliteValue::Text(value) => Value::String(value),
+        SqliteValue::Blob(bytes) => Value::Array(
+            bytes
+                .into_iter()
+                .map(|byte| Value::Number(Number::from(byte)))
+                .collect(),
+        ),
+    }
+}
+
+fn json_to_sqlite_value(value: &Value) -> SqliteValue {
+    match value {
+        Value::Null => SqliteValue::Null,
+        Value::Bool(value) => SqliteValue::Integer(if *value { 1 } else { 0 }),
+        Value::Number(value) => {
+            if let Some(value) = value.as_i64() {
+                SqliteValue::Integer(value)
+            } else if let Some(value) = value.as_f64() {
+                SqliteValue::Real(value)
+            } else {
+                SqliteValue::Null
+            }
+        }
+        Value::String(value) => SqliteValue::Text(value.clone()),
+        Value::Array(_) | Value::Object(_) => SqliteValue::Text(value.to_string()),
+    }
 }
 
 async fn ensure_shared_streams(
@@ -2391,8 +2707,9 @@ mod tests {
         flow_id_from_url, materialized_authority_failure, materialized_authority_is_current,
         parse_published_port, parse_trellis_bootstrap_url, repo_trellis_command,
         AuthorityPlanClassification, AuthorityPlanSummary, ContainerRuntime, MountMode,
-        ResolvedContainerRuntime,
+        ResolvedContainerRuntime, TrellisControlPlaneSqlite,
     };
+    use rusqlite::params;
     use serde_json::{json, Value};
 
     #[test]
@@ -2433,6 +2750,81 @@ mod tests {
         assert_eq!(
             parse_trellis_bootstrap_url(log).unwrap(),
             "http://127.0.0.1:3000/_trellis/portal/admin/bootstrap?flowId=abc"
+        );
+    }
+
+    #[test]
+    fn control_plane_sqlite_queries_and_mutates_database() {
+        let dir = tempfile::tempdir().expect("create temp sqlite dir");
+        let sqlite = TrellisControlPlaneSqlite::new(dir.path().join("trellis.sqlite"));
+
+        sqlite
+            .execute(
+                "create table sessions (session_key text primary key, value text)",
+                [],
+            )
+            .expect("create test table");
+        let inserted = sqlite
+            .execute(
+                "insert into sessions (session_key, value) values (?, ?)",
+                params!["session-1", "before"],
+            )
+            .expect("insert test row");
+        assert_eq!(inserted.rows_affected, 1);
+
+        let rows = sqlite
+            .query(
+                "select session_key, value from sessions where session_key = ?",
+                params!["session-1"],
+            )
+            .expect("query test row");
+        assert_eq!(
+            rows,
+            vec![json!({ "session_key": "session-1", "value": "before" })
+                .as_object()
+                .expect("object row")
+                .clone()]
+        );
+
+        let snapshot = sqlite
+            .take_session("session-1")
+            .expect("take session row")
+            .expect("session row exists");
+        assert_eq!(
+            sqlite
+                .query("select * from sessions", [])
+                .expect("query empty after take"),
+            Vec::new()
+        );
+        assert_eq!(
+            snapshot
+                .restore()
+                .expect("restore session row")
+                .rows_affected,
+            1
+        );
+        assert_eq!(
+            sqlite
+                .query("select * from sessions", [])
+                .expect("query restored table"),
+            vec![json!({ "session_key": "session-1", "value": "before" })
+                .as_object()
+                .expect("object row")
+                .clone()]
+        );
+
+        let deleted = sqlite
+            .execute(
+                "delete from sessions where session_key = ?",
+                params!["session-1"],
+            )
+            .expect("delete test row");
+        assert_eq!(deleted.rows_affected, 1);
+        assert_eq!(
+            sqlite
+                .query("select * from sessions", [])
+                .expect("query empty table"),
+            Vec::new()
         );
     }
 

@@ -122,6 +122,11 @@ commands.
   call the runner with `--config`; parallel runs add `--parallel --jobs <n>`,
   where `--jobs` maps to child `DENO_JOBS`, not a `deno test --jobs` flag. Keep
   one case per module and do not rely on cleanup or execution order.
+- Test Trellis runtime behavior through live integration tests. Do not use fake
+  NATS, fake Trellis runtimes, fake auth, fake generated clients, or hand-built
+  bootstrap/control-plane responders to prove Trellis behavior. If a live test
+  needs a missing failure or inspection surface, add the smallest named test
+  helper instead of enriching a fake.
 - Wrap Rust Trellis generation in `cargo xtask prepare`.
 - Browser app repos should read the Svelte AI guide before wiring
   `createTrellisApp`, `TrellisProvider`, generated service SDK aliases for

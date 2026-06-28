@@ -4215,6 +4215,7 @@ dependencies = [
  "async-nats",
  "futures-util",
  "reqwest",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",

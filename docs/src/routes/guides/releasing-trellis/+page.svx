@@ -11,7 +11,9 @@ This guide owns Trellis testing and release practice. Rust `xtask release ...` c
 
 ## Feature testing policy
 
-Every feature, bug fix, or refactor must explicitly ask whether it needs integration coverage.
+Every feature, bug fix, or refactor must explicitly ask which live integration
+coverage proves it. Trellis runtime-observable behavior belongs in live
+TypeScript and Rust integration tests.
 
 Default to adding or updating integration tests when a change affects:
 
@@ -22,7 +24,13 @@ Default to adding or updating integration tests when a change affects:
 - jobs, operations, events, feeds, state, resources, or transfer behavior
 - Rust/TypeScript cross-runtime behavior
 
-Unit tests are still appropriate for parser, schema, error, and small pure logic cases. They do not replace integration coverage for externally visible runtime behavior.
+Unit tests are the exception. Keep them only for code that is not Trellis runtime
+behavior: pure parser, codec, canonicalization, crypto vector, schema pointer,
+error serialization, package/export/import, generated artifact, CLI planning, or
+tiny UI helper checks. Do not use fake NATS, fake Hono, fake storage, fake
+runtime, fake auth, or fake generated-client workflows to prove Trellis behavior.
+If live coverage needs a missing failure or inspection surface, add the smallest
+named `trellis-test` helper and prove the behavior through a live control plane.
 
 Before committing or ending an implementation cycle, run the focused checks that match the files touched. If runtime or public behavior changed, also run the full language-owned integration suites:
 

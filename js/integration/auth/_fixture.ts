@@ -54,16 +54,41 @@ export function createAuthLocalLoginFixture(caseId: string) {
     },
   }));
 
+  const clientDisplayName =
+    `Trellis Integration Auth Local Login Client (${slug})`;
+  const updatedClientDisplayName =
+    `Trellis Integration Auth Local Login Client Updated (${slug})`;
+
   const clientContract = defineAppContract(() => ({
     id: caseScopedContractId(
       "trellis.integration.auth-local-login-client",
       caseId,
     ),
-    displayName: `Trellis Integration Auth Local Login Client (${slug})`,
+    displayName: clientDisplayName,
     description: "App participant for the auth local-login binding fixture.",
     uses: {
       required: {
         auth: trellisAuth.use({ rpc: { call: ["Auth.Sessions.Me"] } }),
+        loginService: serviceContract.use({
+          rpc: { call: ["AuthLogin.Ping"] },
+        }),
+      },
+    },
+  }));
+
+  const updatedClientContract = defineAppContract(() => ({
+    id: caseScopedContractId(
+      "trellis.integration.auth-local-login-client",
+      caseId,
+    ),
+    displayName: updatedClientDisplayName,
+    description:
+      "Updated app participant for proving local-login rebinds refresh authority.",
+    uses: {
+      required: {
+        auth: trellisAuth.use({
+          rpc: { call: ["Auth.Sessions.Me", "Auth.Connections.List"] },
+        }),
         loginService: serviceContract.use({
           rpc: { call: ["AuthLogin.Ping"] },
         }),
@@ -82,7 +107,16 @@ export function createAuthLocalLoginFixture(caseId: string) {
     uses: {
       required: {
         auth: trellisAuth.use({
-          rpc: { call: ["Auth.Sessions.List", "Auth.Sessions.Revoke"] },
+          rpc: {
+            call: [
+              "Auth.Connections.List",
+              "Auth.Sessions.List",
+              "Auth.Sessions.Revoke",
+              "Auth.Users.Create",
+              "Auth.Users.PasswordReset.Create",
+              "Auth.Users.Update",
+            ],
+          },
         }),
       },
     },
@@ -132,10 +166,13 @@ export function createAuthLocalLoginFixture(caseId: string) {
 
   return {
     clientContract,
+    clientDisplayName,
     clientName,
     pingMessage: caseScopedName("auth-local-login", caseId),
     setupClientRegistration,
     setupSessionAdmin,
     setupService,
+    updatedClientContract,
+    updatedClientDisplayName,
   };
 }

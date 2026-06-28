@@ -8,6 +8,8 @@ import type {
   TrellisApiLike,
   TrellisContractV1,
 } from "@qlever-llc/trellis";
+import type { TrellisControlPlaneSqlite } from "./control_plane_sqlite.ts";
+import type { TrellisControlPlaneOAuthProvider } from "./control_plane_config.ts";
 
 /** Serializable contract descriptor accepted by test admin automation. */
 export type TrellisTestContractDescriptor = {
@@ -28,6 +30,12 @@ export type TrellisTestAuthorityPlanClassification = "update" | "migration";
 export type WaitForOptions = {
   timeoutMs?: number;
   intervalMs?: number;
+};
+
+/** Test-only handles for manipulating the isolated Trellis control plane. */
+export type TrellisTestControlPlane = {
+  /** Direct access to the runtime-owned control-plane SQLite database. */
+  readonly sqlite: TrellisControlPlaneSqlite;
 };
 
 /** Local command override for the spawned Trellis control-plane process. */
@@ -57,6 +65,10 @@ export type TrellisTestRuntimeStartOptions = {
      */
     autoAccept?: readonly TrellisTestAuthorityPlanClassification[];
   };
+  /** OAuth/OIDC providers injected into the isolated test control-plane config. */
+  oauthProviders?: Record<string, TrellisControlPlaneOAuthProvider>;
+  /** Named fail-once hooks injected into the isolated test control-plane config. */
+  failOnceHooks?: readonly string[];
   timeouts?: {
     startupMs?: number;
     reconciliationMs?: number;

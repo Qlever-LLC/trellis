@@ -44,6 +44,7 @@ import type {
 } from "../storage.ts";
 import { MAX_STORAGE_LIST_LIMIT } from "../storage.ts";
 import { revokeRuntimeAccessForSession } from "../session/revoke_runtime_access.ts";
+import type { TrellisTestHooks } from "../test_hooks.ts";
 import type { ActiveCatalogIssue } from "../../catalog/runtime.ts";
 type RpcUser =
   & StaticDecode<
@@ -140,6 +141,16 @@ type ActiveCatalogValidator = (opts: {
   stagedDeviceDeployments?: Iterable<DeviceDeployment>;
   stagedDeviceInstances?: Iterable<DeviceInstance>;
 }) => Promise<unknown>;
+type DeviceInstanceActiveCatalogDeps = {
+  deviceInstanceRefreshActiveContracts: ActiveContractsDeps[
+    "refreshActiveContracts"
+  ];
+  deviceInstanceRefreshActiveContractsForRemoval?: ActiveContractsDeps[
+    "refreshActiveContractsForRemoval"
+  ];
+  deviceInstanceValidateActiveCatalog: ActiveCatalogValidator;
+  deviceInstanceValidateActiveCatalogForRemoval?: ActiveCatalogValidator;
+};
 type ActiveCatalogDeps = ActiveContractsDeps & {
   validateActiveCatalog: ActiveCatalogValidator;
   validateActiveCatalogForRemoval?: ActiveCatalogValidator;
@@ -293,6 +304,7 @@ export type AdminRpcDeps = {
       "auth"
     >;
   };
+  testHooks?: TrellisTestHooks;
   userStorage: Pick<SqlUserProjectionRepository, "get">;
 };
 
@@ -921,6 +933,7 @@ export function createAuthDeploymentsDeviceCreateHandler() {
     );
     try {
       await ctx.deviceDeploymentStorage.put(deployment);
+      ctx.testHooks?.failOnce("auth.admin.deviceDeployments.createAuthority");
       await ctx.deploymentAuthorityStorage.put(emptyDeploymentAuthority({
         deploymentId: deployment.deploymentId,
         kind: "device",
@@ -1208,11 +1221,20 @@ export function createAuthDeploymentsDeviceRemoveHandler(
         await ctx.deviceInstanceStorage.delete(instance.instanceId);
         await ctx.deviceProvisioningSecretStorage.delete(instance.instanceId);
         await ctx.deviceActivationStorage.delete(instance.instanceId);
+        ctx.testHooks?.failOnce(
+          "auth.admin.deviceDeployments.deleteCascadeRecord",
+        );
       }
       for (const review of activationReviews) {
         await ctx.deviceActivationReviewStorage.delete(review.reviewId);
+        ctx.testHooks?.failOnce(
+          "auth.admin.deviceDeployments.deleteCascadeRecord",
+        );
       }
       await ctx.deviceDeploymentStorage.delete(req.deploymentId);
+      ctx.testHooks?.failOnce(
+        "auth.admin.deviceDeployments.deleteCascadeRecord",
+      );
     } catch (error) {
       try {
         await restoreDeletedRecords();
@@ -1646,13 +1668,26 @@ export function createDeviceAdminHandlers(
     ];
     validateActiveCatalog: ActiveCatalogValidator;
     validateActiveCatalogForRemoval?: ActiveCatalogValidator;
-  },
+    deviceInstanceKick: AdminRpcDeps["kick"];
+  } & DeviceInstanceActiveCatalogDeps,
 ) {
   const activeContractsDeps = {
     refreshActiveContracts: deps.refreshActiveContracts,
     refreshActiveContractsForRemoval: deps.refreshActiveContractsForRemoval,
     validateActiveCatalog: deps.validateActiveCatalog,
     validateActiveCatalogForRemoval: deps.validateActiveCatalogForRemoval,
+  };
+  const deviceInstanceDeps = {
+    ...deps,
+    kick: deps.deviceInstanceKick,
+  };
+  const deviceInstanceActiveContractsDeps = {
+    refreshActiveContracts: deps.deviceInstanceRefreshActiveContracts,
+    refreshActiveContractsForRemoval:
+      deps.deviceInstanceRefreshActiveContractsForRemoval,
+    validateActiveCatalog: deps.deviceInstanceValidateActiveCatalog,
+    validateActiveCatalogForRemoval:
+      deps.deviceInstanceValidateActiveCatalogForRemoval,
   };
   return {
     createDeviceDeployment: bindAdminRpcHandler(
@@ -1676,31 +1711,31 @@ export function createDeviceAdminHandlers(
       createAuthDeploymentsDeviceRemoveHandler(activeContractsDeps),
     ),
     provisionDeviceInstance: bindAdminRpcHandler(
-      deps,
+      deviceInstanceDeps,
       createAuthDevicesProvisionHandler(),
     ),
     listDeviceInstances: bindAdminRpcHandler(
-      deps,
+      deviceInstanceDeps,
       authListDeviceInstancesHandler,
     ),
     disableDeviceInstance: bindAdminRpcHandler(
-      deps,
-      createAuthDevicesDisableHandler(activeContractsDeps),
+      deviceInstanceDeps,
+      createAuthDevicesDisableHandler(deviceInstanceActiveContractsDeps),
     ),
     enableDeviceInstance: bindAdminRpcHandler(
-      deps,
-      createAuthDevicesEnableHandler(activeContractsDeps),
+      deviceInstanceDeps,
+      createAuthDevicesEnableHandler(deviceInstanceActiveContractsDeps),
     ),
     removeDeviceInstance: bindAdminRpcHandler(
-      deps,
-      createAuthDevicesRemoveHandler(activeContractsDeps),
+      deviceInstanceDeps,
+      createAuthDevicesRemoveHandler(deviceInstanceActiveContractsDeps),
     ),
     listDeviceActivations: bindAdminRpcHandler(
       deps,
       authListDeviceActivationsHandler,
     ),
     revokeDeviceActivation: bindAdminRpcHandler(
-      deps,
+      deviceInstanceDeps,
       authRevokeDeviceActivationHandler,
     ),
     listDeviceActivationReviews: bindAdminRpcHandler(

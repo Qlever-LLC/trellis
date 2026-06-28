@@ -11,9 +11,23 @@ import {
 
 export function createOperationsFixture(
   caseId: string,
-  options: { readonly cancelable?: boolean; readonly signals?: boolean } = {},
+  options: {
+    readonly cancelable?: boolean;
+    readonly signals?: boolean;
+    readonly distinctControlCapabilities?: boolean;
+    readonly clientControlsOperation?: boolean;
+    readonly statusOperation?: boolean;
+  } = {},
 ) {
   const slug = integrationSlug(caseId);
+  const cancelCapability = options.distinctControlCapabilities
+    ? "processCancel"
+    : "process";
+  const controlCapability = options.distinctControlCapabilities
+    ? "processControl"
+    : "process";
+  const clientControlsOperation = options.clientControlsOperation ??
+    options.signals === true;
   const operationSchemas = {
     OperationInput: Type.Object({ message: Type.String() }),
     OperationSignalInput: Type.Object({ suffix: Type.String() }),
@@ -25,6 +39,9 @@ export function createOperationsFixture(
       message: Type.String(),
       done: Type.Boolean(),
     }),
+    StatusInput: Type.Object({ message: Type.String() }),
+    StatusProgress: Type.Object({ stage: Type.String() }),
+    StatusOutput: Type.Object({ status: Type.String() }),
   } as const;
 
   const serviceContract = defineServiceContract(
@@ -41,6 +58,18 @@ export function createOperationsFixture(
           displayName: "Process entities",
           description: "Start and observe entity processing operations.",
         },
+        ...(options.distinctControlCapabilities
+          ? {
+            processCancel: {
+              displayName: "Cancel entity processing",
+              description: "Cancel entity processing operations.",
+            },
+            processControl: {
+              displayName: "Control entity processing",
+              description: "Signal entity processing operations.",
+            },
+          }
+          : {}),
       },
       operations: {
         "Entity.Process": {
@@ -57,18 +86,39 @@ export function createOperationsFixture(
           capabilities: {
             call: ["process"],
             observe: ["process"],
-            ...(options.cancelable ? { cancel: ["process"] } : {}),
-            ...(options.signals ? { control: ["process"] } : {}),
+            ...(options.cancelable ? { cancel: [cancelCapability] } : {}),
+            ...(options.signals ? { control: [controlCapability] } : {}),
           },
           cancel: options.cancelable === true,
           ...(options.signals
             ? {
               signals: {
                 updateMessage: { input: ref.schema("OperationSignalInput") },
+                appendMessage: { input: ref.schema("OperationSignalInput") },
               },
             }
             : {}),
         },
+        ...(options.statusOperation === true
+          ? {
+            "Entity.Status": {
+              version: "v1",
+              subject: caseScopedSubject(
+                "operations.v1.Integration.Operations",
+                caseId,
+                "Entity.Status",
+              ),
+              input: ref.schema("StatusInput"),
+              progress: ref.schema("StatusProgress"),
+              output: ref.schema("StatusOutput"),
+              errors: [ref.error("UnexpectedError")],
+              capabilities: {
+                call: ["process"],
+                observe: ["process"],
+              },
+            },
+          }
+          : {}),
       },
     }),
   );
@@ -82,13 +132,16 @@ export function createOperationsFixture(
       required: {
         operationsService: serviceContract.use({
           operations: {
-            call: ["Entity.Process"],
+            call: [
+              "Entity.Process",
+              ...(options.statusOperation === true
+                ? (["Entity.Status"] as const)
+                : []),
+            ],
             ...(options.cancelable === true
               ? { cancel: ["Entity.Process"] }
               : {}),
-            ...(options.signals === true
-              ? { control: ["Entity.Process"] }
-              : {}),
+            ...(clientControlsOperation ? { control: ["Entity.Process"] } : {}),
           },
         }),
       },
@@ -129,6 +182,10 @@ export function createOperationsFixture(
     clientContract,
     unauthorizedClientContract,
     serviceName,
+    otherServiceName: caseScopedName(
+      "operations-fixture-other-service",
+      caseId,
+    ),
     clientName: caseScopedName("operations-fixture-client", caseId),
     unauthorizedClientName: caseScopedName(
       "operations-fixture-unauthorized-client",

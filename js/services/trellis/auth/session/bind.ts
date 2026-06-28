@@ -174,7 +174,7 @@ export async function ensureBoundUserSession(args: {
   contractId: string;
   contractDisplayName: string;
   contractDescription: string;
-  app?: UserSession["app"];
+  app: UserSession["app"];
   approvalSource?: UserSession["approvalSource"];
   identityAuthorityNeeds?: AuthorityNeedSet;
   delegatedCapabilities: string[];
@@ -239,7 +239,7 @@ export async function ensureBoundUserSession(args: {
     contractId: args.contractId,
     contractDisplayName: args.contractDisplayName,
     contractDescription: args.contractDescription,
-    ...(args.app ? { app: args.app } : {}),
+    app: args.app,
     ...(args.approvalSource ? { approvalSource: args.approvalSource } : {}),
     ...(args.identityAuthorityNeeds
       ? { identityAuthorityNeeds: args.identityAuthorityNeeds }
@@ -269,9 +269,8 @@ export async function ensureBoundUserSession(args: {
   }
 
   // Update lastAuth + user fields, but preserve createdAt.
-  const { app: _existingApp, ...existingSessionBase } = existingSession;
   const updated: UserSession = {
-    ...existingSessionBase,
+    ...existingSession,
     email: args.email,
     name: args.name,
     ...(args.image ? { image: args.image } : {}),
@@ -281,7 +280,7 @@ export async function ensureBoundUserSession(args: {
     contractId: args.contractId,
     contractDisplayName: args.contractDisplayName,
     contractDescription: args.contractDescription,
-    ...(args.app ? { app: args.app } : {}),
+    app: args.app,
     ...(args.approvalSource ? { approvalSource: args.approvalSource } : {}),
     ...(args.identityAuthorityNeeds
       ? { identityAuthorityNeeds: args.identityAuthorityNeeds }

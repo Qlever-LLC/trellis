@@ -89,7 +89,7 @@ const TRANSFER_SERVICE_CONTRACT_JSON: &str = r#"{
         "purpose": "Temporary integration transfer files",
         "required": true,
         "ttlMs": 0,
-        "maxObjectBytes": 1048576,
+        "maxObjectBytes": 1024,
         "maxTotalBytes": 4194304
       }
     }
@@ -129,7 +129,7 @@ struct TransferServiceContract;
 
 impl GeneratedServiceContract for TransferServiceContract {
     const CONTRACT_ID: &'static str = TRANSFER_SERVICE_ID;
-    const CONTRACT_DIGEST: &'static str = "O8f4jzJ7FeuNJrP6TYd-8M0v2yVZUPo2x9h398TsXzA";
+    const CONTRACT_DIGEST: &'static str = "0aEKAhM7M7zMUgq2tXOh7k2DYrOALuk2-n2BoegmhiE";
     const CONTRACT_JSON: &'static str = TRANSFER_SERVICE_CONTRACT_JSON;
 }
 
@@ -199,12 +199,21 @@ struct SharedOpState {
     snapshots: tokio::sync::Mutex<
         std::collections::HashMap<String, OperationSnapshot<Value, UploadOutput>>,
     >,
+    stored_uploads: tokio::sync::Mutex<std::collections::HashMap<String, StoredUpload>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StoredUpload {
+    key: String,
+    body: Bytes,
+    size: u64,
 }
 
 impl SharedOpState {
     fn new() -> Arc<Self> {
         Arc::new(Self {
             snapshots: tokio::sync::Mutex::new(std::collections::HashMap::new()),
+            stored_uploads: tokio::sync::Mutex::new(std::collections::HashMap::new()),
         })
     }
 }
@@ -222,6 +231,7 @@ struct TransferFixture {
     bootstrap_url: String,
     service_task: Option<JoinHandle<Result<(), ServiceRuntimeError>>>,
     client_contract: trellis_test::TrellisTestContract,
+    shared: Arc<SharedOpState>,
 }
 
 impl TransferFixture {
@@ -271,6 +281,7 @@ impl TransferFixture {
             bootstrap_url,
             service_task: Some(service_task),
             client_contract,
+            shared,
         }
     }
 
@@ -286,6 +297,10 @@ impl TransferFixture {
             handle.abort();
             let _ = handle.await;
         }
+    }
+
+    async fn stored_upload(&self, key: &str) -> Option<StoredUpload> {
+        self.shared.stored_uploads.lock().await.get(key).cloned()
     }
 }
 
@@ -335,7 +350,11 @@ fn register_upload_handler(
                     let store = handle.store_client("uploads").await?;
                     let validator = DefaultRequestValidator::new(Arc::clone(&client));
                     let completion: UploadTransferCompletion = handle
-                        .spawn_upload_transfer_endpoint_with_completion(session, store, validator)
+                        .spawn_upload_transfer_endpoint_with_completion(
+                            session,
+                            store.clone(),
+                            validator,
+                        )
                         .await?;
 
                     let initial_snapshot = OperationSnapshot {
@@ -358,6 +377,20 @@ fn register_upload_handler(
                     tokio::spawn(async move {
                         match completion.completed().await {
                             Ok(file_info) => {
+                                match store.read(&completion_key).await {
+                                    Ok(Some(body)) => {
+                                        shared_clone.stored_uploads.lock().await.insert(
+                                            op_id.clone(),
+                                            StoredUpload {
+                                                key: completion_key.clone(),
+                                                size: body.len() as u64,
+                                                body,
+                                            },
+                                        );
+                                    }
+                                    Ok(None) => {}
+                                    Err(_) => {}
+                                }
                                 let completed = OperationSnapshot {
                                     revision: 2,
                                     state: ServiceOpState::Completed,
@@ -550,6 +583,69 @@ async fn transfer_client_uploads_file_via_operation() {
 }
 
 #[tokio::test]
+async fn transfer_upload_rejects_over_max_bytes() {
+    assert_case_registered(
+        "transfer.upload-rejects-over-max-bytes",
+        "transfer",
+        "transfer",
+    );
+
+    let mut fixture = TransferFixture::start().await;
+    let client = fixture.connect_client().await;
+    let upload_input = UploadInput {
+        key: "client/too-large.bin".to_string(),
+        content_type: Some("application/octet-stream".to_string()),
+    };
+    let upload_bytes = vec![0u8; 2048];
+    let result = start_upload_result_with_retry(&client, &upload_input, &upload_bytes).await;
+
+    let error = result.expect_err("oversized upload should be rejected");
+    match error.source() {
+        trellis_rs::client::TrellisClientError::TransferProtocol(message) => {
+            assert!(message.contains("attempted 2048"));
+            assert!(message.contains("max 1024"));
+        }
+        other => panic!("expected transfer protocol error, got {other:?}"),
+    }
+
+    fixture.shutdown().await;
+}
+
+#[tokio::test]
+async fn transfer_upload_stores_object_before_completion() {
+    assert_case_registered(
+        "transfer.upload-stores-object-before-completion",
+        "transfer",
+        "transfer",
+    );
+
+    let mut fixture = TransferFixture::start().await;
+    let client = fixture.connect_client().await;
+    let upload_bytes = Bytes::from_static(b"stored callback");
+    let upload_input = UploadInput {
+        key: "client/stored.txt".to_string(),
+        content_type: Some("text/plain".to_string()),
+    };
+    let started_upload = start_upload_with_retry(&client, &upload_input, &upload_bytes).await;
+    let operation_ref = started_upload.into_operation_ref();
+    let final_snapshot = tokio::time::timeout(Duration::from_secs(15), operation_ref.wait())
+        .await
+        .expect("wait for upload operation completion timed out")
+        .expect("wait for upload operation completion");
+    assert_eq!(final_snapshot.state, ClientOpState::Completed);
+
+    let stored = fixture
+        .stored_upload(operation_ref.id())
+        .await
+        .expect("service should observe stored upload bytes");
+    assert_eq!(stored.key, "client/stored.txt");
+    assert_eq!(stored.body, upload_bytes);
+    assert_eq!(stored.size, upload_bytes.len() as u64);
+
+    fixture.shutdown().await;
+}
+
+#[tokio::test]
 async fn transfer_client_downloads_file_via_receive_grant() {
     assert_case_registered(
         "transfer.client-downloads-file-via-receive-grant",
@@ -643,6 +739,41 @@ async fn start_upload_with_retry<'a>(
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
             Err(error) => panic!("start live Files.Upload transfer operation: {error:?}"),
+        }
+    }
+}
+
+async fn start_upload_result_with_retry<'a>(
+    client: &'a trellis_rs::client::TrellisClient,
+    input: &UploadInput,
+    body: &[u8],
+) -> Result<
+    trellis_rs::client::StartedOperationTransfer<
+        'a,
+        trellis_rs::client::TrellisClient,
+        FilesUploadOp,
+    >,
+    trellis_rs::client::OperationTransferStartError<
+        'a,
+        trellis_rs::client::TrellisClient,
+        FilesUploadOp,
+    >,
+> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match client
+            .operation::<FilesUploadOp>()
+            .input(input)
+            .transfer(body)
+            .start()
+            .await
+        {
+            Err(ref error)
+                if is_retryable_transfer_start_error(error) && Instant::now() < deadline =>
+            {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            result => return result,
         }
     }
 }

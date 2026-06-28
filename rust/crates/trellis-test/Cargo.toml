@@ -11,6 +11,7 @@ publish = false
 async-nats.workspace = true
 futures-util.workspace = true
 reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls"] }
+rusqlite.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tempfile = "3.27.0"

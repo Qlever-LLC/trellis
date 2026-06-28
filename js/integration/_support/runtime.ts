@@ -83,11 +83,12 @@ export async function withTrellisRuntime<T>(
 export function liveTrellisTest(args: {
   readonly name: string;
   readonly scope: LiveRuntimeScope;
+  readonly runtime?: Partial<TrellisTestRuntimeStartOptions>;
   readonly fn: (runtime: LiveTrellisRuntime) => Promise<void>;
 }): void {
   trellisIntegrationTest({
     ...args,
-    runtime: trellisRepoRuntimeOptions(),
+    runtime: trellisRepoRuntimeOptions(args.runtime),
   });
 }
 

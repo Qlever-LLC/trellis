@@ -30,6 +30,11 @@ import {
   type TrellisServiceConnectArgs,
 } from "./service.ts";
 
+// Retained unit coverage: this file keeps service-local subject/header,
+// lifecycle, dependency-isolation, and shutdown invariants. Runtime-observable
+// service, health, jobs, and operation behavior removed from fake runtime tests
+// is covered by TS/Rust live matrix rows.
+
 const TEST_SEED = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 const handlerSurfaceTestSchemas = {

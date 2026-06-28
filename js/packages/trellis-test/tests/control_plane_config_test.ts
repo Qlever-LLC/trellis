@@ -55,6 +55,19 @@ Deno.test("writeTrellisConfig writes file-backed test control-plane config", asy
       websocketUrl: "ws://127.0.0.1:8080",
       manifest: testManifest(),
       port: 3000,
+      oauthProviders: {
+        oidc_test: {
+          type: "oidc",
+          issuer: "https://idp.example",
+          clientId: "test-client",
+          clientSecret: "test-secret",
+          logout: {
+            enabled: true,
+            endpoint: "https://idp.example/logout",
+          },
+        },
+      },
+      failOnceHooks: ["auth.admin.serviceDeployments.refreshActiveContracts"],
     });
     const configPath = await writeTrellisConfig({ workdir, config });
     const text = await Deno.readTextFile(configPath);
@@ -71,6 +84,12 @@ Deno.test("writeTrellisConfig writes file-backed test control-plane config", asy
     );
     assertStringIncludes(text, `"signing": "issuer-seed"`);
     assertStringIncludes(text, `"sxSeed": "sx-seed"`);
+    assertStringIncludes(text, `"oidc_test"`);
+    assertStringIncludes(text, `"endpoint": "https://idp.example/logout"`);
+    assertStringIncludes(
+      text,
+      `"auth.admin.serviceDeployments.refreshActiveContracts"`,
+    );
   } finally {
     await Deno.remove(workdir, { recursive: true }).catch(() => undefined);
   }

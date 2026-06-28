@@ -139,6 +139,11 @@ Rules:
   Keep one case per module and never depend on cleanup or execution order.
   Migration authority plans should be allowed only in tests that intentionally
   cover migrations.
+- Trellis runtime behavior should be tested with live integration tests, not fake
+  NATS, fake Trellis runtimes, fake auth, fake generated clients, or hand-built
+  bootstrap/control-plane responders. If a live test needs a missing failure or
+  inspection surface, add the smallest named test helper instead of enriching a
+  fake.
 - the local `AGENTS.md` should record the contract source path, generated artifact
   command, format command, typecheck/clippy command, test command, run command,
   and migration command
@@ -176,15 +181,14 @@ contracts remain the input.
    Trellis does not provide application dependency injection. Handler arguments
    contain only Trellis-owned runtime data. Application resources are supplied by
    normal JavaScript closure or factory patterns.
-7. Add or update tests at the service boundary. For event-driven code, test the
-   local handler logic and the outbox/inbox behavior separately when possible.
-   Use `@qlever-llc/trellis-test` when the boundary test must exercise real
-   Trellis bootstrap, auth validation, deployment authority, generated clients,
-   app/client auth, live event capture, jobs, operations, KV, store, state, or
-   durable event consumers. Prefer its assertion helpers for captured events,
-   terminal jobs and operations, immediate `Result` RPC values, and eventual RPC
-   projection checks; generated captures and service job refs can be passed
-   directly.
+7. Add or update live integration tests at the service boundary. Use
+   `@qlever-llc/trellis-test` when the test must exercise Trellis bootstrap, auth
+   validation, deployment authority, generated clients, app/client auth, live
+   event capture, jobs, operations, KV, store, state, or durable event consumers.
+   Prefer its assertion helpers for captured events, terminal jobs and
+   operations, immediate `Result` RPC values, and eventual RPC projection checks;
+   generated captures and service job refs can be passed directly. Keep unit
+   tests only for pure local functions that do not fake Trellis behavior.
 8. Run formatting, type checks, generation checks, and tests before reporting
    completion.
 

@@ -6,7 +6,7 @@ export type TrellisControlPlaneIntegrationCase = TrellisIntegrationCase & {
 };
 
 /** Local Trellis service-integration cases derived from the shared matrix. */
-export const controlPlaneIntegrationCases:
+const matrixControlPlaneIntegrationCases:
   readonly TrellisControlPlaneIntegrationCase[] = serviceTestMatrix.cases.map(
     (caseEntry) => ({
       id: caseEntry.id,
@@ -17,6 +17,11 @@ export const controlPlaneIntegrationCases:
       runtime: "live-trellis",
     }),
   );
+
+export const controlPlaneIntegrationCases:
+  readonly TrellisControlPlaneIntegrationCase[] = [
+    ...matrixControlPlaneIntegrationCases,
+  ];
 
 /** Returns the local service-integration case for an id. */
 export function controlPlaneCaseById(

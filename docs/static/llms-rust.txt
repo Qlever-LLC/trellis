@@ -56,6 +56,11 @@ Rules:
   It is a peer of the JS integration runners and must register every applicable
   case from `integration/test-matrix.json`; there are no Rust-only skips or
   per-language matrix opt-ins outside explicit blocked rows.
+- Test Trellis runtime behavior through live integration tests. Do not use fake
+  NATS, fake Trellis runtimes, fake auth, fake generated clients, or hand-built
+  bootstrap/control-plane responders to prove Trellis behavior. If a live test
+  needs a missing failure or inspection surface, add the smallest named test
+  helper instead of enriching a fake.
 - service-private jobs that must be singleton per logical key should declare
   `keyConcurrency`. Keep the existing numeric `concurrency` field for
   worker-count concurrency. Keyed queues default to clear failure

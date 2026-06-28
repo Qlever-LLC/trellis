@@ -126,19 +126,25 @@ specific case ids or group note that proves equivalent coverage.
 Use this bucket for public, language-neutral Trellis behavior. Each added case
 must have one live TypeScript/Deno test and one live Rust test.
 
-| Proposed case id                                     | Coverage bucket                   |
-| ---------------------------------------------------- | --------------------------------- |
-| `operations.client-cancels-operation`                | Operation control.                |
-| `operations.client-signals-running-operation`        | Operation signal/control.         |
-| `jobs.keyed-jobs-serialize-same-key`                 | Keyed job coordination.           |
-| `auth.local-login-binds-approved-client`             | Local login and app approval.     |
-| `auth.session-revoke-denies-reconnect`               | Session revoke/access denial.     |
-| `auth.request-proof-replay-and-stale-denied`         | Public request-proof denial.      |
-| `device-activation.review-reject-denies-connect`     | Device activation rejection.      |
-| `device-activation.revoked-device-cannot-reconnect`  | Device activation revocation.     |
-| `state.admin-inspect-and-delete-state`               | State admin inspection/deletion.  |
-| `transfer.upload-grant-is-session-bound`             | Upload grant/session binding.     |
-| `service-approval.disabled-service-cannot-reconnect` | Service disable/reconnect denial. |
+| Proposed case id                                             | Coverage bucket                   |
+| ------------------------------------------------------------ | --------------------------------- |
+| `operations.client-cancels-operation`                        | Operation control.                |
+| `operations.cancel-uses-cancel-capability`                   | Operation cancel authorization.   |
+| `operations.rejects-cancel-for-noncancelable-operation`      | Operation cancel rejection.       |
+| `operations.client-signals-running-operation`                | Operation signal/control.         |
+| `operations.signals-persist-and-consume-in-acceptance-order` | Operation signal ordering.        |
+| `operations.queued-signal-delivered-before-live-signal`      | Queued operation signal ordering. |
+| `operations.rejects-invalid-signal-payload`                  | Operation signal validation.      |
+| `operations.rejects-signal-after-terminal-state`             | Terminal signal rejection.        |
+| `jobs.keyed-jobs-serialize-same-key`                         | Keyed job coordination.           |
+| `auth.local-login-binds-approved-client`                     | Local login and app approval.     |
+| `auth.session-revoke-denies-reconnect`                       | Session revoke/access denial.     |
+| `auth.request-proof-replay-and-stale-denied`                 | Public request-proof denial.      |
+| `device-activation.review-reject-denies-connect`             | Device activation rejection.      |
+| `device-activation.revoked-device-cannot-reconnect`          | Device activation revocation.     |
+| `state.admin-inspect-and-delete-state`                       | State admin inspection/deletion.  |
+| `transfer.upload-grant-is-session-bound`                     | Upload grant/session binding.     |
+| `service-approval.disabled-service-cannot-reconnect`         | Service disable/reconnect denial. |
 
 ### Trellis Control-Plane Integration Cases
 
@@ -226,7 +232,7 @@ Catalog force-replace Rust parity verification passed with
 and both Rust matrix conformance tests.
 
 Service-integration registry status: the `kind: "service"` cases in
-`integration/test-matrix.json` now own all 25 service-integration cases from the
+`integration/test-matrix.json` now own all 32 service-integration cases from the
 `control-plane`, `event-consumers`, and `prepared-events` fixtures. The
 TypeScript runner manifest is derived from that registry, and the service matrix
 conformance test enforces ID parity, file/test-name linkage, case-scoped runtime
@@ -234,13 +240,20 @@ usage, and Rust completion metadata. Rust completion is implemented for
 `control-plane.admin-bootstrap-creates-first-local-admin`,
 `control-plane.password-reset-change-invalidates-old-password`, and
 `control-plane.http-route-security-requires-admin-session`,
+`control-plane.bootstrap-requires-auth-for-unbound-client`,
+`control-plane.bootstrap-rejects-unknown-contract-digest`, and
+`control-plane.bootstrap-rejects-non-client-contract`,
 `control-plane.catalog-active-contracts-survive-restart`,
 `control-plane.catalog-dependency-issue-resolved-by-provider`,
 `control-plane.catalog-force-replace-resolves-catalog-issue`,
 `control-plane.sessions-survive-control-plane-restart`,
 `control-plane.state-persists-across-control-plane-restart`, and
 `control-plane.resources-survive-control-plane-restart`,
-`control-plane.outbox-dispatches-after-control-plane-restart`, and
+`control-plane.outbox-dispatches-after-control-plane-restart`,
+`control-plane.session-logout-deletes-session-and-denies-reuse`, and
+`control-plane.session-logout-kicks-runtime-access`,
+`control-plane.session-logout-validates-return-to`, and
+`control-plane.session-logout-uses-provider-logout-redirect`, and
 `control-plane.jobs-admin-lists-and-cancels-job`,
 `event-consumers.durable-listen-without-declared-group-returns-err`,
 `event-consumers.ambiguous-group-without-opts-group-returns-err-and-specifying-group-works`,
@@ -260,7 +273,7 @@ and
 using `implementations.rust.module/function` entries in the shared service
 matrix and matching Rust registry entries in `control_plane`,
 `control_plane_jobs_admin`, `event_consumers`, and `prepared_events`. The
-service matrix is now 25/25 implemented with 0 remaining Rust-required rows.
+service matrix is now 32/32 implemented with 0 remaining Rust-required rows.
 
 ## Phase 5 Shrink Packets
 
@@ -304,6 +317,155 @@ TypeScript service background-dispatcher facade.
 
 Additional Phase 5 retirement entries:
 
+Correction for the historical local-login app-session bind row below: Packet 11
+later deleted `js/services/trellis/auth/session/bind.test.ts` after TS and Rust
+live parity landed for rebind and replacement behavior. The old note about
+retained rebinding/session-authority/storage-error units is no longer current.
+
+- `/bootstrap/client` auth-required, unknown digest, and non-client digest fake
+  assertions from `js/services/trellis/auth/bootstrap/client.test.ts`:
+  `retired-live-control-plane`, `ts/deno and rust`, shrunk, replaced by
+  `control-plane.bootstrap-requires-auth-for-unbound-client`,
+  `control-plane.bootstrap-rejects-unknown-contract-digest`, and
+  `control-plane.bootstrap-rejects-non-client-contract`. Removed the
+  no-bound-session auth-required unit, unknown stored contract digest cleanup
+  unit, and non-client stored digest cleanup unit. The non-client live case now
+  covers both known service and known device contract digests. Retained exact
+  same-contract-id digest selection, inactive/missing/insufficient user
+  projection cleanup, clock-skew, invalid-signature, and known inactive app
+  digest coverage.
+- HTTP session logout route assertions from
+  `js/services/trellis/auth/http/session_logout_routes.test.ts`:
+  `retired-live-control-plane`, `ts/deno and rust`, shrunk, replaced by
+  `control-plane.session-logout-deletes-session-and-denies-reuse`,
+  `control-plane.session-logout-kicks-runtime-access`,
+  `control-plane.session-logout-validates-return-to`, and
+  `control-plane.session-logout-uses-provider-logout-redirect`. Removed the fake
+  combined delete/kick/provider redirect assertion and the fake safe
+  same-origin/cross-origin `returnTo` assertions. The live replacement covers
+  signed logout session deletion, same-session-key bootstrap reuse denial, two
+  concurrently connected clients losing authenticated runtime access, live
+  provider logout URL construction from configured OIDC metadata, cross-origin
+  `returnTo` rejection, same-origin `returnTo` acceptance, and rejected-request
+  session preservation. Retained unknown additive field, bad signature,
+  stale/future `iat`, missing session, redirect-mode 303, and malformed request
+  units as deterministic parser/crypto/schema/route-shape coverage.
+- Service deployment admin RPC assertions from
+  `js/services/trellis/auth/admin/rpc.test.ts`: `retired-live-control-plane`,
+  `ts/deno and rust`, shrunk, replaced by
+  `control-plane.admin-service-deployment-lifecycle`. Removed the fake
+  `Auth.Deployments.Create service returns mutable-dev compatibility mode` unit
+  and the duplicate stored-deployment disabled assertion from
+  `Auth.Deployments.Disable service updates the deployment authority disabled
+  state`.
+  The live replacement uses generated Auth admin RPCs to create, list, disable,
+  enable, remove, and reject a second remove for a service deployment. Retained
+  authority initialization/reset, staged catalog validation, authority-disabled
+  mutation, enable reconciliation ordering, cascade/purge, runtime kick/session
+  cleanup, unused-contract cleanup, storage/refresh/kick rollback, and device
+  admin assertions. No matching missing-remove unit existed; the live row now
+  covers that modeled failure before any future shrink.
+- Admin deployment rollback/fault assertions from
+  `js/services/trellis/auth/admin/rpc.test.ts`: `retired-live-control-plane`,
+  `ts/deno and rust`, shrunk, replaced by
+  `control-plane.admin-service-deployment-rollback-fault` and
+  `control-plane.admin-device-deployment-rollback-fault`. Removed the fake
+  `Auth.Deployments.Create device rolls back deployment when authority
+  initialization fails`
+  unit. Shrunk the fake service cascade-delete failure unit to retain only
+  internal instance-delete attempt ordering; public rollback of a deleted
+  service instance with the deployment still available and successful retry are
+  live-covered. The service create-authority failure unit and device
+  cascade-delete failure unit were not present in the current file. Retained
+  staged validation, refresh failure, kick/session cleanup, activation review,
+  authority-disabled mutation, security/order/validator, and other
+  device/service admin edge units until a matching live TS/Rust parity case
+  covers those exact behaviors. The retained `Auth.Devices.Remove`
+  refresh-failure unit keeps delete-then-refresh rollback and no-kick checks.
+- Auth admin refresh-failure rollback assertions from
+  `js/services/trellis/auth/admin/rpc.test.ts`: `retired-live-control-plane`,
+  `ts/deno and rust`, shrunk, replaced by
+  `control-plane.admin-service-deployment-disable-refresh-rollback`,
+  `control-plane.admin-service-deployment-enable-refresh-rollback`,
+  `control-plane.admin-service-instance-disable-refresh-rollback`,
+  `control-plane.admin-service-instance-enable-refresh-rollback`,
+  `control-plane.admin-service-instance-remove-refresh-rollback`,
+  `control-plane.admin-device-deployment-disable-refresh-rollback`,
+  `control-plane.admin-device-deployment-enable-refresh-rollback`,
+  `control-plane.admin-device-instance-disable-refresh-rollback`,
+  `control-plane.admin-device-instance-enable-refresh-rollback`, and
+  `control-plane.admin-device-instance-remove-refresh-rollback`. Removed only
+  public duplicate rollback assertions: service instance enable restoring the
+  listed instance state, device deployment enable restoring the listed
+  deployment state, and device instance remove restoring the listed device
+  record. The live replacement uses generated Auth admin RPCs plus existing
+  fail-once refresh hooks, proves the injected hook through `UnexpectedError`
+  cause/context, and proves publicly observable deployment disabled flags,
+  service instance disabled flags, device instance states, and removed-record
+  rollback. Retained authority rollback, provisioning-secret and activation
+  restoration, no-kick behavior, staged validation, and private ordering
+  assertions as complementary unit coverage.
+- Auth admin service deployment staged-validation assertions from
+  `js/services/trellis/auth/admin/rpc.test.ts`: `retired-live-control-plane`,
+  `ts/deno and rust`, shrunk, tracked by
+  `control-plane.admin-service-deployment-validate-before-persist-kick`. Removed
+  only the duplicate fake public no-persist assertion from
+  `Auth.Deployments.Disable service validates staged deployment before
+  persisting or kicking`.
+  The TypeScript and Rust live replacements use generated Auth admin RPCs, the
+  existing fail-once `validateActiveCatalog` hook, and a live ping
+  service/client to prove the failed disable leaves the deployment enabled and
+  does not kick the connected service. Retained staged-payload validation,
+  no-refresh, and internal no-kick assertions as complementary private/order
+  coverage.
+- Catalog RPC assertions from `js/services/trellis/catalog/rpc.test.ts`:
+  `retired-live-control-plane`, `ts/deno and rust`, shrunk, replaced by
+  `control-plane.catalog-active-contracts-survive-restart`,
+  `control-plane.catalog-dependency-issue-resolved-by-provider`,
+  `control-plane.catalog-force-replace-resolves-catalog-issue`,
+  `control-plane.catalog-surface-status-reports-provider-runtime`,
+  `resources.service-receives-required-bindings`,
+  `resources.service-kv-create-put-get-delete`,
+  `resources.service-store-create-read-list-delete`, and
+  `control-plane.resources-survive-control-plane-restart`. Removed the fake
+  materialized binding happy path, the fake `Trellis.Catalog` active-contract
+  listing happy path, fake `Trellis.Contract.Get` exports/docs projection, and
+  fake `Trellis.Surface.Status` assertions for accepted shape unavailable,
+  unauthorized missing capability, live implementer, disabled service instance,
+  unknown contract, unknown surface, event missing action validation, invalid
+  feed publish validation, invalid RPC subscribe validation, no-live
+  implementer, unrelated-live-service filtering, and same-lineage old-digest
+  filtering. The live replacements use public contract approval, service
+  registration/provisioning, client connection, generated Core
+  `Trellis.Contract.Get`, generated Core `Trellis.Surface.Status`, generated
+  Auth connection/admin RPCs, and generated provider RPC calls. Retained stale
+  authority binding hiding and capability definition helper projection as
+  deterministic projection/internal coverage. Verification passed:
+  `rtk deno check -c js/deno.json js/services/trellis/catalog/rpc.test.ts js/services/trellis/integration/control-plane/catalog_surface_status_reports_provider_runtime.integration_test.ts`,
+  `rtk deno test --no-check -A -c js/deno.json js/services/trellis/catalog/rpc.test.ts`,
+  `rtk deno task -c js/deno.json test:service-integration -- --case control-plane.catalog-surface-status-reports-provider-runtime`,
+  `rtk deno test -A -c js/deno.json js/services/trellis/integration/matrix_conformance_test.ts`,
+  `rtk cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration control_plane_catalog_surface_status_reports_provider_runtime -- --nocapture`,
+  and
+  `rtk cargo test --manifest-path rust/Cargo.toml -p trellis-rs --test integration rust_service_integration_manifest_conforms_to_shared_matrix`.
+- Session bind/revoke helper assertions from
+  `js/services/trellis/auth/session/bind.test.ts` and
+  `js/services/trellis/auth/session/revoke_runtime_access.test.ts`:
+  `retired-live-shared-matrix`, `ts/deno and rust`, deleted, replaced by
+  `auth.local-login-rebinds-existing-session-with-updated-authority`,
+  `auth.local-login-replaces-session-when-identity-changes`, and
+  `auth.session-revoke-cleans-runtime-connection-presence`. Removed fake
+  same-identity rebind/createdAt/updated-authority assertions,
+  runtime-authority-change kick/delete assertions, and
+  different-identity/session-key replacement assertions, then deleted
+  `bind.test.ts` rather than keeping omitted-app or storage-error fake-only
+  branches. Removed the runtime-access revoke fake assertions, then deleted
+  `revoke_runtime_access.test.ts` rather than keeping malformed-record fake-only
+  branches. The live replacements use public local-login, generated Auth
+  Sessions/Users/Connections RPCs, same-session-key rebind/replacement,
+  generated `Auth.Sessions.Revoke`, and live client denial after stale access is
+  kicked. `ensureBoundUserSession` now requires the app identity shape supplied
+  by its public bind caller.
 - Schema-validation fake-runtime invalid RPC input assertions from
   `js/packages/trellis/tests/schema_validation_integration_test.ts`:
   `retired-live-shared-matrix`, `ts/deno and rust`, deleted, replaced by
@@ -316,7 +478,8 @@ Additional Phase 5 retirement entries:
   `js/packages/trellis/tests/schema_validation_error_test.ts`.
 - Prepared-event fake-runtime publish/header/error-annotation assertions from
   `js/packages/trellis/tests/prepared_events_test.ts`:
-  `parity-debt-service-matrix`, `ts/deno; rust required`, shrunk, tracked by
+  `duplicate-retired-live-service-matrix`, `ts/deno and rust`, shrunk, tracked
+  by
   `prepared-events.prepared-publish-preserves-custom-headers-and-annotates-handler-error`.
   The TypeScript and Rust service-integration cases prove prepared publish
   custom-header preservation, prepared payload/context delivery including body
@@ -374,6 +537,20 @@ passed;
 passed;
 `deno test --no-check -A -c js/deno.json js/packages/trellis/tests/prepared_events_test.ts js/packages/trellis/tests/schema_validation_error_test.ts`
 passed.
+
+RPC auth-validation retry replacement:
+
+- Fake routed transient `session_not_found` retry assertion from
+  `js/packages/trellis/tests/rpc_integration_test.ts`:
+  `retired-live-shared-matrix`, `ts/deno and rust`, deleted, replaced by
+  `rpc.auth-validation-retries-transient-session-not-found`. The live TS and
+  Rust cases use real clients/services, live control-plane SQLite session
+  deletion and restoration, and raw NATS observation of
+  `rpc.v1.Auth.Requests.Validate` to prove two validation attempts and one
+  service handler call. Production auth validation now records replay state only
+  after session lookup succeeds, so a transient `session_not_found` does not
+  poison retry replay state. Retained no fake-routed RPC behavior in
+  `rpc_integration_test.ts`.
 
 Rust service-integration parity bundle:
 `control-plane.admin-bootstrap-creates-first-local-admin`,
@@ -487,15 +664,133 @@ unit retirement, unless the row explicitly names a Rust unit file or group.
 Fake NATS/live-replacement audit: fake NATS, fake transport, and fake runtime
 tests that assert Trellis behavior are replacement candidates, not keep-forever
 coverage. Current high-value candidates include `rpc_integration_test.ts`,
-`operations_watch_nats_it.ts`, `operations_attach_it.ts`,
-`service_operation_test.ts`, `trellis_api_guard_test.ts`, `service_test.ts`,
-`runtime-worker_test.ts`, `transfer_test.ts`, and `request_error_test.ts` under
-`js/packages/trellis/**`. Durable event-consumer live coverage has replaced the
-fake JetStream/NATS behavior in
-`js/packages/trellis/tests/trellis_api_guard_test.ts`; schema-validation fake
-runtime over-wire coverage moved to shared live matrix cases, and prepared-event
-publish/header/error-annotation coverage moved to TS and Rust
-service-integration cases.
+`operations_watch_nats_it.ts`, `service_operation_test.ts`,
+`trellis_api_guard_test.ts`, `service_test.ts`, `runtime-worker_test.ts`,
+`transfer_test.ts`, and `request_error_test.ts` under `js/packages/trellis/**`.
+Durable event-consumer live coverage has replaced the fake JetStream/NATS
+behavior in `js/packages/trellis/tests/trellis_api_guard_test.ts`;
+schema-validation fake runtime over-wire coverage moved to shared live matrix
+cases, and prepared-event publish/header/error-annotation coverage moved to TS
+and Rust service-integration cases.
+
+Immediate packet mock-shrink notes:
+
+- Accidental NATS interface compatibility members were removed from remaining
+  mock `NatsConnection` or `Subscription` objects in
+  `js/packages/trellis/client_connect_test.ts`,
+  `js/packages/trellis/device.test.ts`,
+  `js/packages/trellis/server/transfer_test.ts`,
+  `js/packages/trellis/tests/rpc_integration_test.ts`,
+  `js/packages/trellis/tests/telemetry_error_metrics_test.ts`, and
+  `js/packages/trellis/tests/trellis_api_guard_test.ts`. This is a mock-shrink
+  cleanup only; no behavior assertions were retired from those files by this
+  note.
+- The deterministic-only remainder of
+  `js/packages/trellis/tests/prepared_events_test.ts` had the same fake NATS
+  compatibility members removed. The already-retired fake prepared-event runtime
+  behavior remains mapped to
+  `prepared-events.prepared-publish-preserves-custom-headers-and-annotates-handler-error`.
+  The retained assertions are complementary deterministic `prepare` invariants,
+  not Trellis/NATS behavior simulation.
+- `js/packages/trellis/tests/rpc_integration_test.ts` no longer retains the fake
+  declared-error handler-context sanitization assertion. The live
+  `rpc.client-receives-declared-error` row now asserts handler context metadata
+  and raw subject stripping in both TypeScript and Rust.
+- `js/packages/trellis/tests/rpc_integration_test.ts` no longer retains the fake
+  routed RPC assertion for transient `session_not_found` retry during auth
+  validation. The live TS and Rust row
+  `rpc.auth-validation-retries-transient-session-not-found` now proves the exact
+  retry behavior with real clients/services, the shared `trellis-test`
+  control-plane session snapshot helper, and raw NATS observation of two
+  `Auth.Requests.Validate` attempts. The whole fake routed RPC test file is
+  deleted.
+- `js/packages/trellis/server/transfer_test.ts` no longer retains the fake
+  subscription-readiness assertions for `ServiceTransfer.initiateUpload` and
+  `ServiceTransfer.initiateDownload`. Replaced by TS and Rust live cases
+  `transfer.client-uploads-file-via-operation` and
+  `transfer.client-downloads-file-via-receive-grant`, whose public transfer
+  helpers use the returned send/receive grants immediately without caller retry.
+- Transfer fake assertions retired, 2026-06-25: deleted
+  `js/packages/trellis/server/transfer_test.ts` after the remaining
+  store-derived max-byte rejection and stored-object observation assertions were
+  replaced by TS and Rust live rows `transfer.upload-rejects-over-max-bytes` and
+  `transfer.upload-stores-object-before-completion`.
+- Routed NATS helper retired, 2026-06-25: deleted
+  `js/packages/trellis/testing/routed_nats.ts` after no TypeScript imports
+  remained.
+- Operation fake assertions retired, 2026-06-25: deleted
+  `js/packages/trellis/server/service_operation_test.ts` after its remaining
+  service operation facade and durable-control assertions were replaced by TS
+  and Rust live rows: `operations.service-handler-receives-client-context`,
+  `operations.service-defer-keeps-operation-running`,
+  `operations.service-control-resumes-deferred-operation`,
+  `operations.service-control-loads-durable-record-after-restart`,
+  `operations.service-accept-resume-completes-durable-operation`, and
+  `operations.service-control-rejects-invalid-mismatch-payload-terminal`.
+  Verification passed with the six new TS live operation tests, TS operation
+  fixture/check files, Rust `operations_service_` live test group, JS and Rust
+  shared-matrix conformance, and JS/Rust format checks.
+- Operation fake assertion retired, 2026-06-25:
+  `js/packages/trellis/tests/operations_attach_it.ts` was deleted. Its
+  `Operation attach waits for job completion` assertion is replaced by TS and
+  Rust live `operations.service-attach-job-waits-for-completion`, which proves
+  attached service work keeps the public operation running until release and
+  then completes with the attached-work output.
+- Operation fake assertion retired, 2026-06-25: `operations_watch_nats_it.ts`
+  `Operation cancel rejects unsupported operations
+  and uses cancel capabilities`.
+  Replaced by TS and Rust live `operations.cancel-uses-cancel-capability` and
+  `operations.rejects-cancel-for-noncancelable-operation`, which prove cancel
+  authority is separate from control authority and non-cancelable operations
+  reject cancel without mutating state.
+- Operation fake assertions retired, 2026-06-25: `operations_watch_nats_it.ts`
+  `Operations watch stream delivers callbacks in
+  order` and
+  `Operations builder callbacks keep accepted deterministic for fast
+  completion`.
+  Replaced by TS and Rust live
+  `operations.watch-callbacks-deliver-accepted-first-in-order`, which proves
+  accepted-first ordering for progress/completion observation, fast-completion
+  determinism, and terminal output.
+- Operation fake assertions retired, 2026-06-25: deleted
+  `operations_watch_nats_it.ts` after its final signal assertions were replaced
+  by TS and Rust live rows:
+  `operations.signals-persist-and-consume-in-acceptance-order`,
+  `operations.queued-signal-delivered-before-live-signal`,
+  `operations.rejects-invalid-signal-payload`, and
+  `operations.rejects-signal-after-terminal-state`. These prove monotonic signal
+  acknowledgement and service consumption order, queued-before-live delivery,
+  invalid payload rejection without service consumption, and terminal-operation
+  signal rejection.
+- Operation fake assertion blocker map, 2026-06-24: retained remaining fake
+  operation portions of `service_operation_test.ts`. Broad live coverage is
+  `operations.client-starts-operation`, `operations.client-watches-progress`,
+  `operations.client-waits-for-completion`,
+  `operations.client-cancels-operation`, and
+  `operations.client-signals-running-operation`; those rows do not prove
+  `service.handle.operation.*` client-context ergonomics after bootstrap,
+  `op.defer()` no-auto-complete behavior, service-side `.control(id)` resume
+  without handler rerun, durable deferred record load after service restart,
+  `.accept()` plus client `resume(ref)`, or service-control mismatch/payload/
+  terminal validation. Proposed live case ids:
+  `operations.service-handler-receives-client-context`,
+  `operations.service-defer-keeps-operation-running`,
+  `operations.service-control-resumes-deferred-operation`,
+  `operations.service-control-loads-durable-record-after-restart`,
+  `operations.service-accept-resume-completes-durable-operation`, and
+  `operations.service-control-rejects-invalid-mismatch-payload-terminal`.
+- Operation fake assertion blocker map, 2026-06-24: repaired only the stale
+  fake-auth caller shape in `operations_attach_it.ts` and
+  `operations_watch_nats_it.ts` by adding `lastAuth`. No fake NATS mock was
+  enriched and no operation assertion was retired.
+- Operation fake assertion blocker map, 2026-06-24: updated the retained
+  terminal-signal rejection assertion in `operations_watch_nats_it.ts` to expect
+  the current public `OperationAlreadyTerminalError` shape instead of a stale
+  direct `code` property. The invalid-payload control-error assertion remains.
+- Operation fake assertion blocker map, 2026-06-24: deleted the duplicate local
+  routed-NATS helper from `operations_watch_nats_it.ts` and reused the existing
+  `testing/routed_nats.ts` helper. This removes duplicated fake NATS code rather
+  than enriching a mock.
 
 Focused type-check verification also passed for packet 1:
 `deno check -c js/deno.json js/services/trellis/auth/account_flows/bootstrap.test.ts js/services/trellis/auth/bootstrap/client.test.ts`.
@@ -521,6 +816,69 @@ Use this table during later phases to map each retired or retained unit-test
 file/group to a concrete replacement or rationale. Do not use `retired` until
 the replacement has passed and the deletion/shrink has happened.
 
+Current session-bind/revoke helper decision: Packet 11 deleted
+`js/services/trellis/auth/session/bind.test.ts` and
+`js/services/trellis/auth/session/revoke_runtime_access.test.ts` after TS and
+Rust live parity landed for
+`auth.local-login-rebinds-existing-session-with-updated-authority`,
+`auth.local-login-replaces-session-when-identity-changes`, and
+`auth.session-revoke-cleans-runtime-connection-presence`. No fake-only
+bind/revoke unit coverage remains for Packet 11.
+
+Packet 12 final verification and retained-unit justification:
+
+- Final required checks passed: `rtk deno fmt -c js/deno.json --check`,
+  `rtk deno task -c js/deno.json check`,
+  `rtk cargo fmt --manifest-path rust/Cargo.toml --all --check`,
+  `rtk cargo check --manifest-path rust/Cargo.toml --workspace`,
+  `rtk cargo test --manifest-path rust/Cargo.toml --workspace --lib`, both JS
+  matrix conformance tests, and both Rust matrix conformance tests.
+- Changed live fixture reruns passed: 21 selected TypeScript client-integration
+  cases, 22 selected TypeScript service-integration cases, and the full Rust
+  live integration target with 142 tests. A first full Rust live run had three
+  failures: two new local-login Rust replacement tests over-asserted stale
+  original-connection denial, and
+  `control_plane_outbox_dispatches_after_control_plane_restart` hit a transient
+  runtime startup failure. The outbox case passed focused rerun. The two auth
+  tests were corrected to keep the runtime-observable session-list/replacement
+  assertions and remove only the duplicate stale-connection denial assertion;
+  focused reruns and the full Rust live target then passed.
+- Retained TypeScript unit groups now include in-test comments explaining why
+  they remain. `js/services/trellis/auth/bootstrap/client.test.ts` keeps exact
+  digest selection, projection cleanup, clock-skew, invalid-signature, and known
+  inactive-app digest checks. These are deterministic bootstrap/signature branch
+  checks; runtime-observable auth-required and non-client/unknown digest
+  failures have TS/Rust live rows.
+- `js/services/trellis/auth/http/session_logout_routes.test.ts` keeps malformed
+  signed request, bad signature, stale/future `iat`, missing-session,
+  redirect-mode 303, and route-shape checks. Session deletion, runtime kick,
+  returnTo, and provider logout behavior have TS/Rust live rows.
+- `js/services/trellis/auth/admin/rpc.test.ts` keeps pure normalizers, schemas,
+  private authority/staged-validation/rollback/cascade/no-kick ordering, and
+  device review operation-completion edges. Runtime-observable admin deployment
+  lifecycle, rollback, refresh-failure, and validate-before-persist/kick
+  behavior have TS/Rust live rows.
+- `js/services/trellis/catalog/rpc.test.ts` keeps stale-authority binding hiding
+  and capability-definition helper projection as deterministic internal/helper
+  checks. Runtime-observable active-contract/provider behavior has TS/Rust live
+  service-matrix rows.
+- `js/packages/trellis/tests/prepared_events_test.ts` keeps only deterministic
+  `prepare` invariants. Live prepared publish headers and handler-error
+  annotation have TS/Rust service-matrix coverage.
+- `js/packages/trellis/tests/schema_validation_error_test.ts` keeps pure error
+  serialization and validation-annotation parser/encoder checks. Over-wire
+  schema failures have TS/Rust live RPC rows.
+- `js/packages/trellis/server/service_test.ts` keeps service-local
+  subject/header, lifecycle, dependency-isolation, shutdown, and `JobRef`
+  publication details. Runtime-observable service, health, jobs, and operation
+  behavior removed from fake runtime tests has TS/Rust live matrix coverage.
+- `js/packages/trellis/tests/trellis_api_guard_test.ts` keeps API/facade guards
+  that should fail before network use. Live event-consumer and RPC recovery
+  behavior has moved to TS/Rust matrix rows.
+- `js/services/trellis/auth/session/rpc.test.ts` keeps deterministic session RPC
+  envelope, projection, and cleanup edge branches. Runtime-observable
+  revoke/runtime access cleanup behavior has TS/Rust live matrix rows.
+
 State/resource restart parity correction: the historical rows below that cite
 `control-plane.state-persists-across-control-plane-restart` and
 `control-plane.resources-survive-control-plane-restart` were initially recorded
@@ -528,6 +886,12 @@ from TypeScript service-integration coverage. State restart and resource restart
 now have Rust live parity in
 `rust/crates/trellis/tests/integration/control_plane.rs`, and the service matrix
 marks both implemented.
+
+Operation signal/control row correction: `operations_watch_nats_it.ts` has now
+been deleted after exact TS and Rust live replacements landed for multi-signal
+acceptance order, queued-before-live delivery, invalid signal payload rejection,
+and terminal signal rejection. The historical candidate row below is retained
+only as older planning context.
 
 | Unit file or group                                                                                                                                                                                                                                                                              | Language          | Classification                                   | Replacement case id(s) or keep rationale                                                                                                                                                                                                                                                                                                                                                                                                     | Status                                                       | Verification performed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

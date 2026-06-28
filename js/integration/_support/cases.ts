@@ -49,6 +49,14 @@ export const jsIntegrationCases: readonly JsIntegrationCase[] = [
     runtime: "live-trellis",
   },
   {
+    id: "rpc.auth-validation-retries-transient-session-not-found",
+    file:
+      "rpc/auth_validation_retries_transient_session_not_found.integration_test.ts",
+    testName:
+      "rpc.auth-validation-retries-transient-session-not-found retries after a transient missing auth session",
+    runtime: "live-trellis",
+  },
+  {
     id: "events.client-publishes-and-subscriber-receives",
     file: "events/client_publishes_and_subscriber_receives.integration_test.ts",
     testName:
@@ -91,10 +99,33 @@ export const jsIntegrationCases: readonly JsIntegrationCase[] = [
     runtime: "live-trellis",
   },
   {
+    id: "operations.watch-callbacks-deliver-accepted-first-in-order",
+    file:
+      "operations/watch_callbacks_deliver_accepted_first_in_order.integration_test.ts",
+    testName:
+      "operations.watch-callbacks-deliver-accepted-first-in-order observes accepted before fast completion callbacks",
+    runtime: "live-trellis",
+  },
+  {
     id: "operations.client-cancels-operation",
     file: "operations/client_cancels_operation.integration_test.ts",
     testName:
       "operations.client-cancels-operation cancels a running operation through the public ref",
+    runtime: "live-trellis",
+  },
+  {
+    id: "operations.cancel-uses-cancel-capability",
+    file: "operations/cancel_uses_cancel_capability.integration_test.ts",
+    testName:
+      "operations.cancel-uses-cancel-capability cancels with cancel authority but not control authority",
+    runtime: "live-trellis",
+  },
+  {
+    id: "operations.rejects-cancel-for-noncancelable-operation",
+    file:
+      "operations/rejects_cancel_for_noncancelable_operation.integration_test.ts",
+    testName:
+      "operations.rejects-cancel-for-noncancelable-operation returns a Result error and preserves state",
     runtime: "live-trellis",
   },
   {
@@ -105,10 +136,96 @@ export const jsIntegrationCases: readonly JsIntegrationCase[] = [
     runtime: "live-trellis",
   },
   {
+    id: "operations.signals-persist-and-consume-in-acceptance-order",
+    file:
+      "operations/signals_persist_and_consume_in_acceptance_order.integration_test.ts",
+    testName:
+      "operations.signals-persist-and-consume-in-acceptance-order acknowledges and consumes signals in order",
+    runtime: "live-trellis",
+  },
+  {
+    id: "operations.queued-signal-delivered-before-live-signal",
+    file:
+      "operations/queued_signal_delivered_before_live_signal.integration_test.ts",
+    testName:
+      "operations.queued-signal-delivered-before-live-signal consumes queued signal before live signal",
+    runtime: "live-trellis",
+  },
+  {
+    id: "operations.rejects-invalid-signal-payload",
+    file: "operations/rejects_invalid_signal_payload.integration_test.ts",
+    testName:
+      "operations.rejects-invalid-signal-payload returns a Result error and skips service consumption",
+    runtime: "live-trellis",
+  },
+  {
+    id: "operations.rejects-signal-after-terminal-state",
+    file: "operations/rejects_signal_after_terminal_state.integration_test.ts",
+    testName:
+      "operations.rejects-signal-after-terminal-state returns a Result error after completion",
+    runtime: "live-trellis",
+  },
+  {
     id: "operations.denies-start-without-call-authority",
     file: "operations/denies_start_without_call_authority.integration_test.ts",
     testName:
       "operations.denies-start-without-call-authority rejects an unauthorized operation start",
+    runtime: "live-trellis",
+  },
+  {
+    id: "operations.service-attach-job-waits-for-completion",
+    file:
+      "operations/service_attach_job_waits_for_completion.integration_test.ts",
+    testName:
+      "operations.service-attach-job-waits-for-completion keeps operation running until attached task completes",
+    runtime: "live-trellis",
+  },
+  {
+    id: "operations.service-handler-receives-client-context",
+    file:
+      "operations/service_handler_receives_client_context.integration_test.ts",
+    testName:
+      "operations.service-handler-receives-client-context passes caller metadata and service client to the handler",
+    runtime: "live-trellis",
+  },
+  {
+    id: "operations.service-defer-keeps-operation-running",
+    file:
+      "operations/service_defer_keeps_operation_running.integration_test.ts",
+    testName:
+      "operations.service-defer-keeps-operation-running leaves a deferred operation non-terminal",
+    runtime: "live-trellis",
+  },
+  {
+    id: "operations.service-control-resumes-deferred-operation",
+    file:
+      "operations/service_control_resumes_deferred_operation.integration_test.ts",
+    testName:
+      "operations.service-control-resumes-deferred-operation completes by id without rerunning the handler",
+    runtime: "live-trellis",
+  },
+  {
+    id: "operations.service-control-loads-durable-record-after-restart",
+    file:
+      "operations/service_control_loads_durable_record_after_restart.integration_test.ts",
+    testName:
+      "operations.service-control-loads-durable-record-after-restart completes a deferred operation after service reconnect",
+    runtime: "live-trellis",
+  },
+  {
+    id: "operations.service-accept-resume-completes-durable-operation",
+    file:
+      "operations/service_accept_resume_completes_durable_operation.integration_test.ts",
+    testName:
+      "operations.service-accept-resume-completes-durable-operation lets a client resume and wait on service-accepted work",
+    runtime: "live-trellis",
+  },
+  {
+    id: "operations.service-control-rejects-invalid-mismatch-payload-terminal",
+    file:
+      "operations/service_control_rejects_invalid_mismatch_payload_terminal.integration_test.ts",
+    testName:
+      "operations.service-control-rejects-invalid-mismatch-payload-terminal returns modeled errors for control edge cases",
     runtime: "live-trellis",
   },
   {
@@ -186,6 +303,20 @@ export const jsIntegrationCases: readonly JsIntegrationCase[] = [
     file: "transfer/client_uploads_file_via_operation.integration_test.ts",
     testName:
       "transfer.client-uploads-file-via-operation uploads bytes through a transfer operation",
+    runtime: "live-trellis",
+  },
+  {
+    id: "transfer.upload-rejects-over-max-bytes",
+    file: "transfer/upload_rejects_over_max_bytes.integration_test.ts",
+    testName:
+      "transfer.upload-rejects-over-max-bytes rejects uploads over the store-derived limit",
+    runtime: "live-trellis",
+  },
+  {
+    id: "transfer.upload-stores-object-before-completion",
+    file: "transfer/upload_stores_object_before_completion.integration_test.ts",
+    testName:
+      "transfer.upload-stores-object-before-completion observes stored bytes before completion",
     runtime: "live-trellis",
   },
   {
@@ -435,10 +566,34 @@ export const jsIntegrationCases: readonly JsIntegrationCase[] = [
     runtime: "live-trellis",
   },
   {
+    id: "auth.local-login-rebinds-existing-session-with-updated-authority",
+    file:
+      "auth/local_login_rebinds_existing_session_with_updated_authority.integration_test.ts",
+    testName:
+      "auth.local-login-rebinds-existing-session-with-updated-authority rebinds an existing app session and refreshes runtime authority",
+    runtime: "live-trellis",
+  },
+  {
+    id: "auth.local-login-replaces-session-when-identity-changes",
+    file:
+      "auth/local_login_replaces_session_when_identity_changes.integration_test.ts",
+    testName:
+      "auth.local-login-replaces-session-when-identity-changes replaces an app session bound to a different identity",
+    runtime: "live-trellis",
+  },
+  {
     id: "auth.session-revoke-denies-reconnect",
     file: "auth/session_revoke_denies_reconnect.integration_test.ts",
     testName:
       "auth.session-revoke-denies-reconnect revokes an app session and denies reuse",
+    runtime: "live-trellis",
+  },
+  {
+    id: "auth.session-revoke-cleans-runtime-connection-presence",
+    file:
+      "auth/session_revoke_cleans_runtime_connection_presence.integration_test.ts",
+    testName:
+      "auth.session-revoke-cleans-runtime-connection-presence removes runtime connection presence for a revoked app session",
     runtime: "live-trellis",
   },
   {

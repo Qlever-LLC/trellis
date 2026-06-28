@@ -25,6 +25,7 @@ import type {
 } from "../storage.ts";
 import type { StaticDecode } from "typebox";
 import { revokeRuntimeAccessForSession } from "../session/revoke_runtime_access.ts";
+import type { TrellisTestHooks } from "../test_hooks.ts";
 import {
   type AdminCaller,
   requireAdmin,
@@ -112,6 +113,7 @@ export type ServiceAdminRpcDeps = {
   serviceDeploymentStorage: ServiceDeploymentStorage;
   serviceInstanceStorage: ServiceInstanceStorage;
   deploymentAuthorityStorage?: DeploymentAuthorityStorage;
+  testHooks?: TrellisTestHooks;
 };
 
 type KVLike<V> = {
@@ -373,6 +375,9 @@ export function createAuthDeploymentsServiceCreateHandler(
     try {
       await serviceDeploymentStorage.put(deployment);
       if (deploymentAuthorityStorage) {
+        serviceDeps.testHooks?.failOnce(
+          "auth.admin.serviceDeployments.createAuthority",
+        );
         await deploymentAuthorityStorage.put(emptyDeploymentAuthority({
           deploymentId: deployment.deploymentId,
           kind: "service",
@@ -570,6 +575,7 @@ export function createAuthDeploymentsServiceRemoveHandler(
         trace?: AuthRuntimeDeps["logger"]["trace"];
         warn?: AuthRuntimeDeps["logger"]["warn"];
       };
+      testHooks?: TrellisTestHooks;
     }
     & RuntimeKickDeps
     & {
@@ -688,8 +694,14 @@ export function createAuthDeploymentsServiceRemoveHandler(
       updatedAuthority = authorityChange?.updated;
       for (const instance of instances) {
         await serviceInstanceStorage.delete(instance.instanceId);
+        deps.testHooks?.failOnce(
+          "auth.admin.serviceDeployments.deleteCascadeRecord",
+        );
       }
       await serviceDeploymentStorage.delete(req.deploymentId);
+      deps.testHooks?.failOnce(
+        "auth.admin.serviceDeployments.deleteCascadeRecord",
+      );
     } catch (error) {
       try {
         await restoreDeletedRecords();

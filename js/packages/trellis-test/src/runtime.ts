@@ -35,6 +35,7 @@ import {
   startTrellisProcess,
   type TrellisProcessHandle,
 } from "./trellis_process.ts";
+import { TrellisControlPlaneSqlite } from "./control_plane_sqlite.ts";
 import type {
   TrellisTestAuthorityPlanClassification,
   TrellisTestClientAuth,
@@ -43,6 +44,7 @@ import type {
   TrellisTestConnectedClient,
   TrellisTestContractApproval,
   TrellisTestContractLike,
+  TrellisTestControlPlane,
   TrellisTestRuntimeStartOptions,
   TrellisTestServiceKey,
   WaitForOptions,
@@ -121,6 +123,7 @@ export class TrellisTestRuntime implements AsyncDisposable {
       expectedDesiredVersion?: string;
     }): Promise<unknown>;
   };
+  readonly controlPlane: TrellisTestControlPlane;
   #controlPlane: TrellisProcessHandle;
   #nats: NatsTestContainer;
   #admin: TrellisTestAdminAutomation;
@@ -140,6 +143,7 @@ export class TrellisTestRuntime implements AsyncDisposable {
     keepWorkdir: boolean;
     timeouts: RuntimeTimeouts;
     configPath: string;
+    controlPlaneSqlitePath: string;
     trellisOptions: TrellisTestRuntimeStartOptions["trellis"];
     nats: NatsTestContainer;
     controlPlane: TrellisProcessHandle;
@@ -156,6 +160,9 @@ export class TrellisTestRuntime implements AsyncDisposable {
     this.#configPath = args.configPath;
     this.#trellisOptions = args.trellisOptions;
     this.#admin = args.admin;
+    this.controlPlane = {
+      sqlite: new TrellisControlPlaneSqlite(args.controlPlaneSqlitePath),
+    };
     this.deployments = {
       create: ({ id, mutableDev }) =>
         this.#admin.createDeployment({
@@ -228,6 +235,8 @@ export class TrellisTestRuntime implements AsyncDisposable {
         websocketUrl: nats.websocketUrl,
         manifest: nats.manifest,
         port,
+        oauthProviders: options.oauthProviders,
+        failOnceHooks: options.failOnceHooks,
       });
       const configPath = await writeTrellisConfig({ workdir, config });
       const deployment = options.deployment ?? "test";
@@ -247,6 +256,7 @@ export class TrellisTestRuntime implements AsyncDisposable {
         keepWorkdir: options.keepWorkdir ?? false,
         timeouts,
         configPath,
+        controlPlaneSqlitePath: config.storage.dbPath,
         trellisOptions: options.trellis,
         nats,
         controlPlane: startedControlPlane,

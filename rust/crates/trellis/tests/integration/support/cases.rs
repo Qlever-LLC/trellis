@@ -65,6 +65,11 @@ pub(crate) const RUST_INTEGRATION_CASES: &[IntegrationCase] = &[
         "rpc_invalid_mixed_input_validation",
     ),
     IntegrationCase::live(
+        "rpc.auth-validation-retries-transient-session-not-found",
+        "rpc",
+        "rpc_auth_validation_retries_transient_session_not_found",
+    ),
+    IntegrationCase::live(
         "events.client-publishes-and-subscriber-receives",
         "events",
         "events_client_publishes_and_subscriber_receives",
@@ -95,14 +100,84 @@ pub(crate) const RUST_INTEGRATION_CASES: &[IntegrationCase] = &[
         "operations_client_waits_for_completion",
     ),
     IntegrationCase::live(
+        "operations.watch-callbacks-deliver-accepted-first-in-order",
+        "operations",
+        "operations_watch_callbacks_deliver_accepted_first_in_order",
+    ),
+    IntegrationCase::live(
         "operations.client-cancels-operation",
         "operations",
         "operations_client_cancels_operation",
     ),
     IntegrationCase::live(
+        "operations.cancel-uses-cancel-capability",
+        "operations",
+        "operations_cancel_uses_cancel_capability",
+    ),
+    IntegrationCase::live(
+        "operations.rejects-cancel-for-noncancelable-operation",
+        "operations",
+        "operations_rejects_cancel_for_noncancelable_operation",
+    ),
+    IntegrationCase::live(
         "operations.client-signals-running-operation",
         "operations",
         "operations_client_signals_running_operation",
+    ),
+    IntegrationCase::live(
+        "operations.signals-persist-and-consume-in-acceptance-order",
+        "operations",
+        "operations_signals_persist_and_consume_in_acceptance_order",
+    ),
+    IntegrationCase::live(
+        "operations.queued-signal-delivered-before-live-signal",
+        "operations",
+        "operations_queued_signal_delivered_before_live_signal",
+    ),
+    IntegrationCase::live(
+        "operations.rejects-invalid-signal-payload",
+        "operations",
+        "operations_rejects_invalid_signal_payload",
+    ),
+    IntegrationCase::live(
+        "operations.rejects-signal-after-terminal-state",
+        "operations",
+        "operations_rejects_signal_after_terminal_state",
+    ),
+    IntegrationCase::live(
+        "operations.service-attach-job-waits-for-completion",
+        "operations",
+        "operations_service_attach_job_waits_for_completion",
+    ),
+    IntegrationCase::live(
+        "operations.service-handler-receives-client-context",
+        "operations",
+        "operations_service_handler_receives_client_context",
+    ),
+    IntegrationCase::live(
+        "operations.service-defer-keeps-operation-running",
+        "operations",
+        "operations_service_defer_keeps_operation_running",
+    ),
+    IntegrationCase::live(
+        "operations.service-control-resumes-deferred-operation",
+        "operations",
+        "operations_service_control_resumes_deferred_operation",
+    ),
+    IntegrationCase::live(
+        "operations.service-control-loads-durable-record-after-restart",
+        "operations",
+        "operations_service_control_loads_durable_record_after_restart",
+    ),
+    IntegrationCase::live(
+        "operations.service-accept-resume-completes-durable-operation",
+        "operations",
+        "operations_service_accept_resume_completes_durable_operation",
+    ),
+    IntegrationCase::live(
+        "operations.service-control-rejects-invalid-mismatch-payload-terminal",
+        "operations",
+        "operations_service_control_rejects_invalid_mismatch_payload_terminal",
     ),
     IntegrationCase::live(
         "operations.denies-start-without-call-authority",
@@ -163,6 +238,16 @@ pub(crate) const RUST_INTEGRATION_CASES: &[IntegrationCase] = &[
         "transfer.client-uploads-file-via-operation",
         "transfer",
         "transfer_client_uploads_file_via_operation",
+    ),
+    IntegrationCase::live(
+        "transfer.upload-rejects-over-max-bytes",
+        "transfer",
+        "transfer_upload_rejects_over_max_bytes",
+    ),
+    IntegrationCase::live(
+        "transfer.upload-stores-object-before-completion",
+        "transfer",
+        "transfer_upload_stores_object_before_completion",
     ),
     IntegrationCase::live(
         "transfer.client-downloads-file-via-receive-grant",
@@ -355,9 +440,24 @@ pub(crate) const RUST_INTEGRATION_CASES: &[IntegrationCase] = &[
         "auth_local_login_binds_approved_client",
     ),
     IntegrationCase::live(
+        "auth.local-login-rebinds-existing-session-with-updated-authority",
+        "app_identity_approval",
+        "auth_local_login_rebinds_existing_session_with_updated_authority",
+    ),
+    IntegrationCase::live(
+        "auth.local-login-replaces-session-when-identity-changes",
+        "app_identity_approval",
+        "auth_local_login_replaces_session_when_identity_changes",
+    ),
+    IntegrationCase::live(
         "auth.session-revoke-denies-reconnect",
         "app_identity_approval",
         "auth_session_revoke_denies_reconnect",
+    ),
+    IntegrationCase::live(
+        "auth.session-revoke-cleans-runtime-connection-presence",
+        "app_identity_approval",
+        "auth_session_revoke_cleans_runtime_connection_presence",
     ),
     IntegrationCase::live(
         "device-activation.admin-provisions-known-device",
@@ -418,6 +518,41 @@ pub(crate) const RUST_SERVICE_INTEGRATION_CASES: &[IntegrationCase] = &[
         "control_plane_http_route_security_requires_admin_session",
     ),
     IntegrationCase::live(
+        "control-plane.bootstrap-requires-auth-for-unbound-client",
+        "control_plane",
+        "control_plane_bootstrap_requires_auth_for_unbound_client",
+    ),
+    IntegrationCase::live(
+        "control-plane.bootstrap-rejects-unknown-contract-digest",
+        "control_plane",
+        "control_plane_bootstrap_rejects_unknown_contract_digest",
+    ),
+    IntegrationCase::live(
+        "control-plane.bootstrap-rejects-non-client-contract",
+        "control_plane",
+        "control_plane_bootstrap_rejects_non_client_contract",
+    ),
+    IntegrationCase::live(
+        "control-plane.session-logout-deletes-session-and-denies-reuse",
+        "control_plane",
+        "control_plane_session_logout_deletes_session_and_denies_reuse",
+    ),
+    IntegrationCase::live(
+        "control-plane.session-logout-kicks-runtime-access",
+        "control_plane",
+        "control_plane_session_logout_kicks_runtime_access",
+    ),
+    IntegrationCase::live(
+        "control-plane.session-logout-validates-return-to",
+        "control_plane",
+        "control_plane_session_logout_validates_return_to",
+    ),
+    IntegrationCase::live(
+        "control-plane.session-logout-uses-provider-logout-redirect",
+        "control_plane",
+        "control_plane_session_logout_uses_provider_logout_redirect",
+    ),
+    IntegrationCase::live(
         "control-plane.catalog-active-contracts-survive-restart",
         "control_plane",
         "control_plane_catalog_active_contracts_survive_restart",
@@ -431,6 +566,81 @@ pub(crate) const RUST_SERVICE_INTEGRATION_CASES: &[IntegrationCase] = &[
         "control-plane.catalog-force-replace-resolves-catalog-issue",
         "control_plane",
         "control_plane_catalog_force_replace_resolves_catalog_issue",
+    ),
+    IntegrationCase::live(
+        "control-plane.catalog-surface-status-reports-provider-runtime",
+        "control_plane",
+        "control_plane_catalog_surface_status_reports_provider_runtime",
+    ),
+    IntegrationCase::live(
+        "control-plane.admin-service-deployment-rollback-fault",
+        "control_plane",
+        "control_plane_admin_service_deployment_rollback_fault",
+    ),
+    IntegrationCase::live(
+        "control-plane.admin-device-deployment-rollback-fault",
+        "control_plane",
+        "control_plane_admin_device_deployment_rollback_fault",
+    ),
+    IntegrationCase::live(
+        "control-plane.admin-service-deployment-validate-before-persist-kick",
+        "control_plane",
+        "control_plane_admin_service_deployment_validate_before_persist_kick",
+    ),
+    IntegrationCase::live(
+        "control-plane.admin-service-deployment-disable-refresh-rollback",
+        "control_plane",
+        "control_plane_admin_service_deployment_disable_refresh_rollback",
+    ),
+    IntegrationCase::live(
+        "control-plane.admin-service-deployment-enable-refresh-rollback",
+        "control_plane",
+        "control_plane_admin_service_deployment_enable_refresh_rollback",
+    ),
+    IntegrationCase::live(
+        "control-plane.admin-service-instance-disable-refresh-rollback",
+        "control_plane",
+        "control_plane_admin_service_instance_disable_refresh_rollback",
+    ),
+    IntegrationCase::live(
+        "control-plane.admin-service-instance-enable-refresh-rollback",
+        "control_plane",
+        "control_plane_admin_service_instance_enable_refresh_rollback",
+    ),
+    IntegrationCase::live(
+        "control-plane.admin-service-instance-remove-refresh-rollback",
+        "control_plane",
+        "control_plane_admin_service_instance_remove_refresh_rollback",
+    ),
+    IntegrationCase::live(
+        "control-plane.admin-device-deployment-disable-refresh-rollback",
+        "control_plane",
+        "control_plane_admin_device_deployment_disable_refresh_rollback",
+    ),
+    IntegrationCase::live(
+        "control-plane.admin-device-deployment-enable-refresh-rollback",
+        "control_plane",
+        "control_plane_admin_device_deployment_enable_refresh_rollback",
+    ),
+    IntegrationCase::live(
+        "control-plane.admin-device-instance-disable-refresh-rollback",
+        "control_plane",
+        "control_plane_admin_device_instance_disable_refresh_rollback",
+    ),
+    IntegrationCase::live(
+        "control-plane.admin-device-instance-enable-refresh-rollback",
+        "control_plane",
+        "control_plane_admin_device_instance_enable_refresh_rollback",
+    ),
+    IntegrationCase::live(
+        "control-plane.admin-device-instance-remove-refresh-rollback",
+        "control_plane",
+        "control_plane_admin_device_instance_remove_refresh_rollback",
+    ),
+    IntegrationCase::live(
+        "control-plane.admin-service-deployment-lifecycle",
+        "control_plane",
+        "control_plane_admin_service_deployment_lifecycle",
     ),
     IntegrationCase::live(
         "control-plane.sessions-survive-control-plane-restart",

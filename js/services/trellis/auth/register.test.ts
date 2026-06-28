@@ -404,6 +404,60 @@ Deno.test("accepted-offer NATS materializer adds service transfer endpoint grant
   );
 });
 
+Deno.test("accepted-offer NATS materializer adds used transfer caller grants", async () => {
+  const grants = await __testing__.materializeAcceptedOfferNatsGrants({
+    authority: {
+      deploymentId: "svc_1",
+      kind: "service",
+      disabled: false,
+      version: "authority_v1",
+      createdAt: TEST_NOW,
+      updatedAt: TEST_NOW,
+      desiredState: {
+        capabilities: [],
+        resources: [],
+        needs: {
+          contracts: [],
+          surfaces: [
+            {
+              contractId: transferContract.id,
+              kind: "operation",
+              name: "Transfer.Upload",
+              action: "call",
+              required: true,
+            },
+            {
+              contractId: transferContract.id,
+              kind: "rpc",
+              name: "Transfer.Download",
+              action: "call",
+              required: true,
+            },
+          ],
+          capabilities: [],
+          resources: [],
+        },
+        surfaces: [],
+      },
+    },
+    contracts: {
+      getKnownContract: async () => undefined,
+      getKnownContractsById: async (contractId) =>
+        contractId === transferContract.id ? [transferContract] : [],
+    },
+    implementationOfferStorage: {
+      listByDeployment: async () => [],
+    },
+  });
+
+  assertEquals(
+    grants.filter((grant) => grant.grantSource === "transfer").map((grant) =>
+      grant.subject
+    ),
+    ["transfer.v1.download.*.*", "transfer.v1.upload.*.*"],
+  );
+});
+
 Deno.test("accepted-offer NATS materializer adds Jobs runtime grants", async () => {
   const grants = await __testing__.materializeAcceptedOfferNatsGrants({
     authority: {

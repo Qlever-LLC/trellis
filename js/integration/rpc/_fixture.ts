@@ -1,5 +1,6 @@
 import {
   defineAppContract,
+  defineError,
   defineServiceContract,
   withTrellisValidation,
 } from "@qlever-llc/trellis";
@@ -54,9 +55,14 @@ export function createRpcFixture(caseId: string) {
     }),
     ValidationOutput: Type.Object({ success: Type.Boolean() }),
   } as const;
+  const NotFoundError = defineError({
+    type: "NOT_FOUND",
+    fields: { entityId: Type.String() },
+    message: ({ entityId }) => `Entity ${entityId} was not found.`,
+  });
 
   const serviceContract = defineServiceContract(
-    { schemas: rpcSchemas },
+    { schemas: rpcSchemas, errors: { NotFoundError } },
     (ref) => ({
       id: caseScopedContractId("trellis.integration.rpc-service", caseId),
       displayName: `Trellis Integration RPC Service (${slug})`,
@@ -79,7 +85,7 @@ export function createRpcFixture(caseId: string) {
           input: ref.schema("EntityGetInput"),
           output: ref.schema("EntityGetOutput"),
           capabilities: { call: ["read"] },
-          errors: ["NOT_FOUND"],
+          errors: [ref.error("NotFoundError")],
         },
         "Validation.Annotated": {
           version: "v1",
@@ -147,6 +153,7 @@ export function createRpcFixture(caseId: string) {
     serviceContract,
     clientContract,
     unauthorizedClientContract,
+    NotFoundError,
     serviceName: caseScopedName("rpc-fixture-service", caseId),
     clientName: caseScopedName("rpc-fixture-client", caseId),
     unauthorizedClientName: caseScopedName(

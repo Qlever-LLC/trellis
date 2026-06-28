@@ -28,6 +28,10 @@ import {
   SqlUserProjectionRepository,
 } from "../storage.ts";
 
+// Retained unit coverage: session RPC envelope, projection, and cleanup edge
+// branches are deterministic handler/storage checks. Runtime-observable revoke
+// and access cleanup behavior is covered by TS/Rust live matrix rows.
+
 const TEST_IAT = 1_700_000_000;
 
 function matchFilter(filter: string, key: string): boolean {
@@ -1225,6 +1229,53 @@ Deno.test("Auth.Requests.Validate rejects replayed request ids", async () => {
   const second = await handler({ input });
   assert(second.isErr());
   assertEquals(second.error.reason, "invalid_signature");
+});
+
+Deno.test("Auth.Requests.Validate does not consume replay state for missing sessions", async () => {
+  const auth = await createAuth({
+    sessionKeySeed: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  });
+  const subject = "rpc.v1.Allowed.Ping";
+  const payloadHash = await sha256(utf8("{}"));
+  const requestId = "req_missing_then_restored";
+  const sessionKV = new InMemoryKV<Session>();
+  const userStorage = new InMemoryUserStorage();
+  userStorage.seed(TEST_USER_ID, testUserProjection());
+  const handler = createAuthRequestsValidateHandler({
+    logger: createTestLogger(),
+    sessionStorage: sessionStorageFromKV(sessionKV),
+    userStorage,
+    deviceActivationStorage: { get: () => Promise.resolve(undefined) },
+    deviceDeploymentStorage: { get: () => Promise.resolve(undefined) },
+    deviceInstanceStorage: { get: () => Promise.resolve(undefined) },
+    loadServiceInstance: () => Promise.resolve(null),
+    loadServiceDeployment: () => Promise.resolve(null),
+    nowSeconds: () => TEST_IAT,
+  });
+  const input = {
+    sessionKey: auth.sessionKey,
+    proof: await auth.createProof(subject, payloadHash, requestId, TEST_IAT),
+    subject,
+    payloadHash: base64urlEncode(payloadHash),
+    iat: TEST_IAT,
+    requestId,
+  };
+
+  const missing = await handler({ input });
+  assert(missing.isErr());
+  assertEquals(missing.error.reason, "session_not_found");
+
+  sessionKV.seed(
+    auth.sessionKey,
+    testUserSession({
+      delegatedCapabilities: ["users.read"],
+      delegatedPublishSubjects: ["rpc.v1.Allowed.*"],
+    }),
+  );
+
+  const restored = (await handler({ input })).take();
+  if (isErr(restored)) throw restored.error;
+  assertEquals(restored.allowed, true);
 });
 
 Deno.test("Auth.Requests.Validate uses current service instance permissions", async () => {

@@ -55,6 +55,7 @@ import type {
 import type { SqlContractStorageRepository } from "../../catalog/storage.ts";
 import type { Config } from "../../config.ts";
 import type { createAuthorityReconciler } from "../reconciliation/authority_reconciler.ts";
+import { type TrellisTestHooks, withTrellisTestHook } from "../test_hooks.ts";
 
 function authoritySurfaces(needs: AuthorityNeedSet) {
   return needs.surfaces.map(({ required: _required, ...surface }) => surface);
@@ -155,6 +156,7 @@ export async function registerServiceAdminRpcs(deps: {
   };
   natsTrellis: AuthRuntimeDeps["natsTrellis"];
   logger: Pick<AuthRuntimeDeps["logger"], "debug" | "trace" | "warn">;
+  testHooks?: TrellisTestHooks;
   contracts: Pick<
     AuthContractsRuntime,
     | "getActiveContractsById"
@@ -380,9 +382,21 @@ export async function registerServiceAdminRpcs(deps: {
   );
   await deps.trellis.handle.rpc.auth.serviceInstancesDisable(
     createAuthServiceInstancesDisableHandler({
-      kick,
-      refreshActiveContracts: deps.contracts.refreshActiveContracts,
-      validateActiveCatalog: deps.contracts.validateActiveCatalog,
+      kick: withTrellisTestHook(
+        deps.testHooks,
+        "auth.admin.serviceInstances.kickRuntimeAccess",
+        kick,
+      ),
+      refreshActiveContracts: withTrellisTestHook(
+        deps.testHooks,
+        "auth.admin.serviceInstances.refreshActiveContracts",
+        deps.contracts.refreshActiveContracts,
+      ),
+      validateActiveCatalog: withTrellisTestHook(
+        deps.testHooks,
+        "auth.admin.serviceInstances.validateActiveCatalog",
+        deps.contracts.validateActiveCatalog,
+      ),
       connectionsKV: deps.connectionsKV,
       sessionStorage: deps.sessionStorage,
       serviceInstanceStorage: deps.serviceInstanceStorage,
@@ -390,9 +404,21 @@ export async function registerServiceAdminRpcs(deps: {
   );
   await deps.trellis.handle.rpc.auth.serviceInstancesEnable(
     createAuthServiceInstancesEnableHandler({
-      kick,
-      refreshActiveContracts: deps.contracts.refreshActiveContracts,
-      validateActiveCatalog: deps.contracts.validateActiveCatalog,
+      kick: withTrellisTestHook(
+        deps.testHooks,
+        "auth.admin.serviceInstances.kickRuntimeAccess",
+        kick,
+      ),
+      refreshActiveContracts: withTrellisTestHook(
+        deps.testHooks,
+        "auth.admin.serviceInstances.refreshActiveContracts",
+        deps.contracts.refreshActiveContracts,
+      ),
+      validateActiveCatalog: withTrellisTestHook(
+        deps.testHooks,
+        "auth.admin.serviceInstances.validateActiveCatalog",
+        deps.contracts.validateActiveCatalog,
+      ),
       connectionsKV: deps.connectionsKV,
       sessionStorage: deps.sessionStorage,
       serviceInstanceStorage: deps.serviceInstanceStorage,
@@ -400,9 +426,21 @@ export async function registerServiceAdminRpcs(deps: {
   );
   await deps.trellis.handle.rpc.auth.serviceInstancesRemove(
     createAuthServiceInstancesRemoveHandler({
-      kick,
-      refreshActiveContracts: deps.contracts.refreshActiveContracts,
-      validateActiveCatalog: deps.contracts.validateActiveCatalog,
+      kick: withTrellisTestHook(
+        deps.testHooks,
+        "auth.admin.serviceInstances.kickRuntimeAccess",
+        kick,
+      ),
+      refreshActiveContracts: withTrellisTestHook(
+        deps.testHooks,
+        "auth.admin.serviceInstances.refreshActiveContracts",
+        deps.contracts.refreshActiveContracts,
+      ),
+      validateActiveCatalog: withTrellisTestHook(
+        deps.testHooks,
+        "auth.admin.serviceInstances.validateActiveCatalog",
+        deps.contracts.validateActiveCatalog,
+      ),
       connectionsKV: deps.connectionsKV,
       sessionStorage: deps.sessionStorage,
       serviceInstanceStorage: deps.serviceInstanceStorage,

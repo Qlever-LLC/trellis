@@ -1,4 +1,5 @@
 export { TrellisTestRuntime } from "./src/runtime.ts";
+export { TrellisControlPlaneSqlite } from "./src/control_plane_sqlite.ts";
 export {
   startTrellisTestEventCapture,
   TrellisTestEventCapture,
@@ -52,6 +53,10 @@ export type {
   NatsMessageObserver,
 } from "./src/nats_container.ts";
 export type {
+  TrellisControlPlaneSqliteExecuteResult,
+  TrellisControlPlaneSqliteRow,
+} from "./src/control_plane_sqlite.ts";
+export type {
   TrellisTestAuthorityPlanClassification,
   TrellisTestClientAuth,
   TrellisTestClientContract,
@@ -61,6 +66,7 @@ export type {
   TrellisTestContractApproval,
   TrellisTestContractDescriptor,
   TrellisTestContractLike,
+  TrellisTestControlPlane,
   TrellisTestRuntimeStartOptions,
   TrellisTestServiceKey,
   WaitForOptions,

@@ -155,6 +155,9 @@ const rawSchema = z.object({
       ]),
     ),
   }),
+  trellisTest: z.object({
+    failOnce: z.array(z.string().min(1)).default([]),
+  }).default({ failOnce: [] }),
 }).superRefine((raw, context) => {
   if (
     !raw.auth.localIdentity.enabled &&
@@ -253,6 +256,9 @@ export type Config = {
     redirectBase: string;
     alwaysShowProviderChooser: boolean;
     providers: Record<string, AuthProviderConfig>;
+  };
+  trellisTest?: {
+    failOnce: string[];
   };
 };
 
@@ -487,6 +493,7 @@ function normalizeConfig(configPath: string, raw: RawConfig): Config {
       alwaysShowProviderChooser: raw.oauth.alwaysShowProviderChooser,
       providers,
     },
+    trellisTest: raw.trellisTest,
   };
   validatePublicTransportConfig(config);
   return config;

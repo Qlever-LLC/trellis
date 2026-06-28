@@ -875,7 +875,6 @@ export function createAuthRequestsValidateHandler(deps: {
     if (replayCache.has(replayKey)) {
       return Result.err(new AuthError({ reason: "invalid_signature" }));
     }
-    replayCache.set(replayKey, nowSeconds + DEFAULT_REQUEST_IAT_SKEW_SECONDS);
 
     let session: Session | undefined;
     try {
@@ -891,6 +890,7 @@ export function createAuthRequestsValidateHandler(deps: {
     if (!session) {
       return Result.err(new AuthError({ reason: "session_not_found" }));
     }
+    replayCache.set(replayKey, nowSeconds + DEFAULT_REQUEST_IAT_SKEW_SECONDS);
     const inboxPrefix = `_INBOX.${req.sessionKey.slice(0, 16)}`;
     const principal = await resolveSessionPrincipal(session, req.sessionKey, {
       loadServiceInstance: deps.loadServiceInstance,

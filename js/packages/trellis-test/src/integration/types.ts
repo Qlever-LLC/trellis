@@ -5,6 +5,7 @@ import type {
   TrellisTestEventCaptureOptions,
   TrellisTestEventSourceContract,
 } from "../event_capture.ts";
+import type { NatsMessageObserver } from "../nats_container.ts";
 import type {
   TrellisTestClientAuth,
   TrellisTestClientContract,
@@ -47,6 +48,8 @@ export type TrellisIntegrationRuntime = {
   readonly services: TrellisTestRuntime["services"];
   /** Authority-plan helpers for tests that assert approval workflows. */
   readonly authority: TrellisTestRuntime["authority"];
+  /** Test-only handles available when this runtime owns the control-plane process. */
+  readonly controlPlane?: TrellisTestRuntime["controlPlane"];
   /** Registers a service contract and returns service session-key material. */
   registerService(args: {
     readonly name: string;
@@ -89,6 +92,11 @@ export type TrellisIntegrationRuntime = {
   ): Promise<T>;
   /** Flushes runtime transport work that should be visible before assertions. */
   flush(): Promise<void>;
+  /** Observes raw NATS messages on a runtime-owned scratch NATS server. */
+  startNatsMessageObserver?(
+    subject: string,
+    headerNames?: readonly string[],
+  ): Promise<NatsMessageObserver>;
   /** Restarts only the Trellis control-plane process when the runtime supports it. */
   restartControlPlane?(): Promise<void>;
   /** Stops runtime-owned resources when this runtime owns cleanup. */
