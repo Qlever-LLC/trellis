@@ -157,6 +157,8 @@ and this project adheres to
 - Fixed Rust TLS provider setup for reqwest/rustls and the Jobs service.
 - Fixed release-managed versions back to `0.11.0` before cutting this release
   candidate.
+- Fixed release bootstrap from clean checkouts so Rust workspace metadata no
+  longer requires generated Cargo SDK packages before prepare runs.
 - Fixed duplicate workspace dependency metadata.
 - Fixed generated operation handler typing, source operation descriptor typing,
   and generated SDK capability types.

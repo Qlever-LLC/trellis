@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 use serde_json::Value;
-use trellis_sdk_core::types::TrellisBindingsGetResponseBinding;
+use trellis_rs::sdk::core::types::TrellisBindingsGetResponseBinding;
 
 /// Resolved service-local jobs binding derived from Trellis resource bindings.
 #[derive(Debug, Clone, PartialEq)]
@@ -276,7 +276,7 @@ fn normalize_json_queue_binding(
 
 fn normalize_core_queue_binding(
     queue_type: &str,
-    queue: &trellis_sdk_core::types::TrellisBindingsGetResponseBindingResourcesJobsQueuesValue,
+    queue: &trellis_rs::sdk::core::types::TrellisBindingsGetResponseBindingResourcesJobsQueuesValue,
 ) -> Result<NormalizedJobsQueueBinding, JobsBindingError> {
     let parsed_policy: JobsQueueBindingValue =
         serde_json::from_value(serde_json::to_value(queue).map_err(|error| {

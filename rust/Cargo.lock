@@ -4097,7 +4097,6 @@ dependencies = [
  "time",
  "tokio",
  "trellis-rs",
- "trellis-sdk-core",
  "ulid",
 ]
 
@@ -4160,16 +4159,6 @@ dependencies = [
  "tokio",
  "toml",
  "tower",
-]
-
-[[package]]
-name = "trellis-sdk-core"
-version = "0.11.0"
-dependencies = [
- "serde",
- "serde_json",
- "trellis-contracts",
- "trellis-rs",
 ]
 
 [[package]]

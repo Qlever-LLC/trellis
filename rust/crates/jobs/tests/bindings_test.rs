@@ -4,7 +4,7 @@ use serde_json::json;
 use trellis_jobs::bindings::{
     parse_jobs_binding, JobKeyStalePolicy, JobQueueWhenFull, JobsBindingError, JobsRuntimeBinding,
 };
-use trellis_sdk_core::types::{
+use trellis_rs::sdk::core::types::{
     TrellisBindingsGetResponseBinding, TrellisBindingsGetResponseBindingResources,
     TrellisBindingsGetResponseBindingResourcesJobs,
     TrellisBindingsGetResponseBindingResourcesJobsQueuesValue,
