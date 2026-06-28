@@ -3929,14 +3929,14 @@ dependencies = [
 
 [[package]]
 name = "trellis-auth"
-version = "0.19.0"
+version = "0.11.0"
 dependencies = [
  "trellis-rs",
 ]
 
 [[package]]
 name = "trellis-auth-adapters"
-version = "0.19.0"
+version = "0.11.0"
 dependencies = [
  "bytes",
  "futures-util",
@@ -3947,7 +3947,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-bootstrap"
-version = "0.19.0"
+version = "0.11.0"
 dependencies = [
  "async-nats",
  "indexmap",
@@ -3964,7 +3964,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-cli"
-version = "0.19.0"
+version = "0.11.0"
 dependencies = [
  "async-nats",
  "base64",
@@ -4001,7 +4001,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-client"
-version = "0.19.0"
+version = "0.11.0"
 dependencies = [
  "futures-util",
  "serde",
@@ -4012,7 +4012,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-codegen-rust"
-version = "0.19.0"
+version = "0.11.0"
 dependencies = [
  "prettyplease",
  "serde",
@@ -4025,7 +4025,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-codegen-ts"
-version = "0.19.0"
+version = "0.11.0"
 dependencies = [
  "oxc_allocator",
  "oxc_parser",
@@ -4037,7 +4037,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-contracts"
-version = "0.19.0"
+version = "0.11.0"
 dependencies = [
  "base64",
  "jsonschema",
@@ -4049,7 +4049,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-core-bootstrap"
-version = "0.19.0"
+version = "0.11.0"
 dependencies = [
  "futures-util",
  "serde_json",
@@ -4059,7 +4059,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-generate"
-version = "0.19.0"
+version = "0.11.0"
 dependencies = [
  "clap",
  "ignore",
@@ -4077,7 +4077,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-generate-runner"
-version = "0.19.0"
+version = "0.11.0"
 dependencies = [
  "self_update",
  "sha2 0.11.0",
@@ -4085,7 +4085,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-jobs"
-version = "0.19.0"
+version = "0.11.0"
 dependencies = [
  "async-nats",
  "bytes",
@@ -4096,13 +4096,14 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "tokio",
+ "trellis-rs",
  "trellis-sdk-core",
  "ulid",
 ]
 
 [[package]]
 name = "trellis-local-bootstrap"
-version = "0.19.0"
+version = "0.11.0"
 dependencies = [
  "base64",
  "rand 0.10.1",
@@ -4114,7 +4115,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-rs"
-version = "0.19.0"
+version = "0.11.0"
 dependencies = [
  "async-nats",
  "base64",
@@ -4144,7 +4145,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-runtime"
-version = "0.19.0"
+version = "0.11.0"
 dependencies = [
  "async-nats",
  "axum",
@@ -4163,7 +4164,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-sdk-core"
-version = "0.19.0"
+version = "0.11.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4173,7 +4174,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-service"
-version = "0.19.0"
+version = "0.11.0"
 dependencies = [
  "async-nats",
  "bytes",
@@ -4187,7 +4188,7 @@ dependencies = [
 
 [[package]]
 name = "trellis-service-jobs"
-version = "0.19.0"
+version = "0.11.0"
 dependencies = [
  "async-nats",
  "futures-util",
@@ -4203,14 +4204,14 @@ dependencies = [
 
 [[package]]
 name = "trellis-service-runtime"
-version = "0.19.0"
+version = "0.11.0"
 dependencies = [
  "trellis-rs",
 ]
 
 [[package]]
 name = "trellis-test"
-version = "0.19.0"
+version = "0.11.0"
 dependencies = [
  "async-nats",
  "futures-util",

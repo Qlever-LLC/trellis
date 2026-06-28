@@ -23,11 +23,11 @@ repos, that usually means import-map entries like these:
 ```json
 {
   "imports": {
-    "@qlever-llc/trellis": "jsr:@qlever-llc/trellis@^0.19.0",
-    "@qlever-llc/trellis/service/deno": "jsr:@qlever-llc/trellis@^0.19.0/service/deno",
-    "@qlever-llc/trellis-test": "jsr:@qlever-llc/trellis-test@^0.19.0",
-    "@qlever-llc/trellis-test/integration": "jsr:@qlever-llc/trellis-test@^0.19.0/integration",
-    "@qlever-llc/trellis-test/integration/runner": "jsr:@qlever-llc/trellis-test@^0.19.0/integration/runner",
+    "@qlever-llc/trellis": "jsr:@qlever-llc/trellis@^0.11.0",
+    "@qlever-llc/trellis/service/deno": "jsr:@qlever-llc/trellis@^0.11.0/service/deno",
+    "@qlever-llc/trellis-test": "jsr:@qlever-llc/trellis-test@^0.11.0",
+    "@qlever-llc/trellis-test/integration": "jsr:@qlever-llc/trellis-test@^0.11.0/integration",
+    "@qlever-llc/trellis-test/integration/runner": "jsr:@qlever-llc/trellis-test@^0.11.0/integration/runner",
     "typebox": "npm:typebox@^1.1.33"
   }
 }

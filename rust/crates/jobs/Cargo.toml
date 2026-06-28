@@ -8,7 +8,7 @@ description = "Shared jobs models, reducers, and helpers for Trellis."
 publish = false
 
 [dependencies]
-trellis-rs = { path = "../trellis", version = "0.10.22" }
+trellis-rs = { path = "../trellis", version = "0.11.0" }
 async-nats.workspace = true
 bytes.workspace = true
 futures-util.workspace = true

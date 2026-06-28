@@ -17,8 +17,8 @@ serde_json.workspace = true
 tempfile = "3.27.0"
 thiserror.workspace = true
 tokio = { workspace = true, features = ["process"] }
-trellis-local-bootstrap = { path = "../local-bootstrap", version = "0.19.0" }
-trellis-rs = { path = "../trellis", version = "0.19.0" }
+trellis-local-bootstrap = { path = "../local-bootstrap", version = "0.11.0" }
+trellis-rs = { path = "../trellis", version = "0.11.0" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
