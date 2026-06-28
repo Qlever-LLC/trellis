@@ -8,117 +8,12 @@ and this project adheres to
 
 ## [Unreleased]
 
-### Public Breaking Changes
-
-- Changed TypeScript SQL outbox service APIs from manual repository/dispatcher
-  wiring to `service.withSqlOutbox(...)` and handler-injected
-  `outbox.transaction(...)`.
-- Moved durable SQL event enqueue from direct
-  `SqlOutboxRepository.enqueue(prepared)` service-author usage to
-  transaction-scoped typed `event.*.*.enqueue(...)` inside
-  `outbox.transaction(...)`.
-- Changed Trellis SQL outbox/inbox helper-table schema ownership. Trellis now
-  owns versioned migration artifacts; services own migration execution, database
-  lifecycle, table names, and transaction boundaries.
-- Changed Drizzle outbox guidance. `createDrizzleSqlExecutor(...)` remains an
-  advanced helper, but the main service-author flow is generic
-  `withSqlOutbox(...)`; direct `withSqlOutbox({ drizzle })` sugar is deferred
-  and not exposed.
-- TypeScript extracted service handlers now use concrete handler aliases from
-  the generated SDK after running prepare/generation.
-
-### Added
-
-- Added `service.withSqlOutbox(...)` for SQL outbox-backed service wrappers.
-- Added handler-injected `outbox` for RPC, feed, operation, event-listener, and
-  job handlers.
-- Added transaction-scoped typed `event.*.*.enqueue(...)` for durable SQL event
-  enqueue.
-- Added `getSqlOutboxMigrations(...)` for Trellis-owned SQL outbox/inbox
-  migration artifacts.
-- Added Drizzle SQL transaction helper types and functions:
-  `DrizzleSqlTransactionRunner`, `DrizzleSqlOutboxOptions`, and
-  `runDrizzleSqlTransaction(...)`.
-- Added the Rust `trellis-runtime` and `trellis-bootstrap` crates, including the
-  `trellis-server` runtime entrypoint, bootstrap config generation, runtime
-  storage migrations, and subsystem scaffolds.
-- Added generated Jobs admin service registration plus live projection RPC
-  handlers for listing, reading, and cancelling jobs.
-- Added expanded JS and Rust integration coverage for granular matrix cases,
-  operations cancellation/signalling, event consumers, control-plane jobs admin,
-  prepared events, outbox flows, state admin, and authority planning.
-- Added service-repo integration helper surfaces and documentation updates for
-  Trellis test harness workflows.
-- Added live TypeScript and Rust auth integration coverage for bootstrap client
-  branches, generated Auth session RPCs, request validation, session and
-  connection metadata, and revoke/logout cleanup paths, replacing fake runtime
-  unit coverage.
-- Added narrow `trellis-test` live-runtime helpers for one-shot logout kick
-  failures and raw auth connection-presence seeding.
-
-### Changed
-
-- **Breaking:** Changed generated TypeScript service handler aliases into
-  concrete generated SDK function aliases with an optional `TDeps` generic.
-  Generated `client.ts` service registration surfaces consume those aliases
-  directly, inline handlers still infer from `service.handle...`, and
-  handler-side source `defineError(...)` instances are accepted when their
-  serialized data matches the declared generated error data.
-- Reworked JS integration execution around a shared test matrix and granular
-  fixture selection, replacing the old client test matrix file and shared
-  runtime protocol helpers.
-- Changed TypeScript internal Trellis runtime hooks to thread bootstrap-resolved
-  durable event consumer bindings without module-level mutable state.
-- Changed contract digest normalization so TypeScript preserves operation error
-  declarations consistently with Rust and the shared conformance vector.
-
-### Fixed
-
-- Fixed durable Rust service event consumers so handler errors NAK the delivered
-  message and keep the shared pull loop alive for later redelivery.
-- Fixed Jobs admin projection lookup to use an id index instead of scanning all
-  projected jobs for `Jobs.Get` and `Jobs.Cancel`.
-- Fixed Jobs admin `since` filtering and sorting to compare parsed timestamps
-  instead of lexicographic date strings.
-- Fixed Rust workspace lint configuration to use the supported `missing_docs`
-  lint and keep new Rust runtime/bootstrap surfaces documented.
-- Fixed bootstrap CLI reporting and `trellis init config --format json` output,
-  while preserving structured `BootstrapError` diagnostics.
-- Fixed `Auth.Sessions.Logout` cleanup ordering so durable session and
-  connection records are removed before runtime access is kicked.
-
-## [0.19.0-rc.5] - 2026-06-15
-
-### Fixed
-
-- Fixed `@qlever-llc/trellis-test` assertion helpers so generated event captures
-  from `TrellisTestRuntime.captureEvents(...)` and generated service job refs
-  can be passed directly to `assertEventCaptured`, `assertEventsCaptured`, and
-  `assertJobCompleted` without downstream casts, wrappers, or local adapters.
-
-## [0.19.0-rc.4] - 2026-06-15
-
-### Added
-
-- Added live decoded event capture to `@qlever-llc/trellis-test` through
-  `TrellisTestRuntime.captureEvents(...)` and `TrellisTestEventCapture`, so
-  integration tests can subscribe to selected contract events with normal
-  Trellis authority and generated event facades.
-- Added `@qlever-llc/trellis-test` assertion helpers for RPC results, eventual
-  RPC success, captured event presence and context, no-event windows, and
-  terminal job and operation completion.
-
-### Fixed
-
-- Updated release CI and image builds to Deno 2.8.2 so the Trellis image release
-  gate uses the current runtime for Vite/Tailwind portal builds.
-
-## [0.19.0-rc.3] - 2026-06-14
+## [0.11.0-rc.1] - 2026-06-28
 
 ### Public Breaking Changes
 
 - Split Trellis event runtime metadata from event bodies. Generated SDK event
-  body types are now body-only, TypeScript handlers must read event id/time from
+  body types are now body-only, TypeScript handlers read event id/time from
   listener context or `TrellisEventMessage`, and Rust prepared events use
   `headers`, `event_id`, and `event_time` instead of the old message/header
   helpers.
@@ -148,25 +43,25 @@ and this project adheres to
 - Changed `TrellisTestRuntime.start(...)` so callers must provide an explicit
   `trellis.command`; removed the default Trellis runtime package resolution and
   the `trellis.binary` option.
-
-### Fixed
-
-- Fixed `@qlever-llc/trellis-test` live integration helpers so service approval
-  and generated-client connection flows can run against the release candidate.
-- Fixed release retry and publish workflows so manual existing-tag retries can
-  publish after successful release gates, publish jobs still run when unrelated
-  dependencies are skipped, and internal JSR dependencies are rewritten to the
-  release candidate version during release preparation.
-
-## [0.19.0-rc.2] - 2026-06-14
-
-### Fixed
-
-- Re-cut the `0.19.0` release candidate after the `0.19.0-rc.1` publishing
-  recovery, keeping the Trellis Svelte and control-plane JSR package publishing
-  fixes in the release candidate source.
-
-## [0.19.0-rc.1] - 2026-06-14
+- Changed TypeScript SQL outbox service APIs from manual repository/dispatcher
+  wiring to `service.withSqlOutbox(...)` and handler-injected
+  `outbox.transaction(...)`.
+- Moved durable SQL event enqueue from direct
+  `SqlOutboxRepository.enqueue(prepared)` service-author usage to
+  transaction-scoped typed `event.*.*.enqueue(...)` inside
+  `outbox.transaction(...)`.
+- Changed Trellis SQL outbox/inbox helper-table schema ownership. Trellis now
+  owns versioned migration artifacts; services own migration execution, database
+  lifecycle, table names, and transaction boundaries.
+- Changed Drizzle outbox guidance. `createDrizzleSqlExecutor(...)` remains an
+  advanced helper, but the main service-author flow is generic
+  `withSqlOutbox(...)`; direct `withSqlOutbox({ drizzle })` sugar is deferred
+  and not exposed.
+- TypeScript extracted service handlers now use concrete handler aliases from
+  the generated SDK after running prepare/generation.
+- Removed handler dependency injection from Trellis runtime internals and
+  generated service surfaces in favor of concrete generated handler aliases and
+  runtime-owned handler context.
 
 ### Added
 
@@ -184,38 +79,105 @@ and this project adheres to
 - Added the internal `@qlever-llc/trellis/host/control-plane` export used by the
   Trellis control-plane service package to access runtime host primitives
   without repo-relative package imports.
+- Added `service.withSqlOutbox(...)` for SQL outbox-backed service wrappers.
+- Added handler-injected `outbox` for RPC, feed, operation, event-listener, and
+  job handlers.
+- Added transaction-scoped typed `event.*.*.enqueue(...)` for durable SQL event
+  enqueue.
+- Added `getSqlOutboxMigrations(...)` for Trellis-owned SQL outbox/inbox
+  migration artifacts.
+- Added Drizzle SQL transaction helper types and functions:
+  `DrizzleSqlTransactionRunner`, `DrizzleSqlOutboxOptions`, and
+  `runDrizzleSqlTransaction(...)`.
+- Added Rust and TypeScript typed operation error handling, including generated
+  operation error payload surfaces and preserved source operation descriptor
+  types.
+- Added JSON Schema runtime validation parity in Rust and
+  `SchemaValidationError` UX metadata for schema validation failures.
+- Added OpenTelemetry duration metrics for Trellis RPC, jobs, operations,
+  events, feeds, transfers, auth, service lifecycle, and runtime helper paths.
+- Added the Rust `trellis-runtime` and `trellis-bootstrap` crates, including the
+  `trellis-server` runtime entrypoint, bootstrap config generation, runtime
+  storage migrations, and subsystem scaffolds.
+- Added generated Jobs admin service registration plus live projection RPC
+  handlers for listing, reading, and cancelling jobs.
+- Added live decoded event capture to `@qlever-llc/trellis-test` through
+  `TrellisTestRuntime.captureEvents(...)` and `TrellisTestEventCapture`, so
+  integration tests can subscribe to selected contract events with normal
+  Trellis authority and generated event facades.
+- Added `@qlever-llc/trellis-test` assertion helpers for RPC results, eventual
+  RPC success, captured event presence and context, no-event windows, and
+  terminal job and operation completion.
+- Added expanded JS and Rust integration coverage for granular matrix cases,
+  operations cancellation/signalling, event consumers, control-plane jobs admin,
+  prepared events, outbox flows, state admin, and authority planning.
+- Added service-repo integration helper surfaces and documentation updates for
+  Trellis test harness workflows.
+- Added live TypeScript and Rust auth integration coverage for bootstrap client
+  branches, generated Auth session RPCs, request validation, session and
+  connection metadata, and revoke/logout cleanup paths, replacing fake runtime
+  unit coverage.
+- Added narrow `trellis-test` live-runtime helpers for one-shot logout kick
+  failures and raw auth connection-presence seeding.
 
 ### Changed
 
-- **Breaking:** Split Trellis event runtime metadata from event bodies. Prepared
-  events now carry body-only payloads plus metadata headers, generated SDK event
-  body aliases no longer include embedded `header` data, TypeScript handlers
-  must read event id/time from listener context or `TrellisEventMessage`, and
-  Rust prepared events use `headers`, `event_id`, and `event_time` instead of
-  the old `message_id`, `header_id`, and `header_time` helpers.
-- **Breaking:** Changed caller-owned SQL outbox/inbox storage schemas for the
-  event metadata split. Outbox tables now store `headers`, `event_id`, and
-  `event_time`, and inbox storage tracks `trellis_inbox_events(event_id)`
-  instead of `trellis_inbox_messages(message_id)`.
-- **Breaking:** Changed Jobs runtime and generated SDK APIs for keyed
-  concurrency. `JobQueue` implementations now need `submit(...)`, job results
-  can report not-enqueued outcomes, job states and event/process enums include
-  keyed-concurrency terminal states, and job/job-binding records include
-  concurrency and queue-policy metadata.
-- **Breaking:** Changed the Rust `trellis-jobs` crate from a thin
-  `trellis-rs::jobs::*` re-export into an owning jobs crate, so downstream code
-  that mixed nominal `trellis_jobs::*` and `trellis_rs::jobs::*` types may need
-  to standardize on one import path.
-- **Breaking:** Renamed the runnable Trellis control-plane service JSR package
-  from `@qlever-llc/trellis-service-trellis` to
-  `@qlever-llc/trellis-control-plane` and publish it directly from
-  `js/services/trellis` instead of a generated staged package tree.
-- **Breaking:** Changed `TrellisTestRuntime.start(...)` so callers must provide
-  an explicit `trellis.command`; removed the default Trellis runtime package
-  resolution and the `trellis.binary` option.
+- Changed generated TypeScript service handler aliases into concrete generated
+  SDK function aliases with an optional `TDeps` generic. Generated `client.ts`
+  service registration surfaces consume those aliases directly, inline handlers
+  still infer from `service.handle...`, and handler-side source
+  `defineError(...)` instances are accepted when their serialized data matches
+  the declared generated error data.
 - Changed release verification and publishing so the Trellis control-plane
-  service and `@qlever-llc/trellis-test` run JSR dry-runs and publish through
-  the normal package set.
+  service, `@qlever-llc/trellis-test`, and direct JSR packages run through the
+  normal release package set.
+- Changed release retry and publish workflows so manual existing-tag retries can
+  publish after successful release gates, publish jobs still run when unrelated
+  dependencies are skipped, and internal JSR dependencies are rewritten to the
+  release candidate version during release preparation.
+- Updated release CI and image builds to Deno 2.8.2 so the Trellis image release
+  gate uses the current runtime for Vite/Tailwind portal builds.
+- Scoped release artifact matrix jobs to tagged release runs and fixed Rust
+  integration test execution in release verification.
+- Reworked JS integration execution around a shared test matrix and granular
+  fixture selection, replacing the old client test matrix file and shared
+  runtime protocol helpers.
+- Changed TypeScript internal Trellis runtime hooks to thread bootstrap-resolved
+  durable event consumer bindings without module-level mutable state.
+- Changed contract digest normalization so TypeScript preserves operation error
+  declarations consistently with Rust and the shared conformance vector.
+- Preserved deployment compatibility mode while authority and runtime validation
+  paths moved to the new live integration coverage.
+
+### Fixed
+
+- Fixed stale prior service offers during bootstrap and repeated browser auth
+  handoffs/flow-id redirects.
+- Fixed authority query and path handling bugs discovered after `0.10.22`.
+- Fixed Rust TLS provider setup for reqwest/rustls and the Jobs service.
+- Fixed release-managed versions back to `0.11.0` before cutting this release
+  candidate.
+- Fixed duplicate workspace dependency metadata.
+- Fixed generated operation handler typing, source operation descriptor typing,
+  and generated SDK capability types.
+- Fixed durable Rust service event consumers so handler errors NAK the delivered
+  message and keep the shared pull loop alive for later redelivery.
+- Fixed Jobs admin projection lookup to use an id index instead of scanning all
+  projected jobs for `Jobs.Get` and `Jobs.Cancel`.
+- Fixed Jobs admin `since` filtering and sorting to compare parsed timestamps
+  instead of lexicographic date strings.
+- Fixed Rust workspace lint configuration to use the supported `missing_docs`
+  lint and keep new Rust runtime/bootstrap surfaces documented.
+- Fixed bootstrap CLI reporting and `trellis init config --format json` output,
+  while preserving structured `BootstrapError` diagnostics.
+- Fixed `Auth.Sessions.Logout` cleanup ordering so durable session and
+  connection records are removed before runtime access is kicked.
+- Fixed `@qlever-llc/trellis-test` assertion helpers so generated event captures
+  from `TrellisTestRuntime.captureEvents(...)` and generated service job refs
+  can be passed directly to `assertEventCaptured`, `assertEventsCaptured`, and
+  `assertJobCompleted` without downstream casts, wrappers, or local adapters.
+- Fixed `@qlever-llc/trellis-test` live integration helpers so service approval
+  and generated-client connection flows can run against the release candidate.
 
 ### Removed
 
@@ -1320,10 +1282,13 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.19.0-rc.3...HEAD
-[0.19.0-rc.3]: https://github.com/Qlever-LLC/trellis/compare/v0.19.0-rc.2...v0.19.0-rc.3
-[0.19.0-rc.2]: https://github.com/Qlever-LLC/trellis/compare/v0.19.0-rc.1...v0.19.0-rc.2
-[0.19.0-rc.1]: https://github.com/Qlever-LLC/trellis/compare/v0.10.18-rc.1...v0.19.0-rc.1
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.11.0-rc.1...HEAD
+[0.11.0-rc.1]: https://github.com/Qlever-LLC/trellis/compare/v0.10.22...v0.11.0-rc.1
+[0.10.22]: https://github.com/Qlever-LLC/trellis/compare/v0.10.21...v0.10.22
+[0.10.21]: https://github.com/Qlever-LLC/trellis/compare/v0.10.20...v0.10.21
+[0.10.20]: https://github.com/Qlever-LLC/trellis/compare/v0.10.19...v0.10.20
+[0.10.19]: https://github.com/Qlever-LLC/trellis/compare/v0.10.18...v0.10.19
+[0.10.18]: https://github.com/Qlever-LLC/trellis/compare/v0.10.18-rc.1...v0.10.18
 [0.10.18-rc.1]: https://github.com/Qlever-LLC/trellis/compare/v0.10.17...v0.10.18-rc.1
 [0.10.17]: https://github.com/Qlever-LLC/trellis/compare/v0.10.16...v0.10.17
 [0.10.16]: https://github.com/Qlever-LLC/trellis/compare/v0.10.15...v0.10.16
