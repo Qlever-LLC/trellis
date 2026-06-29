@@ -182,6 +182,9 @@ function createControllableNatsConnection(authErrorReason?: string): {
     stats: () => ({ inBytes: 0, outBytes: 0, inMsgs: 0, outMsgs: 0 }),
     rtt: async () => 0,
     reconnect: async () => {},
+    setServers: () => {},
+    getServers: () => [],
+    [Symbol.asyncDispose]: async () => {},
   };
   return {
     connection,

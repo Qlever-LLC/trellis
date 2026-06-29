@@ -22,6 +22,7 @@
     "@qlever-llc/trellis/contracts": "../../js/packages/trellis/contracts.ts",
     "@qlever-llc/trellis/device/deno": "../../js/packages/trellis/device/deno.ts",
     "@qlever-llc/trellis/errors": "../../js/packages/trellis/errors/index.ts",
+    "@qlever-llc/trellis/sdk/health": "../../js/packages/trellis/sdk/health.ts",
     "@qlever-llc/trellis/service": "../../js/packages/trellis/service/mod.ts",
     "@qlever-llc/trellis/service/deno": "../../js/packages/trellis/service/deno.ts",
     "@trellis-sdk/trellis-demo-service": "./generated/packages/jsr/demo-service/mod.ts",

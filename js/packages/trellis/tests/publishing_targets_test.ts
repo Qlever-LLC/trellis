@@ -76,6 +76,10 @@ Deno.test("release workflows use generated package-manager targets", async () =>
   );
   assertStringIncludes(
     releaseWorkflow,
+    'cp "rust/target/${target}/release/trellis-generate"',
+  );
+  assertStringIncludes(
+    releaseWorkflow,
     "denoland/setup-deno@v2",
   );
   assertStringIncludes(
@@ -293,7 +297,7 @@ Deno.test("publishable trellis service sources do not import package internals b
   const offenders: string[] = [];
   const packageRoot = new URL("../../../services/trellis/", import.meta.url);
   const relativePackageImportPattern =
-    /\.\.\/\.\.\/\.\.\/packages\/trellis|\.\.\/\.\.\/\.\.\/\.\.\/packages\/trellis|\.\.\/\.\.\/packages\/trellis/;
+    /(?:\.\.\/\.\.\/\.\.\/packages\/trellis|\.\.\/\.\.\/\.\.\/\.\.\/packages\/trellis|\.\.\/\.\.\/packages\/trellis)(?:\/|["'])/;
   const generatedSdkAliasPattern = /#trellis-generated-sdk/;
 
   for await (const sourceUrl of walkPublishableSources(packageRoot)) {

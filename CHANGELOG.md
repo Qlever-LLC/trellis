@@ -159,6 +159,8 @@ and this project adheres to
   candidate.
 - Fixed release bootstrap from clean checkouts so Rust workspace metadata no
   longer requires generated Cargo SDK packages before prepare runs.
+- Fixed release gates for Trellis CLI artifact packaging, demo prepare locks,
+  package test fakes, and publishable control-plane service imports.
 - Fixed duplicate workspace dependency metadata.
 - Fixed generated operation handler typing, source operation descriptor typing,
   and generated SDK capability types.

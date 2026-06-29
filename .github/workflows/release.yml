@@ -496,7 +496,7 @@ jobs:
           tar -C "$staging" -czf "dist/$archive" trellis
           shasum -a 256 "dist/$archive" > "dist/checksum-${archive_version}-${target}-trellis.sha256"
 
-          cp "rust/tools/generate/target/${target}/release/trellis-generate" "$staging/trellis-generate"
+          cp "rust/target/${target}/release/trellis-generate" "$staging/trellis-generate"
           archive="trellis-generate-${archive_version}-${target}.tar.gz"
           tar -C "$staging" -czf "dist/$archive" trellis-generate
           shasum -a 256 "dist/$archive" > "dist/checksum-${archive_version}-${target}-trellis-generate.sha256"

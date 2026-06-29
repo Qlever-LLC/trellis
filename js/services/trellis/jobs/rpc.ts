@@ -16,13 +16,91 @@ import type {
   JobsListServicesOutput,
 } from "@qlever-llc/trellis/sdk/jobs";
 import { NotFoundError } from "@qlever-llc/trellis/sdk/jobs";
+import { type StaticDecode, Type } from "typebox";
 import { Value } from "typebox/value";
-import {
-  type JobEvent,
-  JobEventSchema,
-  type WorkerHeartbeat,
-  WorkerHeartbeatSchema,
-} from "../../../packages/trellis/server/internal_jobs/types.ts";
+
+const JobStateSchema = Type.Union([
+  Type.Literal("pending"),
+  Type.Literal("active"),
+  Type.Literal("retry"),
+  Type.Literal("completed"),
+  Type.Literal("failed"),
+  Type.Literal("cancelled"),
+  Type.Literal("expired"),
+  Type.Literal("skipped"),
+  Type.Literal("stale"),
+  Type.Literal("dead"),
+  Type.Literal("dismissed"),
+]);
+const JobContextSchema = Type.Object({
+  requestId: Type.String({ minLength: 1 }),
+  traceId: Type.String({ pattern: "^[0-9a-f]{32}$" }),
+  traceparent: Type.String({
+    pattern: "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+  }),
+  tracestate: Type.Optional(Type.String({ minLength: 1 })),
+});
+const JobProgressSchema = Type.Object({
+  step: Type.Optional(Type.String()),
+  message: Type.Optional(Type.String()),
+  current: Type.Optional(Type.Integer({ minimum: 0 })),
+  total: Type.Optional(Type.Integer({ minimum: 0 })),
+});
+const JobLogEntrySchema = Type.Object({
+  timestamp: Type.String({ format: "date-time" }),
+  level: Type.Union([
+    Type.Literal("info"),
+    Type.Literal("warn"),
+    Type.Literal("error"),
+  ]),
+  message: Type.String(),
+});
+const JobEventSchema = Type.Object({
+  jobId: Type.String({ minLength: 1 }),
+  service: Type.String({ minLength: 1 }),
+  jobType: Type.String({ minLength: 1 }),
+  eventType: Type.Union([
+    Type.Literal("created"),
+    Type.Literal("started"),
+    Type.Literal("retry"),
+    Type.Literal("progress"),
+    Type.Literal("logged"),
+    Type.Literal("completed"),
+    Type.Literal("failed"),
+    Type.Literal("cancelled"),
+    Type.Literal("expired"),
+    Type.Literal("skipped"),
+    Type.Literal("stale"),
+    Type.Literal("heartbeat"),
+    Type.Literal("staleCompletionIgnored"),
+    Type.Literal("retried"),
+    Type.Literal("dead"),
+    Type.Literal("dismissed"),
+  ]),
+  state: JobStateSchema,
+  previousState: Type.Optional(JobStateSchema),
+  context: JobContextSchema,
+  tries: Type.Integer({ minimum: 0 }),
+  maxTries: Type.Optional(Type.Integer({ minimum: 1 })),
+  error: Type.Optional(Type.String()),
+  progress: Type.Optional(JobProgressSchema),
+  logs: Type.Optional(Type.Array(JobLogEntrySchema)),
+  payload: Type.Optional(Type.Unknown()),
+  result: Type.Optional(Type.Unknown()),
+  deadline: Type.Optional(Type.String({ format: "date-time" })),
+  timestamp: Type.String({ format: "date-time" }),
+});
+const WorkerHeartbeatSchema = Type.Object({
+  service: Type.String({ minLength: 1 }),
+  jobType: Type.String({ minLength: 1 }),
+  instanceId: Type.String({ minLength: 1 }),
+  concurrency: Type.Optional(Type.Integer({ minimum: 1 })),
+  version: Type.Optional(Type.String({ minLength: 1 })),
+  timestamp: Type.String({ format: "date-time" }),
+});
+
+type JobEvent = StaticDecode<typeof JobEventSchema>;
+type WorkerHeartbeat = StaticDecode<typeof WorkerHeartbeatSchema>;
 
 type AdminJob = JobsListOutput["entries"][number];
 type AdminJobState = AdminJob["state"];
