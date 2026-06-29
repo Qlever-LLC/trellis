@@ -190,6 +190,8 @@ Deno.test("release workflow publishes only public Rust crates", async () => {
   for (const crate of ["trellis-contracts", "trellis-rs"]) {
     assertStringIncludes(source, `publish_workspace_crate ${crate}`);
   }
+  assertStringIncludes(source, '[ "$crate" = "trellis-rs" ]');
+  assertStringIncludes(source, "trellis-test");
   for (
     const crate of [
       "trellis-auth",

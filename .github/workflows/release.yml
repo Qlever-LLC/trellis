@@ -875,6 +875,10 @@ jobs:
               return 0
             fi
 
+            if [ "$crate" = "trellis-rs" ]; then
+              perl -0pi -e 's/\n\[dev-dependencies\]\ntrellis-test = \{ path = "\.\.\/trellis-test", version = "[^"]+" \}\n?/\n/' crates/trellis/Cargo.toml
+            fi
+
             run_publish "$crate" -p "$crate"
           }
 
