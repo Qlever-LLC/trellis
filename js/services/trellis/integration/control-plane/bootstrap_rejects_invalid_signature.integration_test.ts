@@ -37,7 +37,7 @@ liveTrellisTest({
     });
     const iat = Math.floor(Date.now() / 1_000);
     const validSig = await signClientBootstrapProof(clientKey.seed, iat);
-    const sig = `${validSig.slice(0, -1)}${validSig.endsWith("A") ? "B" : "A"}`;
+    const sig = `${validSig.startsWith("A") ? "B" : "A"}${validSig.slice(1)}`;
 
     const response = await fetchClientBootstrap(
       runtime.trellisUrl,
