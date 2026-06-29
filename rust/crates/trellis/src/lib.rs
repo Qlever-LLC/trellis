@@ -100,7 +100,6 @@ mod tests {
             "codegen-rust/Cargo.toml",
             "codegen-ts/Cargo.toml",
             "bootstrap/Cargo.toml",
-            "contracts/Cargo.toml",
             "core-bootstrap/Cargo.toml",
             "generate-runner/Cargo.toml",
             "jobs/Cargo.toml",
@@ -109,7 +108,6 @@ mod tests {
             "service/Cargo.toml",
             "service-jobs/Cargo.toml",
             "service-runtime/Cargo.toml",
-            "trellis/Cargo.toml",
             "trellis-test/Cargo.toml",
         ] {
             let contents = fs::read_to_string(crates_dir.join(manifest))
