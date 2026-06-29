@@ -193,28 +193,14 @@ Deno.test("trellis npm SDK exports resolve through public wrapper modules", asyn
     new URL("../npm/esm/generated-sdk/auth/api.d.ts", import.meta.url),
   );
   assertEquals(
-    authApiTypes.includes(
-      'import("@qlever-llc/trellis/contracts").Schema',
-    ),
-    true,
-  );
-
-  const healthApiTypes = await Deno.readTextFile(
-    new URL("../npm/esm/generated-sdk/health/api.d.ts", import.meta.url),
-  );
-  assertEquals(
-    healthApiTypes.includes(
-      'import("@qlever-llc/trellis/contracts").Schema',
-    ),
+    authApiTypes.includes('from "@qlever-llc/trellis/sdk/health"'),
     true,
   );
   const stateApiTypes = await Deno.readTextFile(
     new URL("../npm/esm/generated-sdk/state/api.d.ts", import.meta.url),
   );
   assertEquals(
-    stateApiTypes.includes(
-      'import("@qlever-llc/trellis/contracts").Schema',
-    ),
+    stateApiTypes.includes('from "@qlever-llc/trellis/sdk/health"'),
     true,
   );
 

@@ -4077,7 +4077,7 @@ fn admin_bootstrap_probe_contract(
     .use_ref(
         "auth",
         trellis_rs::contracts::use_contract(trellis_rs::sdk::auth::CONTRACT_ID)
-            .with_rpc_call(["Auth.Users.List"]),
+            .with_rpc_call(["Auth.Sessions.Me", "Auth.Users.List"]),
     )
     .build()?;
 
