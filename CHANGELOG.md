@@ -8,6 +8,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.11.0-rc.2] - 2026-06-29
+
+### Fixed
+
+- Fixed the bootstrap invalid-signature integration test so it corrupts signed
+  bytes deterministically instead of changing unused base64url padding bits.
+- Fixed Cargo publishing for the public `trellis-contracts` and `trellis-rs`
+  crates.
+
 ## [0.11.0-rc.1] - 2026-06-28
 
 ### Public Breaking Changes
