@@ -15,9 +15,10 @@ repositories.
   `<trellis-repo-root>/docs/static/llms-full.txt`, and the relevant
   language-specific guide under `<trellis-repo-root>/docs/static/`.
 - If no local Trellis path is linked, read the same files from the matching
-  Trellis release branch:
-  `https://raw.githubusercontent.com/qlever-llc/trellis/<release-branch>/docs/static/llms.txt`,
-  `https://raw.githubusercontent.com/qlever-llc/trellis/<release-branch>/docs/static/llms-full.txt`,
+  Trellis release branch, where `<release-tag>` is the Trellis version tag such
+  as `v0.11.0-rc.2`:
+  `https://raw.githubusercontent.com/Qlever-LLC/trellis/refs/heads/release/<release-tag>/docs/static/llms.txt`,
+  `https://raw.githubusercontent.com/Qlever-LLC/trellis/refs/heads/release/<release-tag>/docs/static/llms-full.txt`,
   and the matching `llms-typescript.txt` or `llms-rust.txt` guide.
 - Read the short guide at the start of any Trellis task. Read the full guide
   before changing contracts, service handlers, events, operations, generated
@@ -39,9 +40,6 @@ repositories.
   atomically with service-local durable state.
 - Do not add compatibility shims or migrations unless the task asks for them or
   existing deployed data requires them.
-- When upgrading the Trellis version, compare this repository's `AGENTS.md`
-  against the new Trellis template for that version and propose any missing
-  guidance updates before changing broad local agent rules.
 
 ## TypeScript local rules
 

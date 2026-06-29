@@ -14,11 +14,12 @@ Trellis by hand-building NATS subjects, envelopes, or JSON wire payloads.
   `<trellis-repo-root>/docs/static/llms-full.txt`, and
   `<trellis-repo-root>/docs/static/llms-rust.txt`.
 - If no local Trellis path is linked, read the same files from the matching
-  Trellis release branch:
-  `https://raw.githubusercontent.com/qlever-llc/trellis/<release-branch>/docs/static/llms.txt`,
-  `https://raw.githubusercontent.com/qlever-llc/trellis/<release-branch>/docs/static/llms-full.txt`,
+  Trellis release branch, where `<release-tag>` is the Trellis version tag such
+  as `v0.11.0-rc.2`:
+  `https://raw.githubusercontent.com/Qlever-LLC/trellis/refs/heads/release/<release-tag>/docs/static/llms.txt`,
+  `https://raw.githubusercontent.com/Qlever-LLC/trellis/refs/heads/release/<release-tag>/docs/static/llms-full.txt`,
   and
-  `https://raw.githubusercontent.com/qlever-llc/trellis/<release-branch>/docs/static/llms-rust.txt`.
+  `https://raw.githubusercontent.com/Qlever-LLC/trellis/refs/heads/release/<release-tag>/docs/static/llms-rust.txt`.
 - Read the short guide for every Trellis task. Read the full and Rust guides
   before changing contracts, service handlers, events, operations, generated
   SDKs, or outbox/inbox code.
@@ -35,9 +36,6 @@ Trellis by hand-building NATS subjects, envelopes, or JSON wire payloads.
 - Before adding compatibility shims, aliases, dual-read/write paths, or
   migrations, ask whether compatibility is wanted unless deployed data requires
   it.
-- When upgrading the Trellis version, compare this repository's `AGENTS.md`
-  against the new Trellis template for that version and propose any missing
-  guidance updates before changing broad local agent rules.
 - Services communicate through Trellis contract surfaces. Use RPCs, operations,
   events, feeds, state, files, jobs, KV, and store handles instead of direct
   cross-service storage or raw transport access.
