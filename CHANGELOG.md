@@ -161,7 +161,7 @@ and this project adheres to
   longer requires generated Cargo SDK packages before prepare runs.
 - Fixed release gates for Trellis CLI artifact packaging, demo prepare locks,
   package test fakes, npm SDK smoke tests, Rust admin bootstrap integration, and
-  publishable control-plane service imports.
+  publishable control-plane service imports and JSR dry-runs.
 - Fixed duplicate workspace dependency metadata.
 - Fixed generated operation handler typing, source operation descriptor typing,
   and generated SDK capability types.

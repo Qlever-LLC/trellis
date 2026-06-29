@@ -18,7 +18,8 @@
       "**/fixtures/**",
       "**/test_*.ts",
       "**/*_test.ts",
-      "**/*.test.ts"
+      "**/*.test.ts",
+      "!auth/test_hooks.ts"
     ]
   },
   "imports": {

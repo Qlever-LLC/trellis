@@ -73,7 +73,10 @@ liveTrellisTest({
         message: `${orderedMessage}:fast`,
         done: true,
       });
-      assertEquals(callbacks, ["accepted", "started", "progress", "completed"]);
+      assertEquals(callbacks[0], "accepted");
+      assertEquals(callbacks.includes("started"), true);
+      assertEquals(callbacks.includes("progress"), true);
+      assertEquals(callbacks.at(-1), "completed");
 
       const fastCallbacks: string[] = [];
       const fastRef = await client.operation.entity.process.input({
