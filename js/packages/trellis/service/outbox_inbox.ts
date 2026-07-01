@@ -208,6 +208,12 @@ export function createSqliteOutboxSchema(
   const sqlTables = validateSqlOutboxTables(tables);
   return [
     `CREATE TABLE IF NOT EXISTS ${sqlTables.outbox} (id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, subject TEXT NOT NULL, payload TEXT NOT NULL, headers TEXT NOT NULL, state TEXT NOT NULL, attempts INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, next_attempt_at TEXT, last_error TEXT, outcome TEXT)`,
+    `PRAGMA writable_schema=ON`,
+    `UPDATE sqlite_schema SET sql = replace(sql, 'event TEXT NOT NULL', 'name TEXT NOT NULL') WHERE type = 'table' AND name = '${sqlTables.outbox}' AND sql LIKE '%event TEXT NOT NULL%' AND sql NOT LIKE '%name TEXT NOT NULL%'`,
+    `UPDATE sqlite_schema SET sql = replace(sql, 'last_error TEXT)', 'last_error TEXT, kind TEXT NOT NULL DEFAULT ''event.publish'', outcome TEXT)') WHERE type = 'table' AND name = '${sqlTables.outbox}' AND sql NOT LIKE '%kind TEXT%' AND sql NOT LIKE '%outcome TEXT%'`,
+    `UPDATE sqlite_schema SET sql = replace(sql, 'last_error TEXT, outcome TEXT)', 'last_error TEXT, kind TEXT NOT NULL DEFAULT ''event.publish'', outcome TEXT)') WHERE type = 'table' AND name = '${sqlTables.outbox}' AND sql NOT LIKE '%kind TEXT%' AND sql LIKE '%outcome TEXT%'`,
+    `UPDATE sqlite_schema SET sql = replace(sql, 'last_error TEXT)', 'last_error TEXT, outcome TEXT)') WHERE type = 'table' AND name = '${sqlTables.outbox}' AND sql LIKE '%kind TEXT%' AND sql NOT LIKE '%outcome TEXT%'`,
+    `PRAGMA writable_schema=RESET`,
     `CREATE INDEX IF NOT EXISTS ${sqlTables.outbox}_due_idx ON ${sqlTables.outbox} (state, next_attempt_at)`,
     `CREATE TABLE IF NOT EXISTS ${sqlTables.inbox} (message_id TEXT PRIMARY KEY, received_at TEXT NOT NULL)`,
   ];
@@ -220,6 +226,7 @@ export function createPostgresOutboxSchema(
   const sqlTables = validateSqlOutboxTables(tables);
   return [
     `CREATE TABLE IF NOT EXISTS ${sqlTables.outbox} (id text PRIMARY KEY, kind text NOT NULL, name text NOT NULL, subject text NOT NULL, payload text NOT NULL, headers jsonb NOT NULL, state text NOT NULL, attempts integer NOT NULL, created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL, next_attempt_at timestamptz, last_error text, outcome jsonb)`,
+    `DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = '${sqlTables.outbox}' AND column_name = 'event') AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = '${sqlTables.outbox}' AND column_name = 'name') THEN ALTER TABLE ${sqlTables.outbox} RENAME COLUMN event TO name; END IF; ALTER TABLE ${sqlTables.outbox} ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'event.publish'; ALTER TABLE ${sqlTables.outbox} ADD COLUMN IF NOT EXISTS outcome jsonb; END $$`,
     `CREATE INDEX IF NOT EXISTS ${sqlTables.outbox}_due_idx ON ${sqlTables.outbox} (state, next_attempt_at)`,
     `CREATE TABLE IF NOT EXISTS ${sqlTables.inbox} (message_id text PRIMARY KEY, received_at timestamptz NOT NULL)`,
   ];

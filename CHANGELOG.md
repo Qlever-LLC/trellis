@@ -8,6 +8,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed Trellis SQL outbox migrations so 0.10 SQLite/Postgres outbox tables with
+  `event` columns upgrade to the 0.11 `kind`/`name`/`outcome` schema without
+  downstream hand patches.
+
 ## [0.11.0-rc.2] - 2026-06-29
 
 ### Fixed

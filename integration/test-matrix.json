@@ -4409,6 +4409,43 @@
       }
     },
     {
+      "kind": "client",
+      "id": "outbox.sqlite-010-schema-upgrades",
+      "fixture": "outbox",
+      "title": "SQLite SQL outbox migration upgrades 0.10 rows",
+      "coverage": [
+        "service-sql-outbox",
+        "outbox-schema-migration"
+      ],
+      "description": "A SQLite outbox table created by Trellis 0.10 with an event column is upgraded by Trellis-owned migration artifacts so 0.11 inserts succeed and pending rows are preserved.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "service",
+            "kind": "service",
+            "contract": "trellis.integration.outbox-service@v1"
+          }
+        ],
+        "given": [
+          "a real SQLite database with the Trellis 0.10 trellis_outbox schema",
+          "a pending legacy outbox row stores its event name in the event column"
+        ],
+        "when": [
+          "the 0.11 SQL outbox migration artifacts are applied twice",
+          "the service enqueues through service.createSqlOutbox"
+        ],
+        "then": [
+          "the legacy row is preserved with kind 'event.publish'",
+          "the legacy event value is available as name",
+          "the 0.11 SQL outbox insert succeeds"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
       "kind": "service",
       "id": "control-plane.admin-bootstrap-creates-first-local-admin",
       "fixture": "control-plane",

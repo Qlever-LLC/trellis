@@ -791,6 +791,12 @@ export const jsIntegrationCases: readonly JsIntegrationCase[] = [
     testName: "outbox.sql-row-state-is-dispatched after successful commit",
     runtime: "live-trellis",
   },
+  {
+    id: "outbox.sqlite-010-schema-upgrades",
+    file: "outbox/sqlite_010_outbox_schema_upgrades.integration_test.ts",
+    testName: "outbox.sqlite-010-schema-upgrades migrates legacy event rows",
+    runtime: "live-trellis",
+  },
 ];
 
 /** Returns local JS integration case IDs selected by fixture prefix. */

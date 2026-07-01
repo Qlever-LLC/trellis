@@ -1,8 +1,12 @@
-import { assertEquals, assertThrows } from "@std/assert";
+import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import type { SQL } from "drizzle-orm";
 import { CasingCache } from "npm:drizzle-orm@0.44.7/casing";
 import type { PreparedOutboxRecord } from "../service/outbox_inbox.ts";
-import { createSqlOutboxAdapter, type SqlRow } from "../service/mod.ts";
+import {
+  createSqlOutboxAdapter,
+  getSqlOutboxMigrations,
+  type SqlRow,
+} from "../service/mod.ts";
 import {
   bindDrizzleSqlStatement,
   createDrizzleSqlExecutor,
@@ -172,6 +176,17 @@ Deno.test("Drizzle SQL executor works with sqlite outbox adapter", async () => {
     "2026-05-25T00:00:00.000Z",
     10,
   ]);
+});
+
+Deno.test("Postgres outbox migrations include legacy event column upgrade", () => {
+  const up = getSqlOutboxMigrations({ dialect: "postgres" })[0].up.join("\n");
+
+  assertStringIncludes(up, "RENAME COLUMN event TO name");
+  assertStringIncludes(
+    up,
+    "ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'event.publish'",
+  );
+  assertStringIncludes(up, "ADD COLUMN IF NOT EXISTS outcome jsonb");
 });
 
 class RecordingDrizzleDatabase implements DrizzleSqlDatabase {

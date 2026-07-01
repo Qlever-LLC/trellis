@@ -1,5 +1,9 @@
 import { defineAppContract, defineServiceContract } from "@qlever-llc/trellis";
-import type { SqlExecutor, SqlRow } from "@qlever-llc/trellis/service";
+import {
+  getSqlOutboxMigrations,
+  type SqlExecutor,
+  type SqlRow,
+} from "@qlever-llc/trellis/service";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
 import { Type } from "typebox";
 import type { LiveTrellisRuntime } from "../_support/runtime.ts";
@@ -96,16 +100,6 @@ function createSqlJsExecutor(db: SqlJsDatabase): SqlExecutor {
       }
     },
   };
-}
-
-function createSqliteOutboxSchema(
-  tables: { outbox: string; inbox: string },
-): readonly string[] {
-  return [
-    `CREATE TABLE IF NOT EXISTS ${tables.outbox} (id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, subject TEXT NOT NULL, payload TEXT NOT NULL, headers TEXT NOT NULL, state TEXT NOT NULL, attempts INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, next_attempt_at TEXT, last_error TEXT, outcome TEXT)`,
-    `CREATE INDEX IF NOT EXISTS ${tables.outbox}_due_idx ON ${tables.outbox} (state, next_attempt_at)`,
-    `CREATE TABLE IF NOT EXISTS ${tables.inbox} (message_id TEXT PRIMARY KEY, received_at TEXT NOT NULL)`,
-  ];
 }
 
 export function createOutboxFixture(caseId: string) {
@@ -236,16 +230,23 @@ export function createOutboxFixture(caseId: string) {
     },
   }));
 
-  async function createDb() {
+  async function createEmptyDb() {
     const SQL = await getSqlJs();
-    const db = new SQL.Database();
+    return new SQL.Database();
+  }
+
+  async function createDb() {
+    const db = await createEmptyDb();
     for (
-      const ddl of createSqliteOutboxSchema({
-        outbox: "trellis_outbox",
-        inbox: "trellis_inbox",
+      const migration of getSqlOutboxMigrations({
+        dialect: "sqlite",
+        tables: {
+          outbox: "trellis_outbox",
+          inbox: "trellis_inbox",
+        },
       })
     ) {
-      db.run(ddl);
+      for (const ddl of migration.up) db.run(ddl);
     }
     return db;
   }
@@ -333,6 +334,7 @@ export function createOutboxFixture(caseId: string) {
     multiDocumentId: caseScopedName("doc-multi", caseId),
     listenerDocumentId: caseScopedName("doc-listener", caseId),
     rowStateDocumentId: caseScopedName("doc-row-state", caseId),
+    createEmptyDb,
     createDb,
     connectService,
     createOutbox,
