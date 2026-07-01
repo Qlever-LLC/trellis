@@ -31,6 +31,12 @@ commands.
   the browser-safe `@qlever-llc/trellis` root. Runtime-specific helpers,
   generated SDKs, browser auth, device activation, telemetry, and advanced
   contract tooling stay on explicit subpaths.
+- Trellis public API object schemas are open by default. For TypeBox contract
+  schemas used by public RPC input/output, events, operation input/progress/output,
+  feeds, or exported generated schemas, omit `additionalProperties` unless the
+  contract intentionally requires a closed object and explains why; do not use
+  `additionalProperties: false` casually, because ignoring unknown fields keeps
+  older clients and newer servers forward-compatible.
 - Durable event processing uses contract-declared `eventConsumers` resources;
   `eventConsumers.<group>.uses` selects dependency events by top-level `uses`
   alias, and `eventConsumers.<group>.self` selects events owned by the same

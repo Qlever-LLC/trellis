@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -54,6 +55,92 @@ pub struct ResolvedContractInput {
 
 pub fn default_image_contract_path() -> &'static str {
     DEFAULT_IMAGE_CONTRACT_PATH
+}
+
+/// Warns when public contract schemas close object shapes with `additionalProperties: false`.
+pub fn warn_forward_incompatible_public_schemas(loaded: &LoadedManifest) {
+    for warning in forward_incompatible_public_schema_warnings(loaded) {
+        eprintln!("WARNING {warning}");
+    }
+}
+
+fn forward_incompatible_public_schema_warnings(loaded: &LoadedManifest) -> Vec<String> {
+    let manifest = &loaded.manifest;
+    let mut schema_names = BTreeSet::new();
+
+    schema_names.extend(manifest.exports.schemas.iter().cloned());
+    for rpc in manifest
+        .rpc
+        .values()
+        .filter(|rpc| rpc.internal != Some(true))
+    {
+        schema_names.insert(rpc.input.schema.clone());
+        schema_names.insert(rpc.output.schema.clone());
+    }
+    for operation in manifest.operations.values() {
+        schema_names.insert(operation.input.schema.clone());
+        if let Some(progress) = &operation.progress {
+            schema_names.insert(progress.schema.clone());
+        }
+        if let Some(output) = &operation.output {
+            schema_names.insert(output.schema.clone());
+        }
+        for signal in operation.signals.values() {
+            schema_names.insert(signal.input.schema.clone());
+        }
+    }
+    for event in manifest.events.values() {
+        schema_names.insert(event.event.schema.clone());
+    }
+    for feed in manifest.feeds.values() {
+        schema_names.insert(feed.input.schema.clone());
+        schema_names.insert(feed.event.schema.clone());
+    }
+
+    let mut warnings = Vec::new();
+    for name in schema_names {
+        let Some(schema) = manifest.schemas.get(&name) else {
+            continue;
+        };
+        let mut paths = Vec::new();
+        collect_additional_properties_false_paths(
+            schema,
+            &format!(
+                "schemas[{}]",
+                serde_json::to_string(&name).unwrap_or_default()
+            ),
+            &mut paths,
+        );
+        for path in paths {
+            warnings.push(format!(
+                "contract {} public schema {} sets additionalProperties: false; this may break forward compatibility",
+                manifest.id, path
+            ));
+        }
+    }
+    warnings
+}
+
+fn collect_additional_properties_false_paths(value: &Value, path: &str, paths: &mut Vec<String>) {
+    match value {
+        Value::Object(object) => {
+            if object.get("additionalProperties") == Some(&Value::Bool(false)) {
+                paths.push(format!("{path}.additionalProperties"));
+            }
+            for (key, value) in object {
+                if key == "additionalProperties" {
+                    continue;
+                }
+                collect_additional_properties_false_paths(value, &format!("{path}.{key}"), paths);
+            }
+        }
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                collect_additional_properties_false_paths(item, &format!("{path}[{index}]"), paths);
+            }
+        }
+        _ => {}
+    }
 }
 
 pub fn resolve_contract_input(

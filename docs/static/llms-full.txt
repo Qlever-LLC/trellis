@@ -28,6 +28,12 @@ https://raw.githubusercontent.com/qlever-llc/trellis/main/docs/static/llms.txt
   durable listener removes that handler from the shared registry so re-registering
   can resume delivery from the same Trellis-provisioned durable consumer.
 - Runtime authority comes from deployment authority and identity authority.
+- Trellis public API object schemas are open by default. For TypeBox contract
+  schemas used by public RPC input/output, events, operation input/progress/output,
+  feeds, or exported generated schemas, omit `additionalProperties` unless the
+  contract intentionally requires a closed object and explains why. Do not use
+  `additionalProperties: false` casually; ignoring unknown fields is how older
+  clients and newer servers stay forward-compatible.
 - Deployment authority proposal/desired `needs` are grouped by `contracts`,
   `surfaces`, `capabilities`, and `resources`. Materialized authority is a
   runtime projection with `grants` grouped by `capabilities`, `surfaces`, and

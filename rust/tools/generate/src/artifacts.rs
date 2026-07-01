@@ -78,13 +78,15 @@ pub fn sdk_output_stem(contract_id: &str) -> String {
 }
 
 pub fn resolve_contract(args: &ContractInputArgs) -> miette::Result<ResolvedContractInput> {
-    contract_input::resolve_contract_input(
+    let resolved = contract_input::resolve_contract_input(
         args.manifest.as_deref(),
         args.source.as_deref(),
         args.image.as_deref(),
         &args.source_export,
         &args.image_contract_path,
-    )
+    )?;
+    contract_input::warn_forward_incompatible_public_schemas(&resolved.loaded);
+    Ok(resolved)
 }
 
 pub fn write_contract_outputs(

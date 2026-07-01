@@ -316,6 +316,66 @@ export default contract;
 }
 
 #[test]
+fn prepare_warns_for_public_closed_intersect_schemas() {
+    let temp = tempfile::tempdir().unwrap();
+    let service = temp.path().join("services/orders");
+    fs::create_dir_all(service.join("contracts")).unwrap();
+    fs::write(
+        service.join("deno.json"),
+        "{\n  \"version\": \"0.4.0\"\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        service.join("contracts/orders.ts"),
+        r#"const contract = {
+  format: "trellis.contract.v1",
+  id: "trellis.orders@v1",
+  displayName: "Orders",
+  description: "Fixture contract",
+  kind: "service",
+  schemas: {
+    Merged: {
+      allOf: [
+        {
+          type: "object",
+          properties: { id: { type: "string" } },
+          additionalProperties: false,
+        },
+        {
+          type: "object",
+          properties: { status: { type: "string" } },
+          additionalProperties: false,
+        },
+      ],
+    },
+  },
+  rpc: {
+    "Orders.Get": {
+      version: "v1",
+      subject: "rpc.v1.Orders.Get",
+      input: { schema: "Merged" },
+      output: { schema: "Merged" },
+    },
+  },
+};
+
+export default contract;
+"#,
+    )
+    .unwrap();
+
+    let output = run_prepare(temp.path());
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("WARNING contract trellis.orders@v1 public schema schemas[\"Merged\"].allOf[0].additionalProperties sets additionalProperties: false; this may break forward compatibility"));
+    assert!(stderr.contains("schemas[\"Merged\"].allOf[1].additionalProperties"));
+}
+
+#[test]
 fn prepare_generates_rust_participant_facade_for_local_device_uses() {
     let temp = tempfile::tempdir().unwrap();
     let service = temp.path().join("service");

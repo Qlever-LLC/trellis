@@ -347,6 +347,7 @@ pub fn execute_auto_plan(
             "CONTRACT",
             contract_input::default_image_contract_path(),
         )?;
+        contract_input::warn_forward_incompatible_public_schemas(&resolved.loaded);
         match entry.action {
             AutoAction::Generate => {
                 let artifact_version = required_owner_version(
