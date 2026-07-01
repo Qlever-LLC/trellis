@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.11.0-rc.3] - 2026-06-30
+
 ### Fixed
 
 - Fixed Trellis SQL outbox migrations so 0.10 SQLite/Postgres outbox tables with
@@ -1302,7 +1304,9 @@ and this project adheres to
 - Stabilized console profile loading across reconnects, supported optional
   portal app contracts, and trimmed login portal files from the runtime image.
 
-[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.11.0-rc.1...HEAD
+[Unreleased]: https://github.com/Qlever-LLC/trellis/compare/v0.11.0-rc.3...HEAD
+[0.11.0-rc.3]: https://github.com/Qlever-LLC/trellis/compare/v0.11.0-rc.2...v0.11.0-rc.3
+[0.11.0-rc.2]: https://github.com/Qlever-LLC/trellis/compare/v0.11.0-rc.1...v0.11.0-rc.2
 [0.11.0-rc.1]: https://github.com/Qlever-LLC/trellis/compare/v0.10.22...v0.11.0-rc.1
 [0.10.22]: https://github.com/Qlever-LLC/trellis/compare/v0.10.21...v0.10.22
 [0.10.21]: https://github.com/Qlever-LLC/trellis/compare/v0.10.20...v0.10.21
