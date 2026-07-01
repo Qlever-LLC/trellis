@@ -420,6 +420,11 @@ pub(crate) const RUST_INTEGRATION_CASES: &[IntegrationCase] = &[
         "outbox_sql_row_state_is_dispatched",
     ),
     IntegrationCase::live(
+        "outbox.sqlite-010-schema-upgrades",
+        "outbox",
+        "outbox_sqlite_010_schema_upgrades",
+    ),
+    IntegrationCase::live(
         "service-approval.startup-blocks-before-authority-approval",
         "service_approval",
         "service_approval_startup_blocks_before_authority_approval",

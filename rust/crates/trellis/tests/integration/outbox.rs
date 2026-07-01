@@ -1,5 +1,6 @@
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use futures_util::StreamExt;
 use rusqlite::{params, Connection};
@@ -492,6 +493,68 @@ async fn outbox_sql_row_state_is_dispatched() {
     service_task.abort_and_wait().await;
 }
 
+#[tokio::test]
+async fn outbox_sqlite_010_schema_upgrades() {
+    assert_case_registered("outbox.sqlite-010-schema-upgrades", "outbox", "outbox");
+
+    let db_path = temp_sqlite_path("outbox-sqlite-010-schema-upgrades");
+    let conn = Connection::open(&db_path).expect("open SQLite test database");
+    create_legacy_sql_outbox_schema(&conn);
+    insert_legacy_sql_outbox_row(&conn);
+
+    let processed = trellis_rs::client::prepare_event::<ProcessedEvent>(&DocProcessed {
+        document_id: "doc-after-migration".to_string(),
+    })
+    .expect("prepare processed event");
+    let before_migration =
+        insert_service_sql_outbox_event(&conn, "new-before-migration", &processed);
+    assert!(
+        before_migration.is_err(),
+        "legacy 0.10 outbox schema should reject 0.11 inserts"
+    );
+
+    apply_sqlite_sql_outbox_migrations(&conn);
+    apply_sqlite_sql_outbox_migrations(&conn);
+    drop(conn);
+
+    let conn = Connection::open(&db_path).expect("reopen migrated SQLite test database");
+    insert_service_sql_outbox_event(&conn, "new-after-migration", &processed)
+        .expect("insert 0.11 outbox row after migration");
+
+    let legacy: (String, String, String, Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT kind, name, state, next_attempt_at, outcome FROM trellis_outbox WHERE id = ?1",
+            params!["legacy-1"],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )
+        .expect("read migrated legacy row");
+    assert_eq!(legacy.0, "event.publish");
+    assert_eq!(legacy.1, "Document.Processed");
+    assert_eq!(legacy.2, "pending");
+    assert_eq!(legacy.3.as_deref(), Some("2999-01-01T00:00:00.000Z"));
+    assert_eq!(legacy.4, None);
+
+    let inserted: (String, String) = conn
+        .query_row(
+            "SELECT kind, name FROM trellis_outbox WHERE id = ?1",
+            params!["new-after-migration"],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("read inserted migrated row");
+    assert_eq!(inserted.0, "event.publish");
+    assert_eq!(inserted.1, "Document.Processed");
+    drop(conn);
+    std::fs::remove_file(db_path).expect("remove SQLite test database");
+}
+
 struct OutboxFixture {
     _runtime: trellis_test::TrellisTestRuntime,
     service: ConnectedServiceRuntime<OutboxContract>,
@@ -638,6 +701,117 @@ async fn publish_and_mark_dispatched(
 
 fn sqlite_server_error(error: rusqlite::Error) -> trellis_rs::service::ServerError {
     trellis_rs::service::ServerError::Nats(format!("sqlite outbox error: {error}"))
+}
+
+fn create_legacy_sql_outbox_schema(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE trellis_outbox (
+            id TEXT PRIMARY KEY,
+            event TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            headers TEXT NOT NULL,
+            state TEXT NOT NULL,
+            attempts INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            next_attempt_at TEXT,
+            last_error TEXT
+        );",
+    )
+    .expect("create legacy SQL outbox schema");
+}
+
+fn insert_legacy_sql_outbox_row(conn: &Connection) {
+    conn.execute(
+        "INSERT INTO trellis_outbox (id, event, subject, payload, headers, state, attempts, created_at, updated_at, next_attempt_at, last_error)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![
+            "legacy-1",
+            "Document.Processed",
+            "events.v1.Integration.Outbox.Document.Processed.legacy",
+            r#"{"documentId":"legacy-doc"}"#,
+            "{}",
+            "pending",
+            0,
+            "2026-01-01T00:00:00.000Z",
+            "2026-01-01T00:00:00.000Z",
+            "2999-01-01T00:00:00.000Z",
+            Option::<String>::None,
+        ],
+    )
+    .expect("insert legacy SQL outbox row");
+}
+
+fn apply_sqlite_sql_outbox_migrations(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS trellis_outbox (id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, subject TEXT NOT NULL, payload TEXT NOT NULL, headers TEXT NOT NULL, state TEXT NOT NULL, attempts INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, next_attempt_at TEXT, last_error TEXT, outcome TEXT);",
+    )
+    .expect("create SQL outbox table when missing");
+    if column_exists(conn, "trellis_outbox", "event")
+        && !column_exists(conn, "trellis_outbox", "name")
+    {
+        conn.execute_batch("ALTER TABLE trellis_outbox RENAME COLUMN event TO name")
+            .expect("rename legacy event column");
+    }
+    if !column_exists(conn, "trellis_outbox", "kind") {
+        conn.execute_batch(
+            "ALTER TABLE trellis_outbox ADD COLUMN kind TEXT NOT NULL DEFAULT 'event.publish'",
+        )
+        .expect("add outbox kind column");
+    }
+    if !column_exists(conn, "trellis_outbox", "outcome") {
+        conn.execute_batch("ALTER TABLE trellis_outbox ADD COLUMN outcome TEXT")
+            .expect("add outbox outcome column");
+    }
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS trellis_outbox_due_idx ON trellis_outbox (state, next_attempt_at);
+         CREATE TABLE IF NOT EXISTS trellis_inbox (message_id TEXT PRIMARY KEY, received_at TEXT NOT NULL);",
+    )
+    .expect("create SQL outbox indexes and inbox table");
+}
+
+fn column_exists(conn: &Connection, table: &str, column: &str) -> bool {
+    let mut statement = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .expect("prepare table info query");
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .expect("query table info");
+    let exists = columns
+        .map(|name| name.expect("read table column name"))
+        .any(|name| name == column);
+    exists
+}
+
+fn insert_service_sql_outbox_event(
+    conn: &Connection,
+    id: &str,
+    event: &PreparedTrellisEvent,
+) -> rusqlite::Result<usize> {
+    conn.execute(
+        "INSERT INTO trellis_outbox (id, kind, name, subject, payload, headers, state, attempts, created_at, updated_at, next_attempt_at, last_error, outcome)
+         VALUES (?1, 'event.publish', ?2, ?3, ?4, ?5, 'pending', 0, ?6, ?6, NULL, NULL, NULL)",
+        params![
+            id,
+            "Document.Processed",
+            event.subject(),
+            String::from_utf8_lossy(event.payload()).as_ref(),
+            serde_json::to_string(event.headers()).expect("serialize event headers"),
+            event.event_time(),
+        ],
+    )
+}
+
+fn temp_sqlite_path(name: &str) -> PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock after epoch")
+        .as_nanos();
+    std::env::temp_dir().join(format!(
+        "trellis-{name}-{}-{nonce}.sqlite",
+        std::process::id()
+    ))
 }
 
 async fn call_rpc_with_retry<D>(client: &TrellisClient, input: &D::Input, label: &str) -> D::Output
