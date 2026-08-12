@@ -58,7 +58,7 @@ Deno.test("OIDC provider maps userinfo claims using sub as stable id", async () 
           email: "ada@example.com",
           email_verified: true,
           picture: "https://example.com/avatar.png",
-          updated_at: "2026-03-26T00:00:00Z",
+          updated_at: 1774483200,
         }),
         { headers: { "content-type": "application/json" } },
       );
