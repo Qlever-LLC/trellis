@@ -11,6 +11,7 @@ const OIDCUserInfoSchema = Type.Object({
   email_verified: Type.Optional(Type.Boolean()),
   picture: Type.Optional(Type.String({ format: "url" })),
   updated_at: Type.Optional(Type.String({ format: "date-time" })),
+  groups: Type.Optional(Type.Array(Type.String())),
 });
 
 type FetchImpl = typeof fetch;
@@ -136,6 +137,7 @@ export class OIDC extends OIDCProvider {
       emailVerified: payload.email_verified ?? false,
       picture: payload.picture,
       updated: payload.updated_at,
+      groups: payload.groups,
     };
   }
 }

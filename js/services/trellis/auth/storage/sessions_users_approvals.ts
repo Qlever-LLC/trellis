@@ -1090,6 +1090,21 @@ export class SqlAccountFlowRepository {
         ));
       }
 
+      if (
+        record.mappedCapabilityGroups &&
+        record.mappedCapabilityGroups.length > 0
+      ) {
+        await tx.update(users).set({
+          capabilityGroups: JSON.stringify([
+            ...new Set([
+              ...targetAccount.capabilityGroups,
+              ...record.mappedCapabilityGroups,
+            ]),
+          ]),
+          updatedAt: nowIso,
+        }).where(eq(users.userId, targetAccount.userId));
+      }
+
       return { ok: true, userId: targetAccount.userId };
     });
   }

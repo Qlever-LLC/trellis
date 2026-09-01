@@ -59,6 +59,7 @@ Deno.test("OIDC provider maps userinfo claims using sub as stable id", async () 
           email_verified: true,
           picture: "https://example.com/avatar.png",
           updated_at: "2026-03-26T00:00:00Z",
+          groups: ["Engineering", "Admins"],
         }),
         { headers: { "content-type": "application/json" } },
       );
@@ -73,6 +74,7 @@ Deno.test("OIDC provider maps userinfo claims using sub as stable id", async () 
     assertEquals(user.email, "ada@example.com");
     assertEquals(user.emailVerified, true);
     assertEquals(user.picture, "https://example.com/avatar.png");
+    assertEquals(user.groups, ["Engineering", "Admins"]);
   } finally {
     restore();
   }

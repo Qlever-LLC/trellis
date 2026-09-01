@@ -7,6 +7,10 @@ import { ulid } from "ulid";
 
 import { planUserContractApproval } from "../approval/plan.ts";
 import {
+  applyProviderGroupMapping,
+  mapProviderGroups,
+} from "../group_mappings.ts";
+import {
   completeAccountFlowOAuth,
   type CompleteAccountFlowOAuthError,
 } from "../account_flows/oauth_completion.ts";
@@ -617,12 +621,21 @@ export function registerBrowserAuthRoutes(
       throw new HTTPException(400, { message: "OAuth provider mismatch" });
     }
     logger.debug({ user: user.id }, "Authentication successful.");
+    const mappedGroups = mapProviderGroups(config, providerId, user.groups);
+    if (mappedGroups.unmappedGroups.length > 0) {
+      logger.warn(
+        { provider: providerId, count: mappedGroups.unmappedGroups.length },
+        "OIDC groups were not mapped to Trellis capability groups",
+      );
+    }
 
     if (oauthEntry.value.kind === "account_flow") {
       const result = await completeAccountFlowOAuth({
         flowId: oauthEntry.value.flowId,
         provider: providerId,
         user,
+        mappedCapabilityGroups: mappedGroups.capabilityGroups,
+        groupMappingConfig: config,
         accountFlowStorage: opts.accountFlowStorage,
         accountStorage: opts.accountStorage,
         capabilityGroupStorage: opts.capabilityGroupStorage,
@@ -676,7 +689,12 @@ export function registerBrowserAuthRoutes(
         user,
         active: selectedPortal.settings.selfRegisteredAccountActive,
         capabilities: selectedPortal.defaultCapabilities,
-        capabilityGroups: selectedPortal.defaultCapabilityGroups,
+        capabilityGroups: [
+          ...new Set([
+            ...selectedPortal.defaultCapabilityGroups,
+            ...mappedGroups.capabilityGroups,
+          ]),
+        ],
         userId: `usr_${ulid()}`,
       });
       if (!result.ok) {
@@ -693,6 +711,16 @@ export function registerBrowserAuthRoutes(
         ok: true as const,
       };
     });
+    linkedUser.account = {
+      ...linkedUser.account,
+      capabilityGroups: applyProviderGroupMapping(
+        config,
+        providerId,
+        linkedUser.account.capabilityGroups,
+        mappedGroups.capabilityGroups,
+      ),
+    };
+    await opts.accountStorage.put(linkedUser.account);
     await opts.userIdentityStorage.put({
       ...linkedUser.identity,
       displayName: user.name ?? linkedUser.identity.displayName,

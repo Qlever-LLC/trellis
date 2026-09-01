@@ -873,6 +873,7 @@ export const AuthenticatedUserSchema = Type.Object({
   email: Type.String(),
   image: Type.Optional(Type.String()),
   capabilities: Type.Array(Type.String()),
+  capabilityGroups: Type.Optional(Type.Array(Type.String())),
   identity: Type.Object({
     identityId: Type.String({ minLength: 1 }),
     provider: Type.String({ minLength: 1 }),

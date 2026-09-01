@@ -4,7 +4,7 @@ import type { API } from "./api.ts";
 
 export const CONTRACT_ID = "trellis.auth@v1" as const;
 export const CONTRACT_DIGEST =
-  "x-9_MjfSThvbn1yc9jAWbaraniKLZ74oUeUqqtZijXQ" as const;
+  "tDdbwBWcaROVk3dCQASWaIJGrCTtj2TC1FsEuV05aCM" as const;
 
 export type AuthCapabilitiesListInput = { limit: number; offset?: number };
 export type AuthCapabilitiesListOutput = {
@@ -2108,6 +2108,7 @@ export type AuthSessionsMeOutput = {
   user: {
     active: boolean;
     capabilities: Array<string>;
+    capabilityGroups?: Array<string>;
     email: string;
     identity: { identityId: string; provider: string; subject: string };
     image?: string;

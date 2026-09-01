@@ -8,4 +8,5 @@ export type OAuth2User = {
   company?: string;
   location?: string;
   updated?: string;
+  groups?: string[];
 };

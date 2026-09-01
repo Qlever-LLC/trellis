@@ -6,6 +6,7 @@ import type { OAuth2User } from "../providers/oauth2_user.ts";
 import type { AccountFlow, UserAccount, UserIdentity } from "../schemas.ts";
 import type { CapabilityGroupLoader } from "../capability_groups.ts";
 import { resolvesActiveAdmin } from "../capability_groups.ts";
+import { applyProviderGroupMapping } from "../group_mappings.ts";
 
 const ACCOUNT_PAGE_LIMIT = 100;
 
@@ -57,6 +58,7 @@ export type CompleteAdminBootstrapOAuthAtomicRecord = {
   now: Date;
   provider: string;
   user: OAuth2User;
+  mappedCapabilityGroups?: string[];
   account: UserAccount;
   identity: UserIdentity;
 };
@@ -66,12 +68,15 @@ export type CompleteTargetAccountOAuthAtomicRecord = {
   now: Date;
   provider: string;
   user: OAuth2User;
+  mappedCapabilityGroups?: string[];
 };
 
 export type CompleteAccountFlowOAuthOptions = {
   flowId: string;
   provider: string;
   user: OAuth2User;
+  mappedCapabilityGroups?: string[];
+  groupMappingConfig?: Parameters<typeof applyProviderGroupMapping>[0];
   now?: Date;
   accountFlowStorage: AccountFlowStorage;
   accountStorage: AccountStorage;
@@ -179,6 +184,26 @@ async function completeTargetAccountOAuth(
     ...(existingIdentity ? { existing: existingIdentity } : {}),
   });
 
+  if (options.mappedCapabilityGroups?.length) {
+    await options.accountStorage.put({
+      ...targetAccount,
+      capabilityGroups: options.groupMappingConfig
+        ? applyProviderGroupMapping(
+          options.groupMappingConfig,
+          options.provider,
+          targetAccount.capabilityGroups,
+          options.mappedCapabilityGroups,
+        )
+        : [
+          ...new Set([
+            ...targetAccount.capabilityGroups,
+            ...options.mappedCapabilityGroups,
+          ]),
+        ],
+      updatedAt: nowIso,
+    });
+  }
+
   const consumed = await options.accountFlowStorage.consume(flowIdHash, nowIso);
   if (!consumed) return { ok: false, error: "flow_consume_conflict" };
 
@@ -215,6 +240,7 @@ export async function completeAccountFlowOAuth(
         now,
         provider: options.provider,
         user: options.user,
+        mappedCapabilityGroups: options.mappedCapabilityGroups ?? [],
       });
     }
     return await completeTargetAccountOAuth(options, flow, flowIdHash, now);
@@ -231,6 +257,21 @@ export async function completeAccountFlowOAuth(
     createdAt: nowIso,
     updatedAt: nowIso,
   };
+  if (options.mappedCapabilityGroups?.length) {
+    account.capabilityGroups = options.groupMappingConfig
+      ? applyProviderGroupMapping(
+        options.groupMappingConfig,
+        options.provider,
+        account.capabilityGroups,
+        options.mappedCapabilityGroups,
+      )
+      : [
+        ...new Set([
+          ...account.capabilityGroups,
+          ...options.mappedCapabilityGroups,
+        ]),
+      ];
+  }
   const identity = identityFromOAuth({
     userId,
     provider: options.provider,
@@ -244,6 +285,7 @@ export async function completeAccountFlowOAuth(
       now,
       provider: options.provider,
       user: options.user,
+      mappedCapabilityGroups: options.mappedCapabilityGroups ?? [],
       account,
       identity,
     });

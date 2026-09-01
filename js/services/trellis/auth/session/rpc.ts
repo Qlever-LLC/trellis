@@ -42,6 +42,7 @@ type AuthenticatedUser = {
   email: string;
   image?: string;
   capabilities: string[];
+  capabilityGroups?: string[];
   identity: {
     identityId: string;
     provider: string;
@@ -486,7 +487,10 @@ async function loadAuthenticatedUser(args: {
   userId: string;
   identity: AuthenticatedUser["identity"];
   fallback:
-    & Pick<AuthenticatedUser, "name" | "email" | "capabilities">
+    & Pick<
+      AuthenticatedUser,
+      "name" | "email" | "capabilities" | "capabilityGroups"
+    >
     & Partial<Pick<AuthenticatedUser, "image" | "lastLogin" | "active">>;
 }): Promise<AuthenticatedUser | null> {
   const projection = await args.userStorage.get(args.userId);
@@ -502,6 +506,7 @@ async function loadAuthenticatedUser(args: {
         projection,
         args.capabilityGroupStorage,
       ),
+      capabilityGroups: projection.capabilityGroups,
       ...(args.fallback.lastLogin
         ? { lastLogin: args.fallback.lastLogin }
         : {}),
@@ -682,6 +687,7 @@ async function loadAuthenticatedDevice(args: {
         email:
           `${activation.activatedBy.identity.provider}:${activation.activatedBy.identity.subject}`,
         capabilities: [],
+        capabilityGroups: [],
         active: true,
       },
     })
@@ -749,6 +755,7 @@ export function createAuthSessionsMeHandler(deps: {
             name: session.name,
             email: session.email,
             capabilities: session.delegatedCapabilities,
+            capabilityGroups: [],
             image: session.image,
             lastLogin: session.lastAuth.toISOString(),
             active: true,
