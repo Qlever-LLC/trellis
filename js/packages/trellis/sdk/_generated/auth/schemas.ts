@@ -6210,6 +6210,10 @@ export const AuthSessionsMeResponseSchema = {
         "properties": {
           "active": { "type": "boolean" },
           "capabilities": { "items": { "type": "string" }, "type": "array" },
+          "capabilityGroups": {
+            "items": { "type": "string" },
+            "type": "array",
+          },
           "email": { "type": "string" },
           "identity": {
             "properties": {

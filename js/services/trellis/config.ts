@@ -35,6 +35,11 @@ const oidcProviderSchema = z.object({
   }).optional(),
 });
 
+const groupMappingsSchema = z.record(
+  z.string().min(1),
+  z.record(z.string().min(1), z.array(z.string().min(1))),
+);
+
 const httpRateLimitSchema = z.object({
   windowMs: z.coerce.number().default(60_000),
   max: z.coerce.number().default(60),
@@ -84,11 +89,15 @@ const rawSchema = z.object({
       enabled: true,
       passwordPolicy: { minLength: DEFAULT_LOCAL_PASSWORD_LENGTH },
     }),
+    groupMappings: z.object({
+      providers: groupMappingsSchema.default({}),
+    }).default({ providers: {} }),
   }).default({
     localIdentity: {
       enabled: true,
       passwordPolicy: { minLength: DEFAULT_LOCAL_PASSWORD_LENGTH },
     },
+    groupMappings: { providers: {} },
   }),
   ttlMs: ttlSchema.default({
     sessions: 24 * 60 * 60_000,
@@ -207,6 +216,9 @@ export type Config = {
         minLength: number;
       };
     };
+    groupMappings?: {
+      providers: Record<string, Record<string, string[]>>;
+    };
   };
   ttlMs: {
     sessions: number;
@@ -269,6 +281,22 @@ function normalizeOriginList(origins: string[]): string[] {
     }
   }
   return normalized;
+}
+
+function normalizeGroupMappings(
+  mappings: Record<string, Record<string, string[]>>,
+): Record<string, Record<string, string[]>> {
+  return Object.fromEntries(
+    Object.entries(mappings).map(([provider, providerMappings]) => [
+      provider,
+      Object.fromEntries(
+        Object.entries(providerMappings).map(([group, capabilityGroups]) => [
+          group.trim().toLowerCase(),
+          [...new Set(capabilityGroups)],
+        ]),
+      ),
+    ]),
+  );
 }
 
 function normalizeWebOrigins(origins: string[]): string[] {
@@ -416,7 +444,12 @@ function normalizeConfig(configPath: string, raw: RawConfig): Config {
     storage: {
       dbPath: resolvePath(configPath, raw.storage.dbPath),
     },
-    auth: raw.auth,
+    auth: {
+      localIdentity: raw.auth.localIdentity,
+      groupMappings: {
+        providers: normalizeGroupMappings(raw.auth.groupMappings.providers),
+      },
+    },
     ttlMs: raw.ttlMs,
     nats: {
       servers: raw.nats.servers,
