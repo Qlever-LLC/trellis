@@ -227,7 +227,7 @@ export const AuthCapabilityGroupsDelete = rpcAction(
     output: schema<Types.AuthCapabilityGroupsDeleteOutput>(
       AuthCapabilityGroupsDeleteResponseSchema,
     ),
-    callerCapabilities: ["trellis.auth::admin"] as const,
+    callerCapabilities: ["trellis.auth::capabilities.delegate"] as const,
     errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
     declaredErrorTypes: [
       "AuthError",
@@ -368,7 +368,7 @@ export const AuthCapabilityGroupsPut = rpcAction(
     output: schema<Types.AuthCapabilityGroupsPutOutput>(
       AuthCapabilityGroupsPutResponseSchema,
     ),
-    callerCapabilities: ["trellis.auth::admin"] as const,
+    callerCapabilities: ["trellis.auth::capabilities.delegate"] as const,
     errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
     declaredErrorTypes: [
       "AuthError",
@@ -510,8 +510,8 @@ export const AuthDeploymentAuthorityAcceptMigration = rpcAction(
       AuthDeploymentAuthorityAcceptMigrationResponseSchema,
     ),
     callerCapabilities: [
-      "trellis.auth::admin",
       "trellis.auth::authorities.mutate",
+      "trellis.auth::capabilities.delegate",
     ] as const,
     errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
     declaredErrorTypes: [
@@ -560,8 +560,8 @@ export const AuthDeploymentAuthorityAcceptUpdate = rpcAction(
       AuthDeploymentAuthorityAcceptUpdateResponseSchema,
     ),
     callerCapabilities: [
-      "trellis.auth::admin",
       "trellis.auth::authorities.mutate",
+      "trellis.auth::capabilities.delegate",
     ] as const,
     errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
     declaredErrorTypes: [
@@ -1729,10 +1729,7 @@ export const AuthIdentityAuthorityRevoke = rpcAction(
     output: schema<Types.AuthIdentityAuthorityRevokeOutput>(
       AuthIdentityAuthorityRevokeResponseSchema,
     ),
-    callerCapabilities: [
-      "trellis.auth::admin",
-      "trellis.auth::authorities.mutate",
-    ] as const,
+    callerCapabilities: ["trellis.auth::authorities.mutate"] as const,
     errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
     declaredErrorTypes: [
       "AuthError",
@@ -1955,7 +1952,7 @@ export const AuthPortalsGrantOverridesPut = rpcAction(
       AuthPortalsGrantOverridesPutResponseSchema,
     ),
     callerCapabilities: [
-      "trellis.auth::admin",
+      "trellis.auth::capabilities.delegate",
       "trellis.auth::portals.mutate",
     ] as const,
     errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
@@ -2005,7 +2002,7 @@ export const AuthPortalsGrantOverridesRemove = rpcAction(
       AuthPortalsGrantOverridesRemoveResponseSchema,
     ),
     callerCapabilities: [
-      "trellis.auth::admin",
+      "trellis.auth::capabilities.delegate",
       "trellis.auth::portals.mutate",
     ] as const,
     errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,

@@ -107,9 +107,10 @@ commands.
   Trellis-owned `trellis.*` APIs/capabilities and explicitly reserved platform
   participants require exact canonical artifacts. `trellis-app.cli@v1`,
   `trellis-app.console@v1`, and `trellis-app.portal@v1` are ordinary app
-  participants whose IDs grant nothing. `admin` is a read-only capability-group
-  macro; administrator identity and delegation use the concrete
-  `trellis.auth::admin` capability.
+  participants whose IDs grant nothing. `admin` is a protected read-only policy
+  bundle, not runtime authority. `trellis.auth::admin` marks administrator
+  identity; granular capabilities such as
+  `trellis.auth::capabilities.delegate` authorize machine actions.
 - Service/device bootstrap presents canonical participant and referenced API
   artifacts. Trellis classifies additive compatible changes as updates and
   incompatible API changes as migrations; both require an immutable authority
@@ -129,10 +130,12 @@ commands.
   optional bundle ids, decision, and idempotency key. OIDC callbacks require the
   state-specific browser cookie and current portal policy. Consent is immutable
   for the lifetime of the browser flow.
-- Trusted portal policy is exact to portal + participant. Base capabilities and
-  groups plus verified provider-role mappings may select only capabilities in
-  the server-owned proposal. Successful trusted local registration applies the
-  same policy immediately as local or OIDC login. Policy changes reconcile
+- Trusted portal policy is exact to portal + participant. Writing or removing it
+  requires the `trellis.auth::admin` marker because it can mint portal-bound
+  administrator authority. Base capabilities and groups plus verified
+  provider-role mappings may select only capabilities in the server-owned
+  proposal. Successful trusted local registration applies the same policy
+  immediately as local or OIDC login. Policy changes reconcile
   existing portal-managed identity authority and revoke superseded contexts;
   removing the portal, provider allowance, or policy also clears verified-role
   provenance. Restoring configuration alone cannot resurrect authority; a new

@@ -10,23 +10,42 @@ use super::common::{decode_json, encode_json, map_write_error, sql_error};
 use super::outbox::{insert_sql_idempotency_and_actions, sqlite_idempotency_replay};
 use super::SqliteAuthorizationStore;
 
+pub(crate) const ADMIN_CAPABILITY_GROUP_CAPABILITIES: &[&str] = &[
+    "trellis.auth::admin",
+    "trellis.auth::authorities.mutate",
+    "trellis.auth::authorities.read",
+    "trellis.auth::capabilities.delegate",
+    "trellis.auth::capabilities.read",
+    "trellis.auth::connections.kick",
+    "trellis.auth::connections.read",
+    "trellis.auth::deployments.mutate",
+    "trellis.auth::deployments.read",
+    "trellis.auth::devices.mutate",
+    "trellis.auth::devices.read",
+    "trellis.auth::devices.review",
+    "trellis.auth::portals.mutate",
+    "trellis.auth::portals.read",
+    "trellis.auth::services.mutate",
+    "trellis.auth::services.read",
+    "trellis.auth::sessions.read",
+    "trellis.auth::sessions.revoke",
+    "trellis.auth::users.mutate",
+    "trellis.auth::users.read",
+];
+
 impl SqliteAuthorizationStore {
     pub(crate) async fn ensure_admin_capability_group(
         &self,
-        capabilities: Vec<String>,
         now: i64,
     ) -> Result<(), AuthorizationStateError> {
+        let capabilities = ADMIN_CAPABILITY_GROUP_CAPABILITIES
+            .iter()
+            .map(|capability| (*capability).to_owned())
+            .collect();
         self.run(move |connection| {
             let transaction = connection.transaction().map_err(sql_error)?;
             let current = load_capability_group(&transaction, "admin")?;
-            let version = current.as_ref().map_or(Ok(1), |group| {
-                group.version.checked_add(1).ok_or_else(|| {
-                    AuthorizationStateError::InvalidRecord(
-                        "admin capability group version overflow".to_owned(),
-                    )
-                })
-            })?;
-            let group = CapabilityGroupRecord {
+            let mut group = CapabilityGroupRecord {
                 group_key: "admin".to_owned(),
                 display_name: "Administrator".to_owned(),
                 description:
@@ -36,7 +55,7 @@ impl SqliteAuthorizationStore {
                 included_groups: Vec::new(),
                 created_at: current.as_ref().map_or(now, |group| group.created_at),
                 updated_at: now,
-                version,
+                version: current.as_ref().map_or(1, |group| group.version),
             };
             if current.as_ref().is_some_and(|current| {
                 current.display_name == group.display_name
@@ -45,6 +64,17 @@ impl SqliteAuthorizationStore {
                     && current.included_groups == group.included_groups
             }) {
                 return Ok(());
+            }
+            group.version = group.version.checked_add(1).ok_or_else(|| {
+                AuthorizationStateError::InvalidRecord(
+                    "admin capability group version overflow".to_owned(),
+                )
+            })?;
+            if group.version > 9_007_199_254_740_991 {
+                return Err(AuthorizationStateError::InvalidRecord(
+                    "admin capability group version exceeds the JSON safe-integer maximum"
+                        .to_owned(),
+                ));
             }
             let mut groups = load_capability_groups(&transaction)?
                 .into_iter()
@@ -650,6 +680,41 @@ mod tests {
             .delete_capability_group("base", 1, idempotency("base-delete-referenced"))
             .await
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn admin_group_reconciles_to_platform_definition() {
+        let store = SqliteAuthorizationStore::open_in_memory().unwrap();
+        store.ensure_admin_capability_group(1).await.unwrap();
+        let initial = store.get_capability_group("admin").await.unwrap().unwrap();
+        assert_eq!(
+            initial.capabilities,
+            ADMIN_CAPABILITY_GROUP_CAPABILITIES
+                .iter()
+                .map(|capability| (*capability).to_owned())
+                .collect::<Vec<_>>()
+        );
+
+        store
+            .run(|connection| {
+                connection
+                    .execute(
+                        "UPDATE auth_capability_groups
+                         SET display_name = 'Changed', capabilities_json = '[\"custom::admin\"]'
+                         WHERE group_key = 'admin'",
+                        [],
+                    )
+                    .map_err(map_write_error)?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        store.ensure_admin_capability_group(2).await.unwrap();
+
+        let repaired = store.get_capability_group("admin").await.unwrap().unwrap();
+        assert_eq!(repaired.display_name, "Administrator");
+        assert_eq!(repaired.capabilities, initial.capabilities);
+        assert_eq!(repaired.version, initial.version + 1);
     }
 
     #[tokio::test]

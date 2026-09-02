@@ -552,7 +552,7 @@ fn administrator_grants_include_optional_console_surfaces() {
     assert!(capabilities.contains(&"trellis.eventlog::read".to_owned()));
     assert!(capabilities.contains(&"trellis.eventlog::stream".to_owned()));
     assert!(
-        capabilities.contains(&"trellis.auth::admin".to_owned()),
+        capabilities.contains(&"trellis.auth::capabilities.delegate".to_owned()),
         "{capabilities:?}"
     );
     assert!(capabilities.contains(&"trellis.health::read".to_owned()));

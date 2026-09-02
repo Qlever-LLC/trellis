@@ -93,12 +93,55 @@ where
             .await?;
         return Ok(Json(portal_flow_response(&state, flow).await?));
     }
+    if flow.state == AuthBrowserFlowState::Authenticated
+        && state
+            .service
+            .repository()
+            .get_portal_grant_override(&flow.portal_id, &flow.participant_id)
+            .await?
+            .is_some()
+    {
+        let provider_id = flow
+            .authenticated_provider_id
+            .clone()
+            .ok_or_else(|| HttpError::conflict("flow_has_no_principal"))?;
+        let attributes = ProviderLoginAttributes {
+            provider_id,
+            roles: flow.authenticated_roles.clone(),
+        };
+        let approved =
+            apply_trusted_portal_authority(&state, flow.clone(), attributes, now).await?;
+        let approved = approved.unwrap_or(flow);
+        return Ok(Json(portal_flow_response(&state, approved).await?));
+    }
     let principal_id = flow
         .principal_id
         .clone()
         .ok_or_else(|| HttpError::conflict("flow_has_no_principal"))?;
     let (grant_set, capabilities, selected_optional_bundles) =
         select_browser_authority(&flow.consent, &request.selected_optional_bundles)?;
+    if capabilities
+        .iter()
+        .any(|capability| capability == "trellis.auth::admin")
+    {
+        let current = state
+            .service
+            .repository()
+            .get_identity_authority(&principal_id, &flow.participant_id)
+            .await?;
+        if !current.is_some_and(|authority| {
+            authority.state == AuthorityState::Accepted
+                && authority
+                    .expires_at
+                    .is_none_or(|expires_at| expires_at > now)
+                && authority
+                    .desired_capabilities
+                    .iter()
+                    .any(|capability| capability == "trellis.auth::admin")
+        }) {
+            return Err(HttpError::forbidden("administrative_approval_required"));
+        }
+    }
     let signer_id = super::super::super::domain::validate_ed25519_public_key(
         "sessionPublicKey",
         &flow.session_public_key,
@@ -419,7 +462,16 @@ where
     }
     let expected = flow.version;
     let allow_automatic_approval = automatic_approval_allowed(require_explicit_approval);
-    let existing_authority = if !allow_automatic_approval {
+    // ponytail: a portal policy governs this login even when an accepted
+    // authority exists, so reconcile through policy instead of the fast path.
+    let policy_governs = allow_automatic_approval
+        && state
+            .service
+            .repository()
+            .get_portal_grant_override(&flow.portal_id, &flow.participant_id)
+            .await?
+            .is_some();
+    let existing_authority = if !allow_automatic_approval || policy_governs {
         None
     } else {
         state

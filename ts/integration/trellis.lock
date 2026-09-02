@@ -4,7 +4,7 @@ manifest-digest = "6fx1ycOWTO2jPP84kJ6bUHI0el8B_D_FZY_l3MSDwHQ"
 [[api]]
 id = "trellis.auth@v1"
 version = "1.0.0"
-api-digest = "cpm45yYWFThvfFF5kx2hWd8YhJjhW1ZL7ooR8bG8Ab8"
+api-digest = "jHBD-szHEWNdiEHnpbQ6CN3_DAoVq_GzBuy6d6kUUHo"
 path = "../../rust/crates/runtime/.trellis/generated/protocol/apis/trellis.auth@v1.json"
 
 [[api]]

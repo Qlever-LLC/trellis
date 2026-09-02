@@ -83,10 +83,11 @@ exact participant artifact and needs digests.
   APIs/capabilities and explicitly reserved platform participants require exact
   canonical artifacts. `trellis-app.cli@v1`, `trellis-app.console@v1`, and
   `trellis-app.portal@v1` are ordinary app participants whose IDs grant nothing.
-  `admin` is a read-only capability-group macro; administrator identity and
-  delegation use the concrete `trellis.auth::admin` capability.
-  presented as review evidence only when all of its permission atoms are in the
-  exact request; partial and uncovered permissions remain explicit, and
+  `admin` is a protected read-only policy bundle, not runtime authority.
+  `trellis.auth::admin` marks administrator identity; granular capabilities such
+  as `trellis.auth::capabilities.delegate` authorize machine actions.
+  Capability evidence is presented only when all of its permission atoms are in
+  the exact request; partial and uncovered permissions remain explicit, and
   capability evidence includes its defining API digest and never expands runtime
   grants.
 - Bootstrap presents canonical participant and referenced API artifacts through
@@ -146,10 +147,12 @@ exact participant artifact and needs digests.
   server-issued optional bundle ids. OIDC callbacks require a state-specific
   `HttpOnly` cookie and revalidate portal/provider registration policy. The full
   server-owned consent proposal is immutable across browser-flow transitions.
-- Trusted portal policy is exact to portal + participant. Base capabilities and
-  recursive capability-group macros plus verified provider-role mappings select
-  only proposal-defined authority. Successful trusted local registration applies
-  the same policy immediately as local or OIDC login. Policy reconciliation uses
+- Trusted portal policy is exact to portal + participant. Writing or removing it
+  requires the `trellis.auth::admin` marker because it can mint portal-bound
+  administrator authority. Base capabilities and recursive capability-group
+  macros plus verified provider-role mappings select only proposal-defined
+  authority. Successful trusted local registration applies the same policy
+  immediately as local or OIDC login. Policy reconciliation uses
   ordinary identity authority, context revocation, and exact connection kicks;
   removing a portal, provider allowance, or policy atomically clears verified-role
   provenance. Restoring configuration alone cannot resurrect authority; a fresh

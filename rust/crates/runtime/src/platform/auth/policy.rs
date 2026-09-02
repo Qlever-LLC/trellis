@@ -220,11 +220,18 @@ pub(crate) fn resolve_portal_authority_selection(
 
     let mut permissions = consent.required_grant_set.permissions().to_vec();
     let mut capabilities = consent.required_capabilities.clone();
+    // ponytail: the admin marker is platform classification, not participant
+    // permission evidence, so it bypasses proposal bounding; only admins can
+    // write the policy that selects it.
+    let admin_marker_selected = selected.contains("trellis.auth::admin");
     for capability in selected {
         if let Some(grants) = consent.optional_capability_definitions.get(&capability) {
             permissions.extend_from_slice(grants.permissions());
             capabilities.push(capability);
         }
+    }
+    if admin_marker_selected {
+        capabilities.push("trellis.auth::admin".to_owned());
     }
     capabilities.sort();
     capabilities.dedup();

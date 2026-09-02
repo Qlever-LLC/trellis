@@ -119,8 +119,9 @@ exact participant artifact and needs digests.
   reserved platform participants require exact canonical artifacts.
   `trellis-app.cli@v1`, `trellis-app.console@v1`, and
   `trellis-app.portal@v1` are ordinary app participants whose IDs grant nothing.
-  `admin` is a capability-group macro; administrator identity and delegation use
-  the concrete `trellis.auth::admin` capability.
+  `admin` is a protected policy bundle, not runtime authority.
+  `trellis.auth::admin` marks administrator identity; granular capabilities such
+  as `trellis.auth::capabilities.delegate` authorize machine actions.
   add a transport shim in the service repository.
 - Protocol tooling can call `trellis_protocol::resolve_participant(...)` with
   one validated participant artifact and its exact digest-pinned API artifacts.
@@ -197,7 +198,8 @@ exact participant artifact and needs digests.
 - Deployment authority `needs` group contracts, surfaces, capabilities, and
   resources. Materialized grants group capabilities, surfaces, and NATS rules.
 - Trusted browser authority policy is keyed by exact portal + participant.
-  Capability groups are recursive administrative macros, verified OIDC roles
+  Writing or removing it requires the `trellis.auth::admin` marker. Capability
+  groups are recursive administrative macros, verified OIDC roles
   select provider-scoped mappings, and both are bounded by the participant
   proposal. Successful trusted local registration applies the same policy as
   local or OIDC login. Reconciliation revokes superseded contexts and exact

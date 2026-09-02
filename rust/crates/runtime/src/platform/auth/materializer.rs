@@ -140,19 +140,23 @@ fn materialize_available(
         }
     }
     let accepted_capabilities = authority.capabilities().iter().collect::<BTreeSet<_>>();
-    let capabilities = canonical_capabilities(
-        requested_capabilities
-            .into_iter()
-            .filter(|value| {
-                accepted_capabilities.contains(value)
-                    || accepted_capabilities.iter().any(|accepted| {
-                        accepted
-                            .rsplit_once("::")
-                            .is_some_and(|(_, name)| name == value)
-                    })
-            })
-            .collect::<Vec<_>>(),
-    )?;
+    let mut projected = requested_capabilities
+        .into_iter()
+        .filter(|value| {
+            accepted_capabilities.contains(value)
+                || accepted_capabilities.iter().any(|accepted| {
+                    accepted
+                        .rsplit_once("::")
+                        .is_some_and(|(_, name)| name == value)
+                })
+        })
+        .collect::<Vec<_>>();
+    // ponytail: the administrator marker is platform-seeded classification, not
+    // participant permission evidence, so it bypasses the proposal projection.
+    if accepted_capabilities.contains(&"trellis.auth::admin".to_owned()) {
+        projected.push("trellis.auth::admin".to_owned());
+    }
+    let capabilities = canonical_capabilities(projected)?;
     assert_eq!(capabilities, canonical_capabilities(capabilities.clone())?);
 
     Ok(MaterializationReplacement {

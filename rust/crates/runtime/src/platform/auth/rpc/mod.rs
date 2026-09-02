@@ -1466,7 +1466,6 @@ impl AuthRpcProcessor {
         payload: &[u8],
         caller: &ValidatedRequest,
     ) -> Result<Value, AuthorizationStateError> {
-        require_admin(caller)?;
         let input: Value = serde_json::from_slice(payload)
             .map_err(|error| AuthorizationStateError::InvalidRecord(error.to_string()))?;
         let key = required_string(&input, "groupKey")?;
@@ -1538,7 +1537,6 @@ impl AuthRpcProcessor {
         payload: &[u8],
         caller: &ValidatedRequest,
     ) -> Result<Value, AuthorizationStateError> {
-        require_admin(caller)?;
         let input: Value = serde_json::from_slice(payload)
             .map_err(|error| AuthorizationStateError::InvalidRecord(error.to_string()))?;
         let key = required_string(&input, "groupKey")?;
@@ -2132,7 +2130,6 @@ impl AuthRpcProcessor {
         caller: &ValidatedRequest,
         expected_kind: AuthorityProposalKind,
     ) -> Result<Value, AuthorizationStateError> {
-        require_admin(caller)?;
         let input: Value = serde_json::from_slice(payload)
             .map_err(|error| AuthorizationStateError::InvalidRecord(error.to_string()))?;
         let proposal_id = plan_id(&input)?;
@@ -4015,7 +4012,7 @@ mod tests {
     }
 
     #[test]
-    fn authority_delegation_requires_admin_capability() {
+    fn administrator_context_requires_admin_marker() {
         let mut caller = ValidatedRequest {
             principal_id: "prn_user".to_owned(),
             principal_kind: PrincipalKind::User,

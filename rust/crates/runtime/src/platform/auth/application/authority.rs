@@ -270,22 +270,6 @@ where
             .repository
             .get_identity_authority(&input.principal_id, &input.participant_id)
             .await?;
-        if input
-            .capabilities
-            .iter()
-            .any(|capability| capability == "trellis.auth::admin")
-            && !current.as_ref().is_some_and(|authority| {
-                authority.state == AuthorityState::Accepted
-                    && authority
-                        .desired_capabilities
-                        .iter()
-                        .any(|capability| capability == "trellis.auth::admin")
-            })
-        {
-            return Err(AuthorizationStateError::InvalidRecord(
-                "existing trellis.auth::admin authority is required".to_owned(),
-            ));
-        }
         let current_portal_binding = self
             .repository
             .list_portal_authority_bindings()

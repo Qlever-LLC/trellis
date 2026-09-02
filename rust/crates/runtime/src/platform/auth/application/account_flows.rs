@@ -224,6 +224,15 @@ where
     ) -> Result<IdempotentOutcome<FirstAdminAccount>, AuthorizationStateError> {
         super::validation::validate_idempotency_and_actions(&input.idempotency, &input.actions)?;
         super::super::domain::require_protocol_timestamp("completedAt", input.completed_at)?;
+        if !input
+            .capabilities
+            .iter()
+            .any(|capability| capability == "trellis.auth::admin")
+        {
+            input.capabilities.push("trellis.auth::admin".to_owned());
+            input.capabilities.sort();
+            input.capabilities.dedup();
+        }
         let token = URL_SAFE_NO_PAD.decode(&input.token).map_err(|_| {
             AuthorizationStateError::InvalidRecord(
                 "first-admin token is not canonical base64url".to_owned(),
@@ -452,6 +461,15 @@ where
     ) -> Result<IdempotentOutcome<FirstAdminAccount>, AuthorizationStateError> {
         super::validation::validate_idempotency_and_actions(&input.idempotency, &input.actions)?;
         super::super::domain::require_protocol_timestamp("completedAt", input.completed_at)?;
+        if !input
+            .capabilities
+            .iter()
+            .any(|capability| capability == "trellis.auth::admin")
+        {
+            input.capabilities.push("trellis.auth::admin".to_owned());
+            input.capabilities.sort();
+            input.capabilities.dedup();
+        }
         let token = URL_SAFE_NO_PAD.decode(&input.token).map_err(|_| {
             AuthorizationStateError::InvalidRecord(
                 "first-admin token is not canonical base64url".to_owned(),

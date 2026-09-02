@@ -1503,7 +1503,8 @@
         "then": [
           "session A cannot reconnect",
           "session B completes an authenticated RPC through the same file store",
-          "the pinned trust root and manifest floor are retained"
+          "the pinned trust root and manifest floor are retained",
+          "a delegated non-administrator cannot write trusted portal administrator policy while an administrator can"
         ]
       },
       "completion": {

@@ -271,6 +271,17 @@ async fn bootstrap_setup_seeds_cli_authority_and_reset_restores_revoked_authorit
                 .any(|capability| capability == "trellis.auth::admin"),
             "CLI administrator lacks capability delegation authority"
         );
+        assert!(
+            initial_session
+                .user
+                .as_ref()
+                .and_then(|user| user.get("capabilities"))
+                .and_then(Value::as_array)
+                .expect("initial CLI capabilities")
+                .iter()
+                .any(|capability| capability == "trellis.auth::capabilities.delegate"),
+            "CLI administrator lacks granular capability delegation authority"
+        );
         let reset = auth
             .users_password_reset_create(&auth_sdk::AuthUsersPasswordResetCreateRequest {
                 idempotency_key: ulid::Ulid::new().to_string(),
@@ -1047,23 +1058,131 @@ async fn cli_logout_then_login_replaces_persisted_session_and_retains_trust_floo
         .admin
         .try_admin_login_as(username, password)
         .await
-        .expect_err("ordinary user self-granted CLI administrator authority");
+        .expect_err("ordinary user cannot complete CLI administrator login");
     assert!(
-        admin_error.to_string().contains("invalid_request"),
+        admin_error
+            .to_string()
+            .contains("lacks trellis.auth::admin capability"),
         "unexpected non-admin CLI login error: {admin_error}"
     );
+    let retained = fixture
+        .runtime
+        .control_plane_sqlite()
+        .query(
+            "SELECT desired_capabilities_json FROM auth_identity_authorities
+             WHERE principal_id = ? AND participant_id = 'trellis-app.cli@v1'",
+            [&principal_id],
+        )
+        .expect("query rejected CLI authority");
+    assert_eq!(retained.len(), 1, "expected one ordinary CLI authority row");
+    let retained_capabilities = retained[0]["desired_capabilities_json"]
+        .as_str()
+        .expect("desired capabilities");
     assert!(
+        !retained_capabilities.contains("trellis.auth::admin"),
+        "rejected ordinary user retained administrator authority: {retained_capabilities}"
+    );
+
+    let admin_auth = auth_sdk::AuthClient::new(&fixture.admin_caller)
+        .rpc()
+        .auth();
+    admin_auth
+        .portals_grant_overrides_put(&auth_sdk::AuthPortalsGrantOverridesPutRequest {
+            capability_group_keys: vec!["admin".to_owned()],
+            direct_capabilities: Vec::new(),
+            expected_version: None,
+            idempotency_key: ulid::Ulid::new().to_string(),
+            participant_id: "trellis-app.cli@v1".to_owned(),
+            portal_id: "builtin".to_owned(),
+            role_mappings: Vec::new(),
+        })
+        .await
+        .expect("configure trusted CLI administrator policy");
+    let policy_manager_contract =
+        trellis_test::TrellisTestContract::from_builder_with_referenced_contracts(
+            trellis_rs::contracts::ContractBuilder::authoring(
+                "integration.auth-policy-manager@v1",
+                "integration.auth-policy-manager@v1",
+                "1.0.0",
+                "Non-admin Portal Policy Manager",
+                "Proves portal grant-override policy writes require administrator authority.",
+                trellis_rs::contracts::ContractKind::App,
+            )
+            .use_ref(
+                "auth",
+                trellis_rs::contracts::use_contract(auth_sdk::API_ID)
+                    .with_rpc_call(["Auth.Portals.GrantOverrides.Put"]),
+            ),
+            &[&trellis_test::TrellisTestContract::from_native_api_json(
+                auth_sdk::API_ID,
+                auth_sdk::API_JSON,
+                trellis_rs::contracts::ContractKind::App,
+            )
+            .expect("build Auth API reference contract")],
+        )
+        .expect("build non-admin policy manager contract");
+    let policy_manager = fixture
+        .admin
+        .connect_new_local_user(
+            &fixture.bootstrap_url,
+            &policy_manager_contract,
+            "policy-manager",
+            "policy-manager-password-123",
+        )
+        .await
+        .expect("connect non-admin policy manager");
+    let policy_error = auth_sdk::AuthClient::new(&policy_manager)
+        .rpc()
+        .auth()
+        .portals_grant_overrides_put(&auth_sdk::AuthPortalsGrantOverridesPutRequest {
+            capability_group_keys: vec!["admin".to_owned()],
+            direct_capabilities: Vec::new(),
+            expected_version: None,
+            idempotency_key: ulid::Ulid::new().to_string(),
+            participant_id: "trellis-app.cli@v1".to_owned(),
+            portal_id: "builtin".to_owned(),
+            role_mappings: Vec::new(),
+        })
+        .await
+        .expect_err("non-admin wrote trusted portal administrator policy");
+    assert!(
+        policy_error.to_string().contains("invalid_request"),
+        "unexpected non-admin policy-write error: {policy_error}"
+    );
+    assert_eq!(
         fixture
             .runtime
             .control_plane_sqlite()
             .query(
-                "SELECT 1 FROM auth_identity_authorities WHERE principal_id = ? AND participant_id = 'trellis-app.cli@v1'",
-                [principal_id],
+                "SELECT version FROM auth_portal_grant_overrides
+                 WHERE portal_id = 'builtin' AND participant_id = 'trellis-app.cli@v1'
+                 AND capability_group_keys_json = '[\"admin\"]'",
+                [],
             )
-            .expect("query rejected CLI authority")
-            .is_empty(),
-        "rejected ordinary user retained CLI administrator authority"
+            .expect("query trusted portal policy")[0]["version"],
+        1,
+        "rejected non-admin policy write mutated the stored override"
     );
+    fixture
+        .admin
+        .try_admin_login_as(username, password)
+        .await
+        .expect("trusted policy creates a second CLI administrator");
+    let second_admin = fixture
+        .runtime
+        .control_plane_sqlite()
+        .query(
+            "SELECT desired_capabilities_json FROM auth_identity_authorities
+             WHERE principal_id = ? AND participant_id = 'trellis-app.cli@v1' AND state = 'accepted'",
+            [&principal_id],
+        )
+        .expect("query second CLI administrator authority");
+    let capabilities = second_admin[0]["desired_capabilities_json"]
+        .as_str()
+        .and_then(|value| serde_json::from_str::<Vec<String>>(value).ok())
+        .expect("decode second CLI administrator capabilities");
+    assert!(capabilities.contains(&"trellis.auth::admin".to_owned()));
+    assert!(capabilities.contains(&"trellis.auth::capabilities.delegate".to_owned()));
 
     let _ = auth_sdk::AuthClient::new(&first_client)
         .rpc()
@@ -1475,7 +1594,7 @@ async fn capability_groups_validate_and_protect_builtins() {
         "auth",
         "auth",
     );
-    let fixture = start_fixture(None, false).await;
+    let mut fixture = start_fixture(None, false).await;
     let service_caller = fixture.admin_caller.clone();
     let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
     assert!(auth
@@ -1501,6 +1620,34 @@ async fn capability_groups_validate_and_protect_builtins() {
             .contains(&"trellis.auth::admin".to_owned()),
         "admin group does not mark capability administrators"
     );
+    assert_eq!(
+        admin_group.capabilities,
+        [
+            "trellis.auth::admin",
+            "trellis.auth::authorities.mutate",
+            "trellis.auth::authorities.read",
+            "trellis.auth::capabilities.delegate",
+            "trellis.auth::capabilities.read",
+            "trellis.auth::connections.kick",
+            "trellis.auth::connections.read",
+            "trellis.auth::deployments.mutate",
+            "trellis.auth::deployments.read",
+            "trellis.auth::devices.mutate",
+            "trellis.auth::devices.read",
+            "trellis.auth::devices.review",
+            "trellis.auth::portals.mutate",
+            "trellis.auth::portals.read",
+            "trellis.auth::services.mutate",
+            "trellis.auth::services.read",
+            "trellis.auth::sessions.read",
+            "trellis.auth::sessions.revoke",
+            "trellis.auth::users.mutate",
+            "trellis.auth::users.read",
+        ]
+        .map(str::to_owned)
+    );
+    let canonical_admin_capabilities = admin_group.capabilities.clone();
+    let initial_admin_group_version = admin_group.version;
     let replace_error = auth
         .capability_groups_put(&auth_sdk::AuthCapabilityGroupsPutRequest {
             capabilities: admin_group.capabilities.clone(),
@@ -1569,6 +1716,44 @@ async fn capability_groups_validate_and_protect_builtins() {
         .await
         .expect("delete custom capability group")
         .success
+    );
+    fixture
+        .runtime
+        .control_plane_sqlite()
+        .execute(
+            "UPDATE auth_capability_groups
+             SET display_name = 'Changed', capabilities_json = '[\"custom::admin\"]'
+             WHERE group_key = 'admin'",
+            [],
+        )
+        .expect("stale persisted admin capability group");
+    fixture
+        .runtime
+        .restart_control_plane()
+        .await
+        .expect("restart runtime to reconcile built-in capability groups");
+    let repaired = fixture
+        .runtime
+        .control_plane_sqlite()
+        .query(
+            "SELECT display_name, capabilities_json, version
+             FROM auth_capability_groups WHERE group_key = 'admin'",
+            [],
+        )
+        .expect("query reconciled admin capability group");
+    assert_eq!(repaired[0]["display_name"], "Administrator");
+    assert_eq!(
+        repaired[0]["capabilities_json"]
+            .as_str()
+            .and_then(|value| serde_json::from_str::<Vec<String>>(value).ok())
+            .expect("decode reconciled admin capabilities"),
+        canonical_admin_capabilities
+    );
+    assert!(
+        repaired[0]["version"]
+            .as_i64()
+            .expect("reconciled admin group version")
+            > initial_admin_group_version
     );
 }
 

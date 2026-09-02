@@ -249,7 +249,10 @@ pub(super) async fn exercise_account_flows(
             participant_artifact_digest: authority_target.participant_artifact_digest.clone(),
             participant_needs_digest: authority_target.participant_needs_digest.clone(),
             grant_set: app_fixture.required_grants.clone(),
-            capabilities: vec!["trellis.auth::admin".to_owned()],
+            capabilities: vec![
+                "trellis.auth::admin".to_owned(),
+                "trellis.auth::capabilities.delegate".to_owned(),
+            ],
             authority_expires_at: None,
             completed_at: NOW + 5,
             idempotency: proof(251, "admin-account.complete"),

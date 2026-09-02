@@ -97,9 +97,10 @@ Rules:
   ordinary shipped clients use non-reserved `trellis-app.*` participant IDs
 - principal kinds such as service and bootstrap administrator are domain
   identity properties, not role-shaped capabilities
-- `admin` is a built-in read-only capability-group macro for selecting concrete
-  administrative capabilities; effective administrator identity and authority
-  delegation are gated by the exact API-scoped `trellis.auth::admin` capability
+- `admin` is a built-in read-only capability-group macro for selecting the
+  platform-defined, proposal-bounded administrator bundle; `trellis.auth::admin`
+  marks effective administrator identity, while granular capabilities such as
+  `trellis.auth::capabilities.delegate` authorize machine actions
 - capability metadata belongs to the owning contract; other contracts reference
   used APIs by logical `uses` selections, not by redeclaring another contract's
   capability metadata
@@ -109,14 +110,15 @@ Rules:
 - changing machine capability allows changes the semantic API digest; changing
   consent wording alone does not
 
-| Pattern                          | Example                    | Meaning              | Who Can Claim   |
-| -------------------------------- | -------------------------- | -------------------- | --------------- |
-| `<namespace>::<domain>.<action>` | `trellis.auth::users.read` | Can read users       | Users, Services |
-| `<namespace>::<domain>.<action>` | `graph::partners.write`    | Can mutate partners  | Users, Services |
-| `<namespace>::<action>`          | `trellis.jobs::read`       | Read jobs data       | Users           |
-| `<namespace>::<action>`          | `trellis.jobs::mutate`     | Mutate jobs state    | Users           |
-| `<namespace>::<action>`          | `trellis.jobs::stream`     | Observe jobs streams | Users           |
-| `<namespace>::<domain>.<action>` | `trellis.auth::admin`      | Administer authority | Users           |
+| Pattern                          | Example                               | Meaning              | Who Can Claim   |
+| -------------------------------- | ------------------------------------- | -------------------- | --------------- |
+| `<namespace>::<domain>.<action>` | `trellis.auth::users.read`            | Can read users       | Users, Services |
+| `<namespace>::<domain>.<action>` | `graph::partners.write`               | Can mutate partners  | Users, Services |
+| `<namespace>::<action>`          | `trellis.jobs::read`                  | Read jobs data       | Users           |
+| `<namespace>::<action>`          | `trellis.jobs::mutate`                | Mutate jobs state    | Users           |
+| `<namespace>::<action>`          | `trellis.jobs::stream`                | Observe jobs streams | Users           |
+| `<namespace>::<domain>.<action>` | `trellis.auth::admin`                 | Marks administrator  | Users           |
+| `<namespace>::<domain>.<action>` | `trellis.auth::capabilities.delegate` | Delegate authority   | Users           |
 
 Deployments may still encounter role-shaped strings such as `users:read`, but
 the architectural model is capability-oriented. New Trellis-owned contract

@@ -198,9 +198,10 @@ Rules:
   Trellis-owned `trellis.*` APIs/capabilities and explicitly reserved platform
   participants require exact canonical artifacts. `trellis-app.cli@v1`,
   `trellis-app.console@v1`, and `trellis-app.portal@v1` are ordinary app
-  participants whose IDs grant nothing. `admin` is a capability-group macro;
-  gate administrator UI by the exact effective `trellis.auth::admin`
-  capability, never the group name.
+  participants whose IDs grant nothing. `admin` is a protected policy bundle,
+  not runtime authority. Gate administrator UI by the exact effective
+  `trellis.auth::admin` marker, never the group name; granular capabilities such
+  as `trellis.auth::capabilities.delegate` authorize machine actions.
 - Deployment materialization is shared by the deployment and exact participant.
   Session and instance eligibility is checked separately, so one unhealthy
   instance does not rewrite authority for healthy peers.
@@ -218,7 +219,8 @@ Rules:
   capabilities, resource atoms, or expiry. OIDC callbacks are browser-cookie and
   portal-policy bound. The server-owned consent proposal is immutable across flow
   state transitions.
-- Trusted portal policy is exact to portal + participant and may select only
+- Trusted portal policy is exact to portal + participant, requires the
+  `trellis.auth::admin` marker to write or remove, and may select only
   proposal-defined capabilities through base policy or verified provider-role
   mappings. Successful trusted local registration applies that policy immediately
   like local or OIDC login. On policy changes, Trellis revokes superseded contexts;

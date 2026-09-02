@@ -24,7 +24,7 @@
     "required": {
       "trellis.auth@v1": {
         "api": "trellis.auth@v1",
-        "apiDigest": "cpm45yYWFThvfFF5kx2hWd8YhJjhW1ZL7ooR8bG8Ab8",
+        "apiDigest": "jHBD-szHEWNdiEHnpbQ6CN3_DAoVq_GzBuy6d6kUUHo",
         "rpc": {
           "call": [
             "Auth.Capabilities.List",
