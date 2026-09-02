@@ -267,6 +267,8 @@ export async function buildRuntimeBinaries(): Promise<Record<string, string>> {
       "--manifest-path",
       "rust/Cargo.toml",
       "-p",
+      "trellis-server",
+      "-p",
       "trellis-runtime",
       "-p",
       "trellis-cli",

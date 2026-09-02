@@ -23,7 +23,6 @@ mod bootstrap;
 mod deploy;
 mod runtime;
 mod self_cmd;
-mod server;
 mod trust_tooling;
 
 const SELF_UPDATE_TARGET: SelfUpdateTarget = SelfUpdateTarget::new(
@@ -53,18 +52,7 @@ pub async fn run() -> miette::Result<()> {
         TopLevelCommand::Svc(command) => deploy::run_svc(format, command).await?,
         TopLevelCommand::Dev(command) => deploy::run_dev(format, command).await?,
         TopLevelCommand::Infra(command) => bootstrap::infra(format, command).await?,
-        TopLevelCommand::Check(args) => {
-            let report = trellis_runtime::check(args.mode, &args.config)
-                .await
-                .into_diagnostic()?;
-            let valid = report.valid;
-            print_check_report(format, &report)?;
-            if !valid {
-                return Err(miette::miette!("runtime preflight checks failed"));
-            }
-        }
         TopLevelCommand::Init(command) => bootstrap::init(format, command).await?,
-        TopLevelCommand::Server(args) => server::run(format, args).await?,
         TopLevelCommand::Keys(command) => match command.command {
             KeysSubcommand::New(args) => runtime::keygen_command(format, &args)?,
         },
@@ -76,32 +64,6 @@ pub async fn run() -> miette::Result<()> {
         TopLevelCommand::Version => runtime::version_command(format)?,
     }
 
-    Ok(())
-}
-
-fn print_check_report(
-    format: OutputFormat,
-    report: &trellis_runtime::RuntimeCheckReport,
-) -> miette::Result<()> {
-    if output::is_json(format) {
-        output::print_json(report)?;
-    } else {
-        println!(
-            "{}",
-            output::table(
-                &["check", "status", "detail"],
-                report
-                    .checks
-                    .iter()
-                    .map(|check| vec![
-                        check.name.clone(),
-                        format!("{:?}", check.status).to_ascii_lowercase(),
-                        check.detail.clone(),
-                    ])
-                    .collect(),
-            ),
-        );
-    }
     Ok(())
 }
 
@@ -133,12 +95,10 @@ pub(crate) async fn connect_authenticated_cli_client(
     format: OutputFormat,
 ) -> miette::Result<(authlib::AdminSessionState, Caller)> {
     let mut state = authlib::load_admin_session().into_diagnostic()?;
-    let participant_digest = authlib::administration_participant_digest().into_diagnostic()?;
+    let participant_digest = authlib::cli_participant_digest().into_diagnostic()?;
     if !authlib::admin_session_matches_participant(&participant_digest).into_diagnostic()? {
         if !output::is_json(format) {
-            output::print_info(
-                "Saved administration participant changed; starting agent reauthentication",
-            );
+            output::print_info("Saved CLI participant changed; starting agent reauthentication");
         }
         state = complete_admin_reauth(format, &state).await?;
     }

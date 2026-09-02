@@ -1,6 +1,6 @@
 import { equal, notDeepEqual } from "node:assert/strict";
 
-import administrationParticipant from "../../../../../rust/crates/trellis/artifacts/trellis.admin.participant.json" with {
+import cliParticipant from "../../../../../rust/crates/trellis/artifacts/trellis.cli.participant.json" with {
   type: "json",
 };
 import consoleParticipant from "../../.trellis/generated/protocol/participants/trellis-app.console@v1.json" with {
@@ -55,12 +55,12 @@ Deno.test("administrator token is removed before Console records its return URL"
   );
 });
 
-Deno.test("Console is separate from the internal platform administration participant", () => {
+Deno.test("Console is separate from the built-in CLI participant", () => {
   const participant = nativeProtocolPresentation(contract).participant;
   equal(participant.id, "trellis-app.console@v1");
   notDeepEqual(
     participant,
-    administrationParticipant,
+    cliParticipant,
   );
 });
 

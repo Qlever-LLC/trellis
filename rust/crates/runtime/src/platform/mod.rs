@@ -49,10 +49,10 @@ pub(crate) async fn start(context: &RuntimeContext) -> Result<SubsystemHandle, R
         .config
         .resolve_authorization()
         .map_err(|error| RuntimeError::Platform(error.to_string()))?;
-    let administration = auth::administration_participant_binding(now)
+    let cli = auth::cli_participant_binding(now)
         .map_err(|error| RuntimeError::Platform(error.to_string()))?;
     auth_store
-        .put_participant_binding(administration.clone())
+        .put_participant_binding(cli.clone())
         .await
         .map_err(|error| RuntimeError::Platform(error.to_string()))?;
     let auth_participant = auth::auth_runtime_participant_binding(now)
@@ -223,7 +223,7 @@ pub(crate) async fn start(context: &RuntimeContext) -> Result<SubsystemHandle, R
     );
     ensure_first_admin(
         &auth_service,
-        &administration,
+        &cli,
         &public_origin,
         context.reset_admin,
         now,

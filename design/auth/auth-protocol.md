@@ -605,8 +605,8 @@ flow record stores the target identity id and local username; portals may not
 choose or change the username during reset completion.
 
 Authorization is not stored on the user profile. First-admin bootstrap creates
-and accepts authority for the exact built-in administration participant; its
-mandatory grants are derived from that artifact.
+and accepts authority for the exact built-in CLI participant; its mandatory
+grants are derived from that artifact.
 
 ### Active Connections
 

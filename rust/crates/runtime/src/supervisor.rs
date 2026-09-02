@@ -27,7 +27,7 @@ use crate::{
     eventlog, health, jobs, platform, RuntimeConfig, RuntimeMode, ServerError, SubsystemName,
 };
 
-/// Replacement for the configured NATS endpoints used by `trellis server`.
+/// Replacement for configured NATS endpoints used by managed `trellis-server` startup.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NatsEndpointOverride {
     /// Replacement native NATS server URL, used for the runtime connection and the
@@ -43,12 +43,12 @@ pub struct NatsEndpointOverride {
 pub struct RuntimeOptions {
     /// Runtime mode selected by the command line.
     pub mode: RuntimeMode,
-    /// Path to the TOML runtime config file.
-    pub config_path: PathBuf,
+    /// Runtime configuration already loaded with host-selected path defaults.
+    pub config: RuntimeConfig,
     /// Issue a one-time password-reset URL for the sole active administrator.
     pub reset_admin: bool,
     /// Optional replacement for the configured NATS endpoints (the managed local NATS
-    /// server used by `trellis server`). `None` keeps the configured values.
+    /// server used by `trellis-server`). `None` keeps the configured values.
     pub nats_override: Option<NatsEndpointOverride>,
 }
 
@@ -111,33 +111,21 @@ impl RuntimeCheckReport {
     }
 }
 
-/// Validate configuration, migrations, NATS connectivity, trust, and registry compatibility.
+/// Validate host-resolved configuration, migrations, NATS, trust, and registries.
 pub async fn check(
     mode: RuntimeMode,
-    config_path: impl AsRef<std::path::Path>,
-) -> Result<RuntimeCheckReport, RuntimeError> {
-    check_with_nats_servers(mode, config_path, None).await
-}
-
-/// Like [`check`], but connects to `nats_servers` instead of the configured server list
-/// (the managed local NATS server used by `trellis server --check`).
-pub async fn check_with_nats_servers(
-    mode: RuntimeMode,
-    config_path: impl AsRef<std::path::Path>,
+    config_path: PathBuf,
+    config: RuntimeConfig,
     nats_servers: Option<&str>,
 ) -> Result<RuntimeCheckReport, RuntimeError> {
-    let config_path = config_path.as_ref().to_path_buf();
     let mut report = RuntimeCheckReport {
         valid: true,
         mode: mode.to_string(),
         config: config_path.clone(),
         checks: Vec::new(),
     };
-    let config = match RuntimeConfig::load_from_path(&config_path).and_then(|config| {
-        config.validate_for_mode(mode)?;
-        Ok(config)
-    }) {
-        Ok(config) => {
+    let config = match config.validate_for_mode(mode) {
+        Ok(()) => {
             report.push("config", RuntimeCheckStatus::Ok, "configuration is valid");
             config
         }
@@ -615,7 +603,7 @@ enum RuntimeStopCause {
 
 /// Loads configuration, validates selected subsystem storage, and runs the runtime.
 pub async fn run(options: RuntimeOptions) -> Result<(), RuntimeError> {
-    let config = RuntimeConfig::load_from_path(&options.config_path)?;
+    let config = options.config;
     config.validate_for_mode(options.mode)?;
     let nats = config
         .resolve_nats_runtime_with(options.nats_override.as_ref().map(|o| o.servers.as_str()))?;
@@ -981,7 +969,7 @@ mod tests {
     fn runtime_options_carries_nats_endpoint_override() {
         let options = RuntimeOptions {
             mode: RuntimeMode::All,
-            config_path: PathBuf::from("config.toml"),
+            config: RuntimeConfig::from_toml_str("").expect("empty config"),
             reset_admin: false,
             nats_override: Some(NatsEndpointOverride {
                 servers: "nats://127.0.0.1:4222".to_string(),

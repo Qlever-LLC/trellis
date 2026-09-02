@@ -21,8 +21,11 @@ surfaces, use the artifact and generated API docs. For exact HTTP shapes, use
 the Rust route DTOs.
 
 The paired runtime identity is `rust/crates/runtime/trellis.participant.json`.
-Administration uses the separate source-owned
-`rust/crates/runtime/trellis.admin.participant.json` artifact.
+The built-in Trellis CLI uses the separate ordinary app participant artifact
+`rust/crates/trellis/artifacts/trellis.cli.participant.json`, with participant
+ID `trellis-app.cli@v1` and display name `Trellis CLI`. It receives no namespace
+exception; first-admin authority remains bound to its exact artifact and needs
+digests like any other participant.
 
 ## Ownership
 
@@ -154,7 +157,7 @@ pending flow without rotating or reprinting its secret. Local and configured
 OIDC completion atomically create the initial account and exact administration
 authority; only one concurrent completion can succeed.
 
-`trellis server ... --reset-admin` revokes the prior pending token and emits a
+`trellis-server ... --reset-admin` revokes the prior pending token and emits a
 new URL. After setup, local completion atomically changes that same principal's
 username and password, preserves or restores its permanent canonical authority,
 and revokes existing sessions and contexts. Additional administrators do not

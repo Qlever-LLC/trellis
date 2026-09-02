@@ -68,7 +68,7 @@ impl NatsBootstrapOptions {
 pub struct TrellisRuntimeBootstrapConfig {
     /// Human-readable Trellis name written to runtime config.
     pub name: String,
-    /// Trellis HTTP port written to `trellis/config.toml`.
+    /// Trellis HTTP port written to `config.toml`.
     pub trellis_port: u16,
     /// Native NATS URL used by server-side Trellis services.
     pub nats_server_url: String,

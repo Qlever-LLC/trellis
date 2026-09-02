@@ -75,11 +75,11 @@ struct EventsServiceContract;
 
 impl trellis_rs::service::GeneratedServiceContract for EventsServiceContract {
     const PARTICIPANT_ID: &'static str = "integration.events-service@v1";
-    const CONTRACT_DIGEST: &'static str = "CUUoOdZ5fDKrzwiZ3MiJtHXeHUtsR6Y5byzKxIzkU5Q";
-    const PARTICIPANT_NEEDS_DIGEST: &'static str = "5YkXLSCAdq4DVcQgLlDO-9_CavqUycwSwRMZn8rfw3c";
-    const PARTICIPANT_JSON: &'static str = r#"{"description":"Exercises generated event publish and subscribe surfaces.","displayName":"Trellis Integration Events Service","format":"trellis.participant.v1","id":"integration.events-service@v1","implements":{"self":{"api":"integration.events-service@v1","apiDigest":"gqjD1EeOzOEfgtqr3-UY0U0dlJOJyFV7kLdZEBDDT6w"}},"kind":"service","schemas":{"EntityChanged":{"properties":{"id":{"type":"string"},"value":{"type":"string"}},"required":["id","value"],"type":"object"}}}"#;
+    const CONTRACT_DIGEST: &'static str = "JsGd1_9HOfip8r4Eyr_r1RLxy0SbxHqMenb7qYbLMC4";
+    const PARTICIPANT_NEEDS_DIGEST: &'static str = "fDn4nnqBIXN_tGEo1pTbqnShkzfvWscsX55TNGAVgzg";
+    const PARTICIPANT_JSON: &'static str = r#"{"description":"Exercises generated event publish and subscribe surfaces.","displayName":"Trellis Integration Events Service","format":"trellis.participant.v1","id":"integration.events-service@v1","implements":{"self":{"api":"integration.events-service@v1","apiDigest":"UFSmkdSSvFk0I6I6m18dVjNyqG5VpiHr_nZv_Xsarpw"}},"kind":"service","schemas":{"EntityChanged":{"properties":{"id":{"type":"string"},"value":{"type":"string"}},"required":["id","value"],"type":"object"}}}"#;
     const API_JSON: &'static str = r#"{"capabilities":{"integration.events-service::publishRecords":{"allows":[{"action":"publish","target":{"api":"integration.events-service@v1","kind":"apiSurface","name":"Entity.Changed","surface":"event"}}]},"integration.events-service::readRecords":{"allows":[{"action":"subscribe","target":{"api":"integration.events-service@v1","kind":"apiSurface","name":"Entity.Changed","surface":"event"}}]}},"consent":{"integration.events-service::publishRecords":{"consequence":"","description":"Publish entity change records in the events fixture.","title":"Publish records"},"integration.events-service::readRecords":{"consequence":"","description":"Subscribe to entity change records in the events fixture.","title":"Read records"}},"description":"Exercises generated event publish and subscribe surfaces.","displayName":"Trellis Integration Events Service","events":{"Entity.Changed":{"event":{"schema":"EntityChanged"},"version":"v1"}},"format":"trellis.api.v1","id":"integration.events-service@v1","version":"1.0.0","schemas":{"EntityChanged":{"properties":{"id":{"type":"string"},"value":{"type":"string"}},"required":["id","value"],"type":"object"}}}"#;
-    const API_DIGEST: &'static str = "gqjD1EeOzOEfgtqr3-UY0U0dlJOJyFV7kLdZEBDDT6w";
+    const API_DIGEST: &'static str = "UFSmkdSSvFk0I6I6m18dVjNyqG5VpiHr_nZv_Xsarpw";
     const REFERENCED_API_ARTIFACTS: &'static [(&'static str, &'static str)] = &[];
 }
 

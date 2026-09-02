@@ -19,6 +19,9 @@ pub struct RuntimeConfig {
     /// Authorization-context digest bound into Trellis-owned runtime event proofs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_context_digest_file: Option<PathBuf>,
+    /// Host path-root overrides. Relative values resolve against this config file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paths: Option<RuntimePathsConfig>,
     /// HTTP listener configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub http: Option<HttpConfig>,
@@ -58,6 +61,23 @@ impl RuntimeConfig {
     /// legacy runtime config formats are not supported by the Rust runtime.
     pub fn load_from_path(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
         let path = path.as_ref();
+        let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
+        let defaults = RuntimePathDefaults {
+            data: base_dir.to_path_buf(),
+            state: base_dir.to_path_buf(),
+            cache: base_dir.to_path_buf(),
+            runtime: base_dir.to_path_buf(),
+            logs: base_dir.join("log"),
+        };
+        Self::load_from_path_with_defaults(path, defaults).map(|(config, _)| config)
+    }
+
+    /// Loads a runtime configuration and applies host-selected defaults to omitted mutable paths.
+    pub fn load_from_path_with_defaults(
+        path: impl AsRef<Path>,
+        defaults: RuntimePathDefaults,
+    ) -> Result<(Self, RuntimePathDefaults), ConfigError> {
+        let path = path.as_ref();
         if path.extension().and_then(|extension| extension.to_str()) != Some("toml") {
             return Err(ConfigError::UnsupportedFormat {
                 path: path.to_path_buf(),
@@ -70,10 +90,11 @@ impl RuntimeConfig {
         })?;
 
         let mut config = Self::from_toml_str(&contents)?;
-        if let Some(base_dir) = path.parent() {
-            config.resolve_relative_paths(base_dir);
-        }
-        Ok(config)
+        let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
+        let effective = config.resolve_path_defaults(base_dir, defaults);
+        config.apply_mutable_path_defaults(&effective);
+        config.resolve_relative_paths(base_dir);
+        Ok((config, effective))
     }
 
     /// Parses a runtime configuration from TOML source text.
@@ -244,7 +265,7 @@ impl RuntimeConfig {
 
     /// Resolves runtime NATS connection settings, optionally replacing the configured
     /// server list with `servers_override` (the managed local NATS server used by
-    /// `trellis server`). Everything else resolves identically to
+    /// `trellis-server`). Everything else resolves identically to
     /// [`RuntimeConfig::resolve_nats_runtime`].
     pub fn resolve_nats_runtime_with(
         &self,
@@ -399,6 +420,85 @@ impl RuntimeConfig {
             resolve_required_path(base_dir, &mut authorization.issuer_signing_seed_file);
         }
     }
+
+    fn resolve_path_defaults(
+        &mut self,
+        base_dir: &Path,
+        defaults: RuntimePathDefaults,
+    ) -> RuntimePathDefaults {
+        let paths = self.paths.get_or_insert_with(RuntimePathsConfig::default);
+        for path in [
+            &mut paths.data,
+            &mut paths.state,
+            &mut paths.cache,
+            &mut paths.runtime,
+            &mut paths.logs,
+        ] {
+            resolve_path(base_dir, path);
+        }
+        RuntimePathDefaults {
+            data: paths.data.clone().unwrap_or(defaults.data),
+            state: paths.state.clone().unwrap_or(defaults.state),
+            cache: paths.cache.clone().unwrap_or(defaults.cache),
+            runtime: paths.runtime.clone().unwrap_or(defaults.runtime),
+            logs: paths.logs.clone().unwrap_or(defaults.logs),
+        }
+    }
+
+    fn apply_mutable_path_defaults(&mut self, paths: &RuntimePathDefaults) {
+        if self.event_context_digest_file.is_none() {
+            self.event_context_digest_file = Some(paths.state.join("event-context.digest"));
+        }
+        for (name, subsystem) in [
+            ("platform", self.platform.as_mut()),
+            ("jobs", self.jobs.as_mut()),
+            ("health", self.health.as_mut()),
+            ("eventlog", self.eventlog.as_mut()),
+        ] {
+            let Some(storage) = subsystem.and_then(|subsystem| subsystem.storage.as_mut()) else {
+                continue;
+            };
+            if storage.kind.trim() == "sqlite" && storage.path.is_none() {
+                storage.path = Some(paths.data.join(format!("{name}.sqlite")));
+            }
+        }
+    }
+}
+
+/// Optional host path-root overrides from the `[paths]` config section.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimePathsConfig {
+    /// Default root for subsystem databases and other durable data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<PathBuf>,
+    /// Default root for mutable runtime state.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<PathBuf>,
+    /// Default root for downloaded and reusable cache entries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache: Option<PathBuf>,
+    /// Default root for process-lifetime files such as pid files.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<PathBuf>,
+    /// Default root for server and managed-child logs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logs: Option<PathBuf>,
+}
+
+/// Effective mutable path roots selected by the host profile and runtime config.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimePathDefaults {
+    /// Root for durable subsystem data.
+    pub data: PathBuf,
+    /// Root for mutable runtime state.
+    pub state: PathBuf,
+    /// Root for reusable cache entries.
+    pub cache: PathBuf,
+    /// Root for process-lifetime files.
+    pub runtime: PathBuf,
+    /// Root for log files.
+    pub logs: PathBuf,
 }
 
 /// HTTP listener configuration for the runtime.

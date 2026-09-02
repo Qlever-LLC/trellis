@@ -19,7 +19,7 @@ COPY ts /src/ts
 COPY --from=browser-apps /src/rust/crates/runtime/generated /src/rust/crates/runtime/generated
 
 RUN cargo build --locked --manifest-path rust/Cargo.toml --release \
-    --package trellis-runtime --bin trellis-server \
+    --package trellis-server --bin trellis-server \
     --package trellis-cli --bin trellis
 
 # Bake the pinned nats-server binary (conformance/nats-binaries.json) so the runtime
@@ -75,7 +75,8 @@ RUN apt-get update \
     && apt-get install --yes --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --user-group --uid 10001 --home-dir /var/lib/trellis trellis \
-    && install --directory --owner trellis --group trellis /var/lib/trellis /etc/trellis
+    && install --directory --owner trellis --group trellis \
+      /var/lib/trellis /var/cache/trellis /var/log/trellis /run/trellis /etc/trellis
 
 COPY --from=build /src/rust/target/release/trellis-server /usr/local/bin/trellis-server
 COPY --from=build /src/rust/target/release/trellis /usr/local/bin/trellis
@@ -87,4 +88,4 @@ WORKDIR /var/lib/trellis
 EXPOSE 3000
 
 ENTRYPOINT ["trellis-server"]
-CMD ["all", "--config", "/etc/trellis/trellis.toml"]
+CMD ["--system", "all"]

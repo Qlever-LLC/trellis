@@ -267,9 +267,8 @@ where
             user_id: p.principal_id,
             name: p.display_name,
             email: p.email,
-            active: principal.map_or(false, |pr| {
-                pr.state == super::super::super::domain::PrincipalState::Active
-            }),
+            active: principal
+                .is_some_and(|pr| pr.state == super::super::super::domain::PrincipalState::Active),
         })
     } else {
         None

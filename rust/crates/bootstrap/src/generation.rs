@@ -40,9 +40,7 @@ pub fn generate_trellis_bootstrap(options: &TrellisBootstrapOptions) -> Result<(
     prepare_output_dir(&options.out, options.force)?;
 
     let nats_out = options.out.join("nats");
-    let trellis_out = options.out.join("trellis");
-    fs::create_dir_all(trellis_out.join("data"))?;
-
+    let trellis_out = &options.out;
     let mut nats_options = NatsBootstrapOptions::new(&nats_out);
     nats_options.force = false;
     nats_options.config = options.nats.clone();

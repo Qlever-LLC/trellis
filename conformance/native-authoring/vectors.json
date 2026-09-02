@@ -384,7 +384,7 @@
             },
             "trellis.state@v1": {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A",
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w",
               "rpc": {
                 "call": [
                   "State.Delete",
@@ -397,8 +397,8 @@
           }
         }
       },
-      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
-      "participantDigest": "Unh9N7H-HPyyProRQVPxLwiKuomQcNHqD4ZmwmI-hhU",
+      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
+      "participantDigest": "e8yy0qkzphesU_BuLuUwUGWWjY39_tZcGQExw5Brc08",
       "participantNeeds": {
         "format": "trellis.participant-needs.v1",
         "optional": {
@@ -444,7 +444,7 @@
             },
             {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A"
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w"
             }
           ],
           "grantSet": {
@@ -738,7 +738,7 @@
           }
         }
       },
-      "participantNeedsDigest": "1-3vBnaTFFci13gUfBg9gzgI6YqnfaK4EtVFPtnK7os",
+      "participantNeedsDigest": "2t6rhuy2VvOmKFRx6Op2E5oX4UNsZFyH5cjETeE9uC0",
       "requiredGrants": {
         "format": "trellis.grant-set.v1",
         "permissions": [
@@ -1235,7 +1235,7 @@
             },
             "trellis.state@v1": {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A",
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w",
               "rpc": {
                 "call": [
                   "State.Delete",
@@ -1248,8 +1248,8 @@
           }
         }
       },
-      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
-      "participantDigest": "Unh9N7H-HPyyProRQVPxLwiKuomQcNHqD4ZmwmI-hhU",
+      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
+      "participantDigest": "e8yy0qkzphesU_BuLuUwUGWWjY39_tZcGQExw5Brc08",
       "participantNeeds": {
         "format": "trellis.participant-needs.v1",
         "optional": {
@@ -1295,7 +1295,7 @@
             },
             {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A"
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w"
             }
           ],
           "grantSet": {
@@ -1589,7 +1589,7 @@
           }
         }
       },
-      "participantNeedsDigest": "1-3vBnaTFFci13gUfBg9gzgI6YqnfaK4EtVFPtnK7os",
+      "participantNeedsDigest": "2t6rhuy2VvOmKFRx6Op2E5oX4UNsZFyH5cjETeE9uC0",
       "requiredGrants": {
         "format": "trellis.grant-set.v1",
         "permissions": [
@@ -2086,7 +2086,7 @@
             },
             "trellis.state@v1": {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A",
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w",
               "rpc": {
                 "call": [
                   "State.Delete",
@@ -2099,8 +2099,8 @@
           }
         }
       },
-      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
-      "participantDigest": "Unh9N7H-HPyyProRQVPxLwiKuomQcNHqD4ZmwmI-hhU",
+      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
+      "participantDigest": "e8yy0qkzphesU_BuLuUwUGWWjY39_tZcGQExw5Brc08",
       "participantNeeds": {
         "format": "trellis.participant-needs.v1",
         "optional": {
@@ -2146,7 +2146,7 @@
             },
             {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A"
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w"
             }
           ],
           "grantSet": {
@@ -2440,7 +2440,7 @@
           }
         }
       },
-      "participantNeedsDigest": "1-3vBnaTFFci13gUfBg9gzgI6YqnfaK4EtVFPtnK7os",
+      "participantNeedsDigest": "2t6rhuy2VvOmKFRx6Op2E5oX4UNsZFyH5cjETeE9uC0",
       "requiredGrants": {
         "format": "trellis.grant-set.v1",
         "permissions": [
@@ -2937,7 +2937,7 @@
             },
             "trellis.state@v1": {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A",
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w",
               "rpc": {
                 "call": [
                   "State.Delete",
@@ -2950,8 +2950,8 @@
           }
         }
       },
-      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
-      "participantDigest": "Unh9N7H-HPyyProRQVPxLwiKuomQcNHqD4ZmwmI-hhU",
+      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
+      "participantDigest": "e8yy0qkzphesU_BuLuUwUGWWjY39_tZcGQExw5Brc08",
       "participantNeeds": {
         "format": "trellis.participant-needs.v1",
         "optional": {
@@ -2997,7 +2997,7 @@
             },
             {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A"
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w"
             }
           ],
           "grantSet": {
@@ -3291,7 +3291,7 @@
           }
         }
       },
-      "participantNeedsDigest": "1-3vBnaTFFci13gUfBg9gzgI6YqnfaK4EtVFPtnK7os",
+      "participantNeedsDigest": "2t6rhuy2VvOmKFRx6Op2E5oX4UNsZFyH5cjETeE9uC0",
       "requiredGrants": {
         "format": "trellis.grant-set.v1",
         "permissions": [
@@ -3788,7 +3788,7 @@
             },
             "trellis.state@v1": {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A",
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w",
               "rpc": {
                 "call": [
                   "State.Delete",
@@ -3801,8 +3801,8 @@
           }
         }
       },
-      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
-      "participantDigest": "Unh9N7H-HPyyProRQVPxLwiKuomQcNHqD4ZmwmI-hhU",
+      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
+      "participantDigest": "e8yy0qkzphesU_BuLuUwUGWWjY39_tZcGQExw5Brc08",
       "participantNeeds": {
         "format": "trellis.participant-needs.v1",
         "optional": {
@@ -3848,7 +3848,7 @@
             },
             {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A"
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w"
             }
           ],
           "grantSet": {
@@ -4142,7 +4142,7 @@
           }
         }
       },
-      "participantNeedsDigest": "1-3vBnaTFFci13gUfBg9gzgI6YqnfaK4EtVFPtnK7os",
+      "participantNeedsDigest": "2t6rhuy2VvOmKFRx6Op2E5oX4UNsZFyH5cjETeE9uC0",
       "requiredGrants": {
         "format": "trellis.grant-set.v1",
         "permissions": [
@@ -4639,7 +4639,7 @@
             },
             "trellis.state@v1": {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A",
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w",
               "rpc": {
                 "call": [
                   "State.Delete",
@@ -4652,8 +4652,8 @@
           }
         }
       },
-      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
-      "participantDigest": "Unh9N7H-HPyyProRQVPxLwiKuomQcNHqD4ZmwmI-hhU",
+      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
+      "participantDigest": "e8yy0qkzphesU_BuLuUwUGWWjY39_tZcGQExw5Brc08",
       "participantNeeds": {
         "format": "trellis.participant-needs.v1",
         "optional": {
@@ -4699,7 +4699,7 @@
             },
             {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A"
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w"
             }
           ],
           "grantSet": {
@@ -4993,7 +4993,7 @@
           }
         }
       },
-      "participantNeedsDigest": "1-3vBnaTFFci13gUfBg9gzgI6YqnfaK4EtVFPtnK7os",
+      "participantNeedsDigest": "2t6rhuy2VvOmKFRx6Op2E5oX4UNsZFyH5cjETeE9uC0",
       "requiredGrants": {
         "format": "trellis.grant-set.v1",
         "permissions": [
@@ -5490,7 +5490,7 @@
             },
             "trellis.state@v1": {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A",
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w",
               "rpc": {
                 "call": [
                   "State.Delete",
@@ -5503,8 +5503,8 @@
           }
         }
       },
-      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
-      "participantDigest": "Unh9N7H-HPyyProRQVPxLwiKuomQcNHqD4ZmwmI-hhU",
+      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
+      "participantDigest": "e8yy0qkzphesU_BuLuUwUGWWjY39_tZcGQExw5Brc08",
       "participantNeeds": {
         "format": "trellis.participant-needs.v1",
         "optional": {
@@ -5550,7 +5550,7 @@
             },
             {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A"
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w"
             }
           ],
           "grantSet": {
@@ -5844,7 +5844,7 @@
           }
         }
       },
-      "participantNeedsDigest": "1-3vBnaTFFci13gUfBg9gzgI6YqnfaK4EtVFPtnK7os",
+      "participantNeedsDigest": "2t6rhuy2VvOmKFRx6Op2E5oX4UNsZFyH5cjETeE9uC0",
       "requiredGrants": {
         "format": "trellis.grant-set.v1",
         "permissions": [
@@ -6341,7 +6341,7 @@
             },
             "trellis.state@v1": {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A",
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w",
               "rpc": {
                 "call": [
                   "State.Delete",
@@ -6354,8 +6354,8 @@
           }
         }
       },
-      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
-      "participantDigest": "Unh9N7H-HPyyProRQVPxLwiKuomQcNHqD4ZmwmI-hhU",
+      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
+      "participantDigest": "e8yy0qkzphesU_BuLuUwUGWWjY39_tZcGQExw5Brc08",
       "participantNeeds": {
         "format": "trellis.participant-needs.v1",
         "optional": {
@@ -6401,7 +6401,7 @@
             },
             {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A"
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w"
             }
           ],
           "grantSet": {
@@ -6695,7 +6695,7 @@
           }
         }
       },
-      "participantNeedsDigest": "1-3vBnaTFFci13gUfBg9gzgI6YqnfaK4EtVFPtnK7os",
+      "participantNeedsDigest": "2t6rhuy2VvOmKFRx6Op2E5oX4UNsZFyH5cjETeE9uC0",
       "requiredGrants": {
         "format": "trellis.grant-set.v1",
         "permissions": [
@@ -7192,7 +7192,7 @@
             },
             "trellis.state@v1": {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A",
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w",
               "rpc": {
                 "call": [
                   "State.Delete",
@@ -7205,8 +7205,8 @@
           }
         }
       },
-      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
-      "participantDigest": "Unh9N7H-HPyyProRQVPxLwiKuomQcNHqD4ZmwmI-hhU",
+      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
+      "participantDigest": "e8yy0qkzphesU_BuLuUwUGWWjY39_tZcGQExw5Brc08",
       "participantNeeds": {
         "format": "trellis.participant-needs.v1",
         "optional": {
@@ -7252,7 +7252,7 @@
             },
             {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A"
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w"
             }
           ],
           "grantSet": {
@@ -7546,7 +7546,7 @@
           }
         }
       },
-      "participantNeedsDigest": "1-3vBnaTFFci13gUfBg9gzgI6YqnfaK4EtVFPtnK7os",
+      "participantNeedsDigest": "2t6rhuy2VvOmKFRx6Op2E5oX4UNsZFyH5cjETeE9uC0",
       "requiredGrants": {
         "format": "trellis.grant-set.v1",
         "permissions": [
@@ -8043,7 +8043,7 @@
             },
             "trellis.state@v1": {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A",
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w",
               "rpc": {
                 "call": [
                   "State.Delete",
@@ -8056,8 +8056,8 @@
           }
         }
       },
-      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
-      "participantDigest": "Unh9N7H-HPyyProRQVPxLwiKuomQcNHqD4ZmwmI-hhU",
+      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
+      "participantDigest": "e8yy0qkzphesU_BuLuUwUGWWjY39_tZcGQExw5Brc08",
       "participantNeeds": {
         "format": "trellis.participant-needs.v1",
         "optional": {
@@ -8103,7 +8103,7 @@
             },
             {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A"
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w"
             }
           ],
           "grantSet": {
@@ -8397,7 +8397,7 @@
           }
         }
       },
-      "participantNeedsDigest": "1-3vBnaTFFci13gUfBg9gzgI6YqnfaK4EtVFPtnK7os",
+      "participantNeedsDigest": "2t6rhuy2VvOmKFRx6Op2E5oX4UNsZFyH5cjETeE9uC0",
       "requiredGrants": {
         "format": "trellis.grant-set.v1",
         "permissions": [
@@ -8894,7 +8894,7 @@
             },
             "trellis.state@v1": {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A",
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w",
               "rpc": {
                 "call": [
                   "State.Delete",
@@ -8907,8 +8907,8 @@
           }
         }
       },
-      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
-      "participantDigest": "Unh9N7H-HPyyProRQVPxLwiKuomQcNHqD4ZmwmI-hhU",
+      "participantCanonicalJson": "{\"description\":\"Representative native service.\",\"displayName\":\"Conformance service\",\"eventConsumers\":{\"changes\":{\"ackWaitMs\":1000,\"events\":{\"conformance.dependency@v1\":[\"Dependency.Changed\"],\"self\":[\"Service.Changed\"]},\"maxDeliver\":2,\"replay\":\"all\"}},\"format\":\"trellis.participant.v1\",\"id\":\"conformance.service@v1\",\"implements\":{\"self\":{\"api\":\"conformance.service@v1\",\"apiDigest\":\"p-i-iErT0aOhDxh6g8USNhEr2saFVwyLZzOxcj2SvuQ\",\"operationTransfers\":{\"Service.Run\":{\"expiresInMs\":1000,\"key\":\"/id\",\"maxBytes\":1024,\"store\":\"objects\"}}}},\"jobQueues\":{\"work\":{\"keyConcurrency\":{\"heartbeatIntervalMs\":1000,\"heartbeatTtlMs\":3000,\"key\":[\"/id\"],\"maxActive\":1,\"stalePolicy\":\"fail-stale\"},\"payload\":{\"schema\":\"Payload\"},\"queue\":{\"maxQueuedPerKey\":2,\"whenFull\":\"replace-oldest\"},\"result\":{\"schema\":\"Payload\"}}},\"kind\":\"service\",\"resources\":{\"kv\":{\"cache\":{\"purpose\":\"Conformance cache\",\"schema\":{\"schema\":\"Payload\"}}},\"store\":{\"objects\":{\"purpose\":\"Conformance objects\"}}},\"schemas\":{\"OldPayload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"},\"Payload\":{\"properties\":{\"id\":{\"type\":\"string\"}},\"required\":[\"id\"],\"type\":\"object\"}},\"state\":{\"settings\":{\"acceptedVersions\":{\"v1\":{\"schema\":\"OldPayload\"}},\"kind\":\"value\",\"schema\":{\"schema\":\"Payload\"},\"stateVersion\":\"v2\"}},\"uses\":{\"optional\":{\"conformance.optional-dependency@v1\":{\"api\":\"conformance.optional-dependency@v1\",\"apiDigest\":\"792YCkWH0kXm46NUnibkGZZDnWVQQJPS7ogKL595t6M\",\"rpc\":{\"call\":[\"Optional.Call\"]}}},\"required\":{\"conformance.dependency@v1\":{\"api\":\"conformance.dependency@v1\",\"apiDigest\":\"lkRDOee21An7GVkBoDkWSQEe3hBAItrSwuUjXiz5U6w\",\"events\":{\"subscribe\":[\"Dependency.Changed\"]},\"rpc\":{\"call\":[\"Dependency.Call\"]}},\"trellis.state@v1\":{\"api\":\"trellis.state@v1\",\"apiDigest\":\"hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w\",\"rpc\":{\"call\":[\"State.Delete\",\"State.Get\",\"State.List\",\"State.Put\"]}}}}}",
+      "participantDigest": "e8yy0qkzphesU_BuLuUwUGWWjY39_tZcGQExw5Brc08",
       "participantNeeds": {
         "format": "trellis.participant-needs.v1",
         "optional": {
@@ -8954,7 +8954,7 @@
             },
             {
               "api": "trellis.state@v1",
-              "apiDigest": "qs1u5DVKbglPE25fTx77AadXTT-MDwSkmHVFJlCwE2A"
+              "apiDigest": "hGgfotCC_9mlYwTUdaZtMTeia-KVGCGyqPop--LGa1w"
             }
           ],
           "grantSet": {
@@ -9248,7 +9248,7 @@
           }
         }
       },
-      "participantNeedsDigest": "1-3vBnaTFFci13gUfBg9gzgI6YqnfaK4EtVFPtnK7os",
+      "participantNeedsDigest": "2t6rhuy2VvOmKFRx6Op2E5oX4UNsZFyH5cjETeE9uC0",
       "requiredGrants": {
         "format": "trellis.grant-set.v1",
         "permissions": [

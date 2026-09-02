@@ -1,4 +1,4 @@
-//! Live coverage for the `trellis server` CLI command in managed NATS mode.
+//! Live coverage for the `trellis-server` managed and configured NATS modes.
 
 use std::fs;
 use std::net::{TcpListener, TcpStream};
@@ -10,13 +10,15 @@ use std::time::{Duration, Instant};
 use std::os::unix::fs::PermissionsExt as _;
 
 use serde_json::Value;
-use trellis_local_nats::{ManagedNatsServer, NatsServerBinary};
+use trellis_local_nats::{
+    LocalNats, LocalNatsPorts, NatsBinarySource, NatsOutput, NatsServerBinary,
+};
 use ulid::Ulid;
 
 use crate::support::assertions::assert_runtime_case_registered;
 
 const CASE_ID: &str = "cli.server-managed-nats";
-/// NATS client port of the CLI-managed nats-server (`prepare_managed_nats`).
+/// NATS client port of the server-managed nats-server.
 const NATS_PORT: u16 = 4222;
 /// All three ports the managed config listens on: NATS, HTTP monitor, websocket.
 const MANAGED_PORTS: [u16; 3] = [4222, 8222, 8080];
@@ -64,6 +66,41 @@ fn cli_command() -> Command {
     command
 }
 
+fn server_command(workdir: &Path) -> Command {
+    trellis_test::record_test_process_start("trellis-server", "server managed-nats")
+        .expect("record server process start");
+    let mut command = if let Some(binary) = std::env::var_os("TRELLIS_TEST_SERVER_BIN") {
+        Command::new(binary)
+    } else {
+        let mut command = Command::new("cargo");
+        command.args([
+            "run",
+            "--quiet",
+            "--manifest-path",
+            repo_root()
+                .join("Cargo.toml")
+                .to_str()
+                .expect("UTF-8 Cargo path"),
+            "-p",
+            "trellis-server",
+            "--bin",
+            "trellis-server",
+            "--",
+        ]);
+        command
+    };
+    command
+        .current_dir(repo_root())
+        .stdin(Stdio::null())
+        .env("HOME", workdir.join("home"))
+        .env("XDG_CONFIG_HOME", workdir.join("config"))
+        .env("XDG_DATA_HOME", workdir.join("data"))
+        .env("XDG_STATE_HOME", workdir.join("state"))
+        .env("XDG_CACHE_HOME", workdir.join("cache"))
+        .env("XDG_RUNTIME_DIR", workdir.join("runtime"));
+    command
+}
+
 /// Removes the per-case workdir (bundle, logs, and the managed-NATS binary cache).
 struct WorkdirGuard(PathBuf);
 
@@ -89,13 +126,13 @@ impl Drop for WorkdirGuard {
     }
 }
 
-/// Owns a spawned `trellis server` child and, in the external-override phase, the
+/// Owns a spawned `trellis-server` child and, in the external-override phase, the
 /// test-owned managed nats-server. Drop always reaps the CLI child (owned `Child`,
 /// `try_wait`-based) and any nats-server the CLI left behind (pid-file identity,
 /// no `/proc` dependency), then the test-owned nats guard stops itself.
 struct ChildGuard {
     child: Option<Child>,
-    nats: Option<ManagedNatsServer>,
+    nats: Option<LocalNats>,
     label: &'static str,
 }
 
@@ -118,7 +155,7 @@ impl ChildGuard {
 
     /// Keeps the test-owned nats guard in this struct: it stays reapable in `Drop`
     /// even after `wait_for_exit` reaped the CLI child.
-    fn set_nats(&mut self, server: ManagedNatsServer) {
+    fn set_nats(&mut self, server: LocalNats) {
         self.nats = Some(server);
     }
 
@@ -231,7 +268,7 @@ where
             .is_some()
         {
             panic!(
-                "trellis server exited before {what}\nstderr tail:\n{}",
+                "trellis-server exited before {what}\nstderr tail:\n{}",
                 log_tail(stderr_log)
             );
         }
@@ -248,9 +285,9 @@ async fn cli_server_managed_nats() {
     assert_runtime_case_registered(CASE_ID, "cli", "cli");
     let workdir = WorkdirGuard::new();
     let bundle = workdir.0.join("bundle");
-    // Empty private cache dir: the CLI downloads the pinned nats-server for real on
-    // its first managed run (bounded by STARTUP_TIMEOUT).
-    let cache_dir = workdir.0.join("nats-cache");
+    let effective_root = workdir.0.join("effective");
+    // Empty private XDG roots: explicit download acquires pinned NATS on first run.
+    let cache_dir = effective_root.join("cache/nats");
     fs::create_dir_all(&cache_dir).expect("create managed-NATS cache dir");
     fs::set_permissions(&cache_dir, fs::Permissions::from_mode(0o700))
         .expect("make managed-NATS cache dir private");
@@ -284,7 +321,7 @@ async fn cli_server_managed_nats() {
         .expect("trellis init config should emit a JSON report");
     assert_eq!(init["generated"], true);
     assert_eq!(init["out"], bundle.display().to_string());
-    let config_path = bundle.join("trellis/config.toml");
+    let config_path = bundle.join("config.toml");
     assert!(
         config_path.is_file(),
         "bundle trellis config was not generated"
@@ -297,7 +334,7 @@ async fn cli_server_managed_nats() {
         bundle.join("nats/jwt.conf").is_file(),
         "bundle jwt.conf was not generated"
     );
-    let config_toml = fs::read_to_string(&config_path).expect("read bundle config");
+    let mut config_toml = fs::read_to_string(&config_path).expect("read bundle config");
     assert!(
         config_toml.contains(BOGUS_NATS_URL),
         "bundle must configure the bogus NATS URL so the managed override is observable"
@@ -306,25 +343,32 @@ async fn cli_server_managed_nats() {
         config_toml.contains(BOGUS_WS_URL),
         "bundle must configure the bogus websocket URL so the managed override is observable"
     );
+    config_toml.push_str(&format!(
+        "\n[paths]\ndata = {data:?}\nstate = {state:?}\ncache = {cache:?}\nruntime = {runtime:?}\nlogs = {logs:?}\n",
+        data = effective_root.join("data").display().to_string(),
+        state = effective_root.join("state").display().to_string(),
+        cache = effective_root.join("cache").display().to_string(),
+        runtime = effective_root.join("runtime").display().to_string(),
+        logs = effective_root.join("logs").display().to_string(),
+    ));
+    fs::write(&config_path, &config_toml).expect("write configured path roots");
+    let authored_nats = fs::read(bundle.join("nats/nats.conf")).expect("read authored nats.conf");
+    let authored_jwt = fs::read(bundle.join("nats/jwt.conf")).expect("read authored jwt.conf");
 
     // 2. Managed-mode run: the first run downloads the binary, creates the stores the
     //    preflight report requires, and a clean SIGTERM shutdown stops the managed
     //    nats-server.
-    let pid_file = bundle.join("nats/nats-server.pid");
+    let pid_file = effective_root.join("runtime/nats-server.pid");
     let run_stdout = workdir.0.join("cli-run.stdout.log");
     let run_stderr = workdir.0.join("cli-run.stderr.log");
-    let mut run_command = cli_command();
+    let mut run_command = server_command(&workdir.0);
     let mut child = ChildGuard::spawn(
         run_command
             .args([
-                "--format",
-                "json",
-                "server",
                 "all",
                 "--config",
                 config_path.to_str().expect("UTF-8 config path"),
-                "--cache-dir",
-                cache_dir.to_str().expect("UTF-8 cache dir path"),
+                "--nats-download",
             ])
             .stdout(Stdio::from(
                 fs::File::create(&run_stdout).expect("create run stdout log"),
@@ -332,7 +376,7 @@ async fn cli_server_managed_nats() {
             .stderr(Stdio::from(
                 fs::File::create(&run_stderr).expect("create run stderr log"),
             )),
-        "trellis server",
+        "trellis-server",
     );
     wait_until(
         || {
@@ -369,12 +413,12 @@ async fn cli_server_managed_nats() {
     let exit = child.wait_for_exit(SHUTDOWN_TIMEOUT);
     assert!(
         exit.is_some(),
-        "trellis server did not exit after SIGTERM\nstderr tail:\n{}",
+        "trellis-server did not exit after SIGTERM\nstderr tail:\n{}",
         log_tail(&run_stderr)
     );
     assert!(
         exit.unwrap().success(),
-        "trellis server exited with failure\nstdout tail:\n{}\nstderr tail:\n{}",
+        "trellis-server exited with failure\nstdout tail:\n{}\nstderr tail:\n{}",
         log_tail(&run_stdout),
         log_tail(&run_stderr)
     );
@@ -390,26 +434,61 @@ async fn cli_server_managed_nats() {
         !MANAGED_PORTS.iter().any(|port| port_accepts(*port)),
         "managed ports still accept connections after shutdown"
     );
+    let nats_log = effective_root.join("logs/nats-server.log");
+    assert!(nats_log.is_file());
+    assert!(
+        fs::metadata(&nats_log)
+            .expect("stat managed NATS log")
+            .len()
+            > 0,
+        "managed NATS stdout and stderr must be captured in its dedicated log"
+    );
+    assert!(effective_root.join("state/nats/nats.conf").is_file());
+    for database in [
+        "platform.sqlite",
+        "jobs.sqlite",
+        "health.sqlite",
+        "eventlog.sqlite",
+    ] {
+        assert!(
+            effective_root.join("data").join(database).is_file(),
+            "omitted {database} path must use the configured data root"
+        );
+        assert!(
+            !bundle.join(database).exists(),
+            "mutable {database} must not land under the config root"
+        );
+    }
+    assert!(
+        effective_root.join("state/event-context.digest").is_file(),
+        "omitted event context state must use the configured state root"
+    );
+    assert_eq!(
+        fs::read(bundle.join("nats/nats.conf")).expect("reread authored nats.conf"),
+        authored_nats,
+        "managed startup must not rewrite authored nats.conf"
+    );
+    assert_eq!(
+        fs::read(bundle.join("nats/jwt.conf")).expect("reread authored jwt.conf"),
+        authored_jwt,
+        "managed startup must not rewrite authored jwt.conf"
+    );
 
-    // 3. Managed-mode `--check` after the first run: valid preflight report (proving
+    // 3. Managed-mode `check` after the first run: valid preflight report (proving
     //    the managed endpoint override — the bundle points at the bogus 4999/9999
     //    URLs, yet the checks connect to the managed server), JSON-only stdout, exit
     //    0, and the check's own server fully stopped.
     let check_stdout = workdir.0.join("cli-check.stdout.log");
     let check_stderr = workdir.0.join("cli-check.stderr.log");
-    let mut check_command = cli_command();
+    let mut check_command = server_command(&workdir.0);
     let mut check = ChildGuard::spawn(
         check_command
             .args([
-                "--format",
-                "json",
-                "server",
-                "all",
+                "check",
                 "--config",
                 config_path.to_str().expect("UTF-8 config path"),
-                "--check",
-                "--cache-dir",
-                cache_dir.to_str().expect("UTF-8 cache dir path"),
+                "--nats-download",
+                "all",
             ])
             .stdout(Stdio::from(
                 fs::File::create(&check_stdout).expect("create check stdout log"),
@@ -417,22 +496,22 @@ async fn cli_server_managed_nats() {
             .stderr(Stdio::from(
                 fs::File::create(&check_stderr).expect("create check stderr log"),
             )),
-        "trellis server --check",
+        "trellis-server check",
     );
     let check_exit = check.wait_for_exit(STARTUP_TIMEOUT);
     assert!(
         check_exit.is_some(),
-        "trellis server --check did not exit\nstderr tail:\n{}",
+        "trellis-server check did not exit\nstderr tail:\n{}",
         log_tail(&check_stderr)
     );
     let check_stdout_text = fs::read_to_string(&check_stdout).expect("read check stdout log");
     assert!(
         check_exit.unwrap().success(),
-        "trellis server --check failed with a preflight report:\n{check_stdout_text}\nstderr tail:\n{}",
+        "trellis-server check failed with a preflight report:\n{check_stdout_text}\nstderr tail:\n{}",
         log_tail(&check_stderr)
     );
     let report: Value = serde_json::from_str(&check_stdout_text)
-        .expect("trellis server --check should emit a JSON report on stdout");
+        .expect("trellis-server check should emit a JSON report on stdout");
     assert_eq!(
         report["valid"], true,
         "preflight report expected valid: {report}"
@@ -449,48 +528,42 @@ async fn cli_server_managed_nats() {
     );
     assert!(
         !pid_file.exists(),
-        "--check left a managed nats-server pid file behind"
+        "check left a managed nats-server pid file behind"
     );
     assert!(
         !port_accepts(NATS_PORT),
-        "managed nats-server is still accepting connections after --check"
+        "managed nats-server is still accepting connections after check"
     );
 
-    // 4. `--nats` external mode against a TEST-OWNED managed server: proves the
-    //    external override (the bundle still points at the bogus 4999 URL, so a
-    //    successful run means the CLI connected to 4222) and that the CLI never
-    //    stops a nats-server it did not spawn. The test-owned server is kept in the
-    //    guard and reaped on drop.
-    let binary = NatsServerBinary::ensure(Some(&cache_dir)).expect("cached nats-server binary");
-    let nats_local_conf = bundle.join("nats/nats.local.conf");
-    assert!(
-        nats_local_conf.is_file(),
-        "managed run should have rendered nats.local.conf"
-    );
+    // 4. Plain startup uses configured external NATS and never owns that process.
+    let binary = NatsServerBinary::resolve(&NatsBinarySource::DownloadPinned, Some(&cache_dir))
+        .expect("cached nats-server binary");
     let external_pid_file = workdir.0.join("external-nats-server.pid");
-    let external = ManagedNatsServer::start(
-        &binary,
-        &nats_local_conf,
-        NATS_PORT,
-        8222,
-        8080,
-        &external_pid_file,
-    )
-    .expect("spawn test-owned managed nats-server");
+    let external = LocalNats::builder()
+        .binary(NatsBinarySource::Path(binary))
+        .source(bundle.join("nats"))
+        .state(workdir.0.join("external-nats-state"))
+        .ports(LocalNatsPorts::default())
+        .pid_file(&external_pid_file)
+        .output(NatsOutput::Log {
+            path: workdir.0.join("external-nats-server.log"),
+            mirror: false,
+        })
+        .start()
+        .expect("spawn test-owned managed nats-server");
+    let external_config = config_toml
+        .replace(BOGUS_NATS_URL, &format!("nats://127.0.0.1:{NATS_PORT}"))
+        .replace(BOGUS_WS_URL, "ws://localhost:8080");
+    fs::write(&config_path, external_config).expect("write external NATS config");
     let external_stdout = workdir.0.join("cli-external.stdout.log");
     let external_stderr = workdir.0.join("cli-external.stderr.log");
-    let mut external_command = cli_command();
+    let mut external_command = server_command(&workdir.0);
     let mut external_child = ChildGuard::spawn(
         external_command
             .args([
-                "--format",
-                "json",
-                "server",
                 "all",
                 "--config",
                 config_path.to_str().expect("UTF-8 config path"),
-                "--nats",
-                &format!("nats://127.0.0.1:{NATS_PORT}"),
             ])
             .stdout(Stdio::from(
                 fs::File::create(&external_stdout).expect("create external stdout log"),
@@ -498,7 +571,7 @@ async fn cli_server_managed_nats() {
             .stderr(Stdio::from(
                 fs::File::create(&external_stderr).expect("create external stderr log"),
             )),
-        "trellis server --nats",
+        "trellis-server configured external NATS",
     );
     external_child.set_nats(external);
     wait_until(
@@ -512,12 +585,12 @@ async fn cli_server_managed_nats() {
     let external_exit = external_child.wait_for_exit(SHUTDOWN_TIMEOUT);
     assert!(
         external_exit.is_some(),
-        "trellis server --nats did not exit after SIGTERM\nstderr tail:\n{}",
+        "trellis-server external mode did not exit after SIGTERM\nstderr tail:\n{}",
         log_tail(&external_stderr)
     );
     assert!(
         external_exit.unwrap().success(),
-        "trellis server --nats failed (expected connection to the overridden 4222 server)\nstdout tail:\n{}\nstderr tail:\n{}",
+        "trellis-server external mode failed\nstdout tail:\n{}\nstderr tail:\n{}",
         log_tail(&external_stdout),
         log_tail(&external_stderr)
     );

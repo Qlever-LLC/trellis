@@ -5,13 +5,15 @@
 //! child process. Synchronous standard-library code only; no async runtime dependency.
 
 use std::collections::HashMap;
-use std::fs;
-use std::io;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write as _};
+use std::net::TcpListener;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use flate2::read::GzDecoder;
@@ -59,19 +61,19 @@ pub enum LocalNatsError {
         arch: String,
     },
     /// The pid file references a live nats-server process.
-    #[error("managed nats-server is already running (pid {pid}); stop it first or pass --nats to use an external server")]
+    #[error("managed nats-server is already running (pid {pid}); stop it first or use plain trellis-server with configured external NATS")]
     AlreadyRunning {
         /// Process id read from the pid file.
         pid: i32,
     },
     /// A port needed by the managed server is already in use.
-    #[error("port {port} is already in use; stop the existing server or pass --nats to use an external NATS server")]
+    #[error("port {port} is already in use; stop the existing server or use plain trellis-server with configured external NATS")]
     PortInUse {
         /// Occupied port.
         port: u16,
     },
     /// The managed server did not listen on all ports in time.
-    #[error("managed nats-server did not listen on {ports:?} within {timeout:?}; check the server diagnostics printed to stderr")]
+    #[error("managed nats-server did not listen on {ports:?} within {timeout:?}; check its dedicated child log")]
     ReadinessTimeout {
         /// Ports that never accepted a TCP connection.
         ports: Vec<u16>,
@@ -79,11 +81,13 @@ pub enum LocalNatsError {
         timeout: Duration,
     },
     /// The managed server exited during startup.
-    #[error("managed nats-server exited during startup with status {0}; check the server diagnostics printed to stderr")]
+    #[error(
+        "managed nats-server exited during startup with status {0}; check its dedicated child log"
+    )]
     SpawnFailed(String),
     /// The pid file exists but is not a regular file recording a pid; another owner may
     /// be mid-startup or the path may have been tampered with.
-    #[error("pid file {path} exists but is not a regular file recording a pid; inspect and remove it if no trellis server is running")]
+    #[error("pid file {path} exists but is not a regular file recording a pid; inspect and remove it if no trellis-server process is running")]
     PidFileUnparsable {
         /// Pid file path.
         path: PathBuf,
@@ -96,7 +100,7 @@ pub enum LocalNatsError {
         /// Why the directory is unsafe.
         reason: String,
     },
-    /// A `--nats-binary` path is not a usable nats-server executable.
+    /// A `--local-nats=<PATH>` value is not a usable nats-server executable.
     #[error("refusing to use nats-server binary at {path}: {reason}")]
     InvalidBinaryPath {
         /// Binary path.
@@ -104,6 +108,13 @@ pub enum LocalNatsError {
         /// Why the path is unusable.
         reason: String,
     },
+    /// Pinned acquisition was requested without an explicit cache directory.
+    #[error("pinned nats-server download requires an explicit cache directory")]
+    MissingCacheDir,
+
+    /// A required local NATS builder choice was omitted or contradictory.
+    #[error("invalid local NATS policy: {0}")]
+    InvalidPolicy(String),
     /// Downloaded bytes do not match the pinned sha256.
     #[error("checksum mismatch for nats-server download: expected {expected}, got {actual}")]
     ChecksumMismatch {
@@ -329,7 +340,56 @@ fn is_executable_mode(_metadata: &fs::Metadata) -> bool {
 /// Managed nats-server binary provider: downloads, verifies, and caches the pinned release.
 pub struct NatsServerBinary;
 
+/// Explicit source policy for a managed nats-server binary.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum NatsBinarySource {
+    /// Find `nats-server` on `PATH` without downloading.
+    PathLookup,
+    /// Validate and use this exact executable without downloading.
+    Path(PathBuf),
+    /// Download and verify the Trellis-pinned release.
+    DownloadPinned,
+}
+
 impl NatsServerBinary {
+    /// Resolve an explicit binary source. Download mode requires `cache_dir`; all other
+    /// modes ignore it and never access the network.
+    pub fn resolve(
+        source: &NatsBinarySource,
+        cache_dir: Option<&Path>,
+    ) -> Result<PathBuf, LocalNatsError> {
+        match source {
+            NatsBinarySource::PathLookup => Self::from_path_lookup(),
+            NatsBinarySource::Path(path) => Self::from_path(path),
+            NatsBinarySource::DownloadPinned => {
+                Self::ensure(Some(cache_dir.ok_or(LocalNatsError::MissingCacheDir)?))
+            }
+        }
+    }
+
+    /// Find and validate `nats-server` on the process `PATH` without downloading.
+    pub fn from_path_lookup() -> Result<PathBuf, LocalNatsError> {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        Self::from_search_path(&path)
+    }
+
+    fn from_search_path(path: &std::ffi::OsStr) -> Result<PathBuf, LocalNatsError> {
+        for directory in std::env::split_paths(&path) {
+            let candidate = directory.join(if cfg!(windows) {
+                "nats-server.exe"
+            } else {
+                "nats-server"
+            });
+            if candidate.is_file() {
+                return Self::from_path(&candidate);
+            }
+        }
+        Err(LocalNatsError::InvalidBinaryPath {
+            path: PathBuf::from("nats-server"),
+            reason: "not found on PATH; install nats-server, use --local-nats=<PATH>, or request --nats-download".to_string(),
+        })
+    }
+
     /// Return the path to a verified nats-server binary, downloading and extracting the
     /// pinned release into `cache_dir` on first use. `None` uses `TRELLIS_CACHE_DIR` or the
     /// platform cache directory.
@@ -340,7 +400,7 @@ impl NatsServerBinary {
     /// missing, replaced, corrupt, symlinked, or otherwise non-regular binary is
     /// reinstalled from the verified archive (never read through). A valid archive plus
     /// matching binary is reused without downloading.
-    pub fn ensure(cache_dir: Option<&Path>) -> Result<PathBuf, LocalNatsError> {
+    fn ensure(cache_dir: Option<&Path>) -> Result<PathBuf, LocalNatsError> {
         Self::ensure_with_pin(cache_dir, &pinned()?)
     }
 
@@ -421,6 +481,267 @@ impl NatsServerBinary {
         let canonical_metadata = fs::symlink_metadata(&canonical)?;
         validate_trusted_binary_metadata(&canonical, &canonical_metadata, &invalid)?;
         Ok(canonical)
+    }
+}
+
+/// Child-output routing for a managed nats-server process.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum NatsOutput {
+    /// Append stdout and stderr to this file, optionally mirroring both to stderr.
+    Log {
+        /// File receiving both output streams in append mode.
+        path: PathBuf,
+        /// Also copy both output streams to the parent's stderr.
+        mirror: bool,
+    },
+}
+
+/// Ports for a managed local NATS process.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LocalNatsPorts {
+    /// Native NATS client port.
+    pub nats: u16,
+    /// HTTP monitoring port.
+    pub monitor: u16,
+    /// Browser websocket port.
+    pub websocket: u16,
+}
+
+impl Default for LocalNatsPorts {
+    fn default() -> Self {
+        Self {
+            nats: 4222,
+            monitor: 8222,
+            websocket: 8080,
+        }
+    }
+}
+
+/// Managed local NATS process assembled from explicit builder policy.
+pub struct LocalNats {
+    server: ManagedNatsServer,
+    nats_url: String,
+    websocket_url: String,
+    log_path: PathBuf,
+    _temporary_state: Option<tempfile::TempDir>,
+}
+
+impl LocalNats {
+    /// Begin an explicit local NATS policy.
+    #[must_use]
+    pub fn builder() -> LocalNatsBuilder {
+        LocalNatsBuilder::default()
+    }
+
+    /// Native NATS client URL.
+    #[must_use]
+    pub fn nats_url(&self) -> &str {
+        &self.nats_url
+    }
+
+    /// Browser websocket URL.
+    #[must_use]
+    pub fn websocket_url(&self) -> &str {
+        &self.websocket_url
+    }
+
+    /// Dedicated child-output log path.
+    #[must_use]
+    pub fn log_path(&self) -> &Path {
+        &self.log_path
+    }
+
+    /// Stop and reap the managed child.
+    pub fn stop(&mut self) -> Result<(), LocalNatsError> {
+        self.server.stop()
+    }
+}
+
+#[derive(Default)]
+enum StatePolicy {
+    #[default]
+    Missing,
+    Path(PathBuf),
+    Temporary,
+}
+
+#[derive(Default)]
+enum PortPolicy {
+    #[default]
+    Missing,
+    Fixed(LocalNatsPorts),
+    Ephemeral,
+}
+
+/// Builder requiring explicit binary, config source, state, ports, and output policy.
+#[derive(Default)]
+pub struct LocalNatsBuilder {
+    binary: Option<NatsBinarySource>,
+    source: Option<PathBuf>,
+    state: StatePolicy,
+    ports: PortPolicy,
+    cache_dir: Option<PathBuf>,
+    pid_file: Option<PathBuf>,
+    output: Option<NatsOutput>,
+}
+
+impl LocalNatsBuilder {
+    /// Select where the managed nats-server executable comes from.
+    #[must_use]
+    pub fn binary(mut self, source: NatsBinarySource) -> Self {
+        self.binary = Some(source);
+        self
+    }
+
+    /// Select the read-only directory containing `nats.conf` and `jwt.conf`.
+    #[must_use]
+    pub fn source(mut self, path: impl Into<PathBuf>) -> Self {
+        self.source = Some(path.into());
+        self
+    }
+
+    /// Select the mutable NATS state directory.
+    #[must_use]
+    pub fn state(mut self, path: impl Into<PathBuf>) -> Self {
+        self.state = StatePolicy::Path(path.into());
+        self
+    }
+
+    /// Keep mutable NATS state in a temporary directory owned by the returned guard.
+    #[must_use]
+    pub fn temporary_state(mut self) -> Self {
+        self.state = StatePolicy::Temporary;
+        self
+    }
+
+    /// Select fixed local ports.
+    #[must_use]
+    pub fn ports(mut self, ports: LocalNatsPorts) -> Self {
+        self.ports = PortPolicy::Fixed(ports);
+        self
+    }
+
+    /// Reserve nonconflicting loopback ports for this process.
+    #[must_use]
+    pub fn ephemeral_ports(mut self) -> Self {
+        self.ports = PortPolicy::Ephemeral;
+        self
+    }
+
+    /// Select the cache used only by [`NatsBinarySource::DownloadPinned`].
+    #[must_use]
+    pub fn cache_dir(mut self, path: impl Into<PathBuf>) -> Self {
+        self.cache_dir = Some(path.into());
+        self
+    }
+
+    /// Override the PID file location; otherwise it lives under the state directory.
+    #[must_use]
+    pub fn pid_file(mut self, path: impl Into<PathBuf>) -> Self {
+        self.pid_file = Some(path.into());
+        self
+    }
+
+    /// Select dedicated child log routing.
+    #[must_use]
+    pub fn output(mut self, output: NatsOutput) -> Self {
+        self.output = Some(output);
+        self
+    }
+
+    /// Resolve all policy, render host-local config, and start NATS.
+    pub fn start(self) -> Result<LocalNats, LocalNatsError> {
+        let binary_source = self
+            .binary
+            .ok_or_else(|| LocalNatsError::InvalidPolicy("binary source is required".into()))?;
+        let source = self
+            .source
+            .ok_or_else(|| LocalNatsError::InvalidPolicy("config source is required".into()))?
+            .canonicalize()?;
+        let (state, temporary_state) = match self.state {
+            StatePolicy::Path(path) => (path, None),
+            StatePolicy::Temporary => {
+                let temporary = tempfile::tempdir()?;
+                (temporary.path().to_path_buf(), Some(temporary))
+            }
+            StatePolicy::Missing => {
+                return Err(LocalNatsError::InvalidPolicy(
+                    "state or temporary_state is required".into(),
+                ));
+            }
+        };
+        let (ports, reservations) = match self.ports {
+            PortPolicy::Fixed(ports) => (ports, Vec::new()),
+            PortPolicy::Ephemeral => {
+                let listeners = (0..3)
+                    .map(|_| TcpListener::bind(("127.0.0.1", 0)))
+                    .collect::<io::Result<Vec<_>>>()?;
+                let ports = LocalNatsPorts {
+                    nats: listeners[0].local_addr()?.port(),
+                    monitor: listeners[1].local_addr()?.port(),
+                    websocket: listeners[2].local_addr()?.port(),
+                };
+                (ports, listeners)
+            }
+            PortPolicy::Missing => {
+                return Err(LocalNatsError::InvalidPolicy(
+                    "ports or ephemeral_ports is required".into(),
+                ));
+            }
+        };
+        let output = self
+            .output
+            .ok_or_else(|| LocalNatsError::InvalidPolicy("output policy is required".into()))?;
+        fs::create_dir_all(state.join("data/jwt"))?;
+        let authored_config = fs::read_to_string(source.join("nats.conf"))?;
+        let server_name = authored_config
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("server_name:").map(str::trim))
+            .unwrap_or("trellis");
+        let jwt_config = state.join("jwt.conf");
+        fs::write(
+            &jwt_config,
+            trellis_bootstrap::render_local_jwt_config(
+                &fs::read_to_string(source.join("jwt.conf"))?,
+                &state.join("data/jwt").display().to_string(),
+            ),
+        )?;
+        let config = state.join("nats.conf");
+        fs::write(
+            &config,
+            trellis_bootstrap::render_local_nats_config(
+                server_name,
+                &state.join("data").display().to_string(),
+                "./jwt.conf",
+                ports.nats,
+                ports.websocket,
+                ports.monitor,
+            ),
+        )?;
+        let binary = NatsServerBinary::resolve(&binary_source, self.cache_dir.as_deref())?;
+        let pid_file = self
+            .pid_file
+            .unwrap_or_else(|| state.join("nats-server.pid"));
+        let log_path = match &output {
+            NatsOutput::Log { path, .. } => path.clone(),
+        };
+        drop(reservations);
+        let server = ManagedNatsServer::start(
+            &binary,
+            &config,
+            ports.nats,
+            ports.monitor,
+            ports.websocket,
+            &pid_file,
+            &output,
+        )?;
+        Ok(LocalNats {
+            server,
+            nats_url: format!("nats://127.0.0.1:{}", ports.nats),
+            websocket_url: format!("ws://127.0.0.1:{}", ports.websocket),
+            log_path,
+            _temporary_state: temporary_state,
+        })
     }
 }
 
@@ -525,7 +846,7 @@ fn verified_installed_binary(
     result
 }
 
-/// Reject a trusted `--nats-binary` file that is not owned by root or the current user or
+/// Reject a trusted `--local-nats=<PATH>` file that is not owned by root or the current user or
 /// that has group/world-writable bits on the file or on any parent directory component.
 ///
 /// A parent directory is tolerated when it is group/world-writable only with the sticky
@@ -830,7 +1151,7 @@ fn process_alive(_pid: i32) -> bool {
 /// On linux the process identity is verified primarily through `/proc/<pid>/exe`: when it
 /// is readable, its canonicalized path must equal the canonicalized path of the binary this
 /// process manages (the exact path passed to [`ManagedNatsServer::start`], which may be a
-/// `--nats-binary` escape-hatch path whose basename is not `nats-server`). A recycled pid
+/// `--local-nats=<PATH>` escape-hatch path whose basename is not `nats-server`). A recycled pid
 /// naming an unrelated process is treated as stale instead of blocking startup. Only when
 /// `/proc/<pid>/exe` is unreadable (for example a zombie or a foreign pid namespace) does
 /// the gate fall back to the comm-prefix check (`/proc/<pid>/comm` starts with
@@ -917,12 +1238,13 @@ pub struct ManagedNatsServer {
     nats_port: u16,
     /// Pid this guard wrote to `pid_file`; used to verify ownership before unlinking.
     pid: i32,
+    output_threads: Vec<JoinHandle<io::Result<()>>>,
 }
 
 impl ManagedNatsServer {
     /// Spawn `nats-server -c <config_path>` and wait until `nats_port`, `http_port`, and
     /// `ws_port` accept TCP connections (30 second timeout, 100 ms polling). The child's
-    /// stderr is inherited so server diagnostics are visible live.
+    /// output follows the explicit `output` policy.
     ///
     /// The pid file is acquired as an exclusive lock before spawning. A pid file recording a
     /// live nats-server fails with [`LocalNatsError::AlreadyRunning`]; a stale pid file is
@@ -936,6 +1258,7 @@ impl ManagedNatsServer {
         http_port: u16,
         ws_port: u16,
         pid_file: &Path,
+        output: &NatsOutput,
     ) -> Result<Self, LocalNatsError> {
         let mut pid_lock = acquire_pid_file(pid_file, binary)?;
         for port in [nats_port, http_port, ws_port] {
@@ -945,13 +1268,21 @@ impl ManagedNatsServer {
                 return Err(LocalNatsError::PortInUse { port });
             }
         }
-        let child = match Command::new(binary)
-            .arg("-c")
-            .arg(config_path)
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
-        {
+        let NatsOutput::Log { path, mirror } = output;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let log = OpenOptions::new().create(true).append(true).open(path)?;
+        let mut command = Command::new(binary);
+        command.arg("-c").arg(config_path);
+        if *mirror {
+            command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        } else {
+            command
+                .stdout(Stdio::from(log.try_clone()?))
+                .stderr(Stdio::from(log.try_clone()?));
+        }
+        let child = match command.spawn() {
             Ok(child) => child,
             Err(error) => {
                 let _ = fs::remove_file(pid_file);
@@ -964,7 +1295,32 @@ impl ManagedNatsServer {
             pid_file: pid_file.to_path_buf(),
             nats_port,
             pid,
+            output_threads: Vec::new(),
         };
+        if *mirror {
+            let stdout = server
+                .child
+                .as_mut()
+                .expect("managed child is present")
+                .stdout
+                .take();
+            let stderr = server
+                .child
+                .as_mut()
+                .expect("managed child is present")
+                .stderr
+                .take();
+            if let Some(stdout) = stdout {
+                server
+                    .output_threads
+                    .push(forward_output(stdout, log.try_clone()?));
+            }
+            if let Some(stderr) = stderr {
+                server
+                    .output_threads
+                    .push(forward_output(stderr, log.try_clone()?));
+            }
+        }
         // The pid is written through the exclusive lock handle, never by re-opening the
         // path, so a symlink or FIFO planted between acquire and write is not followed.
         if let Err(error) = write_pid(&mut pid_lock, pid) {
@@ -1029,6 +1385,11 @@ impl ManagedNatsServer {
             }
         }
         self.child = None;
+        for thread in self.output_threads.drain(..) {
+            thread
+                .join()
+                .map_err(|_| io::Error::other("nats-server output thread panicked"))??;
+        }
         self.remove_owned_pid_file();
         Ok(())
     }
@@ -1044,6 +1405,23 @@ impl ManagedNatsServer {
             let _ = fs::remove_file(&self.pid_file);
         }
     }
+}
+
+fn forward_output(
+    mut reader: impl io::Read + Send + 'static,
+    mut destination: impl io::Write + Send + 'static,
+) -> JoinHandle<io::Result<()>> {
+    std::thread::spawn(move || {
+        let mut buffer = [0_u8; 8192];
+        loop {
+            let read = reader.read(&mut buffer)?;
+            if read == 0 {
+                return Ok(());
+            }
+            destination.write_all(&buffer[..read])?;
+            io::stderr().write_all(&buffer[..read])?;
+        }
+    })
 }
 
 impl Drop for ManagedNatsServer {

@@ -4893,10 +4893,8 @@ dependencies = [
  "trellis-contracts",
  "trellis-generation",
  "trellis-local-bootstrap",
- "trellis-local-nats",
  "trellis-protocol",
  "trellis-rs",
- "trellis-runtime",
  "trellis-runtime-apis",
  "ulid",
 ]
@@ -5013,6 +5011,7 @@ dependencies = [
  "tar",
  "tempfile",
  "thiserror 2.0.18",
+ "trellis-bootstrap",
  "ureq",
 ]
 
@@ -5134,6 +5133,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "trellis-server"
+version = "0.12.0"
+dependencies = [
+ "clap",
+ "libc",
+ "miette",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "trellis-bootstrap",
+ "trellis-local-nats",
+ "trellis-runtime",
+]
+
+[[package]]
 name = "trellis-test"
 version = "0.12.0"
 dependencies = [
@@ -5152,6 +5168,7 @@ dependencies = [
  "tokio",
  "toml",
  "trellis-local-bootstrap",
+ "trellis-local-nats",
  "trellis-protocol",
  "trellis-rs",
  "trellis-runtime-apis",

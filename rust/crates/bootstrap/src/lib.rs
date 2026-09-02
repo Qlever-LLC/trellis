@@ -20,7 +20,8 @@ pub use constants::{
 pub use error::BootstrapError;
 pub use generation::{generate_nats_bootstrap, generate_trellis_bootstrap};
 pub use nats_config::{
-    render_auth_callout_env, render_local_nats_config, render_nats_config, slug_from_name,
+    render_auth_callout_env, render_local_jwt_config, render_local_nats_config, render_nats_config,
+    slug_from_name,
 };
 pub use runtime_config::{render_trellis_config, trellis_runtime_config};
 pub use types::{

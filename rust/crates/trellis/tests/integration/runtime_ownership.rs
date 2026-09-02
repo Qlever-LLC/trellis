@@ -37,7 +37,7 @@ impl RuntimeProcess {
         let stderr_path = runtime.workdir().join(format!("{label}.stderr.log"));
         let stderr = File::create(&stderr_path).expect("create runtime stderr log");
         port_reservation.release_listener();
-        let mut command = runtime_command(mode, config_path);
+        let mut command = runtime_command(mode, config_path, false);
         command
             .stdout(Stdio::from(stdout))
             .stderr(Stdio::from(stderr));
@@ -168,7 +168,10 @@ async fn runtime_singleton_ownership_lifecycle() {
     let duplicate_error = duplicate.stderr();
     assert!(!duplicate_status.success());
     assert!(duplicate_error.contains("jobs.owner"), "{duplicate_error}");
-    assert!(duplicate_error.contains("OwnerHeld"), "{duplicate_error}");
+    assert!(
+        duplicate_error.contains("already held"),
+        "{duplicate_error}"
+    );
     assert!(!duplicate_error.contains("runtime storage failed"));
     assert!(blocked_storage.is_dir());
     assert!(first.is_ready().await, "first Jobs owner lost readiness");
@@ -197,7 +200,7 @@ async fn runtime_singleton_ownership_lifecycle() {
     assert!(!successor.is_ready().await, "lost owner remained ready");
     let loss_error = successor.stderr();
     assert!(loss_error.contains("jobs.owner"), "{loss_error}");
-    assert!(loss_error.contains("OwnerRenewal"), "{loss_error}");
+    assert!(loss_error.contains("was lost"), "{loss_error}");
     assert!(matches!(
         leases
             .entry("jobs.owner")
@@ -218,7 +221,7 @@ async fn runtime_singleton_ownership_lifecycle() {
     let all_error = all.stderr();
     assert!(!all_status.success());
     assert!(all_error.contains("health.owner"), "{all_error}");
-    assert!(all_error.contains("OwnerHeld"), "{all_error}");
+    assert!(all_error.contains("already held"), "{all_error}");
     acquire_and_release(&leases, "platform.owner").await;
     acquire_and_release(&leases, "jobs.owner").await;
     leases
@@ -311,7 +314,7 @@ async fn runtime_singleton_ownership_lifecycle() {
     );
     let all_loss_error = all_runtime.stderr();
     assert!(all_loss_error.contains("jobs.owner"), "{all_loss_error}");
-    assert!(all_loss_error.contains("OwnerRenewal"), "{all_loss_error}");
+    assert!(all_loss_error.contains("was lost"), "{all_loss_error}");
     let manipulated = leases
         .entry("jobs.owner")
         .await
@@ -366,7 +369,7 @@ async fn runtime_incompatible_lease_bucket_fails_before_storage_open() {
     let error = process.stderr();
 
     assert!(!status.success());
-    assert!(error.contains("InfrastructureMismatch"), "{error}");
+    assert!(error.contains("incompatible"), "{error}");
     assert!(error.contains("max_age"), "{error}");
     assert!(!error.contains("runtime storage failed"), "{error}");
     assert!(blocked_storage.is_dir());
@@ -405,8 +408,7 @@ async fn runtime_check_is_mode_scoped_and_read_only() {
             .unwrap_or_else(|error| panic!("delete {stream}: {error}"));
     }
     for mode in ["platform", "health", "eventlog"] {
-        let output = runtime_command(mode, &config_path)
-            .arg("--check")
+        let output = runtime_command(mode, &config_path, true)
             .output()
             .unwrap_or_else(|error| panic!("run {mode} check: {error}"));
         assert!(
@@ -417,8 +419,7 @@ async fn runtime_check_is_mode_scoped_and_read_only() {
     }
     assert!(jetstream.get_stream("JOBS").await.is_err());
 
-    let failed_jobs = runtime_command("jobs", &config_path)
-        .arg("--check")
+    let failed_jobs = runtime_command("jobs", &config_path, true)
         .output()
         .expect("run missing Jobs check");
     assert!(!failed_jobs.status.success());
@@ -437,8 +438,7 @@ async fn runtime_check_is_mode_scoped_and_read_only() {
             .await
             .unwrap_or_else(|error| panic!("delete {bucket}: {error}"));
     }
-    let jobs_without_auth = runtime_command("jobs", &config_path)
-        .arg("--check")
+    let jobs_without_auth = runtime_command("jobs", &config_path, true)
         .output()
         .expect("run Jobs check without Auth registries");
     assert!(
@@ -461,8 +461,7 @@ async fn runtime_check_is_mode_scoped_and_read_only() {
         .delete_stream("JOBS_WORK")
         .await
         .expect("delete union Jobs work stream");
-    let all_missing_union = runtime_command("all", &config_path)
-        .arg("--check")
+    let all_missing_union = runtime_command("all", &config_path, true)
         .output()
         .expect("run incomplete all-mode check");
     assert!(!all_missing_union.status.success());
@@ -663,7 +662,7 @@ path = "{}"
     std::fs::write(path, config).expect("write Rust runtime config");
 }
 
-fn runtime_command(mode: &str, config_path: &Path) -> Command {
+fn runtime_command(mode: &str, config_path: &Path, check: bool) -> Command {
     trellis_test::record_test_process_start("trellis", mode)
         .expect("record Rust runtime process start");
     let rust_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -683,21 +682,28 @@ fn runtime_command(mode: &str, config_path: &Path) -> Command {
                 .to_str()
                 .expect("UTF-8 Cargo path"),
             "-p",
-            "trellis-runtime",
+            "trellis-server",
             "--bin",
             "trellis-server",
             "--",
         ]);
         command
     };
-    command
-        .args([
-            mode,
+    if check {
+        command.args([
+            "check",
             "--config",
             config_path.to_str().expect("UTF-8 runtime config path"),
-        ])
-        .current_dir(rust_dir)
-        .stdin(Stdio::null());
+            mode,
+        ]);
+    } else {
+        command.args([
+            "--config",
+            config_path.to_str().expect("UTF-8 runtime config path"),
+            mode,
+        ]);
+    }
+    command.current_dir(rust_dir).stdin(Stdio::null());
     command
 }
 

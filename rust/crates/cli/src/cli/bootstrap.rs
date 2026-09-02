@@ -39,7 +39,7 @@ pub struct InitConfigArgs {
     pub server_name: Option<String>,
 
     #[arg(long, default_value_t = 3000)]
-    /// Trellis HTTP port written to trellis/config.toml.
+    /// Trellis HTTP port written to config.toml.
     pub trellis_port: u16,
 
     #[arg(long, default_value = "nats://127.0.0.1:4222")]

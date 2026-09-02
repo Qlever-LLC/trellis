@@ -201,7 +201,7 @@ async fn service_heartbeat_uses_refreshed_native_connection() {
     .expect("connect Rust health service");
 
     let ((retired_url, replacement_url), _) = runtime
-        .rotate_nats_proxy()
+        .stage_nats_proxy_rotation()
         .await
         .expect("rotate advertised NATS endpoints");
     let observer = ConnectOptions::new()
@@ -224,6 +224,7 @@ async fn service_heartbeat_uses_refreshed_native_connection() {
         .integration_test_refresh_authorization_context()
         .await
         .expect("refresh service connection with endpoint B");
+    runtime.retire_staged_nats_proxies();
 
     let heartbeat = tokio::time::timeout(Duration::from_secs(45), heartbeats.next())
         .await

@@ -47,7 +47,7 @@ fn init_config_command(format: OutputFormat, args: &InitConfigArgs) -> miette::R
     options.nats.names.server_name = args.server_name.clone();
 
     generate_trellis_bootstrap(&options).map_err(bootstrap_report)?;
-    let trellis_config = args.out.join("trellis/config.toml");
+    let trellis_config = args.out.join("config.toml");
     let nats_config = args.out.join("nats/nats.conf");
     if output::is_json(format) {
         output::print_json(&json!({

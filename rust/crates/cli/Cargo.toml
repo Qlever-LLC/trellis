@@ -9,7 +9,7 @@ publish = false
 
 [features]
 default = ["runtime"]
-runtime = ["dep:trellis-bootstrap", "dep:trellis-runtime"]
+runtime = ["dep:trellis-bootstrap"]
 
 [dependencies]
 async-nats.workspace = true
@@ -31,11 +31,9 @@ trellis-codegen-rust = { path = "../codegen-rust", version = "0.12.0" }
 trellis-codegen-ts = { path = "../codegen-ts", version = "0.12.0" }
 trellis-contracts = { path = "../contracts", version = "0.12.0" }
 trellis-local-bootstrap = { path = "../local-bootstrap", version = "0.12.0" }
-trellis-local-nats = { path = "../local-nats", version = "0.12.0" }
 trellis-protocol = { path = "../protocol", version = "0.12.0" }
 trellis-generation = { path = "../../tools/generate", version = "0.12.0" }
 trellis-bootstrap = { path = "../bootstrap", version = "0.12.0", optional = true }
-trellis-runtime = { path = "../runtime", version = "0.12.0", optional = true }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 miette.workspace = true

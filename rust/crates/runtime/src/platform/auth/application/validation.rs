@@ -167,15 +167,6 @@ pub(crate) fn validate_account_list(
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn account_list_allows_one_row_of_pagination_lookahead() {
-        assert!(super::validate_account_list(None, 101).is_ok());
-        assert!(super::validate_account_list(None, 102).is_err());
-    }
-}
-
 pub(crate) fn validate_local_credential(
     credential: &LocalCredentialRecord,
 ) -> Result<(), super::super::AuthorizationStateError> {
@@ -564,5 +555,14 @@ pub(crate) fn validate_authority_record(
         super::super::DesiredAuthorityRecord::Deployment(record) => {
             validate_deployment_authority(record)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn account_list_allows_one_row_of_pagination_lookahead() {
+        assert!(super::validate_account_list(None, 101).is_ok());
+        assert!(super::validate_account_list(None, 102).is_err());
     }
 }

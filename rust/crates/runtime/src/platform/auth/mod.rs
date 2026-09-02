@@ -25,7 +25,7 @@ mod ephemeral;
 mod http;
 
 pub(crate) const DEVICE_ACTIVATION_REVIEW_TTL_MS: i64 = 15 * 60_000;
-pub(super) use builtins::{administration_participant_binding, auth_runtime_participant_binding};
+pub(super) use builtins::{auth_runtime_participant_binding, cli_participant_binding};
 pub(crate) use ephemeral::{
     validate_connection_kick_response, AuthConnectionPresence, AuthEphemeralRepository,
     NatsAuthEphemeralRepository,

@@ -1,8 +1,8 @@
 {
-  "description": "Define the bootstrap administrator's platform authority independently of any client application.",
-  "displayName": "Trellis Platform Administration",
+  "description": "Define the capabilities used by built-in Trellis CLI administration sessions.",
+  "displayName": "Trellis CLI",
   "format": "trellis.participant.v1",
-  "id": "trellis.platform-administration",
+  "id": "trellis-app.cli@v1",
   "kind": "app",
   "uses": {
     "optional": {
@@ -25,6 +25,14 @@
       "trellis.auth@v1": {
         "api": "trellis.auth@v1",
         "apiDigest": "3QSyOlZqSZ0e25CGmf7N9xOZXjOeomA-GUi7bG9WxaQ",
+        "events": {
+          "subscribe": [
+            "Auth.DeviceUserAuthorities.Approved",
+            "Auth.DeviceUserAuthorities.Requested",
+            "Auth.DeviceUserAuthorities.Resolved",
+            "Auth.DeviceUserAuthorities.ReviewRequested"
+          ]
+        },
         "rpc": {
           "call": [
             "Auth.Capabilities.List",

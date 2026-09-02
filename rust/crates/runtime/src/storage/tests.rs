@@ -54,6 +54,7 @@ fn runtime_config() -> RuntimeConfig {
         instance_name: None,
         event_session_seed_file: Some(PathBuf::from("session.seed")),
         event_context_digest_file: None,
+        paths: None,
         http: None,
         nats: Some(crate::NatsConfig {
             servers: Some("nats://127.0.0.1:4222".to_owned()),

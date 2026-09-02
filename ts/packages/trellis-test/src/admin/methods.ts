@@ -87,7 +87,7 @@ import {
 } from "@trellis/apis/trellis.state";
 import type { Static, TSchema } from "typebox";
 
-import administrationParticipantSource from "../../../../../rust/crates/trellis/artifacts/trellis.admin.participant.json" with {
+import cliParticipantSource from "../../../../../rust/crates/trellis/artifacts/trellis.cli.participant.json" with {
   type: "json",
 };
 
@@ -133,19 +133,15 @@ const adminDescriptors = defineAppContract(() => ({
   ],
 }));
 
-const administrationParticipant = structuredClone(
-  administrationParticipantSource,
-);
-const administrationParticipantDigest = participantDigest(
-  administrationParticipant,
-);
+const cliParticipant = structuredClone(cliParticipantSource);
+const cliParticipantDigest = participantDigest(cliParticipant);
 
 export const adminContract = Object.defineProperty(
   {
     ...adminDescriptors,
-    CONTRACT_ID: administrationParticipant.id,
-    CONTRACT_DIGEST: administrationParticipantDigest,
-    PARTICIPANT: administrationParticipant,
+    CONTRACT_ID: cliParticipant.id,
+    CONTRACT_DIGEST: cliParticipantDigest,
+    PARTICIPANT: cliParticipant,
   },
   CONTRACT_RUNTIME,
   {
@@ -159,9 +155,9 @@ export const adminContract = Object.defineProperty(
     | "PARTICIPANT"
   >
   & {
-    readonly CONTRACT_ID: "trellis.platform-administration";
+    readonly CONTRACT_ID: "trellis-app.cli@v1";
     readonly CONTRACT_DIGEST: string;
-    readonly PARTICIPANT: typeof administrationParticipant;
+    readonly PARTICIPANT: typeof cliParticipant;
   };
 
 export const ADMIN_PARTICIPANT = {

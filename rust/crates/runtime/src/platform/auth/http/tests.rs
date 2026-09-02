@@ -539,8 +539,7 @@ fn refresh_transport_metadata_omits_unconfigured_native_transport() {
 }
 #[test]
 fn administrator_grants_include_optional_console_surfaces() {
-    let binding = super::super::administration_participant_binding(0)
-        .expect("administration participant binding");
+    let binding = super::super::cli_participant_binding(0).expect("CLI participant binding");
     let (grants, capabilities) = super::browser::complete_participant_authority(&binding)
         .unwrap_or_else(|_| panic!("complete administration grant set"));
     let json = serde_json::to_string(&grants).expect("serialize administration grants");

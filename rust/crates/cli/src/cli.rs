@@ -2,22 +2,16 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
-#[cfg(feature = "runtime")]
-use trellis_runtime::RuntimeMode;
 
 mod auth;
 mod bootstrap;
 mod deploy;
 mod self_cmd;
-#[cfg(feature = "runtime")]
-mod server;
 
 pub use auth::*;
 pub use bootstrap::*;
 pub use deploy::*;
 pub use self_cmd::*;
-#[cfg(feature = "runtime")]
-pub use server::*;
 
 #[derive(Debug, Parser)]
 #[command(name = "trellis", version = env!("TRELLIS_BUILD_VERSION"), about = "Trellis CLI")]
@@ -73,9 +67,6 @@ pub enum TopLevelCommand {
     Dev(DevCommand),
     /// Manage offline authorization trust artifacts.
     Infra(InfraCommand),
-    /// Validate runtime config, NATS, migrations, trust, and registries without mutation.
-    #[cfg(feature = "runtime")]
-    Check(CheckArgs),
     /// Run one-time initialization workflows.
     #[cfg(feature = "runtime")]
     Init(InitCommand),
@@ -87,9 +78,6 @@ pub enum TopLevelCommand {
     Version,
     /// Generate shell completion scripts for Trellis.
     Completion { shell: Shell },
-    /// Run the Trellis runtime with an auto-managed local NATS server.
-    #[cfg(feature = "runtime")]
-    Server(ServerArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -132,18 +120,6 @@ pub struct RmArgs {
     pub api_id: String,
     #[command(flatten)]
     pub project: ProjectRootArgs,
-}
-
-#[cfg(feature = "runtime")]
-#[derive(Debug, clap::Args)]
-/// Read-only runtime preflight validation.
-pub struct CheckArgs {
-    #[arg(long)]
-    /// Path to the Trellis runtime TOML configuration.
-    pub config: PathBuf,
-    #[arg(long, default_value = "all")]
-    /// Runtime mode whose dependencies must be ready.
-    pub mode: RuntimeMode,
 }
 
 #[derive(Debug, clap::Args)]

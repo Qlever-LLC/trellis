@@ -1,4 +1,4 @@
-This guide covers day-to-day development from a Trellis source checkout. It uses the same simple local setup as [Starting Trellis](/guides/starting-trellis): the CLI auto-manages a local nats-server binary, while the Trellis runtime and Console run from source.
+This guide covers day-to-day development from a Trellis source checkout. It uses the same local setup as [Starting Trellis](/guides/starting-trellis): `trellis-server` explicitly manages local NATS while the runtime and Console run from source.
 
 ## What you need
 
@@ -6,9 +6,8 @@ This guide covers day-to-day development from a Trellis source checkout. It uses
 - [Deno](https://deno.com) v2+
 - a Rust toolchain
 - the `trellis` CLI installed (see [Install the Trellis CLI](/guides/install-trellis-cli))
-- network access on first run: the CLI downloads a pinned, checksum-verified
-  nats-server binary and caches it under `TRELLIS_CACHE_DIR` (default
-  `~/.cache/trellis` on Linux) for later runs
+- `nats-server` on `PATH`, or network access when explicitly using
+  `--nats-download`
 
 ## 1. Prepare a local runtime bundle
 
@@ -18,7 +17,7 @@ Generate local NATS, Trellis config, credentials, keys, and data directories:
 trellis init config --out ~/trellis
 ```
 
-`trellis server` derives its managed NATS config from that bundle, so no
+`trellis-server` derives its managed NATS config from that bundle, so no
 separate NATS setup step is needed.
 
 ## 2. Clone and prepare the repo
@@ -38,14 +37,13 @@ Installation is bootstrap-safe; you do not need a running Trellis instance to ge
 
 ## 3. Start the Trellis runtime
 
-Run the CLI from the source tree so runtime and CLI changes are picked up by
-rebuilds; it auto-manages the local nats-server binary on first start:
+Run the server from the source tree so runtime changes are picked up by rebuilds:
 
 ```sh
 cargo run --manifest-path rust/Cargo.toml \
-  --package trellis-cli \
-  --bin trellis \
-  -- server all --config "$HOME/trellis/trellis/config.toml"
+  --package trellis-server \
+  --bin trellis-server \
+  -- --dev all --config "$HOME/trellis/config.toml"
 ```
 
 The runtime safely converges the streams and KV buckets owned by `all`, then
@@ -76,7 +74,7 @@ Open `http://localhost:5173` for Console UI development. Console cannot complete
 
 ## Development workflow
 
-- **Runtime changes**: edit files under `rust/crates/runtime/`; rebuild and restart the `trellis server` process after changes.
+- **Runtime changes**: edit files under `rust/crates/runtime/`; rebuild and restart `trellis-server` after changes.
 - **Console changes**: edit files under `ts/apps/console/`; Vite HMR applies changes in place.
 - **Contract changes**: run `cargo xtask install`.
 - **CLI changes**: run `cargo build -p trellis-cli` in the `rust/` directory, then re-run `trellis ...` commands.

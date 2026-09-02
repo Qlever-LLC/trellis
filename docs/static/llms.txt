@@ -29,6 +29,10 @@ commands.
   with `/console/assets/*`; auth APIs remain under `/auth/*`.
 - Runtime boundaries use `trellis.api.v1` and `trellis.participant.v1` artifacts.
   TypeScript contracts are compiled to those artifacts before bootstrap.
+- Built-in clients are ordinary app participants: `trellis-app.cli@v1`,
+  `trellis-app.console@v1`, and `trellis-app.portal@v1`. Privileged platform
+  surfaces remain Trellis-owned `trellis.*` APIs, and authority stays bound to
+  the exact participant artifact and needs digests.
 - Contract authoring supplies participant identity, owned API identity, and API
   release version independently. TypeScript `define*Contract` bodies require
   `id`, `apiId`, and Semantic Version `apiVersion`. Rust
@@ -304,34 +308,31 @@ commands.
   counts are rejected because fixed protocol subjects share that account. Keep
   one case per module. `trellis-test` runs NATS as a managed child process
   from pinned, checksum-verified nats-server and nsc binaries (cached under
-  `TRELLIS_TEST_CACHE_DIR`, default `~/.cache/trellis-test`; first use downloads them, requiring network; every reuse revalidates the cached archive sha256 against the pin and byte-checks the cached binary against a fresh extraction, so corrupted or replaced cache entries are reinstalled, and and `sh` must be on `PATH`); no container runtime is
+  `TRELLIS_TEST_CACHE_DIR`, default `~/.cache/trellis-test`; first use downloads them, requiring network; every reuse revalidates the cached archive sha256 against the pin and byte-checks the cached binary against a fresh extraction, so corrupted or replaced cache entries are reinstalled, and `sh` must be on `PATH`); no container runtime is
   required.
-- The `trellis` CLI runs the runtime with
-  `trellis server [mode] --config PATH [--nats URL | --nats-binary PATH]
-  [--nats-state-dir PATH] [--check]` (mode defaults to `all`; `--check`
-  validates configuration, trust, stores, streams, and NATS connectivity,
-  then exits). Add `--reset-admin` to rotate the one-time create/edit URL for
+- `trellis-server [OPTIONS] [MODE]` owns the runtime process; mode defaults to
+  `all`. `trellis-server check [OPTIONS] [MODE]` validates configuration,
+  trust, stores, streams, and NATS connectivity, then exits. Add
+  `--reset-admin` to rotate the one-time create/edit URL for
   the permanent bootstrap administrator; completing it can change that
-  account's username and password and revokes its existing sessions. Managed
-  mode (no `--nats`) downloads the pinned nats-server
-  release, verifies its checksum, caches it under `TRELLIS_CACHE_DIR`
-  (default `~/.cache/trellis`), listens on 127.0.0.1 ports 4222 (NATS), 8222
-  (monitoring), and 8080 (websocket), and stops the server when the CLI
-  exits. `--nats URL` runs against an external server; `--nats-binary PATH`
-  manages an existing trusted nats-server binary without re-verifying it;
-  `--nats-state-dir PATH` keeps all mutable managed-NATS files (rendered
-  configs, pid file, resolver JWTs, JetStream data) outside a read-only
-  bundle.
+  account's username and password and revokes its existing sessions. Plain
+  startup uses configured external NATS and never spawns or downloads it.
+  `--local-nats` uses PATH, `--local-nats=PATH` uses an exact trusted binary,
+  `--nats-download` explicitly uses the verified pin, and `--dev` means user
+  paths plus PATH NATS and verbose output. User defaults follow XDG; `--system`
+  selects FHS config, data, state, cache, runtime, and log roots. Optional
+  `[paths].data/state/cache/runtime/logs` values override those roots; relative
+  values remain config-relative. Omitted SQLite paths use the effective data
+  root, while an explicit per-store path wins.
 - The runtime OCI image bakes the `trellis` CLI and the pinned,
   checksum-verified nats-server at `/usr/local/bin/nats-server`; `nsc` is
   test-harness-only and not in the image. The entrypoint stays
   `trellis-server` for external-NATS deployments. For a managed single
   container, mount the generated bundle read-only from its own named volume
   and the writable state on a second volume
-  (`trellis-bundle:/etc/trellis:ro,Z`, `trellis-state:/var/lib/trellis:rw,Z`),
-  with the bundle's SQLite store paths rewritten to the state volume, and run
-  `trellis server ... --nats-binary /usr/local/bin/nats-server
-  --nats-state-dir /var/lib/trellis/nats`.
+  (`trellis-bundle:/etc/trellis:ro,Z`,
+  `trellis-state:/var/lib/trellis:rw,Z`), and run `trellis-server --system
+  --local-nats=/usr/local/bin/nats-server`.
 - Test Trellis runtime behavior through live integration tests. Do not use fake
   NATS, fake Trellis runtimes, fake auth, fake generated clients, or hand-built
   bootstrap/control-plane responders to prove Trellis behavior. If a live test

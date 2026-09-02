@@ -30,7 +30,6 @@ fn new_top_level_help_is_available() {
         &["upgrade", "--help"],
         &["version", "--help"],
         &["completion", "--help"],
-        &["server", "--help"],
     ] {
         let output = run_cli(args);
         assert!(output.status.success(), "{args:?} help should succeed");
@@ -52,6 +51,7 @@ fn removed_top_level_commands_and_aliases_are_rejected() {
         "keygen",
         "approvals",
         "grants",
+        "server",
     ] {
         let output = run_cli(&[command, "--help"]);
         assert!(!output.status.success(), "{command} should fail");

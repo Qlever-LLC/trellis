@@ -446,7 +446,7 @@ fn live_process_without_nats_identity_is_stale() {
 #[cfg(target_os = "linux")]
 #[test]
 fn exe_identity_wins_over_comm_mismatch() {
-    // A `--nats-binary` escape-hatch path may have a basename that does not start with
+    // A `--local-nats=<PATH>` escape-hatch path may have a basename that does not start with
     // `nats-server` (for example `/opt/bin/custom-nats`); the exe-based identity must
     // still recognize the live process as ours instead of misclassifying it as stale.
     let temp = tempfile::tempdir().expect("temp dir");
@@ -823,6 +823,46 @@ fn from_path_accepts_regular_executable() {
     );
 }
 
+#[test]
+fn path_lookup_uses_controlled_search_path_without_download() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let binary = temp.path().join(if cfg!(windows) {
+        "nats-server.exe"
+    } else {
+        "nats-server"
+    });
+    fs::write(&binary, "#!/bin/sh\n").expect("write binary");
+    set_executable(&binary).expect("make executable");
+
+    let path = std::env::join_paths([temp.path()]).expect("join PATH");
+    let resolved = NatsServerBinary::from_search_path(&path).expect("find PATH binary");
+    assert_eq!(
+        resolved,
+        fs::canonicalize(binary).expect("canonical binary")
+    );
+}
+
+#[test]
+fn missing_path_binary_and_explicit_path_never_create_download_cache() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let cache = temp.path().join("cache");
+    let empty_path = std::env::join_paths([temp.path()]).expect("join PATH");
+    assert!(NatsServerBinary::from_search_path(&empty_path).is_err());
+    assert!(NatsServerBinary::resolve(
+        &NatsBinarySource::Path(temp.path().join("missing")),
+        Some(&cache),
+    )
+    .is_err());
+    assert!(!cache.exists());
+}
+
+#[test]
+fn pinned_download_requires_explicit_cache() {
+    let error = NatsServerBinary::resolve(&NatsBinarySource::DownloadPinned, None)
+        .expect_err("download without cache rejected");
+    assert!(matches!(error, LocalNatsError::MissingCacheDir));
+}
+
 #[cfg(unix)]
 #[test]
 fn from_path_returns_canonical_path_through_symlinked_parents() {
@@ -942,6 +982,15 @@ fn unique_temp_paths_do_not_collide_within_one_process() {
     let first = unique_temp_path(temp.path(), "nats-server-v2.14.4-linux-amd64.tar.gz");
     let second = unique_temp_path(temp.path(), "nats-server-v2.14.4-linux-amd64.tar.gz");
     assert_ne!(first, second, "each call must get its own temp path");
+}
+
+#[test]
+fn builder_requires_explicit_policy_without_side_effects() {
+    let Err(error) = LocalNats::builder().start() else {
+        panic!("missing binary policy must fail");
+    };
+    assert!(matches!(error, LocalNatsError::InvalidPolicy(_)));
+    assert!(error.to_string().contains("binary source is required"));
 }
 
 #[test]

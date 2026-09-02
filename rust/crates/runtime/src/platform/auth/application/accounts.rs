@@ -305,7 +305,7 @@ mod tests {
             },
         )?;
         let target = FirstAdminAuthorityTarget {
-            participant_id: "trellis.platform-administration".to_owned(),
+            participant_id: "trellis-app.cli@v1".to_owned(),
             participant_artifact_digest: "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE".to_owned(),
             participant_needs_digest: "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI".to_owned(),
         };

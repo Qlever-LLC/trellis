@@ -478,11 +478,8 @@ mod tests {
 
     #[test]
     fn canonical_administrator_compiles_all_console_transport_subjects() {
-        let binding = super::super::administration_participant_binding(1)
-            .expect("administration participant binding");
-        let resolved = binding
-            .resolve()
-            .expect("resolved administration participant");
+        let binding = super::super::cli_participant_binding(1).expect("CLI participant binding");
+        let resolved = binding.resolve().expect("resolved CLI participant");
         let state = IssuableAuthorizationState {
             principal: AuthorizationPrincipal {
                 kind: AuthorizationPrincipalKind::User,

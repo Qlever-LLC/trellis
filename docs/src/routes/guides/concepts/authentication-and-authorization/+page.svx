@@ -25,6 +25,11 @@ Authority decisions bind the participant id, artifact digest, and accepted needs
 digest. Changing that boundary requires a new proposal and decision rather than
 silently expanding an existing session.
 
+Built-in clients follow the same model: the CLI is `trellis-app.cli@v1`, Console
+is `trellis-app.console@v1`, and the login portal is `trellis-app.portal@v1`.
+They are ordinary app participants; privileged platform surfaces remain the
+Trellis-owned `trellis.*` APIs.
+
 ## Session keys
 
 Every connection uses a local Ed25519 session key. Bootstrap or browser bind
@@ -82,7 +87,7 @@ Effective grants are the intersection of:
 
 Mutable capability groups, grant overrides, authored NATS ACLs, and session-owned
 authority were retired. Administrative bootstrap derives its mandatory grants
-from the exact built-in administration participant artifact.
+from the exact built-in CLI participant artifact.
 
 ## Devices
 

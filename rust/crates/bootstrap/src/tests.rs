@@ -232,20 +232,11 @@ fn trellis_bootstrap_generates_bundle_without_manifest_files() {
     assert!(!temp.path().join("manifest.json").exists());
     assert!(!temp.path().join("nats/manifest.json").exists());
     assert!(temp.path().join("nats/nats.conf").is_file());
-    assert!(temp.path().join("trellis/config.toml").is_file());
-    assert!(temp.path().join("trellis/data").is_dir());
-    assert!(temp
-        .path()
-        .join("trellis/auth/authorization-root.json")
-        .is_file());
-    assert!(temp
-        .path()
-        .join("trellis/auth/authorization-issuer.seed")
-        .is_file());
-    assert!(!temp
-        .path()
-        .join("trellis/auth/authorization-root.seed")
-        .exists());
+    assert!(temp.path().join("config.toml").is_file());
+    assert!(!temp.path().join("data").exists());
+    assert!(temp.path().join("auth/authorization-root.json").is_file());
+    assert!(temp.path().join("auth/authorization-issuer.seed").is_file());
+    assert!(!temp.path().join("auth/authorization-root.seed").exists());
     assert!(temp.path().join("trust/authorization-root.seed").is_file());
 }
 
@@ -268,25 +259,23 @@ fn trellis_config_uses_expected_paths_urls_and_name() {
     assert!(config.contains("[nats]"));
     assert!(config.contains("servers = \"nats://nats.example.test:4222\""));
     assert!(config.contains("[nats.runtime]"));
-    assert!(config.contains("system_creds_path = \"../nats/creds/system.creds\""));
-    assert!(config.contains("trellis_creds_path = \"../nats/creds/trellis-auth.creds\""));
-    assert!(config.contains("auth_creds_path = \"../nats/creds/auth-auth.creds\""));
+    assert!(config.contains("system_creds_path = \"./nats/creds/system.creds\""));
+    assert!(config.contains("trellis_creds_path = \"./nats/creds/trellis-auth.creds\""));
+    assert!(config.contains("auth_creds_path = \"./nats/creds/auth-auth.creds\""));
     assert!(config.contains("[nats.auth_callout]"));
     assert!(
-        config.contains("issuer_signing_seed_file = \"../nats/secrets/auth-issuer-signing.seed\"")
+        config.contains("issuer_signing_seed_file = \"./nats/secrets/auth-issuer-signing.seed\"")
     );
     assert!(
-        config.contains("target_signing_seed_file = \"../nats/secrets/auth-target-signing.seed\"")
+        config.contains("target_signing_seed_file = \"./nats/secrets/auth-target-signing.seed\"")
     );
-    assert!(config.contains("xkey_seed_file = \"../nats/secrets/auth-sx.seed\""));
+    assert!(config.contains("xkey_seed_file = \"./nats/secrets/auth-sx.seed\""));
     assert!(config.contains("ws_nats_servers = [\"wss://nats.example.test/ws\"]"));
     assert!(config.contains("nats_servers = [\"nats://nats.example.test:4222\"]"));
     assert!(config.contains("[platform.storage]"));
-    assert!(config.contains("event_context_digest_file = \"./data/session-context.digest\""));
-    assert!(config.contains("path = \"./data/platform.sqlite\""));
-    assert!(config.contains("path = \"./data/jobs.sqlite\""));
-    assert!(config.contains("path = \"./data/health.sqlite\""));
-    assert!(config.contains("path = \"./data/eventlog.sqlite\""));
+    assert!(!config.contains("event_context_digest_file"));
+    assert!(!config.contains("[paths]"));
+    assert!(!config.contains("\npath ="));
     assert!(config.contains("journal_mode = \"wal\""));
     assert!(config.contains("busy_timeout_ms = 5000"));
     assert!(config.contains("single_writer = true"));
@@ -308,7 +297,10 @@ fn trellis_config_uses_expected_paths_urls_and_name() {
     assert!(!config.contains("github"));
     assert!(!config.contains("client_secret_file"));
 
-    let parsed = RuntimeConfig::from_toml_str(&config).expect("parse runtime config");
+    let temp = tempfile::tempdir().expect("config tempdir");
+    let config_path = temp.path().join("config.toml");
+    fs::write(&config_path, &config).expect("write runtime config");
+    let parsed = RuntimeConfig::load_from_path(&config_path).expect("load runtime config");
     parsed
         .validate_for_mode(RuntimeMode::All)
         .expect("validate all mode");
@@ -343,7 +335,7 @@ fn trellis_config_uses_expected_paths_urls_and_name() {
     assert!(matches!(
         parsed.platform_storage_backend().expect("platform storage"),
         StorageBackend::Sqlite(storage)
-            if storage.path == std::path::Path::new("./data/platform.sqlite")
+            if storage.path == temp.path().join("platform.sqlite")
                 && storage.journal_mode.as_deref() == Some("wal")
                 && storage.busy_timeout_ms == Some(5000)
                 && storage.single_writer == Some(true)
@@ -391,6 +383,9 @@ fn local_nats_config_uses_host_paths() {
         "trellis",
         "/tmp/trellis/nats/data",
         "/tmp/trellis/nats/jwt.local.conf",
+        4222,
+        8080,
+        8222,
     );
 
     assert!(config.contains("server_name: trellis"));

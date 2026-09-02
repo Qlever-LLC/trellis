@@ -22,15 +22,16 @@ and this project adheres to
   context expiry.
 - Added additive V1003 SQLite trust/context state, transactional revocation
   coupling for authorization-relevant mutations, durable revocation publication,
-  startup repair, expiry/cleanup janitor, and public read-only `trellis check`
-  validation of config, connectivity, migrations, trust, and registries.
+  startup repair, expiry/cleanup janitor, and `trellis-server check` validation
+  of config, connectivity, migrations, trust, and registries.
 - Added durable complete client trust floors with atomic browser and native
   persistence, Rust/WASM-authoritative TypeScript verification, deterministic
   client-computed refresh scheduling, and registry publication visibility
   checks.
-- Added `trellis server` managed local NATS: when no external `--nats` URL is
-  supplied, Trellis starts a pinned, checksum-verified nats-server binary for
-  local single-node use, with explicit external and baked-binary options.
+- Added the dedicated `trellis-server` process with explicit user/system
+  profiles and opt-in managed local NATS from `PATH`, an exact binary path, or
+  the pinned checksum-verified download. Plain startup uses configured external
+  NATS; the `trellis` CLI no longer owns server lifecycle.
 - Added trusted login-portal authority policy keyed by portal and participant,
   including recursive capability-group macros, verified OIDC role mappings,
   trusted local registration, atomic provenance, automatic authority
@@ -62,8 +63,8 @@ and this project adheres to
 - Increased local-bootstrap NATS authorization timeout to 30 seconds and apply
   Trellis connection timeouts to initial client dials so the full fail-closed
   admission pipeline remains reliable under concurrent live validation.
-- Derived runtime convergence and read-only `trellis check` requirements from
-  the selected runtime mode. Removed obsolete public infrastructure apply/check
+- Derived runtime convergence and `trellis-server check` requirements from the
+  selected runtime mode. Removed obsolete public infrastructure apply/check
   commands; `trellis infra` now contains only offline trust artifact tooling.
 - Kept TypeScript cryptography Rust/WASM-authoritative while supporting
   own-context persistence/refresh/reconnect and the same minimal connected
@@ -95,7 +96,7 @@ and this project adheres to
 - Included installed protocol-WASM output in the JSR package.
 - Made trust startup monotonic across configured files, SQLite, immutable NATS
   KV history, and the CAS-protected current pointer, including atomic
-  removed-issuer context revocation and read-only `trellis check` reporting for
+  removed-issuer context revocation and `trellis-server check` reporting for
   every required store, stream, bucket, trust floor, and credential.
 - Added proof-bound nullable context recovery, midpoint server-clock correction,
   renewed route-JWT expiry tracking, atomic client persistence, same-digest

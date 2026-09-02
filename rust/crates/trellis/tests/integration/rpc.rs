@@ -549,19 +549,17 @@ async fn authorization_registry_provider_cache_is_nats_local_and_revocation_live
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         let current = provider.integration_test_io_counters();
-        if current.revocation_watch_initializations > first_io.revocation_watch_initializations {
+        if current.revocation_watch_initializations > first_io.revocation_watch_initializations
+            && provider.integration_test_provider_ready()
+        {
             break;
         }
         assert!(
             Instant::now() < deadline,
-            "provider did not reinitialize after reconnect: before={first_io:?} after={current:?}"
+            "provider did not become ready after reconnect: before={first_io:?} after={current:?}"
         );
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    assert!(
-        provider.integration_test_provider_ready(),
-        "provider did not become ready again after reconnect initialization"
-    );
     let client_js = async_nats::jetstream::new(client.integration_test_nats());
     let client_registry = client_js
         .get_key_value("trellis_authorization_contexts")

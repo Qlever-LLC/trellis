@@ -358,9 +358,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${RELEASE_TAG}" ]; then
-            time cargo build -p trellis-cli --release --target ${{ matrix.target }}
+            time cargo build -p trellis-cli -p trellis-server --release --target ${{ matrix.target }}
           else
-            time cargo build -p trellis-cli --release --locked --target ${{ matrix.target }}
+            time cargo build -p trellis-cli -p trellis-server --release --locked --target ${{ matrix.target }}
           fi
         working-directory: rust
 
@@ -375,8 +375,9 @@ jobs:
           mkdir -p "$staging"
 
           cp "rust/target/${target}/release/trellis" "$staging/trellis"
+          cp "rust/target/${target}/release/trellis-server" "$staging/trellis-server"
           archive="trellis-${archive_version}-${target}.tar.gz"
-          tar -C "$staging" -czf "dist/$archive" trellis
+          tar -C "$staging" -czf "dist/$archive" trellis trellis-server
           shasum -a 256 "dist/$archive" > "dist/checksum-${archive_version}-${target}-trellis.sha256"
 
       - name: Upload packaged CLI artifact
@@ -485,11 +486,12 @@ jobs:
           esac
           trellis_version="$(docker run --rm --entrypoint trellis "${IMAGE}" --version)"
           test -n "${trellis_version}"
+          server_version="$(docker run --rm --entrypoint trellis-server "${IMAGE}" --version)"
+          test -n "${server_version}"
 
           # 2. Generate a bundle into the state volume, owned by the image's
-          #    non-root user; rewrite its SQLite store paths to the state volume
-          #    (mounted at /var/lib/trellis) so the bundle volume stays entirely
-          #    read-only; then copy the bundle into its own named volume.
+          #    non-root user, then copy it into its own named volume. System path
+          #    defaults keep mutable SQLite state out of the read-only bundle.
           docker volume create "${BUNDLE_VOLUME}" >/dev/null
           docker volume create "${STATE_VOLUME}" >/dev/null
           docker run --rm --user root --entrypoint chown -v "${STATE_VOLUME}":/var/lib/trellis \
@@ -497,15 +499,6 @@ jobs:
           docker run --rm --user 10001:10001 --entrypoint trellis \
             -v "${STATE_VOLUME}":/var/lib/trellis "${IMAGE}" \
             init config --out /var/lib/trellis/bundle
-          docker run --rm --user 10001:10001 --entrypoint sed \
-            -v "${STATE_VOLUME}":/var/lib/trellis "${IMAGE}" \
-            -i 's|\./data/|/var/lib/trellis/data/|g' /var/lib/trellis/bundle/trellis/config.toml
-          # The runtime's SQLite dir inside the writable state volume; the
-          # volume root is root-owned on some runtimes, so the container uid
-          # must own it before the run can create stores or NATS state.
-          docker run --rm --user root --entrypoint sh \
-            -v "${STATE_VOLUME}":/var/lib/trellis "${IMAGE}" -c \
-            'mkdir -p /var/lib/trellis/data && chown -R 10001:10001 /var/lib/trellis'
           docker run --rm --user root --entrypoint cp \
             -v "${STATE_VOLUME}":/from:ro -v "${BUNDLE_VOLUME}":/to "${IMAGE}" \
             -a /from/bundle/. /to/
@@ -518,17 +511,17 @@ jobs:
 
           # 3. Managed-mode run: non-root user, read-only rootfs, read-only
           #    bundle volume, writable state volume. All mutable NATS files go
-          #    to /var/lib/trellis/nats via --nats-state-dir and the runtime's
+          #    to /var/lib/trellis/nats via the system profile and the runtime's
           #    SQLite stores to /var/lib/trellis/data (config rewritten above).
           docker run --detach --name trellis-smoke-run --read-only --tmpfs /tmp \
+            --tmpfs /run/trellis:uid=10001,gid=10001,mode=0700 \
+            --tmpfs /var/log/trellis:uid=10001,gid=10001,mode=0700 \
             --user 10001:10001 \
             --publish 127.0.0.1::3000 \
             --volume "${BUNDLE_VOLUME}":/etc/trellis:ro,Z \
             --volume "${STATE_VOLUME}":/var/lib/trellis:rw,Z \
-            --entrypoint trellis "${IMAGE}" \
-            server all --config /etc/trellis/trellis/config.toml \
-              --nats-binary /usr/local/bin/nats-server \
-              --nats-state-dir /var/lib/trellis/nats
+            --entrypoint trellis-server "${IMAGE}" \
+            --system all --local-nats=/usr/local/bin/nats-server
 
           # 4. Wait for runtime readiness on the published port.
           runtime_port="$(docker port trellis-smoke-run 3000/tcp | cut -d: -f2)"
@@ -570,20 +563,20 @@ jobs:
 
           # 7. Mutable NATS state landed in the state volume; the pid file was
           #    removed on shutdown; the bundle volume stayed untouched; the
-          #    runtime's SQLite databases landed in the state volume (the bundle
-          #    config rewrote their paths before the copy).
+          #    runtime's SQLite databases landed in the system data root.
           docker run --rm --entrypoint sh \
             -v "${BUNDLE_VOLUME}":/etc/trellis:ro \
             -v "${STATE_VOLUME}":/var/lib/trellis "${IMAGE}" -c '
               set -eu
-              test -f /var/lib/trellis/nats/nats.local.conf
-              test -f /var/lib/trellis/nats/jwt.local.conf
+              test -f /var/lib/trellis/nats/nats.conf
+              test -f /var/lib/trellis/nats/jwt.conf
               test -d /var/lib/trellis/nats/data/jwt
               test -d /var/lib/trellis/nats/data/jetstream
               test ! -e /var/lib/trellis/nats/nats-server.pid
               test ! -e /etc/trellis/nats/nats.local.conf
-              test -f /var/lib/trellis/data/platform.sqlite
-              test ! -e /etc/trellis/trellis/data/platform.sqlite
+              test ! -e /etc/trellis/nats/jwt.local.conf
+              test -f /var/lib/trellis/platform.sqlite
+              test ! -e /etc/trellis/platform.sqlite
             '
           echo "managed NATS image smoke passed"
 

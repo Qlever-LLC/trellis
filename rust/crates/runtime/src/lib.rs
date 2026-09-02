@@ -48,8 +48,8 @@ pub use config::{
     AuthConfig, AuthorizationConfig, ClientConfig, ConfigError, HttpConfig, LeasesConfig,
     LocalIdentityConfig, NatsAuthCalloutConfig, NatsConfig, NatsRuntimeConfig, OAuthConfig,
     OAuthProviderConfig, PlatformTtlConfig, ResolvedLeasesConfig, ResolvedNatsAuthCalloutConfig,
-    ResolvedRuntimeNatsConfig, RuntimeConfig, SqliteStorageConfig, StorageBackend, StorageConfig,
-    SubsystemConfig,
+    ResolvedRuntimeNatsConfig, RuntimeConfig, RuntimePathDefaults, RuntimePathsConfig,
+    SqliteStorageConfig, StorageBackend, StorageConfig, SubsystemConfig,
 };
 pub use mode::{RuntimeMode, RuntimeModeParseError, SubsystemName};
 pub use server::{build_version_info, run_http_server, ServerError, VersionInfo};
@@ -58,4 +58,4 @@ pub use server::{build_version_info, run_http_server, ServerError, VersionInfo};
 pub use supervisor::{run, RuntimeError, RuntimeOptions};
 
 #[cfg(all(feature = "sqlite-storage", feature = "nats-leases"))]
-pub use supervisor::{check, check_with_nats_servers, NatsEndpointOverride, RuntimeCheckReport};
+pub use supervisor::{check, NatsEndpointOverride, RuntimeCheckReport};

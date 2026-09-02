@@ -30,15 +30,15 @@ fn source_auth_artifacts_are_valid_and_digest_pinned() {
     let participant = parse_participant(&participant_value).expect("validate auth participant");
     assert_eq!(participant.id(), "trellis.auth-runtime");
 
-    let admin_value: Value = serde_json::from_str(include_str!(
-        "../../../../trellis/artifacts/trellis.admin.participant.json"
+    let cli_value: Value = serde_json::from_str(include_str!(
+        "../../../../trellis/artifacts/trellis.cli.participant.json"
     ))
-    .expect("parse admin participant JSON");
-    lint_participant_authoring(&admin_value).expect("lint admin participant");
-    let admin = parse_participant(&admin_value).expect("validate admin participant");
-    assert_eq!(admin.id(), "trellis.platform-administration");
+    .expect("parse CLI participant JSON");
+    lint_participant_authoring(&cli_value).expect("lint CLI participant");
+    let cli = parse_participant(&cli_value).expect("validate CLI participant");
+    assert_eq!(cli.id(), "trellis-app.cli@v1");
     let resolved = trellis_protocol::resolve_participant(
-        &admin,
+        &cli,
         &[
             trellis_runtime_apis::auth::API_JSON,
             trellis_runtime_apis::jobs::API_JSON,

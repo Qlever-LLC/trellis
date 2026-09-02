@@ -938,7 +938,7 @@ pub(in crate::platform::auth) fn put_identity_authority(
         .map_err(sql_error)?
         .is_some();
     if is_bootstrap_administrator
-        && record.participant_id == "trellis.platform-administration"
+        && record.participant_id == super::super::builtins::CLI_PARTICIPANT_ID
         && (record.state != AuthorityState::Accepted || record.expires_at.is_some())
     {
         return Err(AuthorizationStateError::InvalidRecord(
@@ -946,7 +946,7 @@ pub(in crate::platform::auth) fn put_identity_authority(
         ));
     }
     if is_bootstrap_administrator
-        && record.participant_id == "trellis.platform-administration"
+        && record.participant_id == super::super::builtins::CLI_PARTICIPANT_ID
         && !allow_bootstrap_repair
     {
         let current =

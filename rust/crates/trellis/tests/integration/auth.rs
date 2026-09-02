@@ -105,10 +105,10 @@ impl Drop for AbortOnDrop {
 struct Fixture {
     runtime: trellis_test::TrellisTestRuntime,
     admin: trellis_test::TrellisTestAdmin,
+    admin_caller: trellis_rs::generated::Caller,
     bootstrap_url: String,
     portal_id: String,
     service_contract: trellis_test::TrellisTestContract,
-    service_handle: trellis_rs::service::ServiceHandle,
     client_contract: trellis_test::TrellisTestContract,
     read_capability: String,
     publish_capability: String,
@@ -230,48 +230,12 @@ async fn start_fixture_with_options(options: trellis_test::TrellisTestRuntimeOpt
         trellis_rs::contracts::ContractKind::App,
     )
     .expect("build Auth API reference contract");
-    let auth_rpc_names = serde_json::from_str::<Value>(auth_sdk::API_JSON)
-        .expect("parse Auth API")
-        .get("rpc")
-        .and_then(Value::as_object)
-        .expect("Auth API has RPC surfaces")
-        .keys()
-        .cloned()
-        .collect::<Vec<_>>();
-    let base_service_contract = trellis_test::TrellisTestContract::from_native_api_json(
+    let service_contract = trellis_test::TrellisTestContract::from_native_api_json(
         SERVICE_ID,
         API_SOURCE,
         trellis_rs::contracts::ContractKind::Service,
     )
-    .expect("build trusted-portal base service contract");
-    let mut service_participant = base_service_contract.participant().clone();
-    service_participant
-        .as_object_mut()
-        .expect("service participant is an object")
-        .insert(
-            "uses".to_owned(),
-            serde_json::json!({
-                "required": {
-                    (auth_sdk::API_ID): {
-                        "api": auth_sdk::API_ID,
-                        "apiDigest": auth_contract.api_digest(),
-                        "rpc": { "call": auth_rpc_names }
-                    }
-                }
-            }),
-        );
-    let service_contract =
-        trellis_test::TrellisTestContract::from_artifacts_with_referenced_contracts(
-            trellis_rs::contracts::ContractBuilder::from_native(
-                base_service_contract.api().clone(),
-                service_participant,
-            )
-            .referenced_api(auth_sdk::API_ID, auth_contract.api().clone())
-            .build()
-            .expect("compile trusted-portal service contract"),
-            &[&auth_contract],
-        )
-        .expect("build trusted-portal service contract");
+    .expect("build trusted-portal service contract");
     let client_contract =
         trellis_test::TrellisTestContract::from_builder_with_referenced_contracts(
             trellis_rs::contracts::ContractBuilder::authoring(
@@ -331,15 +295,37 @@ async fn start_fixture_with_options(options: trellis_test::TrellisTestRuntimeOpt
             .await
             .expect("connect trusted-portal service");
     service.register_rpc::<ValueGet, _, _>(|_, input| async move { Ok(input) });
-    let service_handle = service.generated_handle();
     let service = AbortOnDrop(Some(tokio::spawn(async move { service.run().await })));
+    let admin_caller = admin
+        .connect_admin(&bootstrap_url)
+        .await
+        .expect("connect CLI administrator")
+        .clone();
+    let admin_session = auth_sdk::AuthClient::new(&admin_caller)
+        .rpc()
+        .auth()
+        .sessions_me()
+        .await
+        .expect("read CLI administrator session");
+    let admin_capabilities = admin_session
+        .user
+        .as_ref()
+        .and_then(|user| user.get("capabilities"))
+        .and_then(serde_json::Value::as_array)
+        .expect("CLI administrator capabilities");
+    assert!(
+        admin_capabilities
+            .iter()
+            .any(|capability| capability == "trellis.auth::devices.review"),
+        "CLI participant lacks device review capability: {admin_capabilities:?}"
+    );
     Fixture {
         runtime,
         admin,
+        admin_caller,
         bootstrap_url,
         portal_id,
         service_contract,
-        service_handle,
         client_contract,
         read_capability,
         publish_capability,
@@ -407,8 +393,8 @@ async fn provision_device_activation_case_with_delegation(
         .expect("approve device contract");
     let root_secret = rand::random::<[u8; 32]>();
     let identity = derive_device_identity(&root_secret).expect("derive device identity");
-    let service_caller = fixture.service_handle.caller();
-    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
+    let admin_caller = fixture.admin_caller.clone();
+    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
     let provisioned = auth
         .devices_provision(&auth_sdk::AuthDevicesProvisionRequest {
             deployment_id: approval.deployment_id.clone(),
@@ -973,8 +959,8 @@ async fn session_and_connection_inventory_report_participant_metadata() {
         .expect("connect inventoried session");
     let expected_contract = &fixture.client_contract;
     let expected_needs_digest = expected_contract.needs_digest();
-    let service_caller = fixture.service_handle.caller();
-    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
+    let admin_caller = fixture.admin_caller.clone();
+    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
     let sessions = auth
         .sessions_list(&auth_sdk::AuthSessionsListRequest {
             cursor: None,
@@ -1109,8 +1095,8 @@ async fn user_and_identity_surfaces_paginate_scope_and_reject_missing_unlink() {
         )
         .await
         .expect("connect second identity-page user");
-    let service_caller = fixture.service_handle.caller();
-    let admin_auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
+    let admin_caller = fixture.admin_caller.clone();
+    let admin_auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
     let first_page = admin_auth
         .users_list(&auth_sdk::AuthUsersListRequest {
             cursor: None,
@@ -1182,15 +1168,11 @@ async fn user_and_identity_surfaces_paginate_scope_and_reject_missing_unlink() {
 }
 
 #[tokio::test]
-async fn capability_groups_validate_and_protect_builtins() {
-    assert_runtime_case_registered(
-        "auth.capability-groups-and-last-admin-guard-are-enforced",
-        "auth",
-        "auth",
-    );
+async fn capability_groups_validate_references() {
+    assert_runtime_case_registered("auth.capability-groups-validate-references", "auth", "auth");
     let fixture = start_fixture(None, false).await;
-    let service_caller = fixture.service_handle.caller();
-    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
+    let admin_caller = fixture.admin_caller.clone();
+    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
     let group_key = "integration-readers";
     let created = auth
         .capability_groups_put(&auth_sdk::AuthCapabilityGroupsPutRequest {
@@ -1228,14 +1210,6 @@ async fn capability_groups_validate_and_protect_builtins() {
         .await
         .is_err());
 
-    assert!(auth
-        .capability_groups_delete(&auth_sdk::AuthCapabilityGroupsDeleteRequest {
-            expected_version: 1,
-            group_key: "admin".to_owned(),
-            idempotency_key: "delete-builtin-group".to_owned(),
-        })
-        .await
-        .is_err());
     assert!(
         auth.capability_groups_delete(&auth_sdk::AuthCapabilityGroupsDeleteRequest {
             expected_version: created.group.version,
@@ -1257,8 +1231,8 @@ async fn auth_validation_failure_persists_no_state_or_actions() {
     );
     let fixture = start_fixture(None, false).await;
     let sqlite = fixture.runtime.control_plane_sqlite();
-    let service_caller = fixture.service_handle.caller();
-    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
+    let admin_caller = fixture.admin_caller.clone();
+    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
 
     auth.users_update(&auth_sdk::AuthUsersUpdateRequest {
         email: None,
@@ -1303,8 +1277,8 @@ async fn portal_route_selection_and_policy_drive_browser_flow() {
         "auth",
     );
     let mut fixture = start_fixture(None, false).await;
-    let service_caller = fixture.service_handle.caller();
-    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
+    let admin_caller = fixture.admin_caller.clone();
+    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
     let portal_id = "integration-custom-portal";
     let portal = auth
         .portals_put(&auth_sdk::AuthPortalsPutRequest {
@@ -1434,8 +1408,8 @@ async fn portal_route_selection_and_policy_drive_browser_flow() {
 async fn account_flow_oauth_callback_handles_errors_mismatch_and_link() {
     assert_runtime_case_registered("auth.account-flow-oauth-callback-runtime", "auth", "auth");
     let mut fixture = start_fixture(None, true).await;
-    let service_caller = fixture.service_handle.caller();
-    let admin_auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
+    let admin_caller = fixture.admin_caller.clone();
+    let admin_auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
     let builtin = admin_auth
         .portals_list(&auth_sdk::AuthPortalsListRequest {
             cursor: None,
@@ -1743,8 +1717,8 @@ async fn password_reset_and_change_invalidate_old_credentials() {
         .as_str()
         .expect("password-reset principal ID")
         .to_owned();
-    let service_caller = fixture.service_handle.caller();
-    let reset = auth_sdk::AuthClient::new(&service_caller)
+    let admin_caller = fixture.admin_caller.clone();
+    let reset = auth_sdk::AuthClient::new(&admin_caller)
         .rpc()
         .auth()
         .users_password_reset_create(&auth_sdk::AuthUsersPasswordResetCreateRequest {
@@ -1893,8 +1867,8 @@ async fn admin_service_deployment_lifecycle_controls_bootstrap() {
         "auth",
     );
     let fixture = start_fixture(None, false).await;
-    let service_caller = fixture.service_handle.caller();
-    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
+    let admin_caller = fixture.admin_caller.clone();
+    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
     let created = auth
         .deployments_create(&auth_sdk::AuthDeploymentsCreateRequest {
             display_name: "Lifecycle Deployment".to_owned(),
@@ -2019,8 +1993,9 @@ async fn run_device_activation_without_review(case_id: &str, runtime_case: bool)
     assert_eq!(session.session.principal_kind, "device");
     assert_eq!(session.session.principal_id, device.principal_id);
 
-    let service_caller = fixture.service_handle.caller();
-    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
+    let admin_caller = fixture.admin_caller.clone();
+
+    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
     let authorities = auth
         .device_user_authorities_list(&auth_sdk::AuthDeviceUserAuthoritiesListRequest {
             cursor: None,
@@ -2090,8 +2065,9 @@ async fn device_activation_required_review_needs_privileged_decision() {
         .await
         .is_err());
 
-    let service_caller = fixture.service_handle.caller();
-    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
+    let admin_caller = fixture.admin_caller.clone();
+
+    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
     let reviews = auth
         .device_user_authorities_reviews_list(
             &auth_sdk::AuthDeviceUserAuthoritiesReviewsListRequest {
@@ -2235,8 +2211,8 @@ async fn device_activation_wait_is_event_driven() {
         result = &mut wait => panic!("review wait completed before approval: {result:?}"),
         () = tokio::time::sleep(Duration::from_millis(1_100)) => {}
     }
-    let service_caller = fixture.service_handle.caller();
-    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
+    let admin_caller = fixture.admin_caller.clone();
+    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
     let reviews = auth
         .device_user_authorities_reviews_list(
             &auth_sdk::AuthDeviceUserAuthoritiesReviewsListRequest {
@@ -2345,8 +2321,9 @@ async fn device_activation_events_follow_effective_state() {
         Ok(DeviceActivationStatus::Pending(_))
     ));
 
-    let service_caller = fixture.service_handle.caller();
-    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
+    let admin_caller = fixture.admin_caller.clone();
+
+    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
     let reviews = auth
         .device_user_authorities_reviews_list(
             &auth_sdk::AuthDeviceUserAuthoritiesReviewsListRequest {
@@ -2454,7 +2431,7 @@ async fn device_activation_events_follow_effective_state() {
             event.subject
         );
     }
-    let no_review_caller = fixture.service_handle.caller();
+    let no_review_caller = fixture.admin_caller.clone();
     let no_review_auth = auth_sdk::AuthClient::new(&no_review_caller).rpc().auth();
     let authorities = no_review_auth
         .device_user_authorities_list(&auth_sdk::AuthDeviceUserAuthoritiesListRequest {
@@ -2537,8 +2514,9 @@ async fn device_activation_approved_unclaimed_cannot_complete_delegation() {
         .await
         .expect("flush activation event observer");
 
-    let service_caller = fixture.service_handle.caller();
-    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
+    let admin_caller = fixture.admin_caller.clone();
+
+    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
     let reviews = auth
         .device_user_authorities_reviews_list(
             &auth_sdk::AuthDeviceUserAuthoritiesReviewsListRequest {
@@ -2677,8 +2655,9 @@ async fn device_activation_rejects_invalid_proof_confirmation_and_deployment() {
         .await
         .is_err());
 
-    let service_caller = fixture.service_handle.caller();
-    let reviews = auth_sdk::AuthClient::new(&service_caller)
+    let admin_caller = fixture.admin_caller.clone();
+
+    let reviews = auth_sdk::AuthClient::new(&admin_caller)
         .rpc()
         .auth()
         .device_user_authorities_reviews_list(

@@ -2,7 +2,7 @@
 //!
 //! This crate is the Rust equivalent foundation for the TypeScript
 //! `@qlever-llc/trellis-test` runtime helper. It owns isolated test workdirs,
-//! NATS container lifecycle, repo-local Trellis process lifecycle, readiness
+//! managed NATS lifecycle, repo-local Trellis process lifecycle, readiness
 //! probing, and deterministic cleanup. Admin/client/service automation will be
 //! layered on this foundation as Rust live integration cases migrate.
 
@@ -11,9 +11,9 @@ use std::ffi::OsString;
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, Seek, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Output, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -35,6 +35,7 @@ use trellis_local_bootstrap::{
     LocalTrellisBootstrapManifest, LocalTrellisBootstrapOptions, LocalTrellisBootstrapPaths,
     LocalTrellisBootstrapUrls, PublicAccount, PublicUser,
 };
+use trellis_local_nats::{LocalNats, NatsBinarySource, NatsOutput};
 use trellis_rs::client::{SessionAuth, TrellisClientError, UserConnectOptions};
 use trellis_rs::generated::Caller;
 use trellis_runtime_apis::auth::{self as auth_sdk, AuthClient as GeneratedAuthClient};
@@ -43,8 +44,6 @@ const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_RECONCILIATION_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_ADMIN_RPC_TIMEOUT_MS: u64 = 5_000;
-const NATS_IMAGE: &str = "docker.io/library/nats:2-alpine";
-const NATS_CONTAINER_PREFIX: &str = "trellis-test-nats-";
 const WORKDIR_OWNER_MARKER: &str = ".trellis-test-owner";
 const TRELLIS_TEST_METRICS_ENV: &str = "TRELLIS_TEST_METRICS_PATH";
 
@@ -162,6 +161,10 @@ pub enum TrellisTestError {
     #[error(transparent)]
     LocalBootstrap(#[from] LocalBootstrapError),
 
+    /// Managed local NATS acquisition or lifecycle failed.
+    #[error(transparent)]
+    LocalNats(#[from] trellis_local_nats::LocalNatsError),
+
     /// Container or process output was not valid UTF-8.
     #[error(transparent)]
     Utf8(#[from] std::string::FromUtf8Error),
@@ -201,10 +204,6 @@ pub enum TrellisTestError {
     /// Protocol artifact or proof construction failed.
     #[error(transparent)]
     Protocol(Box<trellis_protocol::ProtocolError>),
-
-    /// No supported container runtime was available on `PATH`.
-    #[error("Trellis tests require podman or docker on PATH")]
-    ContainerRuntimeNotFound,
 
     /// An auth or bootstrap URL did not include a flow id.
     #[error("Trellis auth URL is missing flowId: {0}")]
@@ -268,34 +267,6 @@ pub enum TrellisTestError {
         classification: String,
         /// Displayed allowed classification list.
         allowed: String,
-    },
-
-    /// A child command exited with a non-zero status.
-    #[error("{context}: command `{command}` exited with status {status}\nstdout tail:\n{stdout_tail}\nstderr tail:\n{stderr_tail}")]
-    CommandFailed {
-        /// Description of the failed operation.
-        context: &'static str,
-        /// Display form of the command.
-        command: String,
-        /// Exit status text.
-        status: String,
-        /// Tail of stdout.
-        stdout_tail: String,
-        /// Tail of stderr.
-        stderr_tail: String,
-    },
-
-    /// Published container port output could not be parsed.
-    #[error("failed to parse published container port from `{0}`")]
-    PublishedPortParse(String),
-
-    /// A TCP endpoint did not become ready before the deadline.
-    #[error("timed out waiting for TCP listener on 127.0.0.1:{port}: {source}")]
-    TcpReadyTimeout {
-        /// Host port that was probed.
-        port: u16,
-        /// Last observed connection error.
-        source: io::Error,
     },
 
     /// The Trellis control-plane process exited before becoming ready.
@@ -425,7 +396,7 @@ impl<E: std::fmt::Debug> From<trellis_rs::client::CallError<E>> for TrellisTestE
     }
 }
 
-/// Container runtime used for isolated NATS test containers.
+/// Container runtime used for nsc bootstrap generation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContainerRuntime {
     /// Detect Podman first and then Docker.
@@ -437,16 +408,6 @@ pub enum ContainerRuntime {
 }
 
 impl ContainerRuntime {
-    fn resolve(self) -> Result<ResolvedContainerRuntime, TrellisTestError> {
-        match self {
-            Self::Podman => Ok(ResolvedContainerRuntime::Podman),
-            Self::Docker => Ok(ResolvedContainerRuntime::Docker),
-            Self::Auto if command_exists("podman") => Ok(ResolvedContainerRuntime::Podman),
-            Self::Auto if command_exists("docker") => Ok(ResolvedContainerRuntime::Docker),
-            Self::Auto => Err(TrellisTestError::ContainerRuntimeNotFound),
-        }
-    }
-
     fn to_bootstrap(self) -> BootstrapContainerRuntime {
         match self {
             Self::Auto => BootstrapContainerRuntime::Auto,
@@ -583,7 +544,7 @@ impl Default for TrellisTestRuntimeOptions {
 pub struct TrellisTestRuntime {
     workdir: IntegrationWorkdir,
     _port_reservation: Option<TrellisTestPortReservation>,
-    nats: Option<NatsContainer>,
+    nats: Option<LocalNatsProcess>,
     nats_proxy: Option<NatsTcpProxy>,
     nats_websocket_proxy: Option<NatsTcpProxy>,
     retiring_nats_proxy: Option<NatsTcpProxy>,
@@ -1092,7 +1053,6 @@ fn shared_user(identity: &SharedIdentity) -> PublicUser {
 impl TrellisTestRuntime {
     /// Start an isolated NATS container and repo-local Trellis control plane.
     pub async fn start(mut options: TrellisTestRuntimeOptions) -> Result<Self, TrellisTestError> {
-        let resolved_runtime = options.container_runtime.resolve()?;
         let workdir = IntegrationWorkdir::create(options.keep_workdir)?;
         let shared_runtime = shared_runtime_assignment()?;
         if options.use_shared_test_oidc_provider {
@@ -1193,7 +1153,7 @@ impl TrellisTestRuntime {
             let started_nats = if shared_runtime.is_some() {
                 None
             } else {
-                Some(NatsContainer::start(resolved_runtime, &workdir)?)
+                Some(LocalNatsProcess::start(&workdir)?)
             };
             if let Some(started_nats) = &started_nats {
                 bootstrap_options.nats_server_url = started_nats.nats_url();
@@ -3049,13 +3009,17 @@ impl TrellisTestAdmin {
                     }
                 }
                 LocalUserAuth::Oidc { provider_id } => {
+                    let binding = portal_binding(&flow_id)?;
                     let mut start_url = reqwest::Url::parse(&format!(
                         "{}/auth/login/{}",
                         trim_url(&self.trellis_url),
                         provider_id
                     ))
                     .map_err(|error| TrellisTestError::UnexpectedResponse(error.to_string()))?;
-                    start_url.query_pairs_mut().append_pair("flowId", &flow_id);
+                    start_url
+                        .query_pairs_mut()
+                        .append_pair("flowId", &flow_id)
+                        .append_pair("portalBindingDigest", &portal_binding_digest(&binding));
                     let client = reqwest::Client::builder()
                         .redirect(reqwest::redirect::Policy::none())
                         .no_proxy()
@@ -4681,32 +4645,18 @@ impl Drop for IntegrationWorkdir {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ResolvedContainerRuntime {
-    Podman,
-    Docker,
+struct LocalNatsProcess {
+    server: LocalNats,
 }
 
-impl ResolvedContainerRuntime {
-    fn program(self) -> &'static str {
-        match self {
-            Self::Podman => "podman",
-            Self::Docker => "docker",
-        }
+impl fmt::Debug for LocalNatsProcess {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LocalNatsProcess")
+            .field("nats_url", &self.server.nats_url())
+            .field("websocket_url", &self.server.websocket_url())
+            .finish_non_exhaustive()
     }
-
-    fn is_podman(self) -> bool {
-        self == Self::Podman
-    }
-}
-
-#[derive(Debug)]
-struct NatsContainer {
-    runtime: ResolvedContainerRuntime,
-    name: String,
-    nats_port: u16,
-    websocket_port: u16,
-    stopped: bool,
 }
 
 #[derive(Debug)]
@@ -4761,120 +4711,43 @@ impl Drop for NatsTcpProxy {
     }
 }
 
-impl NatsContainer {
-    fn start(
-        runtime: ResolvedContainerRuntime,
-        workdir: &IntegrationWorkdir,
-    ) -> Result<Self, TrellisTestError> {
-        let mut last_error = None;
-        for _ in 0..3 {
-            match Self::start_once(runtime, workdir) {
-                Ok(container) => return Ok(container),
-                Err(error) if is_podman_port_race(&error) => {
-                    last_error = Some(error);
-                }
-                Err(error) => return Err(error),
-            }
-        }
-        Err(last_error.expect("NATS container startup should have an error after retries"))
-    }
-
-    fn start_once(
-        runtime: ResolvedContainerRuntime,
-        workdir: &IntegrationWorkdir,
-    ) -> Result<Self, TrellisTestError> {
-        remove_stale_nats_containers(runtime);
-        let nats_dir = workdir.path().join("nats");
-        fs::create_dir_all(nats_dir.join("data"))?;
-        let name = unique_container_name("nats")?;
-        let spec = CommandSpec::new(runtime.program())
-            .arg("run")
-            .arg("--detach")
-            .arg("--rm")
-            .arg("--name")
-            .arg(&name)
-            .arg("--label")
-            .arg("io.trellis.test=nats")
-            .arg("--label")
-            .arg(format!("io.trellis.test.pid={}", std::process::id()))
-            .arg("--publish")
-            .arg("127.0.0.1::4222")
-            .arg("--publish")
-            .arg("127.0.0.1::8080")
-            .arg("--volume")
-            .arg(container_mount(
-                &nats_dir.join("nats.conf"),
-                "/etc/nats/nats.conf",
-                runtime,
-                MountMode::ReadOnly,
-            ))
-            .arg("--volume")
-            .arg(container_mount(
-                &nats_dir.join("jwt.conf"),
-                "/etc/nats/jwt.conf",
-                runtime,
-                MountMode::ReadOnly,
-            ))
-            .arg("--volume")
-            .arg(container_mount(
-                &nats_dir.join("data"),
-                "/data",
-                runtime,
-                MountMode::ReadWrite,
-            ))
-            .arg(NATS_IMAGE)
-            .arg("-c")
-            .arg("/etc/nats/nats.conf");
-
-        let output = run_output(&spec)?;
-        if !output.status.success() {
-            return Err(command_failed(
-                "failed to start NATS container",
-                &spec,
-                output,
-            ));
-        }
-
-        let started = (|| {
-            let nats_port = inspect_container_port(runtime, &name, 4222)?;
-            let websocket_port = inspect_container_port(runtime, &name, 8080)?;
-            wait_for_tcp_ready(nats_port, Duration::from_secs(30))?;
-            wait_for_tcp_ready(websocket_port, Duration::from_secs(30))?;
-            record_test_process_start("nats", &name)?;
-            Ok::<_, TrellisTestError>(Self {
-                runtime,
-                name: name.clone(),
-                nats_port,
-                websocket_port,
-                stopped: false,
+impl LocalNatsProcess {
+    fn start(workdir: &IntegrationWorkdir) -> Result<Self, TrellisTestError> {
+        let cache = std::env::var_os("TRELLIS_TEST_CACHE_DIR")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from))
+            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
+            .unwrap_or_else(std::env::temp_dir)
+            .join("trellis-test/rust-local-nats");
+        let server = LocalNats::builder()
+            .binary(NatsBinarySource::DownloadPinned)
+            .source(workdir.path().join("nats"))
+            .temporary_state()
+            .ephemeral_ports()
+            .cache_dir(cache)
+            .output(NatsOutput::Log {
+                path: workdir.path().join("nats-server.log"),
+                mirror: false,
             })
-        })();
-
-        if started.is_err() {
-            let _ = remove_container(runtime, &name);
-        }
-        started
+            .start()?;
+        record_test_process_start("nats", "trellis-local-nats")?;
+        Ok(Self { server })
     }
 
     fn nats_url(&self) -> String {
-        format!("nats://127.0.0.1:{}", self.nats_port)
+        self.server.nats_url().to_string()
     }
 
     fn websocket_url(&self) -> String {
-        format!("ws://127.0.0.1:{}", self.websocket_port)
+        self.server.websocket_url().to_string()
     }
 
     fn stop(&mut self) -> Result<(), TrellisTestError> {
-        if self.stopped {
-            return Ok(());
-        }
-        remove_container(self.runtime, &self.name)?;
-        self.stopped = true;
-        Ok(())
+        self.server.stop().map_err(Into::into)
     }
 }
 
-impl Drop for NatsContainer {
+impl Drop for LocalNatsProcess {
     fn drop(&mut self) {
         let _ = self.stop();
     }
@@ -4973,12 +4846,6 @@ impl Drop for TrellisProcess {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum MountMode {
-    ReadOnly,
-    ReadWrite,
-}
-
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
@@ -4998,16 +4865,6 @@ fn repo_trellis_mode_command(mode: &str) -> TrellisProcessCommand {
             .into_os_string()
     });
     TrellisProcessCommand::new(server, [mode, "--config"], repo)
-}
-
-fn command_exists(program: &str) -> bool {
-    Command::new(program)
-        .arg("--version")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
 }
 
 fn keep_workdir_from_env() -> bool {
@@ -5220,15 +5077,6 @@ pub fn reserve_local_port() -> Result<TrellisTestPortReservation, TrellisTestErr
         "no private local TCP port is available",
     )
     .into())
-}
-
-fn is_podman_port_race(error: &TrellisTestError) -> bool {
-    match error {
-        TrellisTestError::CommandFailed { stderr_tail, .. } => {
-            stderr_tail.contains("pasta failed") && stderr_tail.contains("Address already in use")
-        }
-        _ => false,
-    }
 }
 
 fn rewrite_trellis_config(
@@ -5530,99 +5378,6 @@ fn status_text(status: std::process::ExitStatus) -> String {
         .map_or_else(|| "signal".to_string(), |code| format!("exit code {code}"))
 }
 
-fn inspect_container_port(
-    runtime: ResolvedContainerRuntime,
-    name: &str,
-    container_port: u16,
-) -> Result<u16, TrellisTestError> {
-    let spec = CommandSpec::new(runtime.program())
-        .arg("port")
-        .arg(name)
-        .arg(format!("{container_port}/tcp"));
-    let output = run_output(&spec)?;
-    if !output.status.success() {
-        return Err(command_failed(
-            "failed to inspect NATS container port",
-            &spec,
-            output,
-        ));
-    }
-    parse_published_port(&String::from_utf8(output.stdout)?)
-}
-
-fn parse_published_port(output: &str) -> Result<u16, TrellisTestError> {
-    for line in output
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-    {
-        if let Some(port) = line.rsplit(':').next() {
-            if let Ok(port) = port.parse::<u16>() {
-                return Ok(port);
-            }
-        }
-    }
-    Err(TrellisTestError::PublishedPortParse(output.to_string()))
-}
-
-fn wait_for_tcp_ready(port: u16, timeout: Duration) -> Result<(), TrellisTestError> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        match TcpStream::connect(("127.0.0.1", port)) {
-            Ok(_) => return Ok(()),
-            Err(error) if Instant::now() >= deadline => {
-                return Err(TrellisTestError::TcpReadyTimeout {
-                    port,
-                    source: error,
-                });
-            }
-            Err(_) => std::thread::sleep(Duration::from_millis(100)),
-        }
-    }
-}
-
-fn remove_container(runtime: ResolvedContainerRuntime, name: &str) -> Result<(), TrellisTestError> {
-    let spec = CommandSpec::new(runtime.program())
-        .arg("rm")
-        .arg("--force")
-        .arg(name);
-    let output = run_output(&spec)?;
-    if output.status.success() {
-        return Ok(());
-    }
-    let stderr = String::from_utf8_lossy(&output.stderr).to_ascii_lowercase();
-    if stderr.contains("no such container")
-        || stderr.contains("no container with name")
-        || stderr.contains("does not exist")
-    {
-        return Ok(());
-    }
-    Err(command_failed(
-        "failed to remove NATS container",
-        &spec,
-        output,
-    ))
-}
-
-fn remove_stale_nats_containers(runtime: ResolvedContainerRuntime) {
-    let spec = CommandSpec::new(runtime.program())
-        .arg("ps")
-        .arg("-a")
-        .arg("--format")
-        .arg("{{.Names}}");
-    let Ok(output) = run_output(&spec) else {
-        return;
-    };
-    if !output.status.success() {
-        return;
-    }
-    for name in String::from_utf8_lossy(&output.stdout).lines() {
-        if pid_from_prefixed_name(name, NATS_CONTAINER_PREFIX).is_some_and(process_is_gone) {
-            let _ = remove_container(runtime, name);
-        }
-    }
-}
-
 fn remove_stale_marked_workdirs(parent: &Path, prefix: &str) {
     let Ok(entries) = fs::read_dir(parent) else {
         return;
@@ -5645,111 +5400,14 @@ fn remove_stale_marked_workdirs(parent: &Path, prefix: &str) {
     }
 }
 
-fn pid_from_prefixed_name(name: &str, prefix: &str) -> Option<u32> {
-    name.strip_prefix(prefix)?
-        .split_once('-')?
-        .0
-        .parse::<u32>()
-        .ok()
-}
-
 fn process_is_gone(pid: u32) -> bool {
     let proc = Path::new("/proc");
     proc.is_dir() && !proc.join(pid.to_string()).exists()
 }
 
-fn container_mount(
-    host_path: &Path,
-    container_path: &str,
-    runtime: ResolvedContainerRuntime,
-    mode: MountMode,
-) -> String {
-    let mode = match (mode, runtime.is_podman()) {
-        (MountMode::ReadOnly, true) => "ro,Z",
-        (MountMode::ReadOnly, false) => "ro",
-        (MountMode::ReadWrite, true) => "rw,Z",
-        (MountMode::ReadWrite, false) => "rw",
-    };
-    format!("{}:{container_path}:{mode}", host_path.display())
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-struct CommandSpec {
-    program: OsString,
-    args: Vec<OsString>,
-}
-
-impl CommandSpec {
-    fn new(program: impl Into<OsString>) -> Self {
-        Self {
-            program: program.into(),
-            args: Vec::new(),
-        }
-    }
-
-    fn arg(mut self, arg: impl Into<OsString>) -> Self {
-        self.args.push(arg.into());
-        self
-    }
-
-    fn command(&self) -> Command {
-        let mut command = Command::new(&self.program);
-        command.args(&self.args);
-        command
-    }
-
-    fn display_command(&self) -> String {
-        let mut parts = Vec::with_capacity(self.args.len() + 1);
-        parts.push(self.program.to_string_lossy().into_owned());
-        parts.extend(
-            self.args
-                .iter()
-                .map(|arg| arg.to_string_lossy().into_owned()),
-        );
-        parts.join(" ")
-    }
-}
-
-fn run_output(spec: &CommandSpec) -> Result<Output, TrellisTestError> {
-    Ok(spec
-        .command()
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()?)
-}
-
-fn command_failed(context: &'static str, spec: &CommandSpec, output: Output) -> TrellisTestError {
-    TrellisTestError::CommandFailed {
-        context,
-        command: spec.display_command(),
-        status: status_text(output.status),
-        stdout_tail: output_tail(&output.stdout),
-        stderr_tail: output_tail(&output.stderr),
-    }
-}
-
-fn output_tail(output: &[u8]) -> String {
-    const OUTPUT_TAIL_BYTES: usize = 4096;
-    if output.is_empty() {
-        return "<empty>".to_string();
-    }
-    let start = output.len().saturating_sub(OUTPUT_TAIL_BYTES);
-    String::from_utf8_lossy(&output[start..]).trim().to_string()
-}
-
-fn unique_container_name(prefix: &str) -> Result<String, TrellisTestError> {
-    let process_id = std::process::id();
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(io::Error::other)?
-        .as_nanos();
-    Ok(format!("trellis-test-{prefix}-{process_id}-{nanos}"))
-}
-
 fn cleanup_started(
     trellis: &mut Option<TrellisProcess>,
-    nats: &mut Option<NatsContainer>,
+    nats: &mut Option<LocalNatsProcess>,
     shutdown_timeout: Duration,
 ) -> Result<(), TrellisTestError> {
     if let Some(mut process) = trellis.take() {
@@ -5777,12 +5435,11 @@ fn parse_trellis_bootstrap_url(log: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        auth_deployments_create_request_shape, container_mount, first_admin_bootstrap_body,
-        flow_id_from_url, materialized_authority_failure, materialized_authority_is_current,
-        parse_published_port, parse_trellis_bootstrap_url, pid_from_prefixed_name,
-        remove_stale_marked_workdirs, repo_trellis_command, reserve_local_port,
-        try_acquire_file_lock, ContainerRuntime, MountMode, ResolvedContainerRuntime,
-        TrellisControlPlaneSqlite, TrustedLocalUserRegistration, WORKDIR_OWNER_MARKER,
+        auth_deployments_create_request_shape, first_admin_bootstrap_body, flow_id_from_url,
+        materialized_authority_failure, materialized_authority_is_current,
+        parse_trellis_bootstrap_url, remove_stale_marked_workdirs, repo_trellis_command,
+        reserve_local_port, try_acquire_file_lock, ContainerRuntime, TrellisControlPlaneSqlite,
+        TrustedLocalUserRegistration, WORKDIR_OWNER_MARKER,
     };
     use rusqlite::params;
     use serde_json::{json, Value};
@@ -5879,42 +5536,6 @@ file.close();
     }
 
     #[test]
-    fn container_mount_relabels_podman_volumes() {
-        let path = std::path::Path::new("/tmp/trellis/nats.conf");
-
-        assert_eq!(
-            container_mount(
-                path,
-                "/etc/nats/nats.conf",
-                ResolvedContainerRuntime::Podman,
-                MountMode::ReadOnly,
-            ),
-            "/tmp/trellis/nats.conf:/etc/nats/nats.conf:ro,Z"
-        );
-        assert_eq!(
-            container_mount(
-                path,
-                "/etc/nats/nats.conf",
-                ResolvedContainerRuntime::Docker,
-                MountMode::ReadOnly,
-            ),
-            "/tmp/trellis/nats.conf:/etc/nats/nats.conf:ro"
-        );
-    }
-
-    #[test]
-    fn pid_from_prefixed_name_parses_owner_pid() {
-        assert_eq!(
-            pid_from_prefixed_name("trellis-test-nats-123-456", "trellis-test-nats-"),
-            Some(123)
-        );
-        assert_eq!(
-            pid_from_prefixed_name("other-123-456", "trellis-test-nats-"),
-            None
-        );
-    }
-
-    #[test]
     fn stale_marked_workdir_cleanup_keeps_live_and_unmarked_dirs() {
         if !std::path::Path::new("/proc").is_dir() {
             return;
@@ -5938,13 +5559,6 @@ file.close();
         assert!(live.exists());
         assert!(!dead.exists());
         assert!(unmarked.exists());
-    }
-
-    #[test]
-    fn parse_published_port_accepts_container_runtime_output() {
-        assert_eq!(parse_published_port("127.0.0.1:49152\n").unwrap(), 49152);
-        assert_eq!(parse_published_port("0.0.0.0:42221\n").unwrap(), 42221);
-        assert_eq!(parse_published_port("[::1]:43333\n").unwrap(), 43333);
     }
 
     #[test]

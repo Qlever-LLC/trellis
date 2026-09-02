@@ -247,11 +247,11 @@ Trellis records one durable bootstrap-administrator principal. Before that
 principal exists, startup creates one single-use `admin_account` flow; ordinary
 restarts reuse its unexpired pending flow without rotating or reprinting the
 secret. Local-password and configured OIDC completion create the principal,
-identity, and exact built-in administration participant authority in one
-transaction. That canonical authority is permanent and cannot be revoked or
-downgraded; additional administrators remain independently manageable.
+identity, and exact built-in CLI participant authority in one transaction. That
+canonical authority is permanent and cannot be revoked or downgraded; additional
+administrators remain independently manageable.
 
-`trellis server ... --reset-admin` atomically revokes any previous pending
+`trellis-server ... --reset-admin` atomically revokes any previous pending
 administrator-account flow and emits a new one-time URL. Before initial setup it
 creates the bootstrap administrator. Afterwards it edits the same principal's
 local username and password, restores its canonical authority, and revokes its

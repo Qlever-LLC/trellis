@@ -36,19 +36,22 @@ pub fn render_local_nats_config(
     server_name: &str,
     store_dir: &str,
     jwt_config_path: &str,
+    nats_port: u16,
+    websocket_port: u16,
+    monitor_port: u16,
 ) -> String {
     format!(
         r#"server_name: {server_name}
 
-listen: 127.0.0.1:4222
-http: 127.0.0.1:8222
+listen: 127.0.0.1:{nats_port}
+http: 127.0.0.1:{monitor_port}
 
 authorization {{
   timeout: "30s"
 }}
 
 websocket {{
-  listen: 127.0.0.1:8080
+  listen: 127.0.0.1:{websocket_port}
   no_tls: true
 }}
 
@@ -59,6 +62,22 @@ jetstream {{
 include {jwt_config_path}
 "#
     )
+}
+
+/// Render a generated JWT resolver config with mutable resolver data in `resolver_dir`.
+#[must_use]
+pub fn render_local_jwt_config(config: &str, resolver_dir: &str) -> String {
+    config
+        .lines()
+        .map(|line| {
+            if line.trim_start().starts_with("dir:") {
+                format!("dir: {resolver_dir}")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Builds the default NATS server-name slug from the Trellis name.
