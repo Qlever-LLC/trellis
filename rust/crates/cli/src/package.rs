@@ -214,7 +214,7 @@ async fn check_publication(
     }
     if let Some(previous_version) = versions.last() {
         if version <= *previous_version {
-            // ponytail: releases are monotonic; add historical backfills only when required.
+            // Releases are monotonic; add historical backfills only when required.
             return Err(miette!(
                 "release {version} must be newer than {previous_version}"
             ));

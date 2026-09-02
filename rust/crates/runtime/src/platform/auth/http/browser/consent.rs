@@ -93,27 +93,6 @@ where
             .await?;
         return Ok(Json(portal_flow_response(&state, flow).await?));
     }
-    if flow.state == AuthBrowserFlowState::Authenticated
-        && state
-            .service
-            .repository()
-            .get_portal_grant_override(&flow.portal_id, &flow.participant_id)
-            .await?
-            .is_some()
-    {
-        let provider_id = flow
-            .authenticated_provider_id
-            .clone()
-            .ok_or_else(|| HttpError::conflict("flow_has_no_principal"))?;
-        let attributes = ProviderLoginAttributes {
-            provider_id,
-            roles: flow.authenticated_roles.clone(),
-        };
-        let approved =
-            apply_trusted_portal_authority(&state, flow.clone(), attributes, now).await?;
-        let approved = approved.unwrap_or(flow);
-        return Ok(Json(portal_flow_response(&state, approved).await?));
-    }
     let principal_id = flow
         .principal_id
         .clone()
@@ -462,8 +441,8 @@ where
     }
     let expected = flow.version;
     let allow_automatic_approval = automatic_approval_allowed(require_explicit_approval);
-    // ponytail: a portal policy governs this login even when an accepted
-    // authority exists, so reconcile through policy instead of the fast path.
+    // A portal policy governs this login even when an accepted authority
+    // exists, so reconcile through policy instead of the fast path.
     let policy_governs = allow_automatic_approval
         && state
             .service

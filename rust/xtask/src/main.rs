@@ -99,8 +99,8 @@ where
 }
 
 const TRELLIS_PROJECTS: &[&str] = &[
-    // ponytail: Trellis has a small fixed API DAG. Replace this list with dynamic
-    // graph discovery only if maintaining it becomes a real problem.
+    // Trellis has a small fixed API DAG. Replace this list with dynamic graph
+    // discovery only if maintaining it becomes a real problem.
     "rust/crates/eventlog-runtime",
     "rust/crates/jobs-runtime",
     "rust/crates/runtime",

@@ -78,7 +78,7 @@ impl HealthStore {
         let rows = load_latest(&connection)?;
         let mut groups = BTreeMap::<(String, String), ParticipantGroup>::new();
 
-        // ponytail: filter in memory until participant cardinality proves SQL composition necessary.
+        // Filter in memory until participant cardinality proves SQL composition necessary.
         for row in rows {
             if !matches_filter(request.participant_kinds.as_ref(), &row.participant_kind)
                 || !matches_filter(request.contract_ids.as_ref(), &row.contract_id)

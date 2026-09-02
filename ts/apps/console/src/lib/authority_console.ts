@@ -1450,6 +1450,6 @@ function needSearchTexts(needs: DeploymentAuthorityNeeds): string[] {
   ];
 }
 
-// ponytail: json-schema-diff produces coarse-grained add/remove diffs.
+// json-schema-diff produces coarse-grained add/remove diffs.
 // We use it for type-level and property-level changes; our own
 // summarizer fills in field-level details the library doesn't cover.

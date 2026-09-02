@@ -1647,7 +1647,6 @@ async fn capability_groups_validate_and_protect_builtins() {
         .map(str::to_owned)
     );
     let canonical_admin_capabilities = admin_group.capabilities.clone();
-    let initial_admin_group_version = admin_group.version;
     let replace_error = auth
         .capability_groups_put(&auth_sdk::AuthCapabilityGroupsPutRequest {
             capabilities: admin_group.capabilities.clone(),
@@ -1749,11 +1748,10 @@ async fn capability_groups_validate_and_protect_builtins() {
             .expect("decode reconciled admin capabilities"),
         canonical_admin_capabilities
     );
-    assert!(
-        repaired[0]["version"]
-            .as_i64()
-            .expect("reconciled admin group version")
-            > initial_admin_group_version
+    assert_eq!(
+        repaired[0]["version"].as_i64().expect("reconciled admin group version"),
+        1,
+        "reconciled admin group must remain at version 1"
     );
 }
 

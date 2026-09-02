@@ -45,7 +45,7 @@ impl SqliteAuthorizationStore {
         self.run(move |connection| {
             let transaction = connection.transaction().map_err(sql_error)?;
             let current = load_capability_group(&transaction, "admin")?;
-            let mut group = CapabilityGroupRecord {
+            let group = CapabilityGroupRecord {
                 group_key: "admin".to_owned(),
                 display_name: "Administrator".to_owned(),
                 description:
@@ -55,7 +55,7 @@ impl SqliteAuthorizationStore {
                 included_groups: Vec::new(),
                 created_at: current.as_ref().map_or(now, |group| group.created_at),
                 updated_at: now,
-                version: current.as_ref().map_or(1, |group| group.version),
+                version: 1,
             };
             if current.as_ref().is_some_and(|current| {
                 current.display_name == group.display_name
@@ -64,17 +64,6 @@ impl SqliteAuthorizationStore {
                     && current.included_groups == group.included_groups
             }) {
                 return Ok(());
-            }
-            group.version = group.version.checked_add(1).ok_or_else(|| {
-                AuthorizationStateError::InvalidRecord(
-                    "admin capability group version overflow".to_owned(),
-                )
-            })?;
-            if group.version > 9_007_199_254_740_991 {
-                return Err(AuthorizationStateError::InvalidRecord(
-                    "admin capability group version exceeds the JSON safe-integer maximum"
-                        .to_owned(),
-                ));
             }
             let mut groups = load_capability_groups(&transaction)?
                 .into_iter()
@@ -687,6 +676,7 @@ mod tests {
         let store = SqliteAuthorizationStore::open_in_memory().unwrap();
         store.ensure_admin_capability_group(1).await.unwrap();
         let initial = store.get_capability_group("admin").await.unwrap().unwrap();
+        assert_eq!(initial.version, 1);
         assert_eq!(
             initial.capabilities,
             ADMIN_CAPABILITY_GROUP_CAPABILITIES
@@ -695,12 +685,25 @@ mod tests {
                 .collect::<Vec<_>>()
         );
 
+        store.ensure_admin_capability_group(2).await.unwrap();
+        assert_eq!(
+            store
+                .get_capability_group("admin")
+                .await
+                .unwrap()
+                .unwrap()
+                .version,
+            1,
+            "no-op reconciliation must preserve version 1"
+        );
+
         store
             .run(|connection| {
                 connection
                     .execute(
                         "UPDATE auth_capability_groups
-                         SET display_name = 'Changed', capabilities_json = '[\"custom::admin\"]'
+                         SET display_name = 'Changed', capabilities_json = '[\"custom::admin\"]',
+                             version = 9007199254740990
                          WHERE group_key = 'admin'",
                         [],
                     )
@@ -709,12 +712,27 @@ mod tests {
             })
             .await
             .unwrap();
-        store.ensure_admin_capability_group(2).await.unwrap();
+        store.ensure_admin_capability_group(3).await.unwrap();
 
         let repaired = store.get_capability_group("admin").await.unwrap().unwrap();
         assert_eq!(repaired.display_name, "Administrator");
         assert_eq!(repaired.capabilities, initial.capabilities);
-        assert_eq!(repaired.version, initial.version + 1);
+        assert_eq!(
+            repaired.version, 1,
+            "stale development projection must be replaced at version 1"
+        );
+
+        store.ensure_admin_capability_group(4).await.unwrap();
+        assert_eq!(
+            store
+                .get_capability_group("admin")
+                .await
+                .unwrap()
+                .unwrap()
+                .version,
+            1,
+            "no-op reconciliation after repair must remain version 1"
+        );
     }
 
     #[tokio::test]

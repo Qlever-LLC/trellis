@@ -151,7 +151,7 @@ fn materialize_available(
                 })
         })
         .collect::<Vec<_>>();
-    // ponytail: the administrator marker is platform-seeded classification, not
+    // The administrator marker is platform-seeded classification, not
     // participant permission evidence, so it bypasses the proposal projection.
     if accepted_capabilities.contains(&"trellis.auth::admin".to_owned()) {
         projected.push("trellis.auth::admin".to_owned());

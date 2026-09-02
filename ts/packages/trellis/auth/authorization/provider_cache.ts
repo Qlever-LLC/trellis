@@ -659,7 +659,7 @@ export class AuthorizationProviderCache {
       );
     }
     if (this.#contexts.size >= MAX_CACHED_CONTEXTS) {
-      // ponytail: bounded LRU; raise the cap only if registry reads prove costly.
+      // Bounded LRU; raise the cap only if registry reads prove costly.
       const oldest = this.#contexts.keys().next().value;
       if (oldest) this.#contexts.delete(oldest);
     }

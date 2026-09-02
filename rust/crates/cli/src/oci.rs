@@ -46,7 +46,7 @@ pub fn repository(config: &RegistryConfig, api_id: &str) -> Result<String> {
     let (name, major) = api_id
         .rsplit_once("@v")
         .ok_or_else(|| miette!("invalid API id '{api_id}'"))?;
-    // ponytail: API IDs map directly until a real registry requires overrides.
+    // API IDs map directly until a real registry requires overrides.
     let repository = format!("{}/{name}-v{major}", config.prefix.trim_end_matches('/'));
     Reference::from_str(&format!("{repository}:probe"))
         .map_err(|error| miette!("invalid OCI repository for '{api_id}': {error}"))?;
@@ -410,7 +410,7 @@ fn write_cache(pulled: &PulledApi) -> Result<()> {
         .into_diagnostic()?
         .sync_all()
         .into_diagnostic()?;
-    // ponytail: identical digest writers race benignly; the first complete rename wins.
+    // Identical digest writers race benignly; the first complete rename wins.
     if let Err(error) = fs::rename(staging.path(), &destination) {
         if !destination.is_dir() {
             return Err(error).into_diagnostic();

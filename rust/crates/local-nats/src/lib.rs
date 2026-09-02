@@ -1175,7 +1175,7 @@ fn process_is_managed_nats(pid: i32, binary: &Path) -> bool {
 
 /// Whether `pid` is a live managed nats-server.
 ///
-/// ponytail: non-linux hosts cannot verify the process identity, so liveness is the only
+/// Non-linux hosts cannot verify the process identity, so liveness is the only
 /// signal; a recycled pid could block startup until the unrelated process exits.
 #[cfg(not(target_os = "linux"))]
 fn process_is_managed_nats(pid: i32, _binary: &Path) -> bool {
