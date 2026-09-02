@@ -227,7 +227,7 @@ export const AuthCapabilityGroupsDelete = rpcAction(
     output: schema<Types.AuthCapabilityGroupsDeleteOutput>(
       AuthCapabilityGroupsDeleteResponseSchema,
     ),
-    callerCapabilities: ["trellis.auth::capabilities.delegate"] as const,
+    callerCapabilities: ["trellis.auth::admin"] as const,
     errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
     declaredErrorTypes: [
       "AuthError",
@@ -368,7 +368,7 @@ export const AuthCapabilityGroupsPut = rpcAction(
     output: schema<Types.AuthCapabilityGroupsPutOutput>(
       AuthCapabilityGroupsPutResponseSchema,
     ),
-    callerCapabilities: ["trellis.auth::capabilities.delegate"] as const,
+    callerCapabilities: ["trellis.auth::admin"] as const,
     errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
     declaredErrorTypes: [
       "AuthError",
@@ -510,8 +510,8 @@ export const AuthDeploymentAuthorityAcceptMigration = rpcAction(
       AuthDeploymentAuthorityAcceptMigrationResponseSchema,
     ),
     callerCapabilities: [
+      "trellis.auth::admin",
       "trellis.auth::authorities.mutate",
-      "trellis.auth::capabilities.delegate",
     ] as const,
     errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
     declaredErrorTypes: [
@@ -560,8 +560,8 @@ export const AuthDeploymentAuthorityAcceptUpdate = rpcAction(
       AuthDeploymentAuthorityAcceptUpdateResponseSchema,
     ),
     callerCapabilities: [
+      "trellis.auth::admin",
       "trellis.auth::authorities.mutate",
-      "trellis.auth::capabilities.delegate",
     ] as const,
     errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
     declaredErrorTypes: [
@@ -1267,7 +1267,7 @@ export const AuthDeviceUserAuthoritiesReviewsList = rpcAction(
     output: schema<Types.AuthDeviceUserAuthoritiesReviewsListOutput>(
       AuthDeviceUserAuthoritiesReviewsListResponseSchema,
     ),
-    callerCapabilities: ["trellis.auth::devices.read"] as const,
+    callerCapabilities: ["trellis.auth::devices.review"] as const,
     errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
     declaredErrorTypes: [
       "AuthError",
@@ -1729,7 +1729,10 @@ export const AuthIdentityAuthorityRevoke = rpcAction(
     output: schema<Types.AuthIdentityAuthorityRevokeOutput>(
       AuthIdentityAuthorityRevokeResponseSchema,
     ),
-    callerCapabilities: ["trellis.auth::authorities.mutate"] as const,
+    callerCapabilities: [
+      "trellis.auth::admin",
+      "trellis.auth::authorities.mutate",
+    ] as const,
     errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
     declaredErrorTypes: [
       "AuthError",
@@ -1952,7 +1955,7 @@ export const AuthPortalsGrantOverridesPut = rpcAction(
       AuthPortalsGrantOverridesPutResponseSchema,
     ),
     callerCapabilities: [
-      "trellis.auth::capabilities.delegate",
+      "trellis.auth::admin",
       "trellis.auth::portals.mutate",
     ] as const,
     errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
@@ -2002,7 +2005,7 @@ export const AuthPortalsGrantOverridesRemove = rpcAction(
       AuthPortalsGrantOverridesRemoveResponseSchema,
     ),
     callerCapabilities: [
-      "trellis.auth::capabilities.delegate",
+      "trellis.auth::admin",
       "trellis.auth::portals.mutate",
     ] as const,
     errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
@@ -3405,10 +3408,7 @@ export const AuthDeviceUserAuthoritiesApproved = eventActions(
       AuthDeviceUserAuthoritiesApprovedEventSchema,
     ),
     publishCapabilities: [] as const,
-    subscribeCapabilities: [
-      "trellis.auth::devices.review",
-      "trellis.auth::events.stream",
-    ] as const,
+    subscribeCapabilities: ["trellis.auth::events.stream"] as const,
   },
   "AuthDeviceUserAuthoritiesApproved",
   false,
@@ -3439,10 +3439,7 @@ export const AuthDeviceUserAuthoritiesRequested = eventActions(
       AuthDeviceUserAuthoritiesRequestedEventSchema,
     ),
     publishCapabilities: [] as const,
-    subscribeCapabilities: [
-      "trellis.auth::devices.review",
-      "trellis.auth::events.stream",
-    ] as const,
+    subscribeCapabilities: ["trellis.auth::events.stream"] as const,
   },
   "AuthDeviceUserAuthoritiesRequested",
   false,
@@ -3473,10 +3470,7 @@ export const AuthDeviceUserAuthoritiesResolved = eventActions(
       AuthDeviceUserAuthoritiesResolvedEventSchema,
     ),
     publishCapabilities: [] as const,
-    subscribeCapabilities: [
-      "trellis.auth::devices.review",
-      "trellis.auth::events.stream",
-    ] as const,
+    subscribeCapabilities: ["trellis.auth::events.stream"] as const,
   },
   "AuthDeviceUserAuthoritiesResolved",
   false,
@@ -3507,10 +3501,7 @@ export const AuthDeviceUserAuthoritiesReviewRequested = eventActions(
       AuthDeviceUserAuthoritiesReviewRequestedEventSchema,
     ),
     publishCapabilities: [] as const,
-    subscribeCapabilities: [
-      "trellis.auth::devices.review",
-      "trellis.auth::events.stream",
-    ] as const,
+    subscribeCapabilities: ["trellis.auth::events.stream"] as const,
   },
   "AuthDeviceUserAuthoritiesReviewRequested",
   false,

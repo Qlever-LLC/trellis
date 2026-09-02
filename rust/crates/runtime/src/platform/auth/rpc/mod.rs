@@ -1466,6 +1466,7 @@ impl AuthRpcProcessor {
         payload: &[u8],
         caller: &ValidatedRequest,
     ) -> Result<Value, AuthorizationStateError> {
+        require_admin(caller)?;
         let input: Value = serde_json::from_slice(payload)
             .map_err(|error| AuthorizationStateError::InvalidRecord(error.to_string()))?;
         let key = required_string(&input, "groupKey")?;
@@ -1537,6 +1538,7 @@ impl AuthRpcProcessor {
         payload: &[u8],
         caller: &ValidatedRequest,
     ) -> Result<Value, AuthorizationStateError> {
+        require_admin(caller)?;
         let input: Value = serde_json::from_slice(payload)
             .map_err(|error| AuthorizationStateError::InvalidRecord(error.to_string()))?;
         let key = required_string(&input, "groupKey")?;
@@ -1581,7 +1583,7 @@ impl AuthRpcProcessor {
             && !caller
                 .capabilities
                 .iter()
-                .any(|value| value == "trellis.auth::authorities.read")
+                .any(|value| value == "trellis.auth::admin")
         {
             return Err(AuthorizationStateError::InvalidRecord(
                 "identity grants belong to another user".to_owned(),
@@ -1639,7 +1641,7 @@ impl AuthRpcProcessor {
                 && !caller
                     .capabilities
                     .iter()
-                    .any(|value| value == "trellis.auth::authorities.mutate"))
+                    .any(|value| value == "trellis.auth::admin"))
         {
             return Err(AuthorizationStateError::InvalidRecord(
                 "identity grant belongs to another user".to_owned(),
@@ -1687,6 +1689,7 @@ impl AuthRpcProcessor {
         payload: &[u8],
         caller: &ValidatedRequest,
     ) -> Result<Value, AuthorizationStateError> {
+        require_admin(caller)?;
         let input: Value = serde_json::from_slice(payload)
             .map_err(|error| AuthorizationStateError::InvalidRecord(error.to_string()))?;
         let portal_id = required_string(&input, "portalId")?;
@@ -1759,6 +1762,7 @@ impl AuthRpcProcessor {
         payload: &[u8],
         caller: &ValidatedRequest,
     ) -> Result<Value, AuthorizationStateError> {
+        require_admin(caller)?;
         let input: Value = serde_json::from_slice(payload)
             .map_err(|error| AuthorizationStateError::InvalidRecord(error.to_string()))?;
         let now = now_millis()?;
@@ -1838,6 +1842,9 @@ impl AuthRpcProcessor {
             .ok_or_else(|| {
                 AuthorizationStateError::InvalidRecord("authority not found".to_owned())
             })?;
+        if authority.principal_id != caller.principal_id {
+            require_admin(caller)?;
+        }
         if input
             .get("expectedVersion")
             .and_then(Value::as_u64)
@@ -2125,6 +2132,7 @@ impl AuthRpcProcessor {
         caller: &ValidatedRequest,
         expected_kind: AuthorityProposalKind,
     ) -> Result<Value, AuthorizationStateError> {
+        require_admin(caller)?;
         let input: Value = serde_json::from_slice(payload)
             .map_err(|error| AuthorizationStateError::InvalidRecord(error.to_string()))?;
         let proposal_id = plan_id(&input)?;
@@ -3175,6 +3183,12 @@ impl AuthRpcProcessor {
         purpose: &str,
     ) -> Result<Value, AuthorizationStateError> {
         let now = now_millis()?;
+        let admin_target = if kind == AccountFlowKind::PasswordReset {
+            self.require_admin_for_admin_target(caller, principal_id)
+                .await?
+        } else {
+            false
+        };
         let return_target = nullable_string(input, "returnTarget")?;
         let outcome = self
             .service
@@ -3183,7 +3197,11 @@ impl AuthRpcProcessor {
                 target_principal_id: Some(principal_id.to_owned()),
                 target_provider_id: None,
                 return_location: return_target.clone(),
-                payload: json!({ "allowedProviders": allowed_providers }),
+                payload: json!({
+                    "allowedProviders": allowed_providers,
+                    "adminTarget": admin_target,
+                    "requestedByPrincipalId": caller.principal_id,
+                }),
                 created_at: now,
                 expires_at: now.saturating_add(15 * 60_000),
                 idempotency: rpc_idempotency(
@@ -3393,6 +3411,7 @@ impl AuthRpcProcessor {
                 email: nullable_string(&input, "email")?,
                 image: nullable_string(&input, "image")?,
                 state,
+                allow_admin_target: caller_is_admin(validated),
                 updated_at: now,
                 idempotency: rpc_idempotency(
                     "Auth.Users.Update",
@@ -3413,6 +3432,25 @@ impl AuthRpcProcessor {
                 .ok_or(AuthorizationStateError::PrincipalMissing)?,
         };
         Ok(json!({ "user": user_value(account) }))
+    }
+
+    async fn require_admin_for_admin_target(
+        &self,
+        caller: &ValidatedRequest,
+        principal_id: &str,
+    ) -> Result<bool, AuthorizationStateError> {
+        let now = now_millis()?;
+        let admin_target = self
+            .service
+            .repository()
+            .list_identity_authorities()
+            .await?
+            .iter()
+            .any(|authority| authority_is_current_admin(authority, principal_id, now));
+        if admin_target && !caller_is_admin(caller) {
+            require_admin(caller)?;
+        }
+        Ok(admin_target)
     }
 }
 
@@ -3729,6 +3767,39 @@ fn paginate_sessions(entries: Vec<SessionRecord>, input: &Value) -> Value {
     })
 }
 
+fn require_admin(caller: &ValidatedRequest) -> Result<(), AuthorizationStateError> {
+    if caller_is_admin(caller) {
+        Ok(())
+    } else {
+        Err(AuthorizationStateError::InvalidRecord(
+            "trellis.auth::admin capability is required".to_owned(),
+        ))
+    }
+}
+
+fn caller_is_admin(caller: &ValidatedRequest) -> bool {
+    caller
+        .capabilities
+        .iter()
+        .any(|capability| capability == "trellis.auth::admin")
+}
+
+fn authority_is_current_admin(
+    authority: &IdentityAuthorityRecord,
+    principal_id: &str,
+    now: i64,
+) -> bool {
+    authority.principal_id == principal_id
+        && authority.state == AuthorityState::Accepted
+        && authority
+            .expires_at
+            .is_none_or(|expires_at| expires_at > now)
+        && authority
+            .desired_capabilities
+            .iter()
+            .any(|capability| capability == "trellis.auth::admin")
+}
+
 fn required_string<'a>(value: &'a Value, key: &str) -> Result<&'a str, AuthorizationStateError> {
     value
         .get(key)
@@ -3941,6 +4012,24 @@ mod tests {
     fn offset_page_omits_exhausted_next_offset() {
         let page = offset_page(vec![json!({ "id": 1 })], &json!({ "limit": 1 }));
         assert_eq!(page.get("nextOffset"), None);
+    }
+
+    #[test]
+    fn authority_delegation_requires_admin_capability() {
+        let mut caller = ValidatedRequest {
+            principal_id: "prn_user".to_owned(),
+            principal_kind: PrincipalKind::User,
+            session_id: "ses_user".to_owned(),
+            session_public_key: "UAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                .to_owned(),
+            capabilities: vec!["trellis.auth::authorities.mutate".to_owned()],
+        };
+        assert!(matches!(
+            require_admin(&caller),
+            Err(AuthorizationStateError::InvalidRecord(_))
+        ));
+        caller.capabilities.push("trellis.auth::admin".to_owned());
+        assert!(require_admin(&caller).is_ok());
     }
 
     #[test]

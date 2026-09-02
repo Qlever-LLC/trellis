@@ -119,12 +119,13 @@ an explicit relative database path remains config-relative. `--config` changes
 the config file and config-relative resource base, not the selected user/system
 profile.
 
-The initial administrator remains the permanent bootstrap administrator. To
-change its username and password, start Trellis with `--reset-admin`. Trellis
-prints a replacement one-time URL, preserves the account and administration
-authority, and revokes its existing sessions when the reset is completed. The
-command targets this bootstrap account even when additional administrators
-exist.
+The initial administrator remains the permanent bootstrap recovery principal,
+but its `trellis-app.cli@v1` authority follows the ordinary authority lifecycle
+and may be changed or revoked. Start Trellis with `--reset-admin` to recover the
+account. Trellis prints a replacement one-time URL, preserves the principal,
+restores full authority for the exact current CLI artifact and needs digest, and
+revokes its existing sessions when reset completes. The command targets this
+bootstrap account even when additional administrators exist.
 
 ### External NATS (production pattern)
 

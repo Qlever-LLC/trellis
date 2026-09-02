@@ -24,15 +24,7 @@
     "required": {
       "trellis.auth@v1": {
         "api": "trellis.auth@v1",
-        "apiDigest": "3QSyOlZqSZ0e25CGmf7N9xOZXjOeomA-GUi7bG9WxaQ",
-        "events": {
-          "subscribe": [
-            "Auth.DeviceUserAuthorities.Approved",
-            "Auth.DeviceUserAuthorities.Requested",
-            "Auth.DeviceUserAuthorities.Resolved",
-            "Auth.DeviceUserAuthorities.ReviewRequested"
-          ]
-        },
+        "apiDigest": "cpm45yYWFThvfFF5kx2hWd8YhJjhW1ZL7ooR8bG8Ab8",
         "rpc": {
           "call": [
             "Auth.Capabilities.List",

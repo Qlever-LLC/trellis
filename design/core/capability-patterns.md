@@ -72,11 +72,14 @@ removed. For example, both `trellis.jobs@v1` and `trellis.jobs@v2` map to the
 capability namespace `trellis.jobs`. This keeps grants stable across intentional
 major contract-version upgrades when the capability meaning is preserved.
 
-The `trellis.*` namespace is reserved for definitions owned by Trellis: API IDs,
-capability namespaces, participant IDs, and deployment IDs. Deployment-owned
-registration rejects definitions in that namespace; Trellis built-ins are
-admitted only by exact ID and canonical digest. Other participants may reference
-and receive canonical Trellis capabilities through normal authority decisions.
+The `trellis.*` namespace is reserved where Trellis owns a platform definition:
+canonical API IDs and capability namespaces, the internal auth-runtime
+participant, and other explicitly reserved platform participants or deployments.
+Those definitions are admitted only by exact ID and canonical digest.
+`trellis-app.*` is not reserved: shipped clients such as `trellis-app.cli@v1`,
+`trellis-app.console@v1`, and `trellis-app.portal@v1` are ordinary app
+participants. Their IDs grant nothing; effective authority comes from exact
+participant presentation plus an accepted authority decision.
 
 Rules:
 
@@ -89,11 +92,14 @@ Rules:
   `trellis.api.v1` and `trellis.participant.v1` manifests
 - if a capability reference matches a declared top-level capability, tooling
   projects it to the global key in the emitted manifest
-- `trellis.*` API, participant, deployment, and capability namespaces are
-  reserved for exact Trellis-owned built-in artifacts; deployment-owned
-  artifacts cannot define identifiers in that namespace
+- Trellis-owned `trellis.*` APIs and capabilities, and explicitly reserved
+  `trellis.*` participants and deployments, require exact built-in artifacts;
+  ordinary shipped clients use non-reserved `trellis-app.*` participant IDs
 - principal kinds such as service and bootstrap administrator are domain
   identity properties, not role-shaped capabilities
+- `admin` is a built-in read-only capability-group macro for selecting concrete
+  administrative capabilities; effective administrator identity and authority
+  delegation are gated by the exact API-scoped `trellis.auth::admin` capability
 - capability metadata belongs to the owning contract; other contracts reference
   used APIs by logical `uses` selections, not by redeclaring another contract's
   capability metadata
@@ -103,14 +109,14 @@ Rules:
 - changing machine capability allows changes the semantic API digest; changing
   consent wording alone does not
 
-| Pattern                          | Example                               | Meaning              | Who Can Claim   |
-| -------------------------------- | ------------------------------------- | -------------------- | --------------- |
-| `<namespace>::<domain>.<action>` | `trellis.auth::users.read`            | Can read users       | Users, Services |
-| `<namespace>::<domain>.<action>` | `graph::partners.write`               | Can mutate partners  | Users, Services |
-| `<namespace>::<action>`          | `trellis.jobs::read`                  | Read jobs data       | Users           |
-| `<namespace>::<action>`          | `trellis.jobs::mutate`                | Mutate jobs state    | Users           |
-| `<namespace>::<action>`          | `trellis.jobs::stream`                | Observe jobs streams | Users           |
-| `<namespace>::<domain>.<action>` | `trellis.auth::capabilities.delegate` | Delegate authority   | Users           |
+| Pattern                          | Example                    | Meaning              | Who Can Claim   |
+| -------------------------------- | -------------------------- | -------------------- | --------------- |
+| `<namespace>::<domain>.<action>` | `trellis.auth::users.read` | Can read users       | Users, Services |
+| `<namespace>::<domain>.<action>` | `graph::partners.write`    | Can mutate partners  | Users, Services |
+| `<namespace>::<action>`          | `trellis.jobs::read`       | Read jobs data       | Users           |
+| `<namespace>::<action>`          | `trellis.jobs::mutate`     | Mutate jobs state    | Users           |
+| `<namespace>::<action>`          | `trellis.jobs::stream`     | Observe jobs streams | Users           |
+| `<namespace>::<domain>.<action>` | `trellis.auth::admin`      | Administer authority | Users           |
 
 Deployments may still encounter role-shaped strings such as `users:read`, but
 the architectural model is capability-oriented. New Trellis-owned contract

@@ -139,7 +139,7 @@ pub(crate) fn validate_first_admin_authority(
         || !authority
             .desired_capabilities
             .iter()
-            .any(|value| value == "trellis.auth::capabilities.delegate")
+            .any(|value| value == "trellis.auth::admin")
         || authority
             .expires_at
             .is_some_and(|expires_at| expires_at <= completed_at)

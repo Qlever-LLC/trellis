@@ -11,6 +11,77 @@ use super::outbox::{insert_sql_idempotency_and_actions, sqlite_idempotency_repla
 use super::SqliteAuthorizationStore;
 
 impl SqliteAuthorizationStore {
+    pub(crate) async fn ensure_admin_capability_group(
+        &self,
+        capabilities: Vec<String>,
+        now: i64,
+    ) -> Result<(), AuthorizationStateError> {
+        self.run(move |connection| {
+            let transaction = connection.transaction().map_err(sql_error)?;
+            let current = load_capability_group(&transaction, "admin")?;
+            let version = current.as_ref().map_or(Ok(1), |group| {
+                group.version.checked_add(1).ok_or_else(|| {
+                    AuthorizationStateError::InvalidRecord(
+                        "admin capability group version overflow".to_owned(),
+                    )
+                })
+            })?;
+            let group = CapabilityGroupRecord {
+                group_key: "admin".to_owned(),
+                display_name: "Administrator".to_owned(),
+                description:
+                    "Full authority required to administer Trellis accounts and capabilities."
+                        .to_owned(),
+                capabilities,
+                included_groups: Vec::new(),
+                created_at: current.as_ref().map_or(now, |group| group.created_at),
+                updated_at: now,
+                version,
+            };
+            if current.as_ref().is_some_and(|current| {
+                current.display_name == group.display_name
+                    && current.description == group.description
+                    && current.capabilities == group.capabilities
+                    && current.included_groups == group.included_groups
+            }) {
+                return Ok(());
+            }
+            let mut groups = load_capability_groups(&transaction)?
+                .into_iter()
+                .map(|record| (record.group_key.clone(), record))
+                .collect::<BTreeMap<_, _>>();
+            groups.insert(group.group_key.clone(), group.clone());
+            validate_capability_groups(&groups)?;
+            transaction
+                .execute(
+                    "INSERT INTO auth_capability_groups (
+                         group_key, display_name, description, capabilities_json,
+                         included_groups_json, created_at, updated_at, version
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                     ON CONFLICT(group_key) DO UPDATE SET
+                         display_name = excluded.display_name,
+                         description = excluded.description,
+                         capabilities_json = excluded.capabilities_json,
+                         included_groups_json = excluded.included_groups_json,
+                         updated_at = excluded.updated_at,
+                         version = excluded.version",
+                    params![
+                        group.group_key,
+                        group.display_name,
+                        group.description,
+                        encode_json(&group.capabilities)?,
+                        encode_json(&group.included_groups)?,
+                        group.created_at,
+                        group.updated_at,
+                        group.version,
+                    ],
+                )
+                .map_err(map_write_error)?;
+            transaction.commit().map_err(sql_error)
+        })
+        .await
+    }
+
     pub(crate) async fn list_capability_groups(
         &self,
     ) -> Result<Vec<CapabilityGroupRecord>, AuthorizationStateError> {
@@ -33,6 +104,11 @@ impl SqliteAuthorizationStore {
         expected_version: Option<u64>,
         mut idempotency: IdempotencyResultRecord,
     ) -> Result<IdempotentOutcome<CapabilityGroupRecord>, AuthorizationStateError> {
+        if group.group_key == "admin" {
+            return Err(AuthorizationStateError::InvalidRecord(
+                "the built-in admin capability group is read-only".to_owned(),
+            ));
+        }
         self.run(move |connection| {
             let transaction = connection.transaction().map_err(sql_error)?;
             if let Some(result) = sqlite_idempotency_replay(&transaction, &idempotency)? {
@@ -91,6 +167,11 @@ impl SqliteAuthorizationStore {
         expected_version: u64,
         mut idempotency: IdempotencyResultRecord,
     ) -> Result<IdempotentOutcome<bool>, AuthorizationStateError> {
+        if group_key == "admin" {
+            return Err(AuthorizationStateError::InvalidRecord(
+                "the built-in admin capability group is read-only".to_owned(),
+            ));
+        }
         let group_key = group_key.to_owned();
         self.run(move |connection| {
             let transaction = connection.transaction().map_err(sql_error)?;

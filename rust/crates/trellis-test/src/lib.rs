@@ -1584,8 +1584,40 @@ impl TrellisTestRuntime {
             .await
     }
 
+    /// Complete administrator bootstrap or recovery with a new local password.
+    pub async fn complete_bootstrap_with_password(
+        &mut self,
+        password: impl Into<String>,
+    ) -> Result<(), TrellisTestError> {
+        if self.attached {
+            return Ok(());
+        }
+        let password = password.into();
+        let bootstrap_url = self
+            .wait_for_bootstrap_url(self.reconciliation_timeout)
+            .await?;
+        complete_first_admin_bootstrap(&self.trellis_url, &bootstrap_url, &password).await?;
+        self.admin_password = password;
+        Ok(())
+    }
+
     /// Restart only the Trellis control-plane process, preserving workdir state and NATS.
     pub async fn restart_control_plane(&mut self) -> Result<(), TrellisTestError> {
+        self.restart_control_plane_with_command(self.trellis_command.clone())
+            .await
+    }
+
+    /// Restart the control plane in explicit administrator-recovery mode.
+    pub async fn restart_control_plane_with_admin_reset(&mut self) -> Result<(), TrellisTestError> {
+        let mut command = self.trellis_command.clone();
+        command.args.insert(0, "--reset-admin".into());
+        self.restart_control_plane_with_command(command).await
+    }
+
+    async fn restart_control_plane_with_command(
+        &mut self,
+        command: TrellisProcessCommand,
+    ) -> Result<(), TrellisTestError> {
         let Some(mut trellis) = self.trellis.take() else {
             return Err(TrellisTestError::UnexpectedResponse(
                 "Trellis process is not running".to_string(),
@@ -1598,7 +1630,7 @@ impl TrellisTestRuntime {
             .path()
             .join(&self.manifest.paths.trellis_config);
         let restarted = TrellisProcess::start(
-            &self.trellis_command,
+            &command,
             &config_path,
             self.workdir.path(),
             &self.trellis_url,
@@ -1918,6 +1950,29 @@ impl TrellisTestAdmin {
             .client
             .as_ref()
             .expect("admin client is initialized before returning"))
+    }
+
+    /// Attempt a CLI administrator login with an existing local user.
+    pub async fn try_admin_login_as(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<(), TrellisTestError> {
+        let challenge =
+            trellis_rs::auth::start_agent_login(&trellis_rs::auth::StartAgentLoginOpts {
+                trellis_url: &self.trellis_url,
+            })
+            .await?;
+        let flow_id = flow_id_from_url(challenge.login_url())?;
+        perform_local_login(&self.trellis_url, &flow_id, username, password).await?;
+        submit_portal_approval(&self.trellis_url, &flow_id).await?;
+        challenge
+            .complete_with_context_store(
+                &self.trellis_url,
+                Arc::new(trellis_rs::client::MemoryAuthorizationContextStore::default()),
+            )
+            .await?;
+        Ok(())
     }
 
     /// Call `State.Admin.Get` through the live shared or local administrator.
@@ -4209,7 +4264,7 @@ async fn complete_first_admin_bootstrap(
         Ok(response) => response,
         Err(error) => return Err(error),
     };
-    if response.status == "created" {
+    if matches!(response.status.as_str(), "created" | "updated") {
         Ok(())
     } else {
         Err(TrellisTestError::UnexpectedResponse(format!(

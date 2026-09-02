@@ -61,7 +61,7 @@ export type NavSection = {
 const CAPABILITIES = {
   authorityRead: "trellis.auth::authorities.read",
   capabilityRead: "trellis.auth::capabilities.read",
-  delegate: "trellis.auth::capabilities.delegate",
+  admin: "trellis.auth::admin",
   devicesRead: "trellis.auth::devices.read",
   eventlogRead: "trellis.eventlog::read",
   healthRead: "trellis.health::read",
@@ -212,7 +212,7 @@ export function getPageTitle(pathname: string): string {
 }
 
 export function getRoleLabel(profile: Profile): string {
-  if (profile?.capabilities?.includes(CAPABILITIES.delegate)) {
+  if (profile?.capabilities?.includes(CAPABILITIES.admin)) {
     return "Administrator";
   }
   if (

@@ -63,7 +63,7 @@ impl RpcDescriptor for AuthCapabilityGroupsDeleteRpc {
         super::schemas::AUTH_CAPABILITY_GROUPS_DELETE_OUTPUT_SCHEMA_JSON;
     const KEY: &'static str = "Auth.CapabilityGroups.Delete";
     const SUBJECT: &'static str = "rpc.v1.Auth.CapabilityGroups.Delete";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &["trellis.auth::capabilities.delegate"];
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["trellis.auth::admin"];
     const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
 }
 /// Errors declared by `Auth.CapabilityGroups.Delete`.
@@ -207,7 +207,7 @@ impl RpcDescriptor for AuthCapabilityGroupsPutRpc {
         super::schemas::AUTH_CAPABILITY_GROUPS_PUT_OUTPUT_SCHEMA_JSON;
     const KEY: &'static str = "Auth.CapabilityGroups.Put";
     const SUBJECT: &'static str = "rpc.v1.Auth.CapabilityGroups.Put";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &["trellis.auth::capabilities.delegate"];
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["trellis.auth::admin"];
     const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
 }
 /// Errors declared by `Auth.CapabilityGroups.Put`.
@@ -349,10 +349,8 @@ impl RpcDescriptor for AuthDeploymentAuthorityAcceptMigrationRpc {
         super::schemas::AUTH_DEPLOYMENT_AUTHORITY_ACCEPT_MIGRATION_OUTPUT_SCHEMA_JSON;
     const KEY: &'static str = "Auth.DeploymentAuthority.AcceptMigration";
     const SUBJECT: &'static str = "rpc.v1.Auth.DeploymentAuthority.AcceptMigration";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &[
-        "trellis.auth::authorities.mutate",
-        "trellis.auth::capabilities.delegate",
-    ];
+    const CALLER_CAPABILITIES: &'static [&'static str] =
+        &["trellis.auth::admin", "trellis.auth::authorities.mutate"];
     const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
 }
 /// Errors declared by `Auth.DeploymentAuthority.AcceptMigration`.
@@ -400,10 +398,8 @@ impl RpcDescriptor for AuthDeploymentAuthorityAcceptUpdateRpc {
         super::schemas::AUTH_DEPLOYMENT_AUTHORITY_ACCEPT_UPDATE_OUTPUT_SCHEMA_JSON;
     const KEY: &'static str = "Auth.DeploymentAuthority.AcceptUpdate";
     const SUBJECT: &'static str = "rpc.v1.Auth.DeploymentAuthority.AcceptUpdate";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &[
-        "trellis.auth::authorities.mutate",
-        "trellis.auth::capabilities.delegate",
-    ];
+    const CALLER_CAPABILITIES: &'static [&'static str] =
+        &["trellis.auth::admin", "trellis.auth::authorities.mutate"];
     const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
 }
 /// Errors declared by `Auth.DeploymentAuthority.AcceptUpdate`.
@@ -1122,7 +1118,7 @@ impl RpcDescriptor for AuthDeviceUserAuthoritiesReviewsListRpc {
         super::schemas::AUTH_DEVICE_USER_AUTHORITIES_REVIEWS_LIST_OUTPUT_SCHEMA_JSON;
     const KEY: &'static str = "Auth.DeviceUserAuthorities.Reviews.List";
     const SUBJECT: &'static str = "rpc.v1.Auth.DeviceUserAuthorities.Reviews.List";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &["trellis.auth::devices.read"];
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["trellis.auth::devices.review"];
     const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
 }
 /// Errors declared by `Auth.DeviceUserAuthorities.Reviews.List`.
@@ -1595,7 +1591,8 @@ impl RpcDescriptor for AuthIdentityAuthorityRevokeRpc {
         super::schemas::AUTH_IDENTITY_AUTHORITY_REVOKE_OUTPUT_SCHEMA_JSON;
     const KEY: &'static str = "Auth.IdentityAuthority.Revoke";
     const SUBJECT: &'static str = "rpc.v1.Auth.IdentityAuthority.Revoke";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &["trellis.auth::authorities.mutate"];
+    const CALLER_CAPABILITIES: &'static [&'static str] =
+        &["trellis.auth::admin", "trellis.auth::authorities.mutate"];
     const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
 }
 /// Errors declared by `Auth.IdentityAuthority.Revoke`.
@@ -1828,10 +1825,8 @@ impl RpcDescriptor for AuthPortalsGrantOverridesPutRpc {
         super::schemas::AUTH_PORTALS_GRANT_OVERRIDES_PUT_OUTPUT_SCHEMA_JSON;
     const KEY: &'static str = "Auth.Portals.GrantOverrides.Put";
     const SUBJECT: &'static str = "rpc.v1.Auth.Portals.GrantOverrides.Put";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &[
-        "trellis.auth::capabilities.delegate",
-        "trellis.auth::portals.mutate",
-    ];
+    const CALLER_CAPABILITIES: &'static [&'static str] =
+        &["trellis.auth::admin", "trellis.auth::portals.mutate"];
     const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
 }
 /// Errors declared by `Auth.Portals.GrantOverrides.Put`.
@@ -1879,10 +1874,8 @@ impl RpcDescriptor for AuthPortalsGrantOverridesRemoveRpc {
         super::schemas::AUTH_PORTALS_GRANT_OVERRIDES_REMOVE_OUTPUT_SCHEMA_JSON;
     const KEY: &'static str = "Auth.Portals.GrantOverrides.Remove";
     const SUBJECT: &'static str = "rpc.v1.Auth.Portals.GrantOverrides.Remove";
-    const CALLER_CAPABILITIES: &'static [&'static str] = &[
-        "trellis.auth::capabilities.delegate",
-        "trellis.auth::portals.mutate",
-    ];
+    const CALLER_CAPABILITIES: &'static [&'static str] =
+        &["trellis.auth::admin", "trellis.auth::portals.mutate"];
     const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
 }
 /// Errors declared by `Auth.Portals.GrantOverrides.Remove`.

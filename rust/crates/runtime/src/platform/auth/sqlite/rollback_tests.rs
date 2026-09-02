@@ -77,6 +77,7 @@ async fn user_update_rolls_back_when_real_outbox_constraint_fails() {
                 ..profile.clone()
             },
             expected_version: 1,
+            allow_admin_target: true,
             idempotency: update_idempotency.clone(),
             actions: vec![PostCommitActionRecord {
                 predecessor_action_id: None,

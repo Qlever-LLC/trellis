@@ -16,7 +16,7 @@ Deno.test("control panel keeps admin navigation focused on active sections", () 
     capabilities: [
       "trellis.auth::authorities.read",
       "trellis.auth::capabilities.read",
-      "trellis.auth::capabilities.delegate",
+      "trellis.auth::admin",
       "trellis.auth::connections.read",
       "trellis.auth::devices.read",
       "trellis.auth::portals.read",

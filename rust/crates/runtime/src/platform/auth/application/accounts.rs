@@ -1,4 +1,4 @@
-use serde_json::json;
+use serde_json::{json, Value};
 use ulid::Ulid;
 
 use super::super::account::{hash_password, normalize_username, verify_password};
@@ -131,6 +131,8 @@ pub struct UpdateUserInput {
     pub image: Option<String>,
     /// Requested active, disabled, or revoked lifecycle state.
     pub state: PrincipalState,
+    /// Whether the caller may mutate a principal with accepted administrator authority.
+    pub allow_admin_target: bool,
     /// Update time in Unix milliseconds.
     pub updated_at: i64,
     /// Durable request proof and replay result.
@@ -608,6 +610,16 @@ where
                 token_hash,
                 expected_flow_version,
                 flow_kind: flow.kind,
+                requester_principal_id: flow
+                    .payload
+                    .get("requestedByPrincipalId")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                admin_target: flow
+                    .payload
+                    .get("adminTarget")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
                 expected_credential_version: current.as_ref().map(|current| current.version),
                 replacement,
                 identity,
@@ -916,6 +928,7 @@ where
                 principal: principal.clone(),
                 profile: profile.clone(),
                 expected_version: input.expected_version,
+                allow_admin_target: input.allow_admin_target,
                 idempotency: input.idempotency,
                 actions: input.actions,
             })

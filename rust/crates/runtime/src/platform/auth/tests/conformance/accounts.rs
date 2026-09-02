@@ -299,6 +299,7 @@ pub(super) async fn exercise_accounts(
         principal: disabled_user,
         profile: updated_profile,
         expected_version: 1,
+        allow_admin_target: true,
         idempotency: proof(104, "account.update"),
         actions: vec![account_update_action.clone()],
     };
@@ -331,6 +332,7 @@ pub(super) async fn exercise_accounts(
                 principal: disabled_user,
                 profile: rollback_profile,
                 expected_version: 2,
+                allow_admin_target: true,
                 idempotency: account_update_rollback_proof.clone(),
                 actions: vec![PostCommitActionRecord {
                     payload: json!({ "different": true }),

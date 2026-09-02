@@ -72,6 +72,10 @@ pub(crate) struct PasswordResetCompletion {
     pub expected_flow_version: u64,
     /// Expected account-flow kind.
     pub flow_kind: AccountFlowKind,
+    /// Principal that requested this reset, when it was created through Auth RPC.
+    pub requester_principal_id: Option<String>,
+    /// Whether the target held accepted administrator authority when this flow was issued.
+    pub admin_target: bool,
     /// Credential version observed before hashing; `None` requires first install.
     pub expected_credential_version: Option<u64>,
     /// Complete replacement credential with version `current + 1`.
@@ -382,6 +386,8 @@ pub(crate) struct UserAccountMutation {
     pub profile: UserProfileRecord,
     /// Expected current version shared by the principal and profile.
     pub expected_version: u64,
+    /// Whether the caller may mutate a principal with accepted administrator authority.
+    pub allow_admin_target: bool,
     /// Durable proof claim and replay result.
     pub idempotency: IdempotencyResultRecord,
     /// Deterministic post-commit actions.

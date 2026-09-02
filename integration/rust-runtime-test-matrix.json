@@ -1831,14 +1831,14 @@
       }
     },
     {
-      "id": "auth.capability-groups-validate-references",
+      "id": "auth.capability-groups-validate-and-protect-builtins",
       "fixture": "auth",
-      "title": "Capability groups validate references",
+      "title": "Capability groups validate references and protect the admin macro",
       "coverage": [
         "auth-protocol-matrix",
         "capability-permission-matrix"
       ],
-      "description": "Auth capability group CRUD preserves API-owned capabilities, rejects unknown included groups, and deletes custom groups with optimistic version checks.",
+      "description": "Auth capability group CRUD preserves the built-in read-only admin macro, validates included-group references, and deletes custom groups with optimistic version checks.",
       "scenario": {
         "participants": [
           {
@@ -1851,9 +1851,10 @@
           "an authenticated local admin session exists"
         ],
         "when": [
-          "the admin manages custom capability groups"
+          "the admin reads the built-in admin group and manages custom capability groups"
         ],
         "then": [
+          "the admin group contains capability delegation authority and cannot be replaced or deleted",
           "custom groups preserve declared capabilities",
           "unknown included groups are rejected",
           "versioned custom deletion succeeds"
@@ -1866,7 +1867,7 @@
       "implementations": {
         "rust": {
           "module": "auth",
-          "function": "capability_groups_validate_references"
+          "function": "capability_groups_validate_and_protect_builtins"
         }
       }
     },
@@ -2589,12 +2590,14 @@
     {
       "id": "control-plane.admin-bootstrap-creates-first-local-admin",
       "fixture": "control-plane",
-      "title": "Admin bootstrap creates the first local admin",
+      "title": "Admin bootstrap authority follows ordinary lifecycle and reset recovery",
       "coverage": [
         "auth",
-        "admin-bootstrap"
+        "admin-bootstrap",
+        "authority-revocation",
+        "admin-recovery"
       ],
-      "description": "Starts an empty Trellis control plane, completes first-admin local-password bootstrap, and verifies the resulting admin session.",
+      "description": "Bootstraps exact CLI authority, revokes it through the ordinary Auth API and observes context invalidation, then uses trellis-server --reset-admin to restore current exact authority for the same bootstrap principal.",
       "scenario": {
         "participants": [
           {
@@ -2612,10 +2615,14 @@
           "A fresh Trellis control plane has no local admin account."
         ],
         "when": [
-          "The bootstrap flow creates the first local admin account."
+          "The bootstrap flow creates the first local admin account.",
+          "The admin revokes its CLI authority through the ordinary authority API.",
+          "The same persisted control plane restarts with --reset-admin and completes recovery."
         ],
         "then": [
-          "The caller receives an authenticated admin-capable session."
+          "Initial authority is exact and carries capability delegation authority.",
+          "The revoked context becomes unusable.",
+          "Recovery restores accepted authority bound to the current CLI artifact and needs digest for the same principal."
         ]
       },
       "completion": {
@@ -2625,7 +2632,7 @@
       "implementations": {
         "rust": {
           "module": "auth",
-          "function": "admin_bootstrap_creates_exactly_one_first_administrator"
+          "function": "bootstrap_setup_seeds_cli_authority_and_reset_restores_revoked_authority"
         }
       }
     },

@@ -2265,6 +2265,8 @@ mod tests {
                     token_hash: token_hash.clone(),
                     expected_flow_version: 1,
                     flow_kind: AccountFlowKind::PasswordReset,
+                    requester_principal_id: None,
+                    admin_target: false,
                     expected_credential_version: Some(1),
                     replacement: wrong_identity,
                     identity: None,
@@ -2294,6 +2296,8 @@ mod tests {
                 token_hash: token_hash.clone(),
                 expected_flow_version: 1,
                 flow_kind: AccountFlowKind::PasswordReset,
+                requester_principal_id: None,
+                admin_target: false,
                 expected_credential_version: Some(1),
                 replacement: replacement.clone(),
                 identity: None,
@@ -2341,6 +2345,8 @@ mod tests {
                 token_hash,
                 expected_flow_version: 1,
                 flow_kind: AccountFlowKind::PasswordReset,
+                requester_principal_id: None,
+                admin_target: false,
                 expected_credential_version: Some(1),
                 replacement,
                 identity: None,
@@ -2408,6 +2414,7 @@ mod tests {
                 email: account.1.email.clone(),
                 image: account.1.image_url.clone(),
                 state: PrincipalState::Disabled,
+                allow_admin_target: true,
                 updated_at: NOW_MS + 1,
                 idempotency: IdempotencyResultRecord {
                     scope_key: URL_SAFE_NO_PAD.encode([20; 32]),
@@ -2467,6 +2474,7 @@ mod tests {
                 email: None,
                 image: None,
                 state: PrincipalState::Revoked,
+                allow_admin_target: true,
                 updated_at: NOW_MS + 1,
                 idempotency: IdempotencyResultRecord {
                     scope_key: URL_SAFE_NO_PAD.encode([30; 32]),
@@ -2516,6 +2524,7 @@ mod tests {
                 email: None,
                 image: None,
                 state: PrincipalState::Active,
+                allow_admin_target: true,
                 updated_at: NOW_MS + 1,
                 idempotency: IdempotencyResultRecord {
                     scope_key: URL_SAFE_NO_PAD.encode([22; 32]),
@@ -2542,6 +2551,7 @@ mod tests {
                 email: profile.1.email.clone(),
                 image: profile.1.image_url.clone(),
                 state: PrincipalState::Active,
+                allow_admin_target: true,
                 updated_at: NOW_MS + 2,
                 idempotency: IdempotencyResultRecord {
                     scope_key: URL_SAFE_NO_PAD.encode([23; 32]),
@@ -2610,6 +2620,7 @@ mod tests {
                 email: None,
                 image: None,
                 state: PrincipalState::Disabled,
+                allow_admin_target: true,
                 updated_at: NOW_MS + 1,
                 idempotency: IdempotencyResultRecord {
                     scope_key: URL_SAFE_NO_PAD.encode([25; 32]),

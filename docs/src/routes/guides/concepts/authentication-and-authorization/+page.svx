@@ -28,7 +28,9 @@ silently expanding an existing session.
 Built-in clients follow the same model: the CLI is `trellis-app.cli@v1`, Console
 is `trellis-app.console@v1`, and the login portal is `trellis-app.portal@v1`.
 They are ordinary app participants; privileged platform surfaces remain the
-Trellis-owned `trellis.*` APIs.
+Trellis-owned `trellis.*` APIs. A `trellis-app.*` ID grants no authority by
+itself; the app must present its exact participant artifact and have accepted
+authority like any other client.
 
 ## Session keys
 

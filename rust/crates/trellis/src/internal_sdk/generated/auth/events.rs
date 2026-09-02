@@ -50,10 +50,7 @@ impl EventDescriptor for AuthDeviceUserAuthoritiesApprovedEventDescriptor {
         super::schemas::AUTH_DEVICE_USER_AUTHORITIES_APPROVED_EVENT_SCHEMA_JSON;
     const PUBLISH_CAPABILITIES: &'static [&'static str] = &[];
     const DELEGATED_PUBLISH: bool = false;
-    const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &[
-        "trellis.auth::devices.review",
-        "trellis.auth::events.stream",
-    ];
+    const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &["trellis.auth::events.stream"];
 }
 /// Descriptor for `Auth.DeviceUserAuthorities.Requested`.
 pub struct AuthDeviceUserAuthoritiesRequestedEventDescriptor;
@@ -66,10 +63,7 @@ impl EventDescriptor for AuthDeviceUserAuthoritiesRequestedEventDescriptor {
         super::schemas::AUTH_DEVICE_USER_AUTHORITIES_REQUESTED_EVENT_SCHEMA_JSON;
     const PUBLISH_CAPABILITIES: &'static [&'static str] = &[];
     const DELEGATED_PUBLISH: bool = false;
-    const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &[
-        "trellis.auth::devices.review",
-        "trellis.auth::events.stream",
-    ];
+    const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &["trellis.auth::events.stream"];
 }
 /// Descriptor for `Auth.DeviceUserAuthorities.Resolved`.
 pub struct AuthDeviceUserAuthoritiesResolvedEventDescriptor;
@@ -82,10 +76,7 @@ impl EventDescriptor for AuthDeviceUserAuthoritiesResolvedEventDescriptor {
         super::schemas::AUTH_DEVICE_USER_AUTHORITIES_RESOLVED_EVENT_SCHEMA_JSON;
     const PUBLISH_CAPABILITIES: &'static [&'static str] = &[];
     const DELEGATED_PUBLISH: bool = false;
-    const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &[
-        "trellis.auth::devices.review",
-        "trellis.auth::events.stream",
-    ];
+    const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &["trellis.auth::events.stream"];
 }
 /// Descriptor for `Auth.DeviceUserAuthorities.ReviewRequested`.
 pub struct AuthDeviceUserAuthoritiesReviewRequestedEventDescriptor;
@@ -99,10 +90,7 @@ impl EventDescriptor for AuthDeviceUserAuthoritiesReviewRequestedEventDescriptor
         super::schemas::AUTH_DEVICE_USER_AUTHORITIES_REVIEW_REQUESTED_EVENT_SCHEMA_JSON;
     const PUBLISH_CAPABILITIES: &'static [&'static str] = &[];
     const DELEGATED_PUBLISH: bool = false;
-    const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &[
-        "trellis.auth::devices.review",
-        "trellis.auth::events.stream",
-    ];
+    const SUBSCRIBE_CAPABILITIES: &'static [&'static str] = &["trellis.auth::events.stream"];
 }
 /// Descriptor for `Auth.Sessions.Revoked`.
 pub struct AuthSessionsRevokedEventDescriptor;

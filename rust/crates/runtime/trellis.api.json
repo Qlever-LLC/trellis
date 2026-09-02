@@ -16059,7 +16059,7 @@
         }
       ]
     },
-    "trellis.auth::capabilities.delegate": {
+    "trellis.auth::admin": {
       "allows": [
         {
           "target": {
@@ -16094,6 +16094,15 @@
             "api": "trellis.auth@v1",
             "surface": "rpc",
             "name": "Auth.DeploymentAuthority.AcceptMigration"
+          },
+          "action": "call"
+        },
+        {
+          "target": {
+            "kind": "apiSurface",
+            "api": "trellis.auth@v1",
+            "surface": "rpc",
+            "name": "Auth.IdentityAuthority.Revoke"
           },
           "action": "call"
         },
@@ -16143,15 +16152,6 @@
             "api": "trellis.auth@v1",
             "surface": "rpc",
             "name": "Auth.DeviceUserAuthorities.List"
-          },
-          "action": "call"
-        },
-        {
-          "target": {
-            "kind": "apiSurface",
-            "api": "trellis.auth@v1",
-            "surface": "rpc",
-            "name": "Auth.DeviceUserAuthorities.Reviews.List"
           },
           "action": "call"
         }
@@ -16221,37 +16221,10 @@
           "target": {
             "kind": "apiSurface",
             "api": "trellis.auth@v1",
-            "surface": "event",
-            "name": "Auth.DeviceUserAuthorities.ReviewRequested"
+            "surface": "rpc",
+            "name": "Auth.DeviceUserAuthorities.Reviews.List"
           },
-          "action": "subscribe"
-        },
-        {
-          "target": {
-            "kind": "apiSurface",
-            "api": "trellis.auth@v1",
-            "surface": "event",
-            "name": "Auth.DeviceUserAuthorities.Requested"
-          },
-          "action": "subscribe"
-        },
-        {
-          "target": {
-            "kind": "apiSurface",
-            "api": "trellis.auth@v1",
-            "surface": "event",
-            "name": "Auth.DeviceUserAuthorities.Approved"
-          },
-          "action": "subscribe"
-        },
-        {
-          "target": {
-            "kind": "apiSurface",
-            "api": "trellis.auth@v1",
-            "surface": "event",
-            "name": "Auth.DeviceUserAuthorities.Resolved"
-          },
-          "action": "subscribe"
+          "action": "call"
         }
       ]
     },
@@ -16505,10 +16478,10 @@
       "description": "Use Trellis Auth capabilities read operations.",
       "consequence": "The participant can perform Trellis Auth capabilities read operations."
     },
-    "trellis.auth::capabilities.delegate": {
-      "title": "Capabilities Delegate",
-      "description": "Use Trellis Auth capabilities delegate operations.",
-      "consequence": "The participant can perform Trellis Auth capabilities delegate operations."
+    "trellis.auth::admin": {
+      "title": "Administrator",
+      "description": "Administer Trellis authority and delegate capabilities.",
+      "consequence": "The participant can grant or change authority for other identities and deployments."
     },
     "trellis.auth::devices.read": {
       "title": "Devices Read",

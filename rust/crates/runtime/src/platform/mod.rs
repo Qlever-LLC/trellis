@@ -55,6 +55,31 @@ pub(crate) async fn start(context: &RuntimeContext) -> Result<SubsystemHandle, R
         .put_participant_binding(cli.clone())
         .await
         .map_err(|error| RuntimeError::Platform(error.to_string()))?;
+    let resolved_cli = cli
+        .resolve()
+        .map_err(|error| RuntimeError::Platform(error.to_string()))?;
+    let mut admin_capabilities = resolved_cli
+        .proposal()
+        .required()
+        .capabilities()
+        .iter()
+        .chain(resolved_cli.proposal().optional().capabilities())
+        .map(|capability| capability.name().to_owned())
+        .collect::<Vec<_>>();
+    admin_capabilities.sort();
+    admin_capabilities.dedup();
+    if !admin_capabilities
+        .iter()
+        .any(|capability| capability == "trellis.auth::admin")
+    {
+        return Err(RuntimeError::Platform(
+            "CLI participant does not request trellis.auth::admin authority".to_owned(),
+        ));
+    }
+    auth_store
+        .ensure_admin_capability_group(admin_capabilities, now)
+        .await
+        .map_err(|error| RuntimeError::Platform(error.to_string()))?;
     let auth_participant = auth::auth_runtime_participant_binding(now)
         .map_err(|error| RuntimeError::Platform(error.to_string()))?;
     auth_store

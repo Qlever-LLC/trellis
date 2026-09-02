@@ -4,7 +4,6 @@ use serde_json::Value;
 
 use super::{AuthorizationStateError, ParticipantBindingRecord, ParticipantBindingState};
 
-pub(crate) const CLI_PARTICIPANT_ID: &str = "trellis-app.cli@v1";
 pub(crate) const AUTH_RUNTIME_PARTICIPANT_ID: &str = "trellis.auth-runtime";
 
 pub(crate) fn validate_participant_namespace(participant_id: &str) -> Result<(), String> {
@@ -242,7 +241,7 @@ mod state_api_digest_test {
 
     #[test]
     fn trellis_participant_namespace_is_platform_reserved() {
-        assert!(super::validate_participant_namespace(super::CLI_PARTICIPANT_ID).is_ok());
+        assert!(super::validate_participant_namespace("trellis-app.cli@v1").is_ok());
         assert!(super::validate_participant_namespace(super::AUTH_RUNTIME_PARTICIPANT_ID).is_ok());
         assert!(super::validate_participant_namespace("example.console").is_ok());
         assert!(super::validate_participant_namespace("trellis-app.console@v1").is_ok());

@@ -19,12 +19,11 @@ use super::models::{
     BindResponseBound, BoundSession, StartAgentLoginOpts,
 };
 use super::TrellisAuthError;
-#[cfg(feature = "test-support")]
 use crate::client::MemoryAuthorizationContextStore;
 use crate::client::{
-    decode_trellis_http_error, AuthorizationInstallation, AuthorizationNativeTransport,
-    AuthorizationRoutingMaterial, AuthorizationRuntimeBinding, AuthorizationRuntimeTransports,
-    SessionAuth,
+    decode_trellis_http_error, AuthorizationContextStore, AuthorizationInstallation,
+    AuthorizationNativeTransport, AuthorizationRoutingMaterial, AuthorizationRuntimeBinding,
+    AuthorizationRuntimeTransports, SessionAuth,
 };
 use crate::internal_sdk::auth::AuthClient;
 
@@ -391,26 +390,25 @@ impl AgentLoginChallenge {
             expires_at,
         };
 
-        let client = if let Some(store) = store {
-            connect_admin_client_with_context_store_async(
-                &state,
-                format!("test-admin:{}", state.trellis_url),
-                store,
-                Some(bound.installation),
-            )
-            .await?
-        } else {
-            let store = std::sync::Arc::new(crate::client::FileAuthorizationContextStore::new(
-                super::session_store::admin_authorization_context_state_path(),
-            ));
-            connect_admin_client_with_context_store_async(
-                &state,
-                format!("installation:{}", state.trellis_url),
-                store,
-                Some(bound.installation),
-            )
-            .await?
-        };
+        let (binding, target_store): (String, std::sync::Arc<dyn AuthorizationContextStore>) =
+            if let Some(store) = store {
+                (format!("test-admin:{}", state.trellis_url), store)
+            } else {
+                (
+                    format!("installation:{}", state.trellis_url),
+                    std::sync::Arc::new(crate::client::FileAuthorizationContextStore::new(
+                        super::session_store::admin_authorization_context_state_path(),
+                    )),
+                )
+            };
+        let temporary_store = std::sync::Arc::new(MemoryAuthorizationContextStore::default());
+        let client = connect_admin_client_with_context_store_async(
+            &state,
+            binding,
+            temporary_store.clone(),
+            Some(bound.installation),
+        )
+        .await?;
         let auth_client = AuthClient::new(&client);
         let response = auth_client
             .rpc()
@@ -460,6 +458,19 @@ impl AgentLoginChallenge {
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_owned),
         };
+        if !user
+            .capabilities
+            .iter()
+            .any(|capability| capability == "trellis.auth::admin")
+        {
+            return Err(TrellisAuthError::NotAdmin);
+        }
+        let authorization_state = temporary_store.load()?.ok_or_else(|| {
+            TrellisAuthError::OperationFailed(
+                "admin authorization context was not installed".to_owned(),
+            )
+        })?;
+        target_store.commit(authorization_state)?;
 
         Ok(AdminLoginOutcome { state, user })
     }

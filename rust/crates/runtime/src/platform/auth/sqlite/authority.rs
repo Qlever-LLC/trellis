@@ -16,7 +16,7 @@ use super::super::context::{
 };
 use super::super::{
     AuthorityDecision, AuthorityDecisionOutcome, AuthorityDecisionRecord, AuthorityKind,
-    AuthorityProposalRecord, AuthorityProposalState, AuthorityState, AuthorizationStateError,
+    AuthorityProposalRecord, AuthorityProposalState, AuthorizationStateError,
     DeploymentAuthorityRecord, DesiredAuthorityRecord, IdentityAuthorityRecord,
     ParticipantBindingRecord, PrincipalKind,
 };
@@ -777,7 +777,7 @@ pub(in crate::platform::auth) fn put_sql_desired_authority(
             let expected =
                 load_identity_authority(connection, &record.principal_id, &record.participant_id)?
                     .map(|current| current.version);
-            put_identity_authority(connection, &mut record, expected, false)?;
+            put_identity_authority(connection, &mut record, expected)?;
         }
         DesiredAuthorityRecord::Deployment(mut record) => {
             if load_deployment(connection, &record.deployment_id)?.is_none_or(|deployment| {
@@ -907,7 +907,6 @@ pub(in crate::platform::auth) fn put_identity_authority(
     connection: &Connection,
     record: &mut IdentityAuthorityRecord,
     expected_version: Option<u64>,
-    allow_bootstrap_repair: bool,
 ) -> Result<(), AuthorizationStateError> {
     let principal = load_principal(connection, &record.principal_id)?
         .ok_or(AuthorizationStateError::PrincipalMissing)?;
@@ -926,41 +925,6 @@ pub(in crate::platform::auth) fn put_identity_authority(
     )?;
     if binding.needs_digest != record.accepted_needs_digest {
         return Err(AuthorizationStateError::NeedsDigestMismatch);
-    }
-    let is_bootstrap_administrator = connection
-        .query_row(
-            "SELECT 1 FROM auth_bootstrap_administrator
-             WHERE singleton = 1 AND principal_id = ?1",
-            [&record.principal_id],
-            |_| Ok(()),
-        )
-        .optional()
-        .map_err(sql_error)?
-        .is_some();
-    if is_bootstrap_administrator
-        && record.participant_id == super::super::builtins::CLI_PARTICIPANT_ID
-        && (record.state != AuthorityState::Accepted || record.expires_at.is_some())
-    {
-        return Err(AuthorizationStateError::InvalidRecord(
-            "bootstrap administrator authority is permanent".to_owned(),
-        ));
-    }
-    if is_bootstrap_administrator
-        && record.participant_id == super::super::builtins::CLI_PARTICIPANT_ID
-        && !allow_bootstrap_repair
-    {
-        let current =
-            load_identity_authority(connection, &record.principal_id, &record.participant_id)?
-                .ok_or(AuthorizationStateError::StorageConflict)?;
-        if record.participant_artifact_digest != current.participant_artifact_digest
-            || record.accepted_needs_digest != current.accepted_needs_digest
-            || record.desired_grant_set != current.desired_grant_set
-            || record.desired_capabilities != current.desired_capabilities
-        {
-            return Err(AuthorizationStateError::InvalidRecord(
-                "bootstrap administrator canonical authority cannot be changed".to_owned(),
-            ));
-        }
     }
     if let Some(expected) = expected_version {
         let current =

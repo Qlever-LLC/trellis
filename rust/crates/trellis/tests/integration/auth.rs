@@ -105,7 +105,8 @@ impl Drop for AbortOnDrop {
 struct Fixture {
     runtime: trellis_test::TrellisTestRuntime,
     admin: trellis_test::TrellisTestAdmin,
-    admin_caller: trellis_rs::generated::Caller,
+    admin_caller: Caller,
+    service_handle: trellis_rs::service::ServiceHandle,
     bootstrap_url: String,
     portal_id: String,
     service_contract: trellis_test::TrellisTestContract,
@@ -161,19 +162,19 @@ impl DeviceActivationCase {
 }
 
 #[tokio::test]
-async fn admin_bootstrap_creates_exactly_one_first_administrator() {
+async fn bootstrap_setup_seeds_cli_authority_and_reset_restores_revoked_authority() {
     assert_runtime_case_registered(
         "control-plane.admin-bootstrap-creates-first-local-admin",
         "control-plane",
         "auth",
     );
 
-    let runtime = trellis_test::TrellisTestRuntime::start(
+    let mut runtime = trellis_test::TrellisTestRuntime::start(
         trellis_test::TrellisTestRuntimeOptions::repo_platform(),
     )
     .await
     .expect("start bootstrap runtime");
-    let _bootstrap_url = runtime
+    let bootstrap_url = runtime
         .wait_for_bootstrap_url(Duration::from_secs(10))
         .await
         .expect("observe first administrator bootstrap URL");
@@ -207,6 +208,169 @@ async fn admin_bootstrap_creates_exactly_one_first_administrator() {
             .len(),
         1
     );
+    let principal_id = runtime
+        .control_plane_sqlite()
+        .query(
+            "SELECT principal_id FROM auth_bootstrap_administrator WHERE singleton = 1",
+            [],
+        )
+        .expect("query bootstrap administrator")[0]["principal_id"]
+        .as_str()
+        .expect("bootstrap administrator principal id")
+        .to_owned();
+    let initial_authority = runtime
+        .control_plane_sqlite()
+        .query(
+            "SELECT a.authority_id, a.participant_artifact_digest, a.accepted_needs_digest,
+                    a.state, a.version, b.artifact_digest AS current_artifact_digest,
+                    b.needs_digest AS current_needs_digest
+             FROM auth_identity_authorities a
+             JOIN auth_participant_bindings b
+               ON b.participant_id = a.participant_id AND b.state = 'resolved'
+             WHERE a.principal_id = ?1 AND a.participant_id = 'trellis-app.cli@v1'",
+            params![principal_id],
+        )
+        .expect("query initial CLI authority");
+    assert_eq!(initial_authority.len(), 1);
+    assert_eq!(initial_authority[0]["state"], "accepted");
+    assert_eq!(
+        initial_authority[0]["participant_artifact_digest"],
+        initial_authority[0]["current_artifact_digest"]
+    );
+    assert_eq!(
+        initial_authority[0]["accepted_needs_digest"],
+        initial_authority[0]["current_needs_digest"]
+    );
+    let authority_id = initial_authority[0]["authority_id"]
+        .as_str()
+        .expect("CLI authority id")
+        .to_owned();
+    let initial_version = initial_authority[0]["version"]
+        .as_i64()
+        .expect("CLI authority version");
+    let pending_password_reset_url = {
+        let mut admin = runtime.admin();
+        let admin_caller = admin
+            .connect_admin(&bootstrap_url)
+            .await
+            .expect("connect initial CLI administrator")
+            .clone();
+        let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
+        let initial_session = auth
+            .sessions_me()
+            .await
+            .expect("read initial CLI administrator session");
+        assert!(
+            initial_session
+                .user
+                .as_ref()
+                .and_then(|user| user.get("capabilities"))
+                .and_then(Value::as_array)
+                .expect("initial CLI capabilities")
+                .iter()
+                .any(|capability| capability == "trellis.auth::admin"),
+            "CLI administrator lacks capability delegation authority"
+        );
+        let reset = auth
+            .users_password_reset_create(&auth_sdk::AuthUsersPasswordResetCreateRequest {
+                idempotency_key: ulid::Ulid::new().to_string(),
+                return_target: None,
+                user_id: principal_id.clone(),
+            })
+            .await
+            .expect("create administrator password-reset flow");
+        auth.identity_authority_revoke(&auth_sdk::types::AuthIdentityAuthorityRevokeRequest {
+            authority_id,
+            expected_version: initial_version,
+            idempotency_key: ulid::Ulid::new().to_string(),
+            reason: Some("verify ordinary CLI authority lifecycle".to_owned()),
+        })
+        .await
+        .expect("revoke CLI authority through ordinary Auth RPC");
+        assert_eq!(
+            runtime
+                .control_plane_sqlite()
+                .query(
+                    "SELECT state FROM auth_identity_authorities
+                 WHERE principal_id = ?1 AND participant_id = 'trellis-app.cli@v1'",
+                    params![principal_id],
+                )
+                .expect("query revoked CLI authority")[0]["state"],
+            "revoked"
+        );
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if auth.sessions_me().await.is_err() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("revoked CLI authorization context remained usable");
+        reset.flow.completion_url
+    };
+    runtime
+        .admin()
+        .complete_local_password_flow(
+            &pending_password_reset_url,
+            &format!("Trellis-test-stale-reset-{}!", ulid::Ulid::new()),
+        )
+        .await
+        .expect_err("stale administrator reset completed after requester lost admin authority");
+
+    runtime
+        .restart_control_plane_with_admin_reset()
+        .await
+        .expect("restart with explicit administrator reset");
+    let recovery_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe administrator recovery URL");
+    runtime
+        .complete_bootstrap_with_password(format!("Trellis-test-reset-{}!", ulid::Ulid::new()))
+        .await
+        .expect("complete administrator recovery");
+    let restored_authority = runtime
+        .control_plane_sqlite()
+        .query(
+            "SELECT a.participant_artifact_digest, a.accepted_needs_digest, a.state, a.version,
+                    b.artifact_digest AS current_artifact_digest,
+                    b.needs_digest AS current_needs_digest
+             FROM auth_identity_authorities a
+             JOIN auth_participant_bindings b
+               ON b.participant_id = a.participant_id AND b.state = 'resolved'
+             WHERE a.principal_id = ?1 AND a.participant_id = 'trellis-app.cli@v1'",
+            params![principal_id],
+        )
+        .expect("query restored CLI authority");
+    assert_eq!(restored_authority.len(), 1);
+    assert_eq!(restored_authority[0]["state"], "accepted");
+    assert_eq!(
+        restored_authority[0]["participant_artifact_digest"],
+        restored_authority[0]["current_artifact_digest"]
+    );
+    assert_eq!(
+        restored_authority[0]["accepted_needs_digest"],
+        restored_authority[0]["current_needs_digest"]
+    );
+    assert!(
+        restored_authority[0]["version"]
+            .as_i64()
+            .expect("restored CLI authority version")
+            > initial_version
+    );
+    let mut restored_admin = runtime.admin();
+    let restored_caller = restored_admin
+        .connect_admin(&recovery_url)
+        .await
+        .expect("connect restored CLI administrator");
+    auth_sdk::AuthClient::new(restored_caller)
+        .rpc()
+        .auth()
+        .sessions_me()
+        .await
+        .expect("use restored CLI authority");
 }
 
 async fn start_fixture(user_jwt_ttl_ms: Option<u64>, use_test_oidc_provider: bool) -> Fixture {
@@ -230,12 +394,54 @@ async fn start_fixture_with_options(options: trellis_test::TrellisTestRuntimeOpt
         trellis_rs::contracts::ContractKind::App,
     )
     .expect("build Auth API reference contract");
-    let service_contract = trellis_test::TrellisTestContract::from_native_api_json(
+    let base_service_contract = trellis_test::TrellisTestContract::from_native_api_json(
         SERVICE_ID,
         API_SOURCE,
         trellis_rs::contracts::ContractKind::Service,
     )
-    .expect("build trusted-portal service contract");
+    .expect("build trusted-portal base service contract");
+    let mut service_participant = base_service_contract.participant().clone();
+    let service_participant = service_participant
+        .as_object_mut()
+        .expect("service participant is an object");
+    service_participant.insert(
+        "uses".to_owned(),
+        serde_json::json!({
+            "required": {
+                (auth_sdk::API_ID): {
+                    "api": auth_sdk::API_ID,
+                    "apiDigest": auth_contract.api_digest(),
+                    "events": {
+                        "subscribe": [
+                            "Auth.DeviceUserAuthorities.Approved",
+                            "Auth.DeviceUserAuthorities.Requested",
+                            "Auth.DeviceUserAuthorities.Resolved",
+                            "Auth.DeviceUserAuthorities.ReviewRequested"
+                        ]
+                    },
+                    "rpc": {
+                        "call": [
+                            "Auth.DeviceUserAuthorities.List",
+                            "Auth.DeviceUserAuthorities.Reviews.Decide",
+                            "Auth.DeviceUserAuthorities.Reviews.List"
+                        ]
+                    }
+                }
+            }
+        }),
+    );
+    let service_contract =
+        trellis_test::TrellisTestContract::from_artifacts_with_referenced_contracts(
+            trellis_rs::contracts::ContractBuilder::from_native(
+                base_service_contract.api().clone(),
+                service_participant.clone().into(),
+            )
+            .referenced_api(auth_sdk::API_ID, auth_contract.api().clone())
+            .build()
+            .expect("compile trusted-portal service contract"),
+            &[&auth_contract],
+        )
+        .expect("build trusted-portal service contract");
     let client_contract =
         trellis_test::TrellisTestContract::from_builder_with_referenced_contracts(
             trellis_rs::contracts::ContractBuilder::authoring(
@@ -295,34 +501,18 @@ async fn start_fixture_with_options(options: trellis_test::TrellisTestRuntimeOpt
             .await
             .expect("connect trusted-portal service");
     service.register_rpc::<ValueGet, _, _>(|_, input| async move { Ok(input) });
+    let service_handle = service.generated_handle();
     let service = AbortOnDrop(Some(tokio::spawn(async move { service.run().await })));
     let admin_caller = admin
         .connect_admin(&bootstrap_url)
         .await
-        .expect("connect CLI administrator")
+        .expect("connect test administrator")
         .clone();
-    let admin_session = auth_sdk::AuthClient::new(&admin_caller)
-        .rpc()
-        .auth()
-        .sessions_me()
-        .await
-        .expect("read CLI administrator session");
-    let admin_capabilities = admin_session
-        .user
-        .as_ref()
-        .and_then(|user| user.get("capabilities"))
-        .and_then(serde_json::Value::as_array)
-        .expect("CLI administrator capabilities");
-    assert!(
-        admin_capabilities
-            .iter()
-            .any(|capability| capability == "trellis.auth::devices.review"),
-        "CLI participant lacks device review capability: {admin_capabilities:?}"
-    );
     Fixture {
         runtime,
         admin,
         admin_caller,
+        service_handle,
         bootstrap_url,
         portal_id,
         service_contract,
@@ -393,8 +583,8 @@ async fn provision_device_activation_case_with_delegation(
         .expect("approve device contract");
     let root_secret = rand::random::<[u8; 32]>();
     let identity = derive_device_identity(&root_secret).expect("derive device identity");
-    let admin_caller = fixture.admin_caller.clone();
-    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
+    let service_caller = fixture.admin_caller.clone();
+    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
     let provisioned = auth
         .devices_provision(&auth_sdk::AuthDevicesProvisionRequest {
             deployment_id: approval.deployment_id.clone(),
@@ -849,6 +1039,31 @@ async fn cli_logout_then_login_replaces_persisted_session_and_retains_trust_floo
         .await
         .expect("call through session A");
     let first_session_id = first_reconnect.session_id().to_owned();
+    let principal_id = authority_rows(&fixture.runtime, &first_session_id)[0]["principal_id"]
+        .as_str()
+        .expect("ordinary CLI test principal ID")
+        .to_owned();
+    let admin_error = fixture
+        .admin
+        .try_admin_login_as(username, password)
+        .await
+        .expect_err("ordinary user self-granted CLI administrator authority");
+    assert!(
+        admin_error.to_string().contains("invalid_request"),
+        "unexpected non-admin CLI login error: {admin_error}"
+    );
+    assert!(
+        fixture
+            .runtime
+            .control_plane_sqlite()
+            .query(
+                "SELECT 1 FROM auth_identity_authorities WHERE principal_id = ? AND participant_id = 'trellis-app.cli@v1'",
+                [principal_id],
+            )
+            .expect("query rejected CLI authority")
+            .is_empty(),
+        "rejected ordinary user retained CLI administrator authority"
+    );
 
     let _ = auth_sdk::AuthClient::new(&first_client)
         .rpc()
@@ -959,8 +1174,8 @@ async fn session_and_connection_inventory_report_participant_metadata() {
         .expect("connect inventoried session");
     let expected_contract = &fixture.client_contract;
     let expected_needs_digest = expected_contract.needs_digest();
-    let admin_caller = fixture.admin_caller.clone();
-    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
+    let service_caller = fixture.admin_caller.clone();
+    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
     let sessions = auth
         .sessions_list(&auth_sdk::AuthSessionsListRequest {
             cursor: None,
@@ -1072,7 +1287,7 @@ async fn user_and_identity_surfaces_paginate_scope_and_reject_missing_unlink() {
     );
 
     let mut fixture = start_fixture(None, false).await;
-    let (first_client, _) = fixture
+    let (first_client, first_reconnect) = fixture
         .admin
         .connect_new_trusted_local_user_reconnectable(
             &fixture.bootstrap_url,
@@ -1095,8 +1310,94 @@ async fn user_and_identity_surfaces_paginate_scope_and_reject_missing_unlink() {
         )
         .await
         .expect("connect second identity-page user");
-    let admin_caller = fixture.admin_caller.clone();
-    let admin_auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
+    let auth_contract = trellis_test::TrellisTestContract::from_native_api_json(
+        auth_sdk::API_ID,
+        auth_sdk::API_JSON,
+        trellis_rs::contracts::ContractKind::App,
+    )
+    .expect("build Auth API reference contract");
+    let revoker_contract =
+        trellis_test::TrellisTestContract::from_builder_with_referenced_contracts(
+            trellis_rs::contracts::ContractBuilder::authoring(
+                "integration.auth-revoker@v1",
+                "integration.auth-revoker@v1",
+                "1.0.0",
+                "Non-admin Authority Revoker",
+                "Proves direct cross-account revocation requires administrator authority.",
+                trellis_rs::contracts::ContractKind::App,
+            )
+            .use_ref(
+                "auth",
+                trellis_rs::contracts::use_contract(auth_sdk::API_ID).with_rpc_call([
+                    "Auth.IdentityAuthority.Revoke",
+                    "Auth.Users.PasswordReset.Create",
+                ]),
+            ),
+            &[&auth_contract],
+        )
+        .expect("build non-admin authority revoker contract");
+    let revoker = fixture
+        .admin
+        .connect_new_local_user(
+            &fixture.bootstrap_url,
+            &revoker_contract,
+            "identity-page-revoker",
+            "identity-page-revoker-password-123",
+        )
+        .await
+        .expect("connect non-admin authority revoker");
+    let bootstrap_principal_id = fixture
+        .runtime
+        .control_plane_sqlite()
+        .query(
+            "SELECT principal_id FROM auth_bootstrap_administrator WHERE singleton = 1",
+            [],
+        )
+        .expect("query bootstrap administrator")[0]["principal_id"]
+        .as_str()
+        .expect("bootstrap administrator principal ID")
+        .to_owned();
+    let reset_error = auth_sdk::AuthClient::new(&revoker)
+        .rpc()
+        .auth()
+        .users_password_reset_create(&auth_sdk::AuthUsersPasswordResetCreateRequest {
+            idempotency_key: ulid::Ulid::new().to_string(),
+            return_target: None,
+            user_id: bootstrap_principal_id,
+        })
+        .await
+        .expect_err("non-admin created an administrator password-reset token");
+    assert!(reset_error.to_string().contains("invalid_request"));
+    let target = fixture
+        .runtime
+        .control_plane_sqlite()
+        .query(
+            "SELECT a.authority_id, a.version FROM auth_identity_authorities a JOIN auth_sessions s ON s.principal_id = a.principal_id AND s.participant_id = a.participant_id WHERE s.session_id = ?",
+            [first_reconnect.session_id()],
+        )
+        .expect("query cross-account revocation target")
+        .into_iter()
+        .next()
+        .expect("cross-account revocation target");
+    let revoke_error = auth_sdk::AuthClient::new(&revoker)
+        .rpc()
+        .auth()
+        .identity_authority_revoke(&auth_sdk::AuthIdentityAuthorityRevokeRequest {
+            authority_id: target["authority_id"]
+                .as_str()
+                .expect("target authority ID")
+                .to_owned(),
+            expected_version: target["version"]
+                .as_i64()
+                .expect("target authority version"),
+            idempotency_key: ulid::Ulid::new().to_string(),
+            reason: Some("unauthorized cross-account revocation".to_owned()),
+        })
+        .await
+        .expect_err("non-admin revoked another principal's authority");
+    assert!(revoke_error.to_string().contains("invalid_request"));
+    let service_caller = fixture.admin_caller.clone();
+    let admin_auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
     let first_page = admin_auth
         .users_list(&auth_sdk::AuthUsersListRequest {
             cursor: None,
@@ -1168,11 +1469,60 @@ async fn user_and_identity_surfaces_paginate_scope_and_reject_missing_unlink() {
 }
 
 #[tokio::test]
-async fn capability_groups_validate_references() {
-    assert_runtime_case_registered("auth.capability-groups-validate-references", "auth", "auth");
+async fn capability_groups_validate_and_protect_builtins() {
+    assert_runtime_case_registered(
+        "auth.capability-groups-validate-and-protect-builtins",
+        "auth",
+        "auth",
+    );
     let fixture = start_fixture(None, false).await;
-    let admin_caller = fixture.admin_caller.clone();
-    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
+    let service_caller = fixture.admin_caller.clone();
+    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
+    assert!(auth
+        .sessions_me()
+        .await
+        .expect("read test administrator session")
+        .user
+        .and_then(|user| user.get("capabilities").cloned())
+        .and_then(|capabilities| capabilities.as_array().cloned())
+        .is_some_and(|capabilities| capabilities
+            .iter()
+            .any(|capability| capability == "trellis.auth::admin")));
+    let admin_group = auth
+        .capability_groups_get(&auth_sdk::AuthCapabilityGroupsGetRequest {
+            group_key: "admin".to_owned(),
+        })
+        .await
+        .expect("get built-in admin capability group")
+        .group;
+    assert!(
+        admin_group
+            .capabilities
+            .contains(&"trellis.auth::admin".to_owned()),
+        "admin group does not mark capability administrators"
+    );
+    let replace_error = auth
+        .capability_groups_put(&auth_sdk::AuthCapabilityGroupsPutRequest {
+            capabilities: admin_group.capabilities.clone(),
+            description: admin_group.description.clone(),
+            display_name: admin_group.display_name.clone(),
+            expected_version: Some(admin_group.version),
+            group_key: admin_group.group_key.clone(),
+            idempotency_key: "replace-built-in-admin".to_owned(),
+            included_groups: admin_group.included_groups.clone(),
+        })
+        .await
+        .expect_err("built-in admin capability group was mutable");
+    assert!(replace_error.to_string().contains("invalid_request"));
+    let delete_error = auth
+        .capability_groups_delete(&auth_sdk::AuthCapabilityGroupsDeleteRequest {
+            expected_version: admin_group.version,
+            group_key: admin_group.group_key,
+            idempotency_key: "delete-built-in-admin".to_owned(),
+        })
+        .await
+        .expect_err("built-in admin capability group was deletable");
+    assert!(delete_error.to_string().contains("invalid_request"));
     let group_key = "integration-readers";
     let created = auth
         .capability_groups_put(&auth_sdk::AuthCapabilityGroupsPutRequest {
@@ -1231,8 +1581,8 @@ async fn auth_validation_failure_persists_no_state_or_actions() {
     );
     let fixture = start_fixture(None, false).await;
     let sqlite = fixture.runtime.control_plane_sqlite();
-    let admin_caller = fixture.admin_caller.clone();
-    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
+    let service_caller = fixture.admin_caller.clone();
+    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
 
     auth.users_update(&auth_sdk::AuthUsersUpdateRequest {
         email: None,
@@ -1277,8 +1627,8 @@ async fn portal_route_selection_and_policy_drive_browser_flow() {
         "auth",
     );
     let mut fixture = start_fixture(None, false).await;
-    let admin_caller = fixture.admin_caller.clone();
-    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
+    let service_caller = fixture.admin_caller.clone();
+    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
     let portal_id = "integration-custom-portal";
     let portal = auth
         .portals_put(&auth_sdk::AuthPortalsPutRequest {
@@ -1408,8 +1758,8 @@ async fn portal_route_selection_and_policy_drive_browser_flow() {
 async fn account_flow_oauth_callback_handles_errors_mismatch_and_link() {
     assert_runtime_case_registered("auth.account-flow-oauth-callback-runtime", "auth", "auth");
     let mut fixture = start_fixture(None, true).await;
-    let admin_caller = fixture.admin_caller.clone();
-    let admin_auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
+    let service_caller = fixture.admin_caller.clone();
+    let admin_auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
     let builtin = admin_auth
         .portals_list(&auth_sdk::AuthPortalsListRequest {
             cursor: None,
@@ -1717,8 +2067,8 @@ async fn password_reset_and_change_invalidate_old_credentials() {
         .as_str()
         .expect("password-reset principal ID")
         .to_owned();
-    let admin_caller = fixture.admin_caller.clone();
-    let reset = auth_sdk::AuthClient::new(&admin_caller)
+    let service_caller = fixture.admin_caller.clone();
+    let reset = auth_sdk::AuthClient::new(&service_caller)
         .rpc()
         .auth()
         .users_password_reset_create(&auth_sdk::AuthUsersPasswordResetCreateRequest {
@@ -1867,8 +2217,8 @@ async fn admin_service_deployment_lifecycle_controls_bootstrap() {
         "auth",
     );
     let fixture = start_fixture(None, false).await;
-    let admin_caller = fixture.admin_caller.clone();
-    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
+    let service_caller = fixture.admin_caller.clone();
+    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
     let created = auth
         .deployments_create(&auth_sdk::AuthDeploymentsCreateRequest {
             display_name: "Lifecycle Deployment".to_owned(),
@@ -1993,9 +2343,9 @@ async fn run_device_activation_without_review(case_id: &str, runtime_case: bool)
     assert_eq!(session.session.principal_kind, "device");
     assert_eq!(session.session.principal_id, device.principal_id);
 
-    let admin_caller = fixture.admin_caller.clone();
+    let service_caller = fixture.admin_caller.clone();
 
-    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
+    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
     let authorities = auth
         .device_user_authorities_list(&auth_sdk::AuthDeviceUserAuthoritiesListRequest {
             cursor: None,
@@ -2065,9 +2415,9 @@ async fn device_activation_required_review_needs_privileged_decision() {
         .await
         .is_err());
 
-    let admin_caller = fixture.admin_caller.clone();
+    let service_caller = fixture.service_handle.caller();
 
-    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
+    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
     let reviews = auth
         .device_user_authorities_reviews_list(
             &auth_sdk::AuthDeviceUserAuthoritiesReviewsListRequest {
@@ -2211,8 +2561,8 @@ async fn device_activation_wait_is_event_driven() {
         result = &mut wait => panic!("review wait completed before approval: {result:?}"),
         () = tokio::time::sleep(Duration::from_millis(1_100)) => {}
     }
-    let admin_caller = fixture.admin_caller.clone();
-    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
+    let service_caller = fixture.service_handle.caller();
+    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
     let reviews = auth
         .device_user_authorities_reviews_list(
             &auth_sdk::AuthDeviceUserAuthoritiesReviewsListRequest {
@@ -2321,9 +2671,9 @@ async fn device_activation_events_follow_effective_state() {
         Ok(DeviceActivationStatus::Pending(_))
     ));
 
-    let admin_caller = fixture.admin_caller.clone();
+    let service_caller = fixture.service_handle.caller();
 
-    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
+    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
     let reviews = auth
         .device_user_authorities_reviews_list(
             &auth_sdk::AuthDeviceUserAuthoritiesReviewsListRequest {
@@ -2514,9 +2864,9 @@ async fn device_activation_approved_unclaimed_cannot_complete_delegation() {
         .await
         .expect("flush activation event observer");
 
-    let admin_caller = fixture.admin_caller.clone();
+    let service_caller = fixture.service_handle.caller();
 
-    let auth = auth_sdk::AuthClient::new(&admin_caller).rpc().auth();
+    let auth = auth_sdk::AuthClient::new(&service_caller).rpc().auth();
     let reviews = auth
         .device_user_authorities_reviews_list(
             &auth_sdk::AuthDeviceUserAuthoritiesReviewsListRequest {
@@ -2655,9 +3005,9 @@ async fn device_activation_rejects_invalid_proof_confirmation_and_deployment() {
         .await
         .is_err());
 
-    let admin_caller = fixture.admin_caller.clone();
+    let service_caller = fixture.service_handle.caller();
 
-    let reviews = auth_sdk::AuthClient::new(&admin_caller)
+    let reviews = auth_sdk::AuthClient::new(&service_caller)
         .rpc()
         .auth()
         .device_user_authorities_reviews_list(

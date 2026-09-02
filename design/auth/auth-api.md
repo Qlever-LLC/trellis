@@ -159,9 +159,11 @@ authority; only one concurrent completion can succeed.
 
 `trellis-server ... --reset-admin` revokes the prior pending token and emits a
 new URL. After setup, local completion atomically changes that same principal's
-username and password, preserves or restores its permanent canonical authority,
-and revokes existing sessions and contexts. Additional administrators do not
-affect which principal is recovered. Trellis never logs a default password.
+username and password, restores complete accepted authority for the exact
+current CLI artifact and needs digest, and revokes existing sessions and
+contexts. The initial CLI authority follows ordinary identity-authority
+lifecycle rules after bootstrap. Additional administrators do not affect which
+principal is recovered. Trellis never logs a default password.
 
 Service and device bootstrap may present one exact participant artifact plus all
 referenced API artifacts. The server parses, normalizes, resolves, and stores

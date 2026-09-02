@@ -123,6 +123,17 @@ impl AccountRepository for SqliteAuthorizationStore {
                 .ok_or(AuthorizationStateError::PrincipalMissing)?;
             let current_profile = load_user_profile(&transaction, &command.principal.principal_id)?
                 .ok_or(AuthorizationStateError::StorageConflict)?;
+            if !command.allow_admin_target
+                && principal_has_accepted_admin_authority(
+                    &transaction,
+                    &command.principal.principal_id,
+                    command.principal.updated_at,
+                )?
+            {
+                return Err(AuthorizationStateError::InvalidRecord(
+                    "trellis.auth::admin capability is required".to_owned(),
+                ));
+            }
             let (principal, profile) = user_account_replacement(
                 &current_principal,
                 &current_profile,
@@ -507,6 +518,27 @@ impl AccountRepository for SqliteAuthorizationStore {
                     "password-reset flow has no target principal".to_owned(),
                 )
             })?;
+            let target_is_admin = command.flow_kind
+                == super::super::model::AccountFlowKind::PasswordReset
+                && (command.admin_target
+                    || principal_has_accepted_admin_authority(
+                        &transaction,
+                        &principal_id,
+                        command.consumed_at,
+                    )?);
+            let requester_is_admin = match command.requester_principal_id.as_deref() {
+                Some(requester) => principal_has_accepted_admin_authority(
+                    &transaction,
+                    requester,
+                    command.consumed_at,
+                )?,
+                None => false,
+            };
+            if target_is_admin && !requester_is_admin {
+                return Err(AuthorizationStateError::InvalidRecord(
+                    "trellis.auth::admin capability is required".to_owned(),
+                ));
+            }
             if command.flow_kind == super::super::model::AccountFlowKind::AdminAccount
                 && transaction
                     .query_row(
@@ -665,7 +697,6 @@ impl AccountRepository for SqliteAuthorizationStore {
                     &transaction,
                     &mut authority,
                     command.expected_authority_version,
-                    true,
                 )?;
             }
             transaction
@@ -810,7 +841,7 @@ impl AccountRepository for SqliteAuthorizationStore {
                 Some(&command.identity),
             )?;
             let mut authority = command.authority;
-            put_identity_authority(&transaction, &mut authority, None, false)?;
+            put_identity_authority(&transaction, &mut authority, None)?;
             transaction
                 .execute(
                     "INSERT INTO auth_bootstrap_administrator (singleton, principal_id, created_at)
@@ -992,6 +1023,28 @@ impl AccountRepository for SqliteAuthorizationStore {
         })
         .await
     }
+}
+
+fn principal_has_accepted_admin_authority(
+    connection: &Connection,
+    principal_id: &str,
+    now: i64,
+) -> Result<bool, AuthorizationStateError> {
+    connection
+        .query_row(
+            "SELECT EXISTS (
+                SELECT 1
+                FROM auth_identity_authorities AS authority,
+                     json_each(authority.desired_capabilities_json) AS capability
+                WHERE authority.principal_id = ?1
+                  AND authority.state = 'accepted'
+                  AND (authority.expires_at IS NULL OR authority.expires_at > ?2)
+                  AND capability.value = 'trellis.auth::admin'
+            )",
+            params![principal_id, now],
+            |row| row.get(0),
+        )
+        .map_err(sql_error)
 }
 
 #[async_trait]

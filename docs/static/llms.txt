@@ -103,9 +103,13 @@ commands.
   machine needs. Named capabilities identify their exact defining API digest and
   explain fully selected exact permissions; they never add permissions to a
   participant request.
-- Capability keys are API-scoped (`trellis.jobs::read`, for example). The
-  `trellis.*` API, capability, participant, and deployment namespaces are
-  reserved for Trellis-owned artifacts; raw `admin` is not a capability.
+- Capability keys are API-scoped (`trellis.jobs::read`, for example).
+  Trellis-owned `trellis.*` APIs/capabilities and explicitly reserved platform
+  participants require exact canonical artifacts. `trellis-app.cli@v1`,
+  `trellis-app.console@v1`, and `trellis-app.portal@v1` are ordinary app
+  participants whose IDs grant nothing. `admin` is a read-only capability-group
+  macro; administrator identity and delegation use the concrete
+  `trellis.auth::admin` capability.
 - Service/device bootstrap presents canonical participant and referenced API
   artifacts. Trellis classifies additive compatible changes as updates and
   incompatible API changes as migrations; both require an immutable authority
@@ -314,8 +318,10 @@ commands.
   `all`. `trellis-server check [OPTIONS] [MODE]` validates configuration,
   trust, stores, streams, and NATS connectivity, then exits. Add
   `--reset-admin` to rotate the one-time create/edit URL for
-  the permanent bootstrap administrator; completing it can change that
-  account's username and password and revokes its existing sessions. Plain
+  the permanent bootstrap recovery principal; completing it can change that
+  account's username and password, restores exact current CLI authority, and
+  revokes its existing sessions. Ordinary authority lifecycle applies to CLI
+  authority. Plain
   startup uses configured external NATS and never spawns or downloads it.
   `--local-nats` uses PATH, `--local-nats=PATH` uses an exact trusted binary,
   `--nats-download` explicitly uses the verified pin, and `--dev` means user
