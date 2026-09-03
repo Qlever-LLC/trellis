@@ -30,12 +30,10 @@ use crate::{
 /// Replacement for configured NATS endpoints used by managed `trellis-server` startup.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NatsEndpointOverride {
-    /// Replacement native NATS server URL, used for the runtime connection and the
-    /// advertised native client endpoint.
+    /// Replacement native NATS server URL used for the runtime connection.
     pub servers: String,
-    /// Replacement advertised websocket endpoint. `None` keeps the configured value
-    /// (external `--nats` deployments); managed mode sets it to the local websocket.
-    pub websocket: Option<String>,
+    /// Replacement advertised native endpoint. `None` preserves configured client URLs.
+    pub advertised_server: Option<String>,
 }
 
 /// Runtime startup options for `trellis-server`.
@@ -973,7 +971,7 @@ mod tests {
             reset_admin: false,
             nats_override: Some(NatsEndpointOverride {
                 servers: "nats://127.0.0.1:4222".to_string(),
-                websocket: Some("ws://127.0.0.1:8080".to_string()),
+                advertised_server: None,
             }),
         };
         assert_eq!(

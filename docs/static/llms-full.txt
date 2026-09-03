@@ -397,7 +397,10 @@ Rules:
   startup uses configured external NATS and never spawns or downloads it.
   `--local-nats` uses PATH, `--local-nats=PATH` uses an exact trusted binary,
   `--nats-download` explicitly uses the verified pin, and `--dev` means user
-  paths plus PATH NATS and verbose output. User defaults follow XDG; `--system`
+  paths plus PATH NATS and verbose output. Managed local NATS exposes its
+  authenticated native and WebSocket listeners so URLs supplied to
+  `trellis init config` remain reachable, while monitoring stays loopback-only.
+  User defaults follow XDG; `--system`
   selects FHS config, data, state, cache, runtime, and log roots. Optional
   `[paths].data/state/cache/runtime/logs` values override those roots; relative
   values remain config-relative. Omitted SQLite paths use the effective data

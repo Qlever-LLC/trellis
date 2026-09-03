@@ -442,6 +442,7 @@ async fn run(policy: StartupPolicy) -> miette::Result<()> {
                     monitor: NATS_HTTP_PORT,
                     websocket: NATS_WS_PORT,
                 })
+                .expose_clients()
                 .cache_dir(managed_paths.cache)
                 .pid_file(managed_paths.pid)
                 .output(NatsOutput::Log {
@@ -452,11 +453,10 @@ async fn run(policy: StartupPolicy) -> miette::Result<()> {
                 .into_diagnostic()?;
             info!("managed NATS ready");
             let servers = server.nats_url().to_string();
-            let websocket = server.websocket_url().to_string();
             managed = Some(server);
             Some(NatsEndpointOverride {
                 servers,
-                websocket: Some(websocket),
+                advertised_server: None,
             })
         }
     };

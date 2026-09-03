@@ -694,10 +694,10 @@ async fn ensure_builtin_portal(
 
 /// Resolves the NATS endpoints advertised to clients in bootstrap responses.
 ///
-/// With an override, the advertised native endpoint is always the override server URL
-/// (managed or `--nats` external mode); the advertised websocket endpoint is replaced only
-/// when the override carries one (managed mode). Without an override the configured client
-/// values win, falling back to the resolved native server list.
+/// A runtime override may separately replace the advertised native endpoint (`--nats` external
+/// mode) or preserve its configured client-facing value (managed mode). The configured websocket
+/// endpoint always remains client-facing. Without an override the configured native value wins,
+/// falling back to the resolved server list.
 fn advertised_endpoints(
     config: &RuntimeConfig,
     resolved: &ResolvedRuntimeNatsConfig,
@@ -719,11 +719,11 @@ fn advertised_endpoints(
     };
     match nats_override {
         Some(override_) => (
-            vec![override_.servers.clone()],
             override_
-                .websocket
+                .advertised_server
                 .as_ref()
-                .map_or_else(configured_websocket, |websocket| vec![websocket.clone()]),
+                .map_or_else(configured_native, |server| vec![server.clone()]),
+            configured_websocket(),
         ),
         None => (configured_native(), configured_websocket()),
     }
@@ -810,17 +810,17 @@ ws_nats_servers = ["ws://advertised.example:8080"]
     }
 
     #[test]
-    fn advertised_endpoints_managed_override_replaces_both_endpoints() {
+    fn advertised_endpoints_managed_override_preserves_configured_client_endpoints() {
         let config = config_with_client_endpoints();
         let resolved = config.resolve_nats_runtime().expect("resolve nats");
         let override_ = NatsEndpointOverride {
             servers: "nats://127.0.0.1:4222".to_string(),
-            websocket: Some("ws://127.0.0.1:8080".to_string()),
+            advertised_server: None,
         };
 
         let (native, websocket) = advertised_endpoints(&config, &resolved, Some(&override_));
-        assert_eq!(native, vec!["nats://127.0.0.1:4222"]);
-        assert_eq!(websocket, vec!["ws://127.0.0.1:8080"]);
+        assert_eq!(native, vec!["nats://advertised.example:4222"]);
+        assert_eq!(websocket, vec!["ws://advertised.example:8080"]);
     }
 
     #[test]
@@ -829,7 +829,7 @@ ws_nats_servers = ["ws://advertised.example:8080"]
         let resolved = config.resolve_nats_runtime().expect("resolve nats");
         let override_ = NatsEndpointOverride {
             servers: "nats://external.example:4222".to_string(),
-            websocket: None,
+            advertised_server: Some("nats://external.example:4222".to_string()),
         };
 
         let (native, websocket) = advertised_endpoints(&config, &resolved, Some(&override_));

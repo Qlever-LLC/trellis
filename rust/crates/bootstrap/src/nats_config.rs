@@ -1,5 +1,7 @@
 use crate::types::{GeneratedMetadata, NatsBootstrapNames};
 
+use std::net::{IpAddr, SocketAddr};
+
 /// Render the local development NATS server config.
 #[must_use]
 pub fn render_nats_config(server_name: &str) -> String {
@@ -29,21 +31,23 @@ include ./jwt.conf
 
 /// Render the local development NATS server config with host-path JetStream store and JWT config.
 ///
-/// All listeners bind to loopback only; the container-facing [`render_nats_config`] keeps
-/// `0.0.0.0` for quadlet deployments.
+/// Native and websocket listeners bind to `client_bind`; monitoring remains loopback-only.
 #[must_use]
 pub fn render_local_nats_config(
     server_name: &str,
     store_dir: &str,
     jwt_config_path: &str,
+    client_bind: IpAddr,
     nats_port: u16,
     websocket_port: u16,
     monitor_port: u16,
 ) -> String {
+    let nats_listen = SocketAddr::new(client_bind, nats_port);
+    let websocket_listen = SocketAddr::new(client_bind, websocket_port);
     format!(
         r#"server_name: {server_name}
 
-listen: 127.0.0.1:{nats_port}
+listen: {nats_listen}
 http: 127.0.0.1:{monitor_port}
 
 authorization {{
@@ -51,7 +55,7 @@ authorization {{
 }}
 
 websocket {{
-  listen: 127.0.0.1:{websocket_port}
+  listen: {websocket_listen}
   no_tls: true
 }}
 

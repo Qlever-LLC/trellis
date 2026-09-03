@@ -7,8 +7,7 @@
 use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write as _};
-use std::net::TcpListener;
-use std::net::TcpStream;
+use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -580,6 +579,7 @@ pub struct LocalNatsBuilder {
     source: Option<PathBuf>,
     state: StatePolicy,
     ports: PortPolicy,
+    expose_clients: bool,
     cache_dir: Option<PathBuf>,
     pid_file: Option<PathBuf>,
     output: Option<NatsOutput>,
@@ -625,6 +625,13 @@ impl LocalNatsBuilder {
     #[must_use]
     pub fn ephemeral_ports(mut self) -> Self {
         self.ports = PortPolicy::Ephemeral;
+        self
+    }
+
+    /// Bind authenticated native and websocket clients on all IPv4 interfaces.
+    #[must_use]
+    pub fn expose_clients(mut self) -> Self {
+        self.expose_clients = true;
         self
     }
 
@@ -692,6 +699,11 @@ impl LocalNatsBuilder {
         let output = self
             .output
             .ok_or_else(|| LocalNatsError::InvalidPolicy("output policy is required".into()))?;
+        let client_bind = if self.expose_clients {
+            Ipv4Addr::UNSPECIFIED
+        } else {
+            Ipv4Addr::LOCALHOST
+        };
         fs::create_dir_all(state.join("data/jwt"))?;
         let authored_config = fs::read_to_string(source.join("nats.conf"))?;
         let server_name = authored_config
@@ -713,6 +725,7 @@ impl LocalNatsBuilder {
                 server_name,
                 &state.join("data").display().to_string(),
                 "./jwt.conf",
+                client_bind.into(),
                 ports.nats,
                 ports.websocket,
                 ports.monitor,

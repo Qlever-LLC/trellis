@@ -101,7 +101,10 @@ Rules:
   startup uses configured external NATS and never spawns or downloads it.
   `--local-nats` uses PATH, `--local-nats=PATH` uses an exact trusted binary,
   `--nats-download` explicitly uses the verified pin, and `--dev` means user
-  paths plus PATH NATS and verbose output. User defaults follow XDG; `--system`
+  paths plus PATH NATS and verbose output. Managed local NATS exposes its
+  authenticated native and WebSocket listeners so URLs supplied to
+  `trellis init config` remain reachable, while monitoring stays loopback-only.
+  User defaults follow XDG; `--system`
   selects FHS config, state, cache, runtime, and log roots.
 - The runtime OCI image bakes the `trellis` CLI and the pinned,
   checksum-verified nats-server at `/usr/local/bin/nats-server`; `nsc` is

@@ -383,6 +383,7 @@ fn local_nats_config_uses_host_paths() {
         "trellis",
         "/tmp/trellis/nats/data",
         "/tmp/trellis/nats/jwt.local.conf",
+        std::net::Ipv4Addr::LOCALHOST.into(),
         4222,
         8080,
         8222,
@@ -400,6 +401,19 @@ fn local_nats_config_uses_host_paths() {
         !config.contains("0.0.0.0"),
         "local render binds loopback only"
     );
+
+    let public_clients = render_local_nats_config(
+        "trellis",
+        "/tmp/trellis/nats/data",
+        "/tmp/trellis/nats/jwt.local.conf",
+        std::net::Ipv4Addr::UNSPECIFIED.into(),
+        4222,
+        8080,
+        8222,
+    );
+    assert!(public_clients.contains("listen: 0.0.0.0:4222"));
+    assert!(public_clients.contains("listen: 0.0.0.0:8080"));
+    assert!(public_clients.contains("http: 127.0.0.1:8222"));
 }
 
 #[test]

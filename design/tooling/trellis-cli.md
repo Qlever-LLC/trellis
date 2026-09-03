@@ -296,7 +296,12 @@ Operational command behavior:
   user paths apply. Read-only local NATS source lives under the config root,
   while mutable state, runtime files, downloads, and logs use their
   corresponding profile roots. Supported modes remain `all`, `platform`, `jobs`,
-  `health`, and `eventlog`.
+  `health`, and `eventlog`. Managed local NATS binds its authenticated native
+  and WebSocket listeners on all interfaces so the client endpoints generated
+  from `--nats-server-url` and `--nats-websocket-url` remain reachable; its
+  unauthenticated monitoring listener remains loopback-only. The runtime itself
+  connects over loopback, while bootstrap responses preserve the configured
+  client endpoints and `--public-origin`.
 - the runtime OCI image ships the `trellis` CLI and the pinned nats-server baked
   in at `/usr/local/bin/nats-server` (downloaded and checksum-verified at image
   build time against `conformance/nats-binaries.json`, never at container

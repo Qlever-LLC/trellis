@@ -294,7 +294,8 @@ async fn cli_server_managed_nats() {
     let runtime_port = free_port();
 
     // 1. `trellis init config` renders the bundle the managed server expects, with
-    //    deliberately bogus NATS URLs so the managed endpoint override is observable.
+    //    deliberately bogus native NATS URL so the managed runtime override is observable.
+    //    The websocket URL remains the configured client-facing endpoint.
     let init_output = cli_command()
         .args([
             "--format",
@@ -341,7 +342,7 @@ async fn cli_server_managed_nats() {
     );
     assert!(
         config_toml.contains(BOGUS_WS_URL),
-        "bundle must configure the bogus websocket URL so the managed override is observable"
+        "bundle must configure the client-facing websocket URL"
     );
     config_toml.push_str(&format!(
         "\n[paths]\ndata = {data:?}\nstate = {state:?}\ncache = {cache:?}\nruntime = {runtime:?}\nlogs = {logs:?}\n",
@@ -443,7 +444,11 @@ async fn cli_server_managed_nats() {
             > 0,
         "managed NATS stdout and stderr must be captured in its dedicated log"
     );
-    assert!(effective_root.join("state/nats/nats.conf").is_file());
+    let managed_nats_config = fs::read_to_string(effective_root.join("state/nats/nats.conf"))
+        .expect("read managed NATS config");
+    assert!(managed_nats_config.contains("listen: 0.0.0.0:4222"));
+    assert!(managed_nats_config.contains("listen: 0.0.0.0:8080"));
+    assert!(managed_nats_config.contains("http: 127.0.0.1:8222"));
     for database in [
         "platform.sqlite",
         "jobs.sqlite",
@@ -475,8 +480,8 @@ async fn cli_server_managed_nats() {
     );
 
     // 3. Managed-mode `check` after the first run: valid preflight report (proving
-    //    the managed endpoint override — the bundle points at the bogus 4999/9999
-    //    URLs, yet the checks connect to the managed server), JSON-only stdout, exit
+    //    the managed native endpoint override — the bundle points at the bogus 4999
+    //    URL, yet the checks connect to the managed server), JSON-only stdout, exit
     //    0, and the check's own server fully stopped.
     let check_stdout = workdir.0.join("cli-check.stdout.log");
     let check_stderr = workdir.0.join("cli-check.stderr.log");
