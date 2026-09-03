@@ -3,7 +3,9 @@
   "version": "0.0.0",
   "exports": "./contract.ts",
   "imports": {
+    "@qlever-llc/result": "../../../ts/packages/result/mod.ts",
     "@qlever-llc/trellis/contracts": "../../../ts/packages/trellis/contracts.ts",
+    "@qlever-llc/trellis/errors": "../../../ts/packages/trellis/errors/index.ts",
     "@trellis/apis/trellis.auth": "./.trellis/generated/ts/trellis-apis/trellis.auth.ts"
   },
   "links": [".trellis/generated/ts/trellis-apis"]
