@@ -1,4 +1,4 @@
-//! Generates the compile-time index for embedded login portal assets.
+//! Generates the compile-time index for the embedded Trellis web application.
 
 use std::env;
 use std::fs;
@@ -18,7 +18,9 @@ fn collect_files(directory: &Path, files: &mut Vec<PathBuf>) {
 fn generate_index(root: &Path, output_name: &str) {
     println!("cargo:rerun-if-changed={}", root.display());
     let mut files = Vec::new();
-    collect_files(root, &mut files);
+    if root.is_dir() {
+        collect_files(root, &mut files);
+    }
     files.sort();
     let entries = files
         .iter()
@@ -43,6 +45,5 @@ fn generate_index(root: &Path, output_name: &str) {
 fn main() {
     let generated = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest directory"))
         .join("generated");
-    generate_index(&generated.join("portal"), "portal_assets.rs");
-    generate_index(&generated.join("console"), "console_assets.rs");
+    generate_index(&generated.join("web"), "web_assets.rs");
 }

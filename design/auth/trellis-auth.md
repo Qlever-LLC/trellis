@@ -239,9 +239,11 @@ the standard authority proposal, and bind calls the shared session constructor.
 The server-owned consent proposal is part of the immutable browser-flow
 transcript and cannot change during a state transition.
 
-The built-in portal is compiled reproducibly from `ts/portals/login` and
-embedded in the Rust binary. A development-only `TRELLIS_BUILTIN_PORTAL_DIR`
-override may serve local assets.
+The built-in Portal and Console are one SvelteKit application under `web/`, with
+distinct route groups and participant contracts under `web/contracts/`. Its
+reproducible static artifact is embedded in the Rust binary. The shared web
+source and independent Portal or Console overrides may instead select a static
+directory or reverse-proxied HTTP source.
 
 Trellis records one durable bootstrap-administrator principal. Before that
 principal exists, startup creates one single-use `admin_account` flow; ordinary

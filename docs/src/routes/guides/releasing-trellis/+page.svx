@@ -311,7 +311,7 @@ deno task -c ts/deno.json build:npm
 (cd ts/packages/trellis && deno publish --dry-run --allow-slow-types --allow-dirty)
 (cd ts/packages/trellis-test && deno publish --dry-run --allow-slow-types --allow-dirty)
 docker build -f rust/crates/runtime/Containerfile .
-docker build -f ts/apps/console/Containerfile .
+docker build -f web/Containerfile .
 ```
 
 If the full integration suites cannot be run, record why and list the focused checks that did run.

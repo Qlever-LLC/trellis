@@ -61,8 +61,7 @@ import {
   clientC as defaultBrowserClientC,
 } from "./default_client_fixture/contract.ts";
 
-const buildDir = resolve("portals/login/build");
-const consoleBuildDir = resolve("apps/console/build-embedded");
+const buildDir = resolve("web/build-embedded");
 const coverageDir = resolve("coverage/browser");
 const liveLocalLoginCaseId = "browser.login-portal-live-local-login";
 const liveLocalLoginFixture = createAuthLocalLoginFixture(
@@ -345,48 +344,6 @@ Deno.test("browser.login-portal static routes render browser-only states", async
     );
   } finally {
     await server?.shutdown();
-  }
-});
-
-Deno.test("browser.embedded-console starts same-origin login", async () => {
-  const server = Deno.serve(
-    { hostname: "127.0.0.1", port: 0, onListen() {} },
-    async (request) => {
-      const url = new URL(request.url);
-      const relativePath = url.pathname.startsWith("/console/")
-        ? url.pathname.slice("/console/".length)
-        : "index.html";
-      const candidate = resolve(consoleBuildDir, relativePath || "index.html");
-      const path =
-        isInside(consoleBuildDir, candidate) && await exists(candidate)
-          ? candidate
-          : join(consoleBuildDir, "index.html");
-      return new Response(await Deno.readFile(path), {
-        headers: { "content-type": contentType(path) },
-      });
-    },
-  );
-
-  try {
-    const origin = `http://127.0.0.1:${server.addr.port}`;
-    await withCoveredPage(
-      "browser.embedded-console starts same-origin login",
-      async ({ page }) => {
-        await page.goto(`${origin}/console/login`, {
-          waitUntil: "domcontentloaded",
-        });
-        assertEquals(
-          await page.evaluate(() =>
-            (globalThis as typeof globalThis & {
-              __TRELLIS_RUNTIME_CONFIG__?: { authUrl?: string };
-            }).__TRELLIS_RUNTIME_CONFIG__?.authUrl
-          ),
-          origin,
-        );
-      },
-    );
-  } finally {
-    await server.shutdown();
   }
 });
 
@@ -1347,8 +1304,21 @@ withLivePortalPage(
           await page.getByLabel("Password").fill(liveDeniedConsentPassword);
           await page.getByRole("button", { name: "Sign in" }).last().click();
           await page.getByRole("heading", { name: "Approve access" }).waitFor();
+          await page.route(/\/auth\/flow\/[^/]+\/approval$/, (route) => {
+            const request = route.request();
+            const body = request.postDataJSON() as Record<string, unknown>;
+            body.futureClientHint = { requestedAdmin: true };
+            route.continue({
+              headers: {
+                ...request.headers(),
+                "content-type": "application/json",
+              },
+              postData: JSON.stringify(body),
+            });
+          });
           await page.getByRole("button", { name: "Deny" }).click();
           await page.getByRole("heading", { name: "Access denied" }).waitFor();
+          await page.unroute(/\/auth\/flow\/[^/]+\/approval$/);
           await page.getByText(
             `You denied access for ${fixture.clientDisplayName}.`,
           )

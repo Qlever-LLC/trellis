@@ -17,6 +17,7 @@ use super::browser::{
     bind_flow, complete_admin_account, console_index, console_page, decide_approval,
     get_account_flow, get_flow, get_portal_flow, local_login, oidc_callback, portal_asset,
     portal_index, portal_page, register_local, start_account_flow_oidc, start_auth, start_oidc,
+    web_fallback,
 };
 use super::security::{canonical_origin, security_headers};
 use super::well_known::refresh_context;
@@ -24,8 +25,9 @@ use super::{
     AccountRepository, AuthEphemeralRepository, AuthHttpOptions, AuthHttpState,
     AuthorityEvidenceRepository, AuthorityRepository, AuthorizationStateError, ContextRepository,
     DeploymentRepository, OutboxRepository, PortalRepository, ProvisioningRepository,
-    SessionRepository, MAX_AUTH_REQUEST_BODY_BYTES,
+    SessionRepository, WebSource, EMBEDDED_WEB_ASSETS, MAX_AUTH_REQUEST_BODY_BYTES,
 };
+use crate::config::WebSourceConfig;
 
 const LOCAL_LOGIN_ROUTE: &str = "/auth/login/local";
 
@@ -102,12 +104,12 @@ const ROUTES: &[RouteDefinition] = &[
     },
     RouteDefinition {
         method: RouteMethod::Get,
-        path: "/auth/flow/:flow_id",
+        path: "/auth/flow/{flow_id}",
         handler: RouteHandler::GetFlow,
     },
     RouteDefinition {
         method: RouteMethod::Post,
-        path: "/auth/flow/:flow_id/portal",
+        path: "/auth/flow/{flow_id}/portal",
         handler: RouteHandler::GetPortalFlow,
     },
     RouteDefinition {
@@ -117,42 +119,42 @@ const ROUTES: &[RouteDefinition] = &[
     },
     RouteDefinition {
         method: RouteMethod::Post,
-        path: "/auth/flow/:flow_id/register/local",
+        path: "/auth/flow/{flow_id}/register/local",
         handler: RouteHandler::RegisterLocal,
     },
     RouteDefinition {
         method: RouteMethod::Get,
-        path: "/auth/account-flow/:flow_token",
+        path: "/auth/account-flow/{flow_token}",
         handler: RouteHandler::GetAccountFlow,
     },
     RouteDefinition {
         method: RouteMethod::Post,
-        path: "/auth/account-flow/:flow_token/local-password",
+        path: "/auth/account-flow/{flow_token}/local-password",
         handler: RouteHandler::CompleteFirstAdmin,
     },
     RouteDefinition {
         method: RouteMethod::Get,
-        path: "/auth/login/:provider_id",
+        path: "/auth/login/{provider_id}",
         handler: RouteHandler::StartOidc,
     },
     RouteDefinition {
         method: RouteMethod::Get,
-        path: "/auth/account-flow/:flow_token/login/:provider_id",
+        path: "/auth/account-flow/{flow_token}/login/{provider_id}",
         handler: RouteHandler::StartAccountFlowOidc,
     },
     RouteDefinition {
         method: RouteMethod::Get,
-        path: "/auth/callback/:provider_id",
+        path: "/auth/callback/{provider_id}",
         handler: RouteHandler::OidcCallback,
     },
     RouteDefinition {
         method: RouteMethod::Post,
-        path: "/auth/flow/:flow_id/approval",
+        path: "/auth/flow/{flow_id}/approval",
         handler: RouteHandler::DecideApproval,
     },
     RouteDefinition {
         method: RouteMethod::Post,
-        path: "/auth/flow/:flow_id/bind",
+        path: "/auth/flow/{flow_id}/bind",
         handler: RouteHandler::BindFlow,
     },
     RouteDefinition {
@@ -162,12 +164,12 @@ const ROUTES: &[RouteDefinition] = &[
     },
     RouteDefinition {
         method: RouteMethod::Get,
-        path: "/login/*path",
+        path: "/login/{*path}",
         handler: RouteHandler::PortalPage,
     },
     RouteDefinition {
         method: RouteMethod::Get,
-        path: "/assets/login/*path",
+        path: "/assets/login/{*path}",
         handler: RouteHandler::PortalAsset,
     },
     RouteDefinition {
@@ -177,7 +179,7 @@ const ROUTES: &[RouteDefinition] = &[
     },
     RouteDefinition {
         method: RouteMethod::Get,
-        path: "/console/*path",
+        path: "/console/{*path}",
         handler: RouteHandler::ConsolePage,
     },
 ];
@@ -286,6 +288,74 @@ where
         + 'static,
     E: AuthEphemeralRepository + Clone + Send + Sync + 'static,
 {
+    fn resolve_source(
+        source: Option<WebSourceConfig>,
+        name: &str,
+    ) -> Result<Option<WebSource>, AuthorizationStateError> {
+        source
+            .map(|source| match source {
+                WebSourceConfig::Directory(path) => Ok(WebSource::Directory(path)),
+                WebSourceConfig::Proxy(value) => {
+                    let _ = rustls::crypto::ring::default_provider().install_default();
+                    let url = Url::parse(&value).map_err(|_| {
+                        AuthorizationStateError::InvalidRecord(format!(
+                            "{name} proxy URL is invalid: {value}"
+                        ))
+                    })?;
+                    if !matches!(url.scheme(), "http" | "https")
+                        || url.host_str().is_none()
+                        || !url.username().is_empty()
+                        || url.password().is_some()
+                        || url.query().is_some()
+                        || url.fragment().is_some()
+                    {
+                        return Err(AuthorizationStateError::InvalidRecord(format!(
+                            "{name} proxy URL must be an HTTP(S) base URL without credentials, query, or fragment"
+                        )));
+                    }
+                    let proxy: Router =
+                        axum_reverse_proxy::ReverseProxy::new("/", url.as_str()).into();
+                    Ok(WebSource::Proxy(proxy))
+                }
+            })
+            .transpose()
+    }
+
+    let web_source =
+        resolve_source(options.web_source, "default web source")?.unwrap_or(WebSource::Embedded);
+    let portal_source = resolve_source(options.portal_source, "login Portal")?
+        .unwrap_or_else(|| web_source.clone());
+    let console_source_is_override = options.console_source.is_some();
+    let console_source =
+        resolve_source(options.console_source, "Console")?.unwrap_or_else(|| web_source.clone());
+    for (name, source, entry) in [
+        ("default web source", &web_source, "200.html"),
+        ("login Portal", &portal_source, "200.html"),
+        (
+            "Console",
+            &console_source,
+            if console_source_is_override {
+                "index.html"
+            } else {
+                "200.html"
+            },
+        ),
+    ] {
+        match source {
+            WebSource::Directory(directory) if !directory.join(entry).is_file() => {
+                return Err(AuthorizationStateError::InvalidRecord(format!(
+                    "{name} directory '{}' must contain {entry}",
+                    directory.display()
+                )));
+            }
+            WebSource::Embedded if EMBEDDED_WEB_ASSETS.is_empty() => {
+                return Err(AuthorizationStateError::InvalidRecord(
+                    "embedded web assets are unavailable".to_owned(),
+                ));
+            }
+            _ => {}
+        }
+    }
     let public_url = Url::parse(&options.public_origin).map_err(|_| {
         AuthorizationStateError::InvalidRecord("HTTP public origin is invalid".to_owned())
     })?;
@@ -346,7 +416,10 @@ where
         websocket_nats_servers: options.websocket_nats_servers,
         oidc_providers: options.oidc_providers,
         proof_policy: trellis_protocol::SessionProofPolicy::default(),
-        portal_override_dir: options.portal_override_dir,
+        web_source,
+        portal_source,
+        console_source,
+        console_source_is_override,
     };
     let mut api_routes: Router<AuthHttpState<R, E>> = Router::new();
     let mut static_routes: Router<AuthHttpState<R, E>> = Router::new();
@@ -367,12 +440,11 @@ where
         let config = builder.finish().ok_or_else(|| {
             AuthorizationStateError::InvalidRecord("HTTP rate limit is invalid".to_owned())
         })?;
-        api_routes = api_routes.layer(GovernorLayer {
-            config: Arc::new(config),
-        });
+        api_routes = api_routes.layer(GovernorLayer::new(Arc::new(config)));
     }
     let mut routes = api_routes
         .merge(static_routes)
+        .fallback(web_fallback::<R, E>)
         .layer(RequestBodyLimitLayer::new(MAX_AUTH_REQUEST_BODY_BYTES))
         .layer(cors)
         .layer(middleware::from_fn_with_state(
@@ -429,11 +501,11 @@ mod tests {
     }
 
     fn probe_path(path: &str) -> String {
-        path.replace(":key", "probe")
-            .replace(":flow_id", "flow")
-            .replace(":flow_token", "token")
-            .replace(":provider_id", "provider")
-            .replace("*path", "index.html")
+        path.replace("{key}", "probe")
+            .replace("{flow_id}", "flow")
+            .replace("{flow_token}", "token")
+            .replace("{provider_id}", "provider")
+            .replace("{*path}", "index.html")
     }
 
     fn production_route_shape() -> Router {

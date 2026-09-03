@@ -18,7 +18,7 @@ fn device_activation_url(
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct ServiceBootstrapRequest {
     request_id: String,
     issued_at: i64,
@@ -36,7 +36,7 @@ pub(super) struct ServiceBootstrapRequest {
 }
 
 #[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct DeviceBootstrapRequest {
     request_id: String,
     issued_at: i64,

@@ -9,7 +9,7 @@ import type {
 export const AuthorizationRegistryBindingSchema = Type.Object({
   trustBucket: Type.String({ minLength: 1 }),
   contextBucket: Type.String({ minLength: 1 }),
-}, { additionalProperties: false });
+});
 
 /** Wire binding for Trellis' internal authorization registry. */
 export type AuthorizationRegistryBinding = Static<
@@ -194,7 +194,7 @@ export const AuthorizationContextRefreshResponseSchema = Type.Object({
     expiresAt: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
     revokedAt: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
     version: Type.Integer({ minimum: 1 }),
-  }, { additionalProperties: false }),
+  }),
   nats: Type.Object({
     jwt: Type.String({ minLength: 1 }),
     jwtExpiresAt: Type.Integer({ minimum: 1 }),
@@ -203,15 +203,15 @@ export const AuthorizationContextRefreshResponseSchema = Type.Object({
         natsServers: Type.Array(Type.String({ minLength: 1 }), {
           minItems: 1,
         }),
-      }, { additionalProperties: false })),
+      })),
       websocket: Type.Optional(Type.Object({
         natsServers: Type.Array(Type.String({ minLength: 1 }), {
           minItems: 1,
         }),
-      }, { additionalProperties: false })),
-    }, { additionalProperties: false }),
-  }, { additionalProperties: false }),
-}, { additionalProperties: false });
+      })),
+    }),
+  }),
+});
 
 /** Proactive refresh response with its verified installed context. */
 export type AuthorizationContextRefreshResponse = Static<

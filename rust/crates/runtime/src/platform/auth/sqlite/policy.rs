@@ -58,7 +58,8 @@ impl SqliteAuthorizationStore {
                 version: 1,
             };
             if current.as_ref().is_some_and(|current| {
-                current.display_name == group.display_name
+                current.version == 1
+                    && current.display_name == group.display_name
                     && current.description == group.description
                     && current.capabilities == group.capabilities
                     && current.included_groups == group.included_groups

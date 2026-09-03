@@ -6,7 +6,7 @@ By the end, you will have:
 - a managed nats-server process running on your machine
 - the current Rust Trellis runtime running at `http://localhost:3000`
 - runtime health and readiness checks that return version and mode metadata
-- Console running at `http://localhost:5173` for UI development
+- Console running through Trellis at `http://localhost:3000/console`
 
 ## What you need
 
@@ -228,20 +228,25 @@ curl http://localhost:3000/readyz
 
 Each response should include fields like `version` and `mode`.
 
-## 6. Start the Console
+## 6. Start the built-in web app
 
 In another terminal from the source checkout:
 
 ```sh
-cd ts/apps/console
-cp .env.example .env
+cd web
 deno task dev
 ```
 
-Open `http://localhost:5173` for Console development. It authenticates against
-the Rust `trellis-server`, which owns the browser login, OIDC, bootstrap, portal,
-authorization-context, and well-known trust routes. There is no separate
-TypeScript control-plane runtime.
+Configure Trellis to proxy the shared built-in source:
+
+```toml
+[http]
+web_source = { proxy = "http://127.0.0.1:5173" }
+```
+
+Open `http://localhost:3000/console`. The Rust `trellis-server` owns the browser
+login, OIDC, bootstrap, portal, authorization-context, and well-known trust
+routes; there is no separate TypeScript control-plane runtime.
 
 ## 7. Verify the local stack
 
@@ -249,7 +254,7 @@ TypeScript control-plane runtime.
 curl http://127.0.0.1:8222/healthz
 curl http://localhost:3000/healthz
 curl http://localhost:3000/readyz
-curl -I http://localhost:5173/
+curl -I http://localhost:3000/console
 ```
 
 At this point you have:

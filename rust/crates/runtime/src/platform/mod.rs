@@ -259,7 +259,9 @@ pub(crate) async fn start(context: &RuntimeContext) -> Result<SubsystemHandle, R
         rate_limit_window_ms: http
             .and_then(|http| http.rate_limit_window_ms)
             .unwrap_or(60_000),
-        portal_override_dir: std::env::var_os("TRELLIS_BUILTIN_PORTAL_DIR").map(Into::into),
+        web_source: http.and_then(|http| http.web_source.clone()),
+        portal_source: http.and_then(|http| http.portal_source.clone()),
+        console_source: http.and_then(|http| http.console_source.clone()),
     }) {
         Ok(router) => router,
         Err(error) => {

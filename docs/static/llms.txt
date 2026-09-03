@@ -27,6 +27,9 @@ commands.
   registry, revocation, logout, or client-bootstrap API.
 - Built-in browser routes are `/login/*` with `/assets/login/*` and `/console/*`
   with `/console/assets/*`; auth APIs remain under `/auth/*`.
+- Built-in web routes use embedded assets by default. `[http].web_source`,
+  `portal_source`, and `console_source` select directory or HTTP(S) proxy sources;
+  surface sources override the shared source.
 - Runtime boundaries use `trellis.api.v1` and `trellis.participant.v1` artifacts.
   TypeScript contracts are compiled to those artifacts before bootstrap.
 - Built-in clients are ordinary app participants: `trellis-app.cli@v1`,

@@ -19,8 +19,8 @@ use super::{
     PortalRepository, ProvisioningRepository, SessionRepository,
 };
 
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct ContextRefreshRequest {
     request_id: String,
     issued_at: i64,
@@ -49,7 +49,7 @@ pub(super) struct ContextRefreshResponse {
 
 pub(super) async fn refresh_context<R, E>(
     State(state): State<AuthHttpState<R, E>>,
-    Json(request): Json<ContextRefreshRequest>,
+    Json(raw): Json<Value>,
 ) -> Result<Json<ContextRefreshResponse>, HttpError>
 where
     R: AccountRepository
@@ -68,6 +68,8 @@ where
     E: AuthEphemeralRepository + Clone,
 {
     let now = now_ms()?;
+    let request: ContextRefreshRequest = serde_json::from_value(raw.clone())
+        .map_err(|_| HttpError::bad_request("invalid_context_refresh"))?;
     let session = state
         .service
         .repository()
@@ -90,9 +92,7 @@ where
     {
         return Err(HttpError::unauthorized("invalid_proof"));
     }
-    let digest_value = serde_json::to_value(&request)
-        .map_err(|_| HttpError::bad_request("invalid_context_refresh"))?;
-    let request_digest = session_proof_request_digest(&digest_value)
+    let request_digest = session_proof_request_digest(&raw)
         .map_err(|_| HttpError::bad_request("invalid_context_refresh"))?;
     let input = SessionProofInput::authorization_context_refresh(
         AuthorizationContextRefreshSessionProofInput {

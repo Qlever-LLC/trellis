@@ -426,6 +426,9 @@ export class TrellisTestRuntime implements AsyncDisposable {
           port,
           oauthProviders: options.oauthProviders,
           webOrigins: options.webOrigins,
+          webSource: options.webSource,
+          portalSource: options.portalSource,
+          consoleSource: options.consoleSource,
         });
         configPath = await writeTrellisConfig({ workdir, config });
         try {

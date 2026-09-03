@@ -129,6 +129,9 @@ exact participant artifact and needs digests.
   HTTP context registry, revocation, logout, or client-bootstrap API.
 - Built-in browser routes are `/login/*` with `/assets/login/*` and `/console/*`
   with `/console/assets/*`; auth APIs remain under `/auth/*`.
+- Built-in web routes use embedded assets by default. `[http].web_source`,
+  `portal_source`, and `console_source` select directory or HTTP(S) proxy sources;
+  surface sources override the shared source.
 - Feed subscriptions are connection-scoped. Closing or aborting a client feed
   propagates cancellation to the provider; watch feeds must not create a durable
   consumer per viewer.

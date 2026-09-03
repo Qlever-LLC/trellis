@@ -24,12 +24,10 @@ export async function decodeTrellisHttpError(
   try {
     const body: unknown = await response.json();
     if (
-      typeof body === "object" && body !== null &&
-      Object.keys(body).length === 1 &&
-      "error" in body && typeof body.error === "object" &&
-      body.error !== null && Object.keys(body.error).length === 1 &&
-      "code" in body.error &&
-      typeof body.error.code === "string" && body.error.code.length > 0
+      typeof body === "object" && body !== null && "error" in body &&
+      typeof body.error === "object" && body.error !== null &&
+      "code" in body.error && typeof body.error.code === "string" &&
+      body.error.code.length > 0
     ) {
       code = body.error.code;
     }

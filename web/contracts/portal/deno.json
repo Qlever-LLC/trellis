@@ -1,0 +1,10 @@
+{
+  "name": "@qlever-llc/trellis-app-portal",
+  "version": "0.0.0",
+  "exports": "./contract.ts",
+  "imports": {
+    "@qlever-llc/trellis/contracts": "../../../ts/packages/trellis/contracts.ts",
+    "@trellis/apis/trellis.auth": "./.trellis/generated/ts/trellis-apis/trellis.auth.ts"
+  },
+  "links": [".trellis/generated/ts/trellis-apis"]
+}

@@ -397,16 +397,12 @@ function assertJsonValue(value: unknown, path = ""): void {
   }
 }
 
-/** Parse one strict session-proof signature envelope. */
+/** Parse one session-proof signature envelope. */
 export function parseSessionProof(value: unknown): SessionProof {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("session proof must be an object");
   }
   const record = value as Record<string, unknown>;
-  const keys = Object.keys(record).sort();
-  if (keys.length !== 2 || keys[0] !== "format" || keys[1] !== "signature") {
-    throw new Error("session proof contains unknown or missing fields");
-  }
   if (
     record.format !== SESSION_PROOF_FORMAT_V1 ||
     typeof record.signature !== "string"

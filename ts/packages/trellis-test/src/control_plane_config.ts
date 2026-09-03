@@ -1,6 +1,11 @@
 import { dirname, fromFileUrl, join } from "@std/path";
 import type { LocalNatsBootstrapManifest } from "./nats_bootstrap.ts";
 
+/** A directory or reverse-proxy source used by a real test control plane. */
+export type TrellisControlPlaneWebSource =
+  | { directory: string }
+  | { proxy: string };
+
 /** @internal File-backed Trellis control-plane config used by test runtimes. */
 export type TrellisControlPlaneConfig = {
   logLevel: string;
@@ -10,6 +15,9 @@ export type TrellisControlPlaneConfig = {
     origins: string[];
     publicOrigin: string;
     allowInsecureOrigins: string[];
+    source?: TrellisControlPlaneWebSource;
+    portalSource?: TrellisControlPlaneWebSource;
+    consoleSource?: TrellisControlPlaneWebSource;
   };
   httpRateLimit: {
     windowMs: number;
@@ -302,6 +310,9 @@ export function buildControlPlaneConfig(args: {
   port: number;
   oauthProviders?: Record<string, TrellisControlPlaneOAuthProvider>;
   webOrigins?: readonly string[];
+  webSource?: TrellisControlPlaneWebSource;
+  portalSource?: TrellisControlPlaneWebSource;
+  consoleSource?: TrellisControlPlaneWebSource;
 }): TrellisControlPlaneConfig {
   const natsDir = join(args.natsWorkdir ?? args.workdir, "nats");
   const publicOrigin = `http://127.0.0.1:${args.port}`;
@@ -317,6 +328,9 @@ export function buildControlPlaneConfig(args: {
         args.websocketUrl,
         ...(args.webOrigins ?? []),
       ],
+      source: args.webSource,
+      portalSource: args.portalSource,
+      consoleSource: args.consoleSource,
     },
     httpRateLimit: { windowMs: 60_000, max: 0 },
     storage: { dbPath: join(args.workdir, "trellis", "trellis.sqlite") },
@@ -424,6 +438,12 @@ export async function writeTrellisConfig(args: {
 
   const quote = (value: string) => JSON.stringify(value);
   const strings = (values: string[]) => `[${values.map(quote).join(", ")}]`;
+  const webSource = (name: string, source?: TrellisControlPlaneWebSource) =>
+    source
+      ? `${name} = { ${"directory" in source ? "directory" : "proxy"} = ${
+        quote("directory" in source ? source.directory : source.proxy)
+      } }\n`
+      : "";
   const storage = (section: string) => `
 [${section}.storage]
 kind = "sqlite"
@@ -466,6 +486,9 @@ port = ${args.config.port}
 public_origin = ${quote(args.config.web.publicOrigin)}
 origins = ${strings(args.config.web.origins)}
 allow_insecure_origins = ${strings(args.config.web.allowInsecureOrigins)}
+${webSource("web_source", args.config.web.source)}${
+      webSource("portal_source", args.config.web.portalSource)
+    }${webSource("console_source", args.config.web.consoleSource)}
 rate_limit_max = ${args.config.httpRateLimit.max}
 rate_limit_window_ms = ${args.config.httpRateLimit.windowMs}
 

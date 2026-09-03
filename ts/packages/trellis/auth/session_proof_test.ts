@@ -200,16 +200,6 @@ Deno.test("shared invalid session-proof vectors fail safely", async () => {
     const base = find(invalid.base);
     const source = proofSource(base);
 
-    if (invalid.mutation === "unknownProofField") {
-      await assertRejects(async () => {
-        parseSessionProof({
-          ...(source.proof as JsonRecord),
-          unknown: true,
-        });
-      });
-      continue;
-    }
-
     await assertRejects(async () => {
       if (invalid.mutation === "paddedPublicKey") {
         source.sessionPublicKey = `${field(source, "sessionPublicKey")}=`;

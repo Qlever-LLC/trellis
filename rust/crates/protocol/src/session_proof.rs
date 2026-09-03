@@ -504,7 +504,7 @@ pub struct SessionProof {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 struct WireSessionProof {
     format: String,
     signature: String,
@@ -595,12 +595,12 @@ impl Default for SessionProofPolicy {
     }
 }
 
-/// Parse and structurally validate one strict session-proof envelope.
+/// Parse and structurally validate one session-proof envelope.
 ///
 /// # Errors
 ///
-/// Returns [`ProtocolError::SessionProof`] when the value has an unknown member,
-/// wrong format, or noncanonical signature encoding.
+/// Returns [`ProtocolError::SessionProof`] when the value has a wrong format
+/// or noncanonical signature encoding.
 pub fn parse_session_proof(value: &Value) -> Result<SessionProof, ProtocolError> {
     let wire: WireSessionProof = serde_json::from_value(value.clone()).map_err(|error| {
         proof_error(
@@ -1393,11 +1393,6 @@ mod tests {
                         SessionProofPolicy::default(),
                     )
                     .expect_err("out-of-window proof must fail")
-                }
-                "unknownProofField" => {
-                    let mut unknown = value["proof"].clone();
-                    unknown["unknown"] = Value::Bool(true);
-                    parse_session_proof(&unknown).expect_err("unknown proof field must fail")
                 }
                 other => panic!("unknown invalid-vector mutation {other}"),
             };

@@ -68,8 +68,6 @@ function repoTrellisCommand() {
       "--manifest-path",
       "../rust/Cargo.toml",
       "-p",
-      "trellis-runtime",
-      "--bin",
       "trellis-server",
       "--",
       "--config",

@@ -216,7 +216,9 @@ pub(super) async fn security_headers(
         HeaderName::from_static("permissions-policy"),
         HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
     );
-    headers.insert(CONTENT_SECURITY_POLICY, content_security_policy);
+    headers
+        .entry(CONTENT_SECURITY_POLICY)
+        .or_insert(content_security_policy);
     response
 }
 

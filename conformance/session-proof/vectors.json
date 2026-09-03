@@ -97,12 +97,15 @@
         "minimumManifestGeneration": 12,
         "proof": {
           "format": "trellis.session-proof.v1",
-          "signature": "goPQThcdHbevPYZmUnHbE5Sqv883G1haeSVJlyXUHZS55pdIzPqQi6HZI25NHcdgtp6yCS_6BJ585i1mA_UzAg"
+          "signature": "lUTuEFCHSEBr50lypvzl6Hw6H52LWQF4It42iuzq8zzM1wtZjBFvS_RiNp2bMyTb1gTXZnAOn2vLCVJrtUXQCw",
+          "futureProofField": {
+            "version": 2
+          }
         }
       },
-      "requestDigest": "JGJBtn3sPyPJ_mGY-T3y5x5TdMAKg8_TL6G7ppDAcgE",
-      "transcriptDigest": "4iJPr8V9QuQxDFix6eSZKkHfElgAELHDMszUU8bMYEQ",
-      "signature": "goPQThcdHbevPYZmUnHbE5Sqv883G1haeSVJlyXUHZS55pdIzPqQi6HZI25NHcdgtp6yCS_6BJ585i1mA_UzAg"
+      "requestDigest": "V1bDlq2NPV2fuau5guVF5GZGTpX57N3RcWeglLhD3vg",
+      "transcriptDigest": "EKTkjD5fWjBS_KiDJhfaGiAfAIyOz3gYguAgFiXDEP4",
+      "signature": "lUTuEFCHSEBr50lypvzl6Hw6H52LWQF4It42iuzq8zzM1wtZjBFvS_RiNp2bMyTb1gTXZnAOn2vLCVJrtUXQCw"
     }
   ],
   "invalidCases": [
@@ -171,12 +174,6 @@
       "base": "service-bootstrap",
       "mutation": "futureNow",
       "expected": "ProofIatOutOfRange"
-    },
-    {
-      "name": "unknown-proof-field",
-      "base": "service-bootstrap",
-      "mutation": "unknownProofField",
-      "expected": "InvalidFormat"
     }
   ]
 }

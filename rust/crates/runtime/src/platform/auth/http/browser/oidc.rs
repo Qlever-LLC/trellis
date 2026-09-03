@@ -8,7 +8,7 @@ pub(crate) struct OidcStartQuery {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct AccountFlowOidcStartQuery {
     browser_flow_id: Option<String>,
     portal_binding_digest: Option<String>,

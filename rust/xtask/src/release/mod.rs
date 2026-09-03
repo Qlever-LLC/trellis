@@ -375,18 +375,15 @@ mod tests {
     fn collect_versions_skips_zero_version_apps() {
         let root = temp_repo_root();
         fs::create_dir_all(root.join("ts/packages/trellis")).expect("mkdir package");
-        fs::create_dir_all(root.join("ts/apps/console")).expect("mkdir app");
+        fs::create_dir_all(root.join("web")).expect("mkdir app");
         fs::create_dir_all(root.join("rust")).expect("mkdir rust");
         fs::write(
             root.join("ts/packages/trellis/deno.json"),
             "{\"version\":\"0.8.2\"}\n",
         )
         .expect("write package manifest");
-        fs::write(
-            root.join("ts/apps/console/deno.json"),
-            "{\"version\":\"0.0.0\"}\n",
-        )
-        .expect("write app manifest");
+        fs::write(root.join("web/deno.json"), "{\"version\":\"0.0.0\"}\n")
+            .expect("write app manifest");
         fs::write(
             root.join("rust/Cargo.toml"),
             "[workspace.package]\nversion = \"0.8.2\"\n",

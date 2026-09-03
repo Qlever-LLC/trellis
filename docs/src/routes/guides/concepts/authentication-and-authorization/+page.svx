@@ -69,10 +69,12 @@ Browser login routes through an auth-owned portal:
    session metadata, NATS endpoints, and the session-bound deny-all JWT.
 6. `TrellisClient.connect(...)` owns NATS proof creation and reconnect.
 
-The built-in portal source lives in `ts/portals/login`. Its reproducible static
-build is embedded in the Rust runtime, so first-admin login and device activation
-do not depend on another deployed service. `TRELLIS_BUILTIN_PORTAL_DIR` may point
-at an override directory during portal development.
+The built-in Portal and Console live in the unified `web/` SvelteKit project.
+Its reproducible static build is embedded in the Rust runtime, so first-admin
+login and device activation do not depend on another deployed service. A
+deployment can replace the shared source or independently override either
+surface with `[http].web_source`, `[http].portal_source`, and
+`[http].console_source`.
 
 ## Capabilities
 

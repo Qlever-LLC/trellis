@@ -104,10 +104,11 @@ jobs:
             local out_dir="$3"
 
             (
-              cd "${repo_root}/ts/apps/console"
+              cd "${repo_root}/web"
               SITE_BASE_PATH="${base_path}" deno run -A vite build
-              mkdir -p "${out_dir}"
-              cp -R build/. "${out_dir}/"
+              mkdir -p "${out_dir}/assets/web" "${out_dir}/console"
+              cp -R build/assets/web/. "${out_dir}/assets/web/"
+              cp build/200.html "${out_dir}/console/index.html"
             )
           }
 
@@ -118,10 +119,10 @@ jobs:
           fi
 
           release_console_root="${release_worktree}"
-          if [ ! -f "${release_worktree}/ts/apps/console/svelte.config.js" ]; then
+          if [ ! -f "${release_worktree}/web/svelte.config.js" ]; then
             echo "Latest release tag worktree is missing console sources; using current main console until the next release tag"
             release_console_root="${current_root}"
-          elif ! grep -q 'SITE_BASE_PATH' "${release_worktree}/ts/apps/console/svelte.config.js"; then
+          elif ! grep -q 'SITE_BASE_PATH' "${release_worktree}/web/svelte.config.js"; then
             echo "Latest release tag predates Pages console base-path support; using current main console until the next release tag"
             release_console_root="${current_root}"
           fi
@@ -156,12 +157,13 @@ jobs:
           build_docs "${release_docs_root}" "${site_root}" "${release_root}/docs"
           build_docs "${current_root}" "${site_root}/current" "${pages_root}/current"
 
-          build_console "${release_console_root}" "${site_root}/console" "${release_root}/console"
-          build_console "${current_root}" "${site_root}/current/console" "${pages_root}/current/console"
+          build_console "${release_console_root}" "${site_root}" "${release_root}/console"
+          build_console "${current_root}" "${site_root}/current" "${pages_root}/current"
 
           cp -R "${release_root}/docs/." "${pages_root}/"
-          mkdir -p "${pages_root}/console"
-          cp -R "${release_root}/console/." "${pages_root}/console/"
+          mkdir -p "${pages_root}/assets/web" "${pages_root}/console"
+          cp -R "${release_root}/console/assets/web/." "${pages_root}/assets/web/"
+          cp "${release_root}/console/console/index.html" "${pages_root}/console/index.html"
 
           cat > "${pages_root}/404.html" <<EOF
           <!doctype html>

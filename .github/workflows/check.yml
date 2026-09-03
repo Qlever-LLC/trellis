@@ -160,10 +160,6 @@ jobs:
       - name: Build embedded browser apps
         run: deno task -c ts/deno.json browser:embedded
 
-      - name: Test embedded Console in Chromium
-        working-directory: ts
-        run: deno task test:browser:embedded
-
       - name: Upload embedded browser apps
         uses: actions/upload-artifact@v4
         with:
@@ -462,6 +458,46 @@ jobs:
             args+=(--rust-only)
           fi
           deno run -A -c ts/deno.json integration/live_runner.ts "${args[@]}"
+
+  ui-hosting:
+    name: Built-in UI hosting
+    needs: [install, wasm, live-build]
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download generated artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: check-generated
+
+      - name: Download protocol WASM
+        uses: actions/download-artifact@v4
+        with:
+          name: check-protocol-wasm
+          path: ts/packages/trellis/auth/protocol_wasm
+
+      - name: Download live executables
+        uses: actions/download-artifact@v4
+        with:
+          name: check-live-executables
+          path: dist/integration-runtime
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+
+      - name: Test built-in UI hosting
+        working-directory: ts
+        env:
+          TRELLIS_TEST_SERVER_BIN: ${{ github.workspace }}/dist/integration-runtime/trellis-server
+          TRELLIS_TEST_PREBUILT_ONLY: "1"
+        run: |
+          chmod +x "$TRELLIS_TEST_SERVER_BIN"
+          deno task test:browser:ui-hosting
 
   external-smoke:
     name: External repository smoke

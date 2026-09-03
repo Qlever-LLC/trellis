@@ -83,12 +83,14 @@ Deno.test("fetchPortalFlowState returns auth-owned portal state directly", async
         providers: ["github", "auth0"],
         registrationEnabled: false,
         federatedRegistrationEnabled: false,
+        futureTopLevelHint: true,
         consentView: {
           participant: {
             id: "trellis.portal-app@v1",
             digest: "digest",
             displayName: "Portal App",
             description: "User-facing auth portal",
+            futureParticipantField: 1,
           },
           required: { permissions: [], capabilities: [] },
           optionalBundles: [],

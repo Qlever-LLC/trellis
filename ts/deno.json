@@ -1,18 +1,16 @@
 {
   "workspace": [
-    "./apps/console",
     "./browser",
     "./integration",
     "./packages/result",
     "./packages/trellis-svelte",
     "./packages/trellis-test",
-    "./packages/trellis",
-    "./portals/login"
+    "./packages/trellis"
   ],
   "tasks": {
     "install": "cargo run --manifest-path ../rust/xtask/Cargo.toml -- install",
     "protocol:wasm": "cargo run --manifest-path ../rust/xtask/Cargo.toml -- protocol-wasm",
-    "browser:embedded": "deno task -c portals/login/deno.json build:embedded && deno task -c apps/console/deno.json build:embedded",
+    "browser:embedded": "deno task -c ../web/deno.json build:embedded",
     "build:runtime": "deno task install && deno task protocol:wasm && deno task browser:embedded",
     "packages:build:npm": "deno task -c packages/result/deno.json build:npm && deno task -c packages/trellis/deno.json build:npm && deno task -c packages/trellis-svelte/deno.json build:npm",
     "packages:build:npm:installed": "deno task -c packages/result/deno.json build:npm && deno task -c packages/trellis/deno.json build:npm:installed && deno task -c packages/trellis-svelte/deno.json build:npm",
@@ -38,7 +36,7 @@
         "test:trellis-test"
       ]
     },
-    "test:ui-tools": "deno test -A --ignore=tools/package_build portals/login tools",
+    "test:ui-tools": "deno test -A --ignore=tools/package_build ../web tools",
     "test": {
       "dependencies": [
         "test:packages",
@@ -46,7 +44,7 @@
       ]
     },
     "test:browser": "deno task browser:embedded && deno test -A -c browser/deno.json browser/*.browser_test.ts",
-    "test:browser:embedded": "deno task browser:embedded && deno test -A -c browser/deno.json browser/login_portal_smoke.browser_test.ts --filter 'embedded-console starts same-origin login'",
+    "test:browser:ui-hosting": "deno test -A -c browser/deno.json browser/ui_hosting.browser_test.ts",
     "test:browser:coverage": "TRELLIS_BROWSER_COVERAGE_SOURCEMAP=1 deno task browser:embedded && deno test -A -c browser/deno.json browser/*.browser_test.ts && deno task coverage:browser",
     "coverage:browser": "deno run -A tools/browser_v8_to_lcov.ts",
     "coverage:browser:merge": "deno run -A tools/browser_v8_to_lcov.ts --append-to ../coverage/live-integration/lcov.info",
@@ -65,6 +63,7 @@
     "@nats-io/nkeys": "npm:@nats-io/nkeys@^2.0.3",
     "@nats-io/nkeys/lib/codec.js": "npm:@nats-io/nkeys@^2.0.3/lib/codec.js",
     "@nats-io/nats-core": "npm:@nats-io/nats-core@^3.3.1",
+    "@nats-io/nats-core/internal": "npm:@nats-io/nats-core@^3.3.1/internal",
     "@nats-io/transport-node": "npm:@nats-io/transport-node@^3.3.1",
     "@nats-io/transport-deno": "jsr:@nats-io/transport-deno@^3.3.1",
     "@opentelemetry/api": "npm:@opentelemetry/api@^1.9.1",
@@ -95,11 +94,11 @@
     "@tailwindcss/vite": "npm:@tailwindcss/vite@4.2.4",
     "@types/cookie": "npm:@types/cookie@^1.0.0",
     "@types/node": "npm:@types/node@25.6.0",
-    "@trellis/apis/trellis.auth": "./apps/console/.trellis/generated/ts/trellis-apis/trellis.auth.ts",
+    "@trellis/apis/trellis.auth": "../web/contracts/console/.trellis/generated/ts/trellis-apis/trellis.auth.ts",
     "@trellis/apis/trellis.core": "./integration/.trellis/generated/ts/trellis-apis/trellis.core.ts",
-    "@trellis/apis/trellis.eventlog": "./apps/console/.trellis/generated/ts/trellis-apis/trellis.eventlog.ts",
-    "@trellis/apis/trellis.health": "./apps/console/.trellis/generated/ts/trellis-apis/trellis.health.ts",
-    "@trellis/apis/trellis.jobs": "./apps/console/.trellis/generated/ts/trellis-apis/trellis.jobs.ts",
+    "@trellis/apis/trellis.eventlog": "../web/contracts/console/.trellis/generated/ts/trellis-apis/trellis.eventlog.ts",
+    "@trellis/apis/trellis.health": "../web/contracts/console/.trellis/generated/ts/trellis-apis/trellis.health.ts",
+    "@trellis/apis/trellis.jobs": "../web/contracts/console/.trellis/generated/ts/trellis-apis/trellis.jobs.ts",
     "@trellis/apis/trellis.state": "./packages/trellis-test/.trellis/generated/ts/trellis-apis/trellis.state.ts",
     "acorn": "npm:acorn@^8.16.0",
     "clsx": "npm:clsx@2.1.1",
@@ -134,6 +133,8 @@
     "ts-deepmerge": "npm:ts-deepmerge@^7.0.3",
     "type-fest": "npm:type-fest@^5.6.0",
     "typebox": "npm:typebox@^1.1.33",
+    "typebox/error": "npm:typebox@^1.1.33/error",
+    "typebox/value": "npm:typebox@^1.1.33/value",
     "typescript": "npm:typescript@6.0.3",
     "ulid": "npm:ulid@^3.0.2",
     "v8-to-istanbul": "npm:v8-to-istanbul@^9.3.0",

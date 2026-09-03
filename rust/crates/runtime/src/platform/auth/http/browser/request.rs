@@ -1,7 +1,13 @@
 use super::super::*;
+use axum::body::Body;
+use axum::http::header::CONTENT_SECURITY_POLICY;
+use axum::http::{HeaderValue, Request};
+use tower::ServiceExt as _;
+
+const PROXY_CONTENT_SECURITY_POLICY: &str = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:";
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub(in crate::platform::auth::http) struct AuthStartRequest {
     request_id: String,
     issued_at: i64,
@@ -294,7 +300,10 @@ pub(super) fn portal_url(
     Ok(url.into())
 }
 
-pub(crate) async fn portal_index<R, E>(State(state): State<AuthHttpState<R, E>>) -> Response
+pub(crate) async fn portal_index<R, E>(
+    State(state): State<AuthHttpState<R, E>>,
+    request: Request<Body>,
+) -> Response
 where
     R: AccountRepository
         + AuthorityEvidenceRepository
@@ -311,12 +320,13 @@ where
         + 'static,
     E: AuthEphemeralRepository + Clone,
 {
-    portal_file(&state, "200.html").await
+    serve_source(&state.portal_source, "200.html", Some("200.html"), request).await
 }
 
 pub(crate) async fn portal_page<R, E>(
     State(state): State<AuthHttpState<R, E>>,
     Path(path): Path<String>,
+    request: Request<Body>,
 ) -> Response
 where
     R: AccountRepository
@@ -337,21 +347,21 @@ where
     if !embedded_path_is_safe(&path) {
         return StatusCode::NOT_FOUND.into_response();
     }
-    let direct = format!("login/{path}");
-    let response = portal_file(&state, &direct).await;
-    if response.status() == StatusCode::NOT_FOUND
-        && !path.starts_with("assets/")
-        && (path.contains('/') || !path.contains('.'))
-    {
-        portal_file(&state, "200.html").await
-    } else {
-        response
-    }
+    let fallback = (!path.starts_with("assets/") && (path.contains('/') || !path.contains('.')))
+        .then_some("200.html");
+    serve_source(
+        &state.portal_source,
+        &format!("login/{path}"),
+        fallback,
+        request,
+    )
+    .await
 }
 
 pub(crate) async fn portal_asset<R, E>(
     State(state): State<AuthHttpState<R, E>>,
     Path(path): Path<String>,
+    request: Request<Body>,
 ) -> Response
 where
     R: AccountRepository
@@ -369,10 +379,19 @@ where
         + 'static,
     E: AuthEphemeralRepository + Clone,
 {
-    portal_file(&state, &format!("assets/login/{path}")).await
+    serve_source(
+        &state.portal_source,
+        &format!("assets/login/{path}"),
+        None,
+        request,
+    )
+    .await
 }
 
-pub(crate) async fn console_index<R, E>(State(_state): State<AuthHttpState<R, E>>) -> Response
+pub(crate) async fn console_index<R, E>(
+    State(state): State<AuthHttpState<R, E>>,
+    request: Request<Body>,
+) -> Response
 where
     R: AccountRepository
         + AuthorityEvidenceRepository
@@ -389,12 +408,19 @@ where
         + 'static,
     E: AuthEphemeralRepository + Clone,
 {
-    console_file("")
+    serve_source(
+        &state.console_source,
+        "index.html",
+        Some("200.html"),
+        request,
+    )
+    .await
 }
 
 pub(crate) async fn console_page<R, E>(
-    State(_state): State<AuthHttpState<R, E>>,
+    State(state): State<AuthHttpState<R, E>>,
     Path(path): Path<String>,
+    request: Request<Body>,
 ) -> Response
 where
     R: AccountRepository
@@ -412,41 +438,82 @@ where
         + 'static,
     E: AuthEphemeralRepository + Clone,
 {
-    console_file(&path)
+    let fallback = (!path.starts_with("assets/") && (path.contains('/') || !path.contains('.')))
+        .then_some(if state.console_source_is_override {
+            "index.html"
+        } else {
+            "200.html"
+        });
+    let source_path = if state.console_source_is_override {
+        path
+    } else {
+        format!("console/{path}")
+    };
+    serve_source(&state.console_source, &source_path, fallback, request).await
 }
 
-fn console_file(path: &str) -> Response {
-    if !embedded_path_is_safe(path) {
-        return StatusCode::NOT_FOUND.into_response();
-    }
-    let response = embedded_file(EMBEDDED_CONSOLE_ASSETS, path);
-    if response.status() == StatusCode::NOT_FOUND
-        && !path.starts_with("assets/")
-        && (path.contains('/') || !path.contains('.'))
+pub(crate) async fn web_fallback<R, E>(
+    State(state): State<AuthHttpState<R, E>>,
+    request: Request<Body>,
+) -> Response {
+    let uri = request.uri().clone();
+    if matches!(uri.path(), "/auth" | "/bootstrap")
+        || uri.path().starts_with("/auth/")
+        || uri.path().starts_with("/bootstrap/")
     {
-        embedded_file(EMBEDDED_CONSOLE_ASSETS, "index.html")
-    } else {
-        response
+        return StatusCode::NOT_FOUND.into_response();
     }
+    let path = uri.path().trim_start_matches('/');
+    let fallback = (!path.starts_with("assets/") && !path.contains('.')).then_some("200.html");
+    serve_source(&state.web_source, path, fallback, request).await
 }
 
-async fn portal_file<R, E>(state: &AuthHttpState<R, E>, path: &str) -> Response {
+async fn serve_source(
+    source: &WebSource,
+    path: &str,
+    fallback: Option<&str>,
+    request: Request<Body>,
+) -> Response {
+    if let WebSource::Proxy(proxy) = source {
+        return proxy_request(proxy, request).await;
+    }
     if !embedded_path_is_safe(path) {
         return StatusCode::NOT_FOUND.into_response();
     }
-    let bytes = if let Some(directory) = &state.portal_override_dir {
-        match tokio::fs::read(directory.join(path)).await {
-            Ok(bytes) => Some(bytes),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    let response = match source {
+        WebSource::Embedded => embedded_file(EMBEDDED_WEB_ASSETS, path),
+        WebSource::Directory(directory) => directory_file(directory, path).await,
+        WebSource::Proxy(_) => unreachable!(),
+    };
+    if response.status() == StatusCode::NOT_FOUND {
+        if let Some(fallback) = fallback {
+            return match source {
+                WebSource::Embedded => embedded_file(EMBEDDED_WEB_ASSETS, fallback),
+                WebSource::Directory(directory) => directory_file(directory, fallback).await,
+                WebSource::Proxy(_) => unreachable!(),
+            };
         }
-    } else {
-        return embedded_file(EMBEDDED_PORTAL_ASSETS, path);
-    };
-    let Some(bytes) = bytes else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    embedded_response(path, bytes)
+    }
+    response
+}
+
+async fn proxy_request(proxy: &axum::Router, request: Request<Body>) -> Response {
+    let Ok(mut response) = proxy.clone().oneshot(request).await;
+    response
+        .headers_mut()
+        .entry(CONTENT_SECURITY_POLICY)
+        .or_insert(HeaderValue::from_static(PROXY_CONTENT_SECURITY_POLICY));
+    response
+}
+
+async fn directory_file(directory: &std::path::Path, path: &str) -> Response {
+    match tokio::fs::read(directory.join(path)).await {
+        Ok(bytes) => embedded_response(path, bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            StatusCode::NOT_FOUND.into_response()
+        }
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
 }
 
 fn embedded_file(assets: &[(&str, &[u8])], path: &str) -> Response {

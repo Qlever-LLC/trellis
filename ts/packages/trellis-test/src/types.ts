@@ -7,7 +7,10 @@ import type {
 } from "@qlever-llc/trellis";
 import type { NativeProtocolContract } from "@qlever-llc/trellis/contracts";
 
-import type { TrellisControlPlaneOAuthProvider } from "./control_plane_config.ts";
+import type {
+  TrellisControlPlaneOAuthProvider,
+  TrellisControlPlaneWebSource,
+} from "./control_plane_config.ts";
 import type { LocalNatsBootstrapManifest } from "./nats_bootstrap.ts";
 import type { TrellisControlPlaneSqlite } from "./control_plane_sqlite.ts";
 
@@ -94,6 +97,12 @@ export type TrellisTestRuntimeStartOptions = {
   oauthProviders?: Record<string, TrellisControlPlaneOAuthProvider>;
   /** Additional exact browser origins allowed by the test runtime. */
   webOrigins?: readonly string[];
+  /** Shared built-in web source for the real control plane. */
+  webSource?: TrellisControlPlaneWebSource;
+  /** Login Portal source overriding the shared web source. */
+  portalSource?: TrellisControlPlaneWebSource;
+  /** Console source overriding the shared web source. */
+  consoleSource?: TrellisControlPlaneWebSource;
   /** Route the advertised browser WebSocket endpoint through a replaceable TCP proxy. */
   rotatableWebsocketProxy?: boolean;
   timeouts?: {

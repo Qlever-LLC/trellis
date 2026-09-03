@@ -1749,7 +1749,9 @@ async fn capability_groups_validate_and_protect_builtins() {
         canonical_admin_capabilities
     );
     assert_eq!(
-        repaired[0]["version"].as_i64().expect("reconciled admin group version"),
+        repaired[0]["version"]
+            .as_i64()
+            .expect("reconciled admin group version"),
         1,
         "reconciled admin group must remain at version 1"
     );

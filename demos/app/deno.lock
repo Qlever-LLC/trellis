@@ -1020,17 +1020,7 @@
           "npm:ulid@^3.0.2"
         ]
       },
-      "jsr:@qlever-llc/trellis-app-console@0.0.0": {
-        "dependencies": [
-          "npm:vite@*"
-        ]
-      },
       "jsr:@qlever-llc/trellis-integration@0.0.0": {},
-      "jsr:@qlever-llc/trellis-portal-login@0.0.0": {
-        "dependencies": [
-          "npm:vite@*"
-        ]
-      },
       "jsr:@qlever-llc/trellis-svelte@0.12.0": {},
       "jsr:@qlever-llc/trellis-test@0.12.0": {
         "dependencies": [

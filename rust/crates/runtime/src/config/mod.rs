@@ -8,7 +8,6 @@ use crate::{RuntimeMode, SubsystemName};
 
 /// TOML runtime configuration for `trellis-server`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct RuntimeConfig {
     /// Human-readable Trellis instance name.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -384,6 +383,19 @@ impl RuntimeConfig {
                 resolve_path(base_dir, &mut auth_callout.xkey_seed_file);
             }
         }
+        if let Some(http) = &mut self.http {
+            for source in [
+                &mut http.web_source,
+                &mut http.portal_source,
+                &mut http.console_source,
+            ] {
+                if let Some(WebSourceConfig::Directory(path)) = source {
+                    if path.is_relative() {
+                        *path = base_dir.join(&*path);
+                    }
+                }
+            }
+        }
 
         for storage in [
             self.platform
@@ -467,7 +479,6 @@ impl RuntimeConfig {
 
 /// Optional host path-root overrides from the `[paths]` config section.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct RuntimePathsConfig {
     /// Default root for subsystem databases and other durable data.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -503,7 +514,6 @@ pub struct RuntimePathDefaults {
 
 /// HTTP listener configuration for the runtime.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct HttpConfig {
     /// TCP port for the HTTP server.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -517,6 +527,15 @@ pub struct HttpConfig {
     /// Insecure origins allowed for local development.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allow_insecure_origins: Option<Vec<String>>,
+    /// Shared source for built-in web surfaces. Absent uses embedded assets.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub web_source: Option<WebSourceConfig>,
+    /// Login Portal source overriding `web_source`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub portal_source: Option<WebSourceConfig>,
+    /// Console source overriding `web_source`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub console_source: Option<WebSourceConfig>,
     /// Maximum requests per rate-limit window.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limit_max: Option<u32>,
@@ -525,9 +544,18 @@ pub struct HttpConfig {
     pub rate_limit_window_ms: Option<u64>,
 }
 
+/// A filesystem or reverse-proxy source for a Trellis web surface.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WebSourceConfig {
+    /// Serve a static SvelteKit artifact directory.
+    Directory(PathBuf),
+    /// Reverse proxy requests to an HTTP or HTTPS upstream.
+    Proxy(String),
+}
+
 /// NATS configuration for runtime connections and auth callout material.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct NatsConfig {
     /// NATS server URL or comma-separated URLs.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -542,7 +570,6 @@ pub struct NatsConfig {
 
 /// Generated NATS credential paths used by the runtime.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct NatsRuntimeConfig {
     /// Auth-account runtime user creds path.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -557,7 +584,6 @@ pub struct NatsRuntimeConfig {
 
 /// NATS auth-callout signing and encryption material paths.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct NatsAuthCalloutConfig {
     /// Auth issuer signing seed file.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -654,7 +680,6 @@ pub struct ResolvedNatsAuthCalloutConfig {
 
 /// Browser/client connection hints emitted by the runtime.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct ClientConfig {
     /// WebSocket NATS server URLs for browser clients.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -666,7 +691,6 @@ pub struct ClientConfig {
 
 /// Runtime lease configuration.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct LeasesConfig {
     /// NATS KV bucket used for runtime leases.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -737,7 +761,6 @@ pub struct ResolvedLeasesConfig {
 
 /// Runtime authentication configuration.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct AuthConfig {
     /// Local username/password identity configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -749,7 +772,6 @@ pub struct AuthConfig {
 
 /// File-backed authorization trust and context-runtime policy.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct AuthorizationConfig {
     /// Public pinned authorization trust-root JSON file.
     pub trust_root_file: PathBuf,
@@ -894,7 +916,6 @@ impl AuthorizationConfig {
 
 /// Local identity provider configuration.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct LocalIdentityConfig {
     /// Enables local identity authentication.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -906,7 +927,6 @@ pub struct LocalIdentityConfig {
 
 /// OAuth configuration.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct OAuthConfig {
     /// Base URL for OAuth redirect callbacks.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -921,7 +941,6 @@ pub struct OAuthConfig {
 
 /// OAuth provider configuration.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct OAuthProviderConfig {
     /// Provider type, currently expected to be `oidc`.
     #[serde(rename = "type")]
@@ -951,7 +970,6 @@ pub struct OAuthProviderConfig {
 
 /// Configuration for a built-in runtime subsystem.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct SubsystemConfig {
     /// Storage configuration for the subsystem.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -975,7 +993,6 @@ pub struct SubsystemConfig {
 
 /// Platform TTL settings in milliseconds.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct PlatformTtlConfig {
     /// Session TTL.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -999,7 +1016,6 @@ pub struct PlatformTtlConfig {
 
 /// Storage configuration for a built-in runtime subsystem.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct StorageConfig {
     /// Storage backend kind. Only `sqlite` is implemented today.
     pub kind: String,

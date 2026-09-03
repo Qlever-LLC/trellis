@@ -1,11 +1,9 @@
 use axum::response::IntoResponse;
 
-use super::browser::ApprovalRequest;
 use super::{
     canonical_origin, first_admin_token_hash, oauth_cookie_header, oauth_cookie_name,
     oidc_portal_policy_digest, project_service_resource_bindings, require_oauth_browser_binding,
-    select_browser_authority, validate_redirect, NatsBootstrapIssuer, EMBEDDED_CONSOLE_ASSETS,
-    EMBEDDED_PORTAL_ASSETS,
+    select_browser_authority, validate_redirect, NatsBootstrapIssuer, EMBEDDED_WEB_ASSETS,
 };
 use crate::platform::auth::AuthorizationStateError;
 use crate::platform::auth::{
@@ -106,147 +104,6 @@ fn browser_approval_accepts_only_server_owned_optional_bundles() {
             .code,
         "unknown_optional_bundle"
     );
-}
-
-#[test]
-fn browser_approval_wire_rejects_caller_authored_machine_authority() {
-    for atom in [
-        permission(
-            PermissionTarget::api_surface("unrelated.api@v1", ApiSurfaceKind::Rpc, "Admin")
-                .unwrap(),
-            PermissionAction::Call,
-        ),
-        permission(
-            PermissionTarget::api_surface("unrelated.api@v1", ApiSurfaceKind::Event, "Published")
-                .unwrap(),
-            PermissionAction::Publish,
-        ),
-        permission(
-            PermissionTarget::api_surface("unrelated.api@v1", ApiSurfaceKind::State, "records")
-                .unwrap(),
-            PermissionAction::Write,
-        ),
-        permission(
-            PermissionTarget::participant_resource("app-1", ParticipantResourceKind::Kv, "secrets")
-                .unwrap(),
-            PermissionAction::Write,
-        ),
-    ] {
-        assert!(
-            serde_json::from_value::<ApprovalRequest>(serde_json::json!({
-                "approved": true,
-                "consentViewDigest": DIGEST,
-                "selectedOptionalBundles": [],
-                "grantSet": GrantSet::new(vec![atom]),
-            }))
-            .is_err()
-        );
-    }
-    assert!(
-        serde_json::from_value::<ApprovalRequest>(serde_json::json!({
-            "approved": true,
-            "consentViewDigest": DIGEST,
-            "selectedOptionalBundles": [],
-            "capabilities": ["trellis.jobs::read"],
-        }))
-        .is_err()
-    );
-}
-
-#[test]
-fn browser_approval_wire_rejects_retired_idempotency_key() {
-    assert!(
-        serde_json::from_value::<ApprovalRequest>(serde_json::json!({
-            "approved": true,
-            "consentViewDigest": DIGEST,
-            "selectedOptionalBundles": [],
-        }))
-        .is_ok()
-    );
-    assert!(
-        serde_json::from_value::<ApprovalRequest>(serde_json::json!({
-            "approved": true,
-            "consentViewDigest": DIGEST,
-            "selectedOptionalBundles": [],
-            "idempotencyKey": "retired",
-        }))
-        .is_err()
-    );
-}
-
-#[test]
-fn browser_start_wire_rejects_retired_fields() {
-    let request = serde_json::json!({
-        "requestId": "req_1",
-        "issuedAt": 1,
-        "sessionPublicKey": "key",
-        "sessionNkey": "nkey",
-        "participantId": "app",
-        "participantArtifactDigest": DIGEST,
-        "participantArtifact": null,
-        "referencedApiArtifacts": [],
-        "redirectTarget": "https://app.example/complete",
-        "proof": {},
-    });
-    assert!(serde_json::from_value::<super::browser::AuthStartRequest>(request.clone()).is_ok());
-    let retired = request;
-    for field in ["participantNeedsDigest", "sessionKey"] {
-        let mut invalid = retired.clone();
-        invalid[field] = serde_json::json!("retired");
-        assert!(serde_json::from_value::<super::browser::AuthStartRequest>(invalid).is_err());
-    }
-}
-
-#[test]
-fn browser_account_bodies_reject_unknown_and_retired_fields() {
-    let first_admin = serde_json::json!({
-        "username": "admin",
-        "password": "password",
-        "name": null,
-        "email": null,
-    });
-    assert!(
-        serde_json::from_value::<super::browser::AdminAccountRequest>(first_admin.clone()).is_ok()
-    );
-    let mut continued = first_admin.clone();
-    continued["browserFlowId"] = serde_json::json!("flow_console");
-    assert!(serde_json::from_value::<super::browser::AdminAccountRequest>(continued).is_ok());
-    let mut unknown = first_admin;
-    unknown["unexpected"] = serde_json::json!(true);
-    assert!(serde_json::from_value::<super::browser::AdminAccountRequest>(unknown).is_err());
-
-    let registration = serde_json::json!({
-        "username": "user",
-        "password": "password",
-        "name": null,
-        "email": null,
-        "portalBindingDigest": DIGEST,
-    });
-    assert!(
-        serde_json::from_value::<super::browser::LocalRegistrationRequest>(registration.clone())
-            .is_ok()
-    );
-    let mut retired = registration;
-    retired["idempotencyKey"] = serde_json::json!("retired");
-    assert!(serde_json::from_value::<super::browser::LocalRegistrationRequest>(retired).is_err());
-}
-
-#[test]
-fn browser_bind_wire_accepts_only_the_session_proof_request() {
-    let request = serde_json::json!({
-        "requestId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-        "issuedAt": 1,
-        "proof": {
-            "format": "trellis.session-proof.v1",
-            "signature": "proof",
-        },
-    });
-    assert!(serde_json::from_value::<super::browser::BindRequest>(request.clone()).is_ok());
-    for retired in ["idempotencyKey", "sessionKey", "sig"] {
-        let mut invalid = request.clone();
-        invalid[retired] = serde_json::json!("retired");
-        assert!(serde_json::from_value::<super::browser::BindRequest>(invalid).is_err());
-    }
 }
 
 #[tokio::test]
@@ -411,26 +268,19 @@ fn oauth_portal_policy_digest_tracks_policy_not_wording() {
 }
 
 #[test]
-fn embedded_browser_apps_contain_fallbacks_and_assets() {
-    let portal = EMBEDDED_PORTAL_ASSETS
+fn embedded_web_app_contains_fallback_and_assets() {
+    let shell = EMBEDDED_WEB_ASSETS
         .iter()
         .find_map(|(path, bytes)| (*path == "200.html").then_some(*bytes))
-        .expect("embedded login fallback");
-    let portal = std::str::from_utf8(portal).expect("login fallback UTF-8");
-    assert!(!portal.contains("<script>"));
-    assert!(portal.contains("/assets/login/bootstrap.js"));
-    assert!(portal.contains("/assets/login/trellis-logo.svg"));
-    assert!(EMBEDDED_PORTAL_ASSETS
+        .expect("embedded web fallback");
+    let shell = std::str::from_utf8(shell).expect("web fallback UTF-8");
+    assert!(!shell.contains("<script>"));
+    assert!(shell.contains("/assets/web/bootstrap.js"));
+    assert!(shell.contains("/assets/web/trellis-logo.svg"));
+    assert!(EMBEDDED_WEB_ASSETS
         .iter()
         .any(|(path, bytes)| path.starts_with("assets/login/") && !bytes.is_empty()));
-    let console = EMBEDDED_CONSOLE_ASSETS
-        .iter()
-        .find_map(|(path, bytes)| (*path == "index.html").then_some(*bytes))
-        .expect("embedded Console fallback");
-    let console = std::str::from_utf8(console).expect("Console fallback UTF-8");
-    assert!(!console.contains("<script>"));
-    assert!(console.contains("/console/assets/bootstrap.js"));
-    assert!(EMBEDDED_CONSOLE_ASSETS
+    assert!(EMBEDDED_WEB_ASSETS
         .iter()
         .any(|(path, bytes)| path.starts_with("assets/") && !bytes.is_empty()));
 }

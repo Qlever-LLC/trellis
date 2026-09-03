@@ -12,15 +12,15 @@ Deno.test("Trellis HTTP errors preserve exact status and machine code", async ()
   assertEquals(error.code, "flow_expired");
 });
 
-Deno.test("Trellis HTTP error decoder rejects loose envelopes", async () => {
+Deno.test("Trellis HTTP error decoder tolerates unknown envelope members", async () => {
   const error = await decodeTrellisHttpError(
     new Response(
-      '{"error":{"code":"session_revoked"},"message":"ignore me"}',
+      '{"error":{"code":"session_revoked","futureDetail":{"retryable":false}},"futureTopLevel":true}',
       { status: 401 },
     ),
   );
   assertEquals(error.status, 401);
-  assertEquals(error.code, INVALID_HTTP_ERROR_ENVELOPE);
+  assertEquals(error.code, "session_revoked");
   assertEquals(
     (await decodeTrellisHttpError(
       new Response('{"error":{"code":""}}', { status: 401 }),

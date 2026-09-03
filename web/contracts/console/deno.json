@@ -1,0 +1,15 @@
+{
+  "name": "@qlever-llc/trellis-app-console",
+  "version": "0.0.0",
+  "exports": "./contract.ts",
+  "imports": {
+    "@qlever-llc/trellis/contracts": "../../../ts/packages/trellis/contracts.ts",
+    "@trellis/apis/trellis.auth": "./.trellis/generated/ts/trellis-apis/trellis.auth.ts",
+    "@trellis/apis/trellis.core": "./.trellis/generated/ts/trellis-apis/trellis.core.ts",
+    "@trellis/apis/trellis.eventlog": "./.trellis/generated/ts/trellis-apis/trellis.eventlog.ts",
+    "@trellis/apis/trellis.health": "./.trellis/generated/ts/trellis-apis/trellis.health.ts",
+    "@trellis/apis/trellis.jobs": "./.trellis/generated/ts/trellis-apis/trellis.jobs.ts",
+    "@trellis/apis/trellis.state": "./.trellis/generated/ts/trellis-apis/trellis.state.ts"
+  },
+  "links": [".trellis/generated/ts/trellis-apis"]
+}

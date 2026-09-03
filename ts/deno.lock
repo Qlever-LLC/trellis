@@ -100,7 +100,6 @@
     "npm:typescript@6.0.3": "6.0.3",
     "npm:ulid@^3.0.2": "3.0.2",
     "npm:v8-to-istanbul@^9.3.0": "9.3.0",
-    "npm:vite@*": "8.0.10_@types+node@25.6.0",
     "npm:vite@8.0.10": "8.0.10_@types+node@25.6.0",
     "npm:zod@^4.3.6": "4.4.3"
   },
@@ -2640,11 +2639,6 @@
       "npm:zod@^4.3.6"
     ],
     "members": {
-      "apps/console": {
-        "dependencies": [
-          "npm:vite@*"
-        ]
-      },
       "packages/result": {
         "dependencies": [
           "npm:typebox@^1.1.33",
@@ -2666,11 +2660,6 @@
           "npm:@nats-io/jetstream@^3.3.1",
           "npm:@nats-io/kv@^3.3.1",
           "npm:@nats-io/nats-core@^3.3.1"
-        ]
-      },
-      "portals/login": {
-        "dependencies": [
-          "npm:vite@*"
         ]
       }
     },

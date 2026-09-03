@@ -97,25 +97,23 @@ const BrowserFlowWireProperties = {
       digest: Type.String({ minLength: 1 }),
       displayName: Type.String({ minLength: 1 }),
       description: Type.String(),
-    }, { additionalProperties: false }),
+    }),
     required: Type.Object({
       permissions: Type.Array(Type.Unknown()),
       capabilities: Type.Array(Type.String({ minLength: 1 })),
-    }, { additionalProperties: false }),
+    }),
     optionalBundles: Type.Optional(Type.Array(Type.Object({
       id: Type.String({ minLength: 1 }),
       apiId: Type.String({ minLength: 1 }),
       permissions: Type.Array(Type.Record(Type.String(), Type.Unknown())),
-    }, { additionalProperties: false }))),
-  }, { additionalProperties: false }),
+    }))),
+  }),
   redirectTarget: Type.Optional(Type.Union([
     Type.Null(),
     Type.String({ minLength: 1 }),
   ])),
 };
-const BrowserFlowWireSchema = Type.Object(BrowserFlowWireProperties, {
-  additionalProperties: false,
-});
+const BrowserFlowWireSchema = Type.Object(BrowserFlowWireProperties);
 const PortalFlowWireSchema = Type.Object({
   ...BrowserFlowWireProperties,
   consentViewDigest: Type.String({ minLength: 1 }),
@@ -125,8 +123,8 @@ const PortalFlowWireSchema = Type.Object({
     name: Type.Optional(Type.String({ minLength: 1 })),
     email: Type.Optional(Type.String({ minLength: 1 })),
     image: Type.Optional(Type.String({ minLength: 1 })),
-  }, { additionalProperties: false }),
-}, { additionalProperties: false });
+  }),
+});
 type BrowserFlowWire = StaticDecode<typeof BrowserFlowWireSchema>;
 type PortalFlowWire = StaticDecode<typeof PortalFlowWireSchema>;
 

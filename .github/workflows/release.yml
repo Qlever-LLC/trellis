@@ -405,7 +405,7 @@ jobs:
             title: trellis
             description: Trellis Rust runtime
           - image: console
-            file: ts/apps/console/Containerfile
+            file: web/Containerfile
             title: console
             description: Trellis administrative web console
 

@@ -44,6 +44,9 @@ exact participant artifact and needs digests.
   NATS; there is no HTTP context, revocation, logout, or client-bootstrap API.
 - Built-in browser routes are `/login/*` with `/assets/login/*` and `/console/*`
   with `/console/assets/*`; auth APIs remain under `/auth/*`.
+- Built-in web routes use embedded assets by default. `[http].web_source`,
+  `portal_source`, and `console_source` select directory or HTTP(S) proxy sources;
+  surface sources override the shared source.
 - Rust HTTP callers use `decode_trellis_http_error(...)` and branch only on the
   returned HTTP status and exact machine code, never serialized body or message text.
   Pending devices retry `/bootstrap/device`; there is no separate wait or

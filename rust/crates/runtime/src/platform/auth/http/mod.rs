@@ -50,10 +50,7 @@ use security::{
     require_selected_portal_origin, validate_portal_binding_digest, validate_redirect,
 };
 
-const EMBEDDED_PORTAL_ASSETS: &[(&str, &[u8])] =
-    include!(concat!(env!("OUT_DIR"), "/portal_assets.rs"));
-const EMBEDDED_CONSOLE_ASSETS: &[(&str, &[u8])] =
-    include!(concat!(env!("OUT_DIR"), "/console_assets.rs"));
+const EMBEDDED_WEB_ASSETS: &[(&str, &[u8])] = include!(concat!(env!("OUT_DIR"), "/web_assets.rs"));
 const MAX_AUTH_REQUEST_BODY_BYTES: usize = 4 * 1024 * 1024;
 use url::Url;
 
@@ -216,7 +213,17 @@ pub(super) struct AuthHttpState<R, E> {
     websocket_nats_servers: Vec<String>,
     oidc_providers: BTreeMap<String, OidcProvider>,
     proof_policy: SessionProofPolicy,
-    portal_override_dir: Option<PathBuf>,
+    web_source: WebSource,
+    portal_source: WebSource,
+    console_source: WebSource,
+    console_source_is_override: bool,
+}
+
+#[derive(Clone)]
+enum WebSource {
+    Embedded,
+    Directory(PathBuf),
+    Proxy(axum::Router),
 }
 
 pub(crate) struct AuthHttpOptions<R, E> {
@@ -231,7 +238,9 @@ pub(crate) struct AuthHttpOptions<R, E> {
     pub oidc_providers: BTreeMap<String, OidcProvider>,
     pub rate_limit_max: u32,
     pub rate_limit_window_ms: u64,
-    pub portal_override_dir: Option<PathBuf>,
+    pub web_source: Option<crate::config::WebSourceConfig>,
+    pub portal_source: Option<crate::config::WebSourceConfig>,
+    pub console_source: Option<crate::config::WebSourceConfig>,
 }
 
 #[derive(Clone)]

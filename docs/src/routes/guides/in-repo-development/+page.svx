@@ -62,20 +62,39 @@ curl http://localhost:3000/readyz
 
 Use a runtime path that explicitly includes the auth and portal services for end-to-end first-admin, portal, and CLI login flows.
 
-## 5. Start Console
+## 5. Start the built-in web app
 
 ```sh
-cd ts/apps/console
-cp .env.example .env
+cd web
 deno task dev
 ```
 
-Open `http://localhost:5173` for Console UI development. Console cannot complete login against the current Rust runtime until auth and portal routes are ported.
+Point the shared built-in web source at Vite in the runtime configuration, then
+open `http://localhost:3000/console`:
+
+```toml
+[http]
+web_source = { proxy = "http://127.0.0.1:5173" }
+```
+
+Trellis reverse proxies the complete web source, including Vite modules and HMR
+WebSockets. The browser continues to use the Trellis origin.
+
+To replace either embedded UI with a built static artifact, configure its root:
+
+```toml
+[http]
+portal_source = { directory = "/opt/acme/trellis-login" }
+console_source = { directory = "/opt/acme/trellis-console" }
+```
+
+The portal root must contain `200.html`; the Console root must contain
+`index.html`.
 
 ## Development workflow
 
 - **Runtime changes**: edit files under `rust/crates/runtime/`; rebuild and restart `trellis-server` after changes.
-- **Console changes**: edit files under `ts/apps/console/`; Vite HMR applies changes in place.
+- **Web changes**: edit files under `web/`; Vite HMR applies changes through Trellis.
 - **Contract changes**: run `cargo xtask install`.
 - **CLI changes**: run `cargo build -p trellis-cli` in the `rust/` directory, then re-run `trellis ...` commands.
 - **Type checking**: run `deno task -c ts/deno.json check`.
@@ -87,5 +106,5 @@ Open `http://localhost:5173` for Console UI development. Console cannot complete
 curl http://127.0.0.1:8222/healthz
 curl http://localhost:3000/healthz
 curl http://localhost:3000/readyz
-curl -I http://localhost:5173/
+curl -I http://localhost:3000/console
 ```
