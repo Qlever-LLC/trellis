@@ -1250,6 +1250,167 @@ Deno.test({
 });
 
 Deno.test({
+  name: "auth HTTP OAuth diagnostics classify missing and duplicate cookies",
+  sanitizeResources: false,
+  fn: async () => {
+    let savedState: OAuthState | undefined;
+    let savedStateHash: string | undefined;
+    const warnings: Array<{
+      context: Record<string, unknown>;
+      message: string;
+    }> = [];
+    const logger = {
+      trace: () => {},
+      debug: () => {},
+      info: () => {},
+      warn: (context: Record<string, unknown>, message: string) => {
+        warnings.push({ context, message });
+      },
+      error: () => {},
+    };
+    const oauthStateKV = {
+      create: (key: string, value: OAuthState) => {
+        savedStateHash = key;
+        savedState = value;
+        return AsyncResult.ok(undefined);
+      },
+      get: (key: string) =>
+        key === savedStateHash && savedState
+          ? AsyncResult.ok({
+            value: savedState,
+            delete: () => AsyncResult.ok(undefined),
+          })
+          : AsyncResult.err(
+            new KVError({
+              operation: "get",
+              context: { reason: "not found" },
+            }),
+          ),
+    };
+    const app = await registerTestRoutes(
+      { flowId: "flow-oauth" },
+      {},
+      { github: testProvider("github", "GitHub") },
+      {
+        oauthCodeRequest: () =>
+          Promise.resolve([
+            "https://github.example/authorize?state=state-123",
+            { state: "state-123", codeVerifier: "verifier-123" },
+          ]),
+      },
+      { logger, oauthStateKV },
+    );
+    const continuityHeaders = {
+      "user-agent": "diagnostic-browser",
+      "x-forwarded-for": "192.0.2.10",
+      "x-forwarded-host": "trellis.example.com",
+      "x-forwarded-proto": "https",
+      "sec-ch-ua": '"Brave";v="1"',
+      "sec-ch-ua-mobile": "?0",
+      "sec-ch-ua-platform": '"Linux"',
+    };
+
+    const start = await app.request(
+      "http://trellis/auth/login/github?flowId=flow-oauth",
+      { headers: continuityHeaders },
+    );
+
+    assertEquals(start.status, 302);
+    const setCookies = start.headers.getSetCookie();
+    assertEquals(setCookies.length, 3);
+    assertEquals(
+      setCookies.some((value) => value.startsWith("trellis_oauth=state-123;")),
+      true,
+    );
+    assertEquals(
+      setCookies.some((value) =>
+        value.startsWith("trellis_oauth_probe_auth=") &&
+        value.includes("Path=/auth")
+      ),
+      true,
+    );
+    assertEquals(
+      setCookies.some((value) =>
+        value.startsWith("trellis_oauth_probe_root=") &&
+        value.includes("Path=/;")
+      ),
+      true,
+    );
+    assertEquals(savedState?.kind, "browser_login");
+    if (savedState?.kind !== "browser_login" || !savedState.diagnostics) {
+      throw new Error("expected browser OAuth diagnostic state");
+    }
+    assertEquals(savedState.diagnostics.request.origin, "http://trellis");
+    assertEquals(
+      savedState.diagnostics.request.forwardedHost,
+      "trellis.example.com",
+    );
+
+    const missing = await app.request(
+      "http://trellis/auth/callback/github?state=state-123&code=code-123",
+      { headers: continuityHeaders },
+    );
+
+    assertEquals(missing.status, 400);
+    assertEquals(warnings.length, 1);
+    assertEquals(warnings[0].message, "OAuth callback cookie diagnostics");
+    assertEquals(warnings[0].context.oauthCookieStatus, "missing");
+    assertEquals(warnings[0].context.authProbeStatus, "missing");
+    assertEquals(warnings[0].context.rootProbeStatus, "missing");
+    assertEquals(warnings[0].context.userAgentContinuity, "matching");
+    assertEquals(warnings[0].context.clientAddressContinuity, "matching");
+
+    const authProbeSetCookie = setCookies.find((value) =>
+      value.startsWith("trellis_oauth_probe_auth=")
+    );
+    const rootProbeSetCookie = setCookies.find((value) =>
+      value.startsWith("trellis_oauth_probe_root=")
+    );
+    if (!authProbeSetCookie || !rootProbeSetCookie) {
+      throw new Error("expected OAuth probe cookies");
+    }
+    const authProbe = authProbeSetCookie.slice(
+      authProbeSetCookie.indexOf("=") + 1,
+      authProbeSetCookie.indexOf(";"),
+    );
+    const rootProbe = rootProbeSetCookie.slice(
+      rootProbeSetCookie.indexOf("=") + 1,
+      rootProbeSetCookie.indexOf(";"),
+    );
+    const duplicate = await app.request(
+      "http://trellis/auth/callback/github?state=state-123&code=code-123",
+      {
+        headers: {
+          ...continuityHeaders,
+          cookie:
+            `trellis_oauth=stale; trellis_oauth=state-123; trellis_oauth_probe_auth=${authProbe}; trellis_oauth_probe_root=${rootProbe}`,
+        },
+      },
+    );
+
+    assertEquals(duplicate.status, 400);
+    assertEquals(warnings.length, 2);
+    assertEquals(warnings[1].context.oauthCookieStatus, "different");
+    assertEquals(warnings[1].context.oauthCookieOccurrenceCount, 2);
+    assertEquals(warnings[1].context.oauthCookieMatchingOccurrenceCount, 1);
+    assertEquals(warnings[1].context.authProbeStatus, "matching");
+    assertEquals(warnings[1].context.rootProbeStatus, "matching");
+
+    const replay = await app.request(
+      "http://trellis/auth/callback/github?state=expired-state&code=code-123",
+      { headers: continuityHeaders },
+    );
+
+    assertEquals(replay.status, 400);
+    assertEquals(warnings.length, 3);
+    assertEquals(warnings[2].context.oauthStateRecordStatus, "missing");
+    assertEquals(warnings[2].context.oauthCookieStatus, "missing");
+    assertEquals(warnings[2].context.authProbeStatus, "unavailable");
+    assertEquals(warnings[2].context.rootProbeStatus, "unavailable");
+  },
+});
+
+Deno.test({
   name:
     "auth HTTP OAuth login start redirects expired login flows to app without auth error",
   sanitizeResources: false,

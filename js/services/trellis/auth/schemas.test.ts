@@ -581,6 +581,19 @@ Deno.test("OAuthStateSchema validates browser flow linkage", () => {
     contract: { id: "trellis.console@v1" },
     context: { subtitle: "Welcome" },
     flowId: "flow_123",
+    diagnostics: {
+      version: 1,
+      cookieProbeHash: "C".repeat(43),
+      fingerprintSalt: "G".repeat(43),
+      request: {
+        origin: "https://trellis.example.com",
+        forwardedHost: "trellis.example.com",
+        forwardedProto: "https",
+        userAgentHash: "D".repeat(43),
+        clientAddressHash: "E".repeat(43),
+        clientHintsHash: "F".repeat(43),
+      },
+    },
     createdAt: new Date().toISOString(),
   }));
   assert(Value.Check(OAuthStateSchema, {
@@ -594,6 +607,22 @@ Deno.test("OAuthStateSchema validates browser flow linkage", () => {
     provider: "github",
     flowId: "flow_456",
     codeVerifier: "code-verifier",
+    createdAt: new Date().toISOString(),
+  }));
+  assertFalse(Value.Check(OAuthStateSchema, {
+    kind: "browser_login",
+    provider: "github",
+    redirectTo: "https://app.example.com/dashboard",
+    codeVerifier: "code-verifier",
+    sessionKey,
+    contract: {},
+    flowId: "flow_123",
+    diagnostics: {
+      version: 1,
+      cookieProbeHash: "not-a-sha256-hash",
+      fingerprintSalt: "G".repeat(43),
+      request: { origin: "https://trellis.example.com" },
+    },
     createdAt: new Date().toISOString(),
   }));
 });

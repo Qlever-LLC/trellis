@@ -117,6 +117,19 @@ export const AppIdentitySchema = Type.Object({
 });
 export type AppIdentity = StaticDecode<typeof AppIdentitySchema>;
 
+const OAuthDiagnosticHashSchema = Type.String({
+  pattern: "^[A-Za-z0-9_-]{43}$",
+});
+
+const OAuthRequestDiagnosticsSchema = Type.Object({
+  origin: Type.String({ minLength: 1 }),
+  forwardedHost: Type.Optional(Type.String({ minLength: 1 })),
+  forwardedProto: Type.Optional(Type.String({ minLength: 1 })),
+  userAgentHash: Type.Optional(OAuthDiagnosticHashSchema),
+  clientAddressHash: Type.Optional(OAuthDiagnosticHashSchema),
+  clientHintsHash: Type.Optional(OAuthDiagnosticHashSchema),
+});
+
 export const BrowserLoginOAuthStateSchema = Type.Object({
   kind: Type.Literal("browser_login"),
   provider: Type.String(),
@@ -127,6 +140,12 @@ export const BrowserLoginOAuthStateSchema = Type.Object({
   contract: Type.Object({}, { additionalProperties: true }),
   context: Type.Optional(Type.Object({}, { additionalProperties: true })),
   flowId: Type.String({ minLength: 1 }),
+  diagnostics: Type.Optional(Type.Object({
+    version: Type.Literal(1),
+    cookieProbeHash: OAuthDiagnosticHashSchema,
+    fingerprintSalt: OAuthDiagnosticHashSchema,
+    request: OAuthRequestDiagnosticsSchema,
+  })),
   createdAt: IsoDateSchema,
 });
 

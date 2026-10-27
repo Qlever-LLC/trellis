@@ -13,13 +13,16 @@ import { getApprovalResolutionErrorMessage } from "./approval_errors.ts";
 import {
   applyApprovalDecision,
   buildRedirectLocation,
+  type CookieContext,
   decodeContractQuery,
   decodeOpenObjectQuery,
   encodeBase64Url,
   getApprovalResolution,
   getApprovalResolutionBlocker,
   getCookie,
+  getCookieOccurrences,
   resolveLinkedActiveUserIdentity,
+  setCookie,
   shouldUseSecureOauthCookie,
 } from "./support.ts";
 
@@ -138,6 +141,72 @@ Deno.test("getCookie ignores malformed percent-encoding", () => {
   }, "session");
 
   assertEquals(value, null);
+});
+
+Deno.test("getCookieOccurrences reports duplicate and malformed values", () => {
+  const cookies = getCookieOccurrences({
+    req: {
+      header: (name) =>
+        name === "Cookie"
+          ? "session=first; session=second; session=%E0%A4%A; other=value"
+          : undefined,
+    },
+    header: () => {},
+    json: () => new Response(),
+    redirect: () => new Response(),
+  }, "session");
+
+  assertEquals(cookies, {
+    occurrenceCount: 3,
+    malformedValueCount: 1,
+    values: ["first", "second"],
+  });
+});
+
+Deno.test("setCookie appends independent Set-Cookie headers", () => {
+  const writes: Array<{
+    name: string;
+    value: string;
+    append: boolean | undefined;
+  }> = [];
+  const context: CookieContext = {
+    req: { header: () => undefined },
+    header: (name, value, options) => {
+      writes.push({ name, value, append: options?.append });
+    },
+    json: () => new Response(),
+    redirect: () => new Response(),
+  };
+
+  setCookie(context, "first", "one", {
+    maxAgeSeconds: 300,
+    path: "/auth",
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
+  });
+  setCookie(context, "second", "two", {
+    maxAgeSeconds: 300,
+    path: "/",
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
+    append: true,
+  });
+
+  assertEquals(writes, [
+    {
+      name: "Set-Cookie",
+      value:
+        "first=one; Path=/auth; Max-Age=300; SameSite=Lax; HttpOnly; Secure",
+      append: undefined,
+    },
+    {
+      name: "Set-Cookie",
+      value: "second=two; Path=/; Max-Age=300; SameSite=Lax; HttpOnly; Secure",
+      append: true,
+    },
+  ]);
 });
 
 Deno.test("decodeContractQuery requires an object payload", () => {

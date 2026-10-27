@@ -139,9 +139,19 @@ export type WarnLogger = {
 
 export type CookieContext = {
   req: { header: (name: string) => string | undefined };
-  header: (name: string, value: string) => void;
+  header: (
+    name: string,
+    value: string,
+    options?: { append?: boolean },
+  ) => void;
   json: (body: unknown, status?: number) => Response;
   redirect: (location: string) => Response;
+};
+
+export type CookieOccurrences = {
+  occurrenceCount: number;
+  malformedValueCount: number;
+  values: string[];
 };
 
 export function identityAnchorForApp(
@@ -690,6 +700,40 @@ export function getCookie(c: CookieContext, name: string): string | null {
   return null;
 }
 
+/**
+ * Inspects every occurrence of one cookie name without exposing unrelated
+ * cookies from the request header.
+ *
+ * @param c HTTP context carrying the request Cookie header.
+ * @param name Exact cookie name to inspect.
+ * @returns Decoded values plus occurrence and malformed-value counts.
+ */
+export function getCookieOccurrences(
+  c: CookieContext,
+  name: string,
+): CookieOccurrences {
+  const header = c.req.header("Cookie");
+  if (!header) {
+    return { occurrenceCount: 0, malformedValueCount: 0, values: [] };
+  }
+
+  let occurrenceCount = 0;
+  let malformedValueCount = 0;
+  const values: string[] = [];
+  for (const rawPart of header.split(";")) {
+    const part = rawPart.trim();
+    const eq = part.indexOf("=");
+    if (eq === -1 || part.slice(0, eq) !== name) continue;
+    occurrenceCount += 1;
+    try {
+      values.push(decodeURIComponent(part.slice(eq + 1)));
+    } catch {
+      malformedValueCount += 1;
+    }
+  }
+  return { occurrenceCount, malformedValueCount, values };
+}
+
 export function setCookie(
   c: CookieContext,
   name: string,
@@ -700,6 +744,7 @@ export function setCookie(
     httpOnly: boolean;
     secure: boolean;
     sameSite: "Lax" | "Strict" | "None";
+    append?: boolean;
   },
 ): void {
   const parts = [
@@ -710,7 +755,11 @@ export function setCookie(
   ];
   if (opts.httpOnly) parts.push("HttpOnly");
   if (opts.secure) parts.push("Secure");
-  c.header("Set-Cookie", parts.join("; "));
+  if (opts.append) {
+    c.header("Set-Cookie", parts.join("; "), { append: true });
+  } else {
+    c.header("Set-Cookie", parts.join("; "));
+  }
 }
 
 export function shouldUseSecureOauthCookie(

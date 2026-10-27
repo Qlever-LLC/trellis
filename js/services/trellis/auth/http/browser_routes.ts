@@ -33,8 +33,10 @@ import type { AuthHttpRouteContext } from "./route_context.ts";
 import {
   buildRedirectLocation,
   type CookieContext,
+  type CookieOccurrences,
   getApprovalResolutionBlocker,
   getCookie,
+  getCookieOccurrences,
   type OAuthStateEntry,
   setCookie,
   shouldUseSecureOauthCookie,
@@ -47,6 +49,69 @@ import {
 const JsonObjectSchema = Type.Unsafe<Record<string, unknown>>({
   type: "object",
 });
+
+const OAUTH_COOKIE_NAME = "trellis_oauth";
+const OAUTH_AUTH_PROBE_COOKIE_NAME = "trellis_oauth_probe_auth";
+const OAUTH_ROOT_PROBE_COOKIE_NAME = "trellis_oauth_probe_root";
+const OAUTH_COOKIE_MAX_AGE_SECONDS = 300;
+
+async function oauthRequestDiagnostics(c: {
+  req: {
+    url: string;
+    header: (name: string) => string | undefined;
+  };
+}, fingerprintSalt?: string) {
+  const userAgent = c.req.header("user-agent")?.trim();
+  const clientAddress = c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
+  const clientHints = [
+    c.req.header("sec-ch-ua")?.trim(),
+    c.req.header("sec-ch-ua-mobile")?.trim(),
+    c.req.header("sec-ch-ua-platform")?.trim(),
+  ].filter((value): value is string => Boolean(value)).join("\n");
+
+  return {
+    origin: new URL(c.req.url).origin,
+    forwardedHost: c.req.header("x-forwarded-host")?.trim() || undefined,
+    forwardedProto: c.req.header("x-forwarded-proto")?.trim() || undefined,
+    userAgentHash: userAgent && fingerprintSalt
+      ? await hashKey(`oauth-user-agent:${fingerprintSalt}:${userAgent}`)
+      : undefined,
+    clientAddressHash: clientAddress && fingerprintSalt
+      ? await hashKey(
+        `oauth-client-address:${fingerprintSalt}:${clientAddress}`,
+      )
+      : undefined,
+    clientHintsHash: clientHints && fingerprintSalt
+      ? await hashKey(`oauth-client-hints:${fingerprintSalt}:${clientHints}`)
+      : undefined,
+  };
+}
+
+function continuityStatus(
+  expected: string | undefined,
+  received: string | undefined,
+):
+  | "matching"
+  | "different"
+  | "start_missing"
+  | "callback_missing"
+  | "unavailable" {
+  if (!expected && !received) return "unavailable";
+  if (!expected) return "start_missing";
+  if (!received) return "callback_missing";
+  return expected === received ? "matching" : "different";
+}
+
+function diagnosticCookieStatus(
+  occurrences: CookieOccurrences,
+  valueHashes: string[],
+  expectedHash: string | undefined,
+): "matching" | "different" | "missing" | "malformed" | "unavailable" {
+  if (!expectedHash) return "unavailable";
+  if (occurrences.occurrenceCount === 0) return "missing";
+  if (occurrences.values.length === 0) return "malformed";
+  return valueHashes.includes(expectedHash) ? "matching" : "different";
+}
 
 const AuthStartRequestSchema = Type.Object({
   provider: Type.Optional(Type.String({ minLength: 1 })),
@@ -326,6 +391,7 @@ export function registerBrowserAuthRoutes(
   });
 
   app.get("/auth/login/:provider", async (c) => {
+    const providerLoginStartedAt = performance.now();
     logger.trace({}, "Initiating login with external provider.");
     const provider = providers[c.req.param("provider")];
     if (!provider) {
@@ -365,6 +431,14 @@ export function registerBrowserAuthRoutes(
 
     const [redirectUrl, idpParams] = await context.oauthCodeRequest(provider);
     const stateHash = await hashKey(idpParams.state);
+    const flowIdHash = await hashKey(flowId);
+    const cookieProbe = randomToken(32);
+    const cookieProbeHash = await hashKey(cookieProbe);
+    const fingerprintSalt = randomToken(32);
+    const requestDiagnostics = await oauthRequestDiagnostics(
+      c,
+      fingerprintSalt,
+    );
     const createResult = await oauthStateKV.create(stateHash, {
       kind: "browser_login",
       provider: c.req.param("provider"),
@@ -375,6 +449,12 @@ export function registerBrowserAuthRoutes(
       app: flow.app,
       context: flow.context,
       contract: flow.contract,
+      diagnostics: {
+        version: 1,
+        cookieProbeHash,
+        fingerprintSalt,
+        request: requestDiagnostics,
+      },
       createdAt: new Date(),
     });
     if (isErr(createResult)) {
@@ -390,13 +470,45 @@ export function registerBrowserAuthRoutes(
       provider: c.req.param("provider"),
     });
 
-    setCookie(c as CookieContext, "trellis_oauth", idpParams.state, {
-      maxAgeSeconds: 300,
+    const secureCookie = shouldUseSecureOauthCookie(config, { logger });
+    setCookie(c as CookieContext, OAUTH_COOKIE_NAME, idpParams.state, {
+      maxAgeSeconds: OAUTH_COOKIE_MAX_AGE_SECONDS,
       path: "/auth",
       httpOnly: true,
       sameSite: "Lax",
-      secure: shouldUseSecureOauthCookie(config, { logger }),
+      secure: secureCookie,
     });
+    setCookie(c as CookieContext, OAUTH_AUTH_PROBE_COOKIE_NAME, cookieProbe, {
+      maxAgeSeconds: OAUTH_COOKIE_MAX_AGE_SECONDS,
+      path: "/auth",
+      httpOnly: true,
+      sameSite: "Lax",
+      secure: secureCookie,
+      append: true,
+    });
+    setCookie(c as CookieContext, OAUTH_ROOT_PROBE_COOKIE_NAME, cookieProbe, {
+      maxAgeSeconds: OAUTH_COOKIE_MAX_AGE_SECONDS,
+      path: "/",
+      httpOnly: true,
+      sameSite: "Lax",
+      secure: secureCookie,
+      append: true,
+    });
+    logger.info(
+      {
+        event: "oauth_provider_redirect_prepared",
+        oauthDiagnosticVersion: 1,
+        stateHash,
+        flowIdHash,
+        provider: c.req.param("provider"),
+        requestOrigin: requestDiagnostics.origin,
+        forwardedHost: requestDiagnostics.forwardedHost,
+        forwardedProto: requestDiagnostics.forwardedProto,
+        secureCookie,
+        routeDurationMs: performance.now() - providerLoginStartedAt,
+      },
+      "OAuth provider redirect and continuity probes prepared",
+    );
 
     return c.redirect(redirectUrl);
   });
@@ -645,18 +757,144 @@ export function registerBrowserAuthRoutes(
       throw new HTTPException(400, { message: "Missing state parameter" });
     }
 
-    const cookieState = getCookie(c as CookieContext, "trellis_oauth");
+    const stateHash = await hashKey(state);
+    const oauthStateEntry = await oauthStateKV.get(stateHash).take();
+    const oauthStateError = isErr(oauthStateEntry)
+      ? oauthStateEntry.error.toSerializable()
+      : undefined;
+    const oauthStateRecordStatus = !isErr(oauthStateEntry)
+      ? "found"
+      : oauthStateError?.context?.reason === "not found"
+      ? "missing"
+      : "unavailable";
+    const candidateEntry = isErr(oauthStateEntry)
+      ? undefined
+      : oauthStateEntry as OAuthStateEntry;
+    const flowIdHash = candidateEntry
+      ? await hashKey(candidateEntry.value.flowId)
+      : undefined;
+    const expectedDiagnostics = candidateEntry?.value.kind === "browser_login"
+      ? candidateEntry.value.diagnostics
+      : undefined;
+    const callbackRequest = await oauthRequestDiagnostics(
+      c,
+      expectedDiagnostics?.fingerprintSalt,
+    );
+    const cookieContext = c as CookieContext;
+    const cookieState = getCookie(cookieContext, OAUTH_COOKIE_NAME);
+    const oauthCookies = getCookieOccurrences(cookieContext, OAUTH_COOKIE_NAME);
+    const authProbeCookies = getCookieOccurrences(
+      cookieContext,
+      OAUTH_AUTH_PROBE_COOKIE_NAME,
+    );
+    const rootProbeCookies = getCookieOccurrences(
+      cookieContext,
+      OAUTH_ROOT_PROBE_COOKIE_NAME,
+    );
+    const oauthCookieHashes = await Promise.all(
+      oauthCookies.values.map(hashKey),
+    );
+    const authProbeHashes = await Promise.all(
+      authProbeCookies.values.map(hashKey),
+    );
+    const rootProbeHashes = await Promise.all(
+      rootProbeCookies.values.map(hashKey),
+    );
+    const oauthCookieValueHashes = [...new Set(oauthCookieHashes)].sort();
+    const authProbeValueHashes = [...new Set(authProbeHashes)].sort();
+    const rootProbeValueHashes = [...new Set(rootProbeHashes)].sort();
+    const oauthCookieStatus = oauthCookies.occurrenceCount === 0
+      ? "missing"
+      : cookieState === null
+      ? "malformed"
+      : cookieState === state
+      ? "matching"
+      : "different";
+    const authProbeStatus = diagnosticCookieStatus(
+      authProbeCookies,
+      authProbeValueHashes,
+      expectedDiagnostics?.cookieProbeHash,
+    );
+    const rootProbeStatus = diagnosticCookieStatus(
+      rootProbeCookies,
+      rootProbeValueHashes,
+      expectedDiagnostics?.cookieProbeHash,
+    );
+    const callbackDiagnostics = {
+      event: "oauth_callback_cookie_diagnostics",
+      oauthDiagnosticVersion: expectedDiagnostics?.version,
+      stateHash,
+      flowIdHash,
+      provider: providerId,
+      oauthStateRecordStatus,
+      oauthStateAgeMs: candidateEntry
+        ? Date.now() - candidateEntry.value.createdAt.getTime()
+        : undefined,
+      oauthCookieStatus,
+      oauthCookieOccurrenceCount: oauthCookies.occurrenceCount,
+      oauthCookieMalformedValueCount: oauthCookies.malformedValueCount,
+      oauthCookieMatchingOccurrenceCount: oauthCookieHashes.filter((hash) =>
+        hash === stateHash
+      ).length,
+      oauthCookieValueHashes,
+      authProbeStatus,
+      authProbeOccurrenceCount: authProbeCookies.occurrenceCount,
+      authProbeMatchingOccurrenceCount: expectedDiagnostics
+        ? authProbeHashes.filter((hash) =>
+          hash === expectedDiagnostics.cookieProbeHash
+        ).length
+        : 0,
+      authProbeMalformedValueCount: authProbeCookies.malformedValueCount,
+      authProbeValueHashes,
+      rootProbeStatus,
+      rootProbeOccurrenceCount: rootProbeCookies.occurrenceCount,
+      rootProbeMatchingOccurrenceCount: expectedDiagnostics
+        ? rootProbeHashes.filter((hash) =>
+          hash === expectedDiagnostics.cookieProbeHash
+        ).length
+        : 0,
+      rootProbeMalformedValueCount: rootProbeCookies.malformedValueCount,
+      rootProbeValueHashes,
+      callbackOrigin: callbackRequest.origin,
+      originContinuity: continuityStatus(
+        expectedDiagnostics?.request.origin,
+        callbackRequest.origin,
+      ),
+      forwardedHostContinuity: continuityStatus(
+        expectedDiagnostics?.request.forwardedHost,
+        callbackRequest.forwardedHost,
+      ),
+      forwardedProtoContinuity: continuityStatus(
+        expectedDiagnostics?.request.forwardedProto,
+        callbackRequest.forwardedProto,
+      ),
+      userAgentContinuity: continuityStatus(
+        expectedDiagnostics?.request.userAgentHash,
+        callbackRequest.userAgentHash,
+      ),
+      clientAddressContinuity: continuityStatus(
+        expectedDiagnostics?.request.clientAddressHash,
+        callbackRequest.clientAddressHash,
+      ),
+      clientHintsContinuity: continuityStatus(
+        expectedDiagnostics?.request.clientHintsHash,
+        callbackRequest.clientHintsHash,
+      ),
+    };
+    if (oauthCookieStatus === "matching" && candidateEntry) {
+      logger.info(callbackDiagnostics, "OAuth callback cookie diagnostics");
+    } else {
+      logger.warn(callbackDiagnostics, "OAuth callback cookie diagnostics");
+    }
     if (!cookieState || cookieState !== state) {
       throw new HTTPException(400, { message: "OAuth cookie mismatch" });
     }
 
-    const stateHash = await hashKey(state);
-    const oauthStateEntry = await oauthStateKV.get(stateHash).take();
     if (isErr(oauthStateEntry)) {
       throw new HTTPException(400, { message: "Invalid or expired state" });
     }
     const oauthEntry = oauthStateEntry as OAuthStateEntry;
-    const flowIdHash = await hashKey(oauthEntry.value.flowId);
+    const verifiedFlowIdHash = await hashKey(oauthEntry.value.flowId);
     if (oauthEntry.value.provider !== providerId) {
       throw new HTTPException(400, { message: "OAuth provider mismatch" });
     }
@@ -665,13 +903,32 @@ export function registerBrowserAuthRoutes(
     if (isErr(oauthDeleted)) {
       throw new HTTPException(400, { message: "Invalid or expired state" });
     }
-    setCookie(c as CookieContext, "trellis_oauth", "", {
+    setCookie(c as CookieContext, OAUTH_COOKIE_NAME, "", {
       maxAgeSeconds: 0,
       path: "/auth",
       httpOnly: true,
       sameSite: "Lax",
       secure: shouldUseSecureOauthCookie(config, { logger }),
     });
+    if (oauthEntry.value.kind === "browser_login") {
+      const secureCookie = shouldUseSecureOauthCookie(config, { logger });
+      setCookie(c as CookieContext, OAUTH_AUTH_PROBE_COOKIE_NAME, "", {
+        maxAgeSeconds: 0,
+        path: "/auth",
+        httpOnly: true,
+        sameSite: "Lax",
+        secure: secureCookie,
+        append: true,
+      });
+      setCookie(c as CookieContext, OAUTH_ROOT_PROBE_COOKIE_NAME, "", {
+        maxAgeSeconds: 0,
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+        secure: secureCookie,
+        append: true,
+      });
+    }
 
     const tokens = await context.oauthCodeResponse(
       provider,
@@ -682,7 +939,11 @@ export function registerBrowserAuthRoutes(
       const message = oauthAuthorizationErrorMessage(error);
       if (!message) throw error;
       logger.warn(
-        { flowIdHash, outcome: "provider_rejected", provider: providerId },
+        {
+          flowIdHash: verifiedFlowIdHash,
+          outcome: "provider_rejected",
+          provider: providerId,
+        },
         "OAuth provider rejected authorization response",
       );
       if (oauthEntry.value.kind === "browser_login") {
@@ -703,7 +964,11 @@ export function registerBrowserAuthRoutes(
       throw new HTTPException(400, { message: "OAuth provider mismatch" });
     }
     logger.info(
-      { flowIdHash, outcome: "identity_authenticated", provider: providerId },
+      {
+        flowIdHash: verifiedFlowIdHash,
+        outcome: "identity_authenticated",
+        provider: providerId,
+      },
       "OAuth identity authenticated",
     );
 
@@ -819,7 +1084,11 @@ export function registerBrowserAuthRoutes(
     });
 
     logger.info(
-      { flowIdHash, outcome: "pending_auth_created", provider: providerId },
+      {
+        flowIdHash: verifiedFlowIdHash,
+        outcome: "pending_auth_created",
+        provider: providerId,
+      },
       "OAuth login callback completed",
     );
 
