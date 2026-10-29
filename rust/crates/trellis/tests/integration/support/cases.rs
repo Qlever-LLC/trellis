@@ -615,6 +615,11 @@ pub(crate) const RUST_INTEGRATION_CASES: &[IntegrationCase] = &[
         "auth_users_identities_admin_surfaces_page_and_scope",
     ),
     IntegrationCase::live(
+        "auth.user-lifecycle-service-automation",
+        "app_identity_approval",
+        "auth_user_lifecycle_service_automation",
+    ),
+    IntegrationCase::live(
         "device-activation.admin-provisions-known-device",
         "device_activation",
         "device_activation_admin_provisions_known_device",

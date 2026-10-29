@@ -23,6 +23,11 @@ import {
   createAuthUsersResolveHandler,
   createAuthUsersUpdateHandler,
 } from "../session/users.ts";
+import {
+  createAuthUserLifecycleDeactivateHandler,
+  createAuthUserLifecycleInspectHandler,
+  createAuthUserLifecycleUnlinkHandler,
+} from "../session/user_lifecycle.ts";
 import type { IdentityGrantRecord } from "../schemas.ts";
 import type {
   BoundedListQuery,
@@ -102,6 +107,17 @@ export async function registerApprovalAndUserRpcs(deps: {
     publishSessionRevoked: deps.publishSessionRevoked,
     sessionStorage: deps.sessionStorage,
   });
+  const lifecycleDeps = {
+    accountStorage: deps.accountStorage,
+    userIdentityStorage: deps.userIdentityStorage,
+    capabilityGroupStorage: deps.capabilityGroupStorage,
+    sessionStorage: deps.sessionStorage,
+    connectionsKV: deps.connectionsKV,
+    contractApprovalStorage: deps.contractApprovalStorage,
+    kick,
+    publishSessionRevoked: deps.publishSessionRevoked,
+    logger: deps.logger,
+  };
   await deps.trellis.handle.rpc.auth.identitiesList(async (args) => {
     return await listIdentities(args);
   });
@@ -120,6 +136,15 @@ export async function registerApprovalAndUserRpcs(deps: {
       deps.userIdentityStorage,
       deps.logger,
     ),
+  );
+  await deps.trellis.handle.rpc.auth.userLifecycleInspect(
+    createAuthUserLifecycleInspectHandler(lifecycleDeps),
+  );
+  await deps.trellis.handle.rpc.auth.userLifecycleDeactivate(
+    createAuthUserLifecycleDeactivateHandler(lifecycleDeps),
+  );
+  await deps.trellis.handle.rpc.auth.userLifecycleUnlink(
+    createAuthUserLifecycleUnlinkHandler(lifecycleDeps),
   );
   await deps.trellis.handle.rpc.auth.usersResolve(
     createAuthUsersResolveHandler(deps.accountStorage, deps.logger),

@@ -2447,6 +2447,37 @@ export type AuthUserIdentitiesUnlinkInput = {
 };
 export type AuthUserIdentitiesUnlinkOutput = { success: boolean };
 
+export type AuthUserLifecycleDeactivateInput = {
+  provider: string;
+  subject: string;
+  userId: string;
+};
+export type AuthUserLifecycleDeactivateOutput = {
+  deactivated: boolean;
+  revokedSessions: number;
+};
+
+export type AuthUserLifecycleInspectInput = {
+  provider: string;
+  subject: string;
+};
+export type AuthUserLifecycleInspectOutput = {
+  active: boolean | null;
+  email: string | null;
+  found: boolean;
+  identityId: string | null;
+  provider: string | null;
+  subject: string | null;
+  userId: string | null;
+};
+
+export type AuthUserLifecycleUnlinkInput = {
+  provider: string;
+  subject: string;
+  userId: string;
+};
+export type AuthUserLifecycleUnlinkOutput = { unlinked: boolean };
+
 export type AuthUsersCreateInput = {
   active?: boolean;
   capabilities?: Array<string>;

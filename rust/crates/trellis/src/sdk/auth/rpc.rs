@@ -2833,6 +2833,150 @@ impl crate::generated::DeclaredError for AuthUserIdentitiesUnlinkError {
         }
     }
 }
+/// Descriptor for `Auth.UserLifecycle.Deactivate`.
+pub struct AuthUserLifecycleDeactivateRpc;
+impl RpcDescriptor for AuthUserLifecycleDeactivateRpc {
+    type Input = super::types::AuthUserLifecycleDeactivateRequest;
+    type Output = super::types::AuthUserLifecycleDeactivateResponse;
+    const INPUT_SCHEMA_JSON: &'static str =
+        super::schemas::AUTH_USER_LIFECYCLE_DEACTIVATE_INPUT_SCHEMA_JSON;
+    const OUTPUT_SCHEMA_JSON: &'static str =
+        super::schemas::AUTH_USER_LIFECYCLE_DEACTIVATE_OUTPUT_SCHEMA_JSON;
+    const KEY: &'static str = "Auth.UserLifecycle.Deactivate";
+    const SUBJECT: &'static str = "rpc.v1.Auth.UserLifecycle.Deactivate";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["trellis.auth::user_lifecycle.manage"];
+    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
+}
+/// Errors declared by `Auth.UserLifecycle.Deactivate`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AuthUserLifecycleDeactivateError {
+    /// `AuthError` error payload.
+    AuthError(crate::generated::AuthErrorPayload),
+    /// `UnexpectedError` error payload.
+    UnexpectedError(crate::generated::DeclaredErrorPayload),
+    /// `ValidationError` error payload.
+    ValidationError(crate::generated::DeclaredErrorPayload),
+}
+impl crate::generated::DeclaredError for AuthUserLifecycleDeactivateError {
+    fn decode(
+        payload: &crate::generated::RemoteErrorPayload,
+    ) -> Result<Option<Self>, serde_json::Error> {
+        match payload.error_type() {
+            Some("AuthError") => payload
+                .decode_declared::<crate::generated::AuthErrorPayload>("AuthError")
+                .map(|value| value.map(Self::AuthError)),
+            Some("UnexpectedError") => payload
+                .decode_declared::<crate::generated::DeclaredErrorPayload>("UnexpectedError")
+                .map(|value| value.map(Self::UnexpectedError)),
+            Some("ValidationError") => payload
+                .decode_declared::<crate::generated::DeclaredErrorPayload>("ValidationError")
+                .map(|value| value.map(Self::ValidationError)),
+            _ => Ok(None),
+        }
+    }
+    fn auth_error_reason(&self) -> Option<&str> {
+        match self {
+            Self::AuthError(payload) => Some(payload.reason.as_str()),
+            _ => None,
+        }
+    }
+}
+/// Descriptor for `Auth.UserLifecycle.Inspect`.
+pub struct AuthUserLifecycleInspectRpc;
+impl RpcDescriptor for AuthUserLifecycleInspectRpc {
+    type Input = super::types::AuthUserLifecycleInspectRequest;
+    type Output = super::types::AuthUserLifecycleInspectResponse;
+    const INPUT_SCHEMA_JSON: &'static str =
+        super::schemas::AUTH_USER_LIFECYCLE_INSPECT_INPUT_SCHEMA_JSON;
+    const OUTPUT_SCHEMA_JSON: &'static str =
+        super::schemas::AUTH_USER_LIFECYCLE_INSPECT_OUTPUT_SCHEMA_JSON;
+    const KEY: &'static str = "Auth.UserLifecycle.Inspect";
+    const SUBJECT: &'static str = "rpc.v1.Auth.UserLifecycle.Inspect";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["trellis.auth::user_lifecycle.manage"];
+    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
+}
+/// Errors declared by `Auth.UserLifecycle.Inspect`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AuthUserLifecycleInspectError {
+    /// `AuthError` error payload.
+    AuthError(crate::generated::AuthErrorPayload),
+    /// `UnexpectedError` error payload.
+    UnexpectedError(crate::generated::DeclaredErrorPayload),
+    /// `ValidationError` error payload.
+    ValidationError(crate::generated::DeclaredErrorPayload),
+}
+impl crate::generated::DeclaredError for AuthUserLifecycleInspectError {
+    fn decode(
+        payload: &crate::generated::RemoteErrorPayload,
+    ) -> Result<Option<Self>, serde_json::Error> {
+        match payload.error_type() {
+            Some("AuthError") => payload
+                .decode_declared::<crate::generated::AuthErrorPayload>("AuthError")
+                .map(|value| value.map(Self::AuthError)),
+            Some("UnexpectedError") => payload
+                .decode_declared::<crate::generated::DeclaredErrorPayload>("UnexpectedError")
+                .map(|value| value.map(Self::UnexpectedError)),
+            Some("ValidationError") => payload
+                .decode_declared::<crate::generated::DeclaredErrorPayload>("ValidationError")
+                .map(|value| value.map(Self::ValidationError)),
+            _ => Ok(None),
+        }
+    }
+    fn auth_error_reason(&self) -> Option<&str> {
+        match self {
+            Self::AuthError(payload) => Some(payload.reason.as_str()),
+            _ => None,
+        }
+    }
+}
+/// Descriptor for `Auth.UserLifecycle.Unlink`.
+pub struct AuthUserLifecycleUnlinkRpc;
+impl RpcDescriptor for AuthUserLifecycleUnlinkRpc {
+    type Input = super::types::AuthUserLifecycleUnlinkRequest;
+    type Output = super::types::AuthUserLifecycleUnlinkResponse;
+    const INPUT_SCHEMA_JSON: &'static str =
+        super::schemas::AUTH_USER_LIFECYCLE_UNLINK_INPUT_SCHEMA_JSON;
+    const OUTPUT_SCHEMA_JSON: &'static str =
+        super::schemas::AUTH_USER_LIFECYCLE_UNLINK_OUTPUT_SCHEMA_JSON;
+    const KEY: &'static str = "Auth.UserLifecycle.Unlink";
+    const SUBJECT: &'static str = "rpc.v1.Auth.UserLifecycle.Unlink";
+    const CALLER_CAPABILITIES: &'static [&'static str] = &["trellis.auth::user_lifecycle.manage"];
+    const ERRORS: &'static [&'static str] = &["AuthError", "UnexpectedError", "ValidationError"];
+}
+/// Errors declared by `Auth.UserLifecycle.Unlink`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AuthUserLifecycleUnlinkError {
+    /// `AuthError` error payload.
+    AuthError(crate::generated::AuthErrorPayload),
+    /// `UnexpectedError` error payload.
+    UnexpectedError(crate::generated::DeclaredErrorPayload),
+    /// `ValidationError` error payload.
+    ValidationError(crate::generated::DeclaredErrorPayload),
+}
+impl crate::generated::DeclaredError for AuthUserLifecycleUnlinkError {
+    fn decode(
+        payload: &crate::generated::RemoteErrorPayload,
+    ) -> Result<Option<Self>, serde_json::Error> {
+        match payload.error_type() {
+            Some("AuthError") => payload
+                .decode_declared::<crate::generated::AuthErrorPayload>("AuthError")
+                .map(|value| value.map(Self::AuthError)),
+            Some("UnexpectedError") => payload
+                .decode_declared::<crate::generated::DeclaredErrorPayload>("UnexpectedError")
+                .map(|value| value.map(Self::UnexpectedError)),
+            Some("ValidationError") => payload
+                .decode_declared::<crate::generated::DeclaredErrorPayload>("ValidationError")
+                .map(|value| value.map(Self::ValidationError)),
+            _ => Ok(None),
+        }
+    }
+    fn auth_error_reason(&self) -> Option<&str> {
+        match self {
+            Self::AuthError(payload) => Some(payload.reason.as_str()),
+            _ => None,
+        }
+    }
+}
 /// Descriptor for `Auth.Users.Create`.
 pub struct AuthUsersCreateRpc;
 impl RpcDescriptor for AuthUsersCreateRpc {

@@ -1826,6 +1826,43 @@ capabilities into the account's direct `capabilities` grant. Older accounts may
 still carry direct `"admin"` grants; authorization resolves both direct
 capabilities and assigned groups.
 
+### Service user lifecycle automation
+
+Trellis exposes three narrow RPCs for reviewed service-owned account lifecycle
+workflows:
+
+- `rpc.Auth.UserLifecycle.Inspect`
+- `rpc.Auth.UserLifecycle.Deactivate`
+- `rpc.Auth.UserLifecycle.Unlink`
+
+All three require `trellis.auth::user_lifecycle.manage` through materialized
+service authority and reject user, app, and device callers. This capability is
+not a directory-admin capability: it does not permit listing users, selecting a
+user by email, editing arbitrary account fields, or unlinking an identity by an
+unscoped identity id.
+
+Inspection accepts one exact `{ provider, subject }` pair and returns
+`found:
+true` with its canonical user and identity projection, or `found: false`
+with nullable projection fields. Deactivation and unlink also require the
+expected `userId`; Trellis rejects the request if the exact identity belongs to
+any other user. Deactivation refuses active administrators, marks the user
+inactive, and revokes all of that user's sessions. Unlink refuses an active
+user, so the required workflow order is:
+
+1. resolve and validate the exact external identity
+2. complete application-owned safety checks
+3. deactivate the Trellis user and revoke its sessions
+4. unlink the same exact identity
+
+Retries are safe: deactivating an already inactive user reports no new
+deactivation, unlinking an already absent exact identity reports
+`unlinked:
+false`, and inspection then returns `found: false`. Applications
+remain responsible for their own server-side allowlist and for validating
+provider metadata such as the expected email before invoking lifecycle
+mutations.
+
 ### rpc.Auth.Capabilities.List
 
 Request:

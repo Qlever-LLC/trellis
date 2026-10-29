@@ -24,6 +24,12 @@ import {
   AuthUserIdentitiesListSchema,
   AuthUserIdentitiesUnlinkResponseSchema,
   AuthUserIdentitiesUnlinkSchema,
+  AuthUserLifecycleDeactivateResponseSchema,
+  AuthUserLifecycleDeactivateSchema,
+  AuthUserLifecycleInspectResponseSchema,
+  AuthUserLifecycleInspectSchema,
+  AuthUserLifecycleUnlinkResponseSchema,
+  AuthUserLifecycleUnlinkSchema,
   AuthUsersAccountFlowCreateResponseSchema,
   AuthUsersCreateResponseSchema,
   AuthUsersCreateSchema,
@@ -337,6 +343,13 @@ const schemas = {
   AuthUserIdentitiesListResponse: AuthUserIdentitiesListResponseSchema,
   AuthUserIdentitiesUnlinkRequest: AuthUserIdentitiesUnlinkSchema,
   AuthUserIdentitiesUnlinkResponse: AuthUserIdentitiesUnlinkResponseSchema,
+  AuthUserLifecycleInspectRequest: AuthUserLifecycleInspectSchema,
+  AuthUserLifecycleInspectResponse: AuthUserLifecycleInspectResponseSchema,
+  AuthUserLifecycleDeactivateRequest: AuthUserLifecycleDeactivateSchema,
+  AuthUserLifecycleDeactivateResponse:
+    AuthUserLifecycleDeactivateResponseSchema,
+  AuthUserLifecycleUnlinkRequest: AuthUserLifecycleUnlinkSchema,
+  AuthUserLifecycleUnlinkResponse: AuthUserLifecycleUnlinkResponseSchema,
   AuthSessionsMeRequest: AuthSessionsMeSchema,
   AuthSessionsMeResponse: AuthSessionsMeResponseSchema,
   AuthIdentityGrantsRevokeRequest: AuthIdentityGrantsRevokeSchema,
@@ -736,6 +749,27 @@ export const TRELLIS_AUTH_RPC = {
     input: schemaRef("AuthUsersListRequest"),
     output: schemaRef("AuthUsersListResponse"),
     capabilities: { call: ["admin"] },
+    errors: ["AuthError", "ValidationError", "UnexpectedError"],
+  },
+  "Auth.UserLifecycle.Inspect": {
+    version: "v1",
+    input: schemaRef("AuthUserLifecycleInspectRequest"),
+    output: schemaRef("AuthUserLifecycleInspectResponse"),
+    capabilities: { call: ["user_lifecycle.manage"] },
+    errors: ["AuthError", "ValidationError", "UnexpectedError"],
+  },
+  "Auth.UserLifecycle.Deactivate": {
+    version: "v1",
+    input: schemaRef("AuthUserLifecycleDeactivateRequest"),
+    output: schemaRef("AuthUserLifecycleDeactivateResponse"),
+    capabilities: { call: ["user_lifecycle.manage"] },
+    errors: ["AuthError", "ValidationError", "UnexpectedError"],
+  },
+  "Auth.UserLifecycle.Unlink": {
+    version: "v1",
+    input: schemaRef("AuthUserLifecycleUnlinkRequest"),
+    output: schemaRef("AuthUserLifecycleUnlinkResponse"),
+    capabilities: { call: ["user_lifecycle.manage"] },
     errors: ["AuthError", "ValidationError", "UnexpectedError"],
   },
   "Auth.Users.Resolve": {
@@ -1170,6 +1204,21 @@ const TRELLIS_AUTH_RPC_DOCS = {
     summary: "List users.",
     markdown: "Lists user accounts.",
   },
+  "Auth.UserLifecycle.Inspect": {
+    summary: "Inspect one lifecycle identity.",
+    markdown:
+      "Resolves one exact provider subject for narrowly authorized lifecycle automation.",
+  },
+  "Auth.UserLifecycle.Deactivate": {
+    summary: "Deactivate one lifecycle identity.",
+    markdown:
+      "Deactivates the exact user and provider subject pair and revokes its sessions.",
+  },
+  "Auth.UserLifecycle.Unlink": {
+    summary: "Unlink one lifecycle identity.",
+    markdown:
+      "Unlinks the exact provider subject from its expected inactive user.",
+  },
   "Auth.Users.Resolve": {
     summary: "Resolve user labels.",
     markdown:
@@ -1328,6 +1377,13 @@ const baseTrellisAuth = defineServiceContract(
       "event-consumers.read": {
         displayName: "Read expected event consumers",
         description: "Read deployment-derived durable event consumer bindings.",
+      },
+      "user_lifecycle.manage": {
+        displayName: "Manage user lifecycle automation",
+        description:
+          "Inspect, deactivate, revoke sessions for, and unlink exact external user identities.",
+        consequence:
+          "May terminate access and detach an external identity from its Trellis user.",
       },
     },
     rpc: attachDocs(TRELLIS_AUTH_RPC, TRELLIS_AUTH_RPC_DOCS),

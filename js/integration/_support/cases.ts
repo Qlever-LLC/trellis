@@ -850,6 +850,13 @@ export const jsIntegrationCases: readonly JsIntegrationCase[] = [
     runtime: "live-trellis",
   },
   {
+    id: "auth.user-lifecycle-service-automation",
+    file: "auth/user_lifecycle_service_automation.integration_test.ts",
+    testName:
+      "auth.user-lifecycle-service-automation permits exact lifecycle actions without admin authority",
+    runtime: "live-trellis",
+  },
+  {
     id: "auth.account-flow-oauth-callback-runtime",
     file: "auth/account_flow_oauth_callback_runtime.integration_test.ts",
     testName:

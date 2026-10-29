@@ -1809,6 +1809,36 @@ export const AuthUsersListResponseSchema = Type.Object({
   ...PageResponseSchema(UserViewSchema).properties,
 });
 
+export const AuthUserLifecycleSelectorSchema = Type.Object({
+  provider: Type.String({ minLength: 1 }),
+  subject: Type.String({ minLength: 1 }),
+});
+export const AuthUserLifecycleInspectSchema = AuthUserLifecycleSelectorSchema;
+export const AuthUserLifecycleInspectResponseSchema = Type.Object({
+  found: Type.Boolean(),
+  userId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  active: Type.Union([Type.Boolean(), Type.Null()]),
+  email: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  identityId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  provider: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  subject: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+});
+export const AuthUserLifecycleDeactivateSchema = Type.Object({
+  userId: Type.String({ minLength: 1 }),
+  ...AuthUserLifecycleSelectorSchema.properties,
+});
+export const AuthUserLifecycleDeactivateResponseSchema = Type.Object({
+  deactivated: Type.Boolean(),
+  revokedSessions: Type.Integer({ minimum: 0 }),
+});
+export const AuthUserLifecycleUnlinkSchema = Type.Object({
+  userId: Type.String({ minLength: 1 }),
+  ...AuthUserLifecycleSelectorSchema.properties,
+});
+export const AuthUserLifecycleUnlinkResponseSchema = Type.Object({
+  unlinked: Type.Boolean(),
+});
+
 export const AuthUsersGetSchema = Type.Object({
   userId: Type.String({ minLength: 1 }),
 });

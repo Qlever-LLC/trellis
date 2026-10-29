@@ -136,6 +136,12 @@ import {
   AuthUserIdentitiesListResponseSchema,
   AuthUserIdentitiesUnlinkRequestSchema,
   AuthUserIdentitiesUnlinkResponseSchema,
+  AuthUserLifecycleDeactivateRequestSchema,
+  AuthUserLifecycleDeactivateResponseSchema,
+  AuthUserLifecycleInspectRequestSchema,
+  AuthUserLifecycleInspectResponseSchema,
+  AuthUserLifecycleUnlinkRequestSchema,
+  AuthUserLifecycleUnlinkResponseSchema,
   AuthUsersAccountFlowCreateResponseSchema,
   AuthUsersCreateRequestSchema,
   AuthUsersCreateResponseSchema,
@@ -1378,6 +1384,72 @@ export const AuthUserIdentitiesUnlink = rpcAction(
     ] as const,
   },
   "AuthUserIdentitiesUnlink",
+);
+
+export const AuthUserLifecycleDeactivate = rpcAction(
+  CONTRACT_ID,
+  "Auth.UserLifecycle.Deactivate",
+  {
+    subject: "rpc.v1.Auth.UserLifecycle.Deactivate",
+    input: schema<Types.AuthUserLifecycleDeactivateInput>(
+      AuthUserLifecycleDeactivateRequestSchema,
+    ),
+    output: schema<Types.AuthUserLifecycleDeactivateOutput>(
+      AuthUserLifecycleDeactivateResponseSchema,
+    ),
+    callerCapabilities: ["trellis.auth::user_lifecycle.manage"] as const,
+    errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
+    declaredErrorTypes: [
+      "AuthError",
+      "UnexpectedError",
+      "ValidationError",
+    ] as const,
+  },
+  "AuthUserLifecycleDeactivate",
+);
+
+export const AuthUserLifecycleInspect = rpcAction(
+  CONTRACT_ID,
+  "Auth.UserLifecycle.Inspect",
+  {
+    subject: "rpc.v1.Auth.UserLifecycle.Inspect",
+    input: schema<Types.AuthUserLifecycleInspectInput>(
+      AuthUserLifecycleInspectRequestSchema,
+    ),
+    output: schema<Types.AuthUserLifecycleInspectOutput>(
+      AuthUserLifecycleInspectResponseSchema,
+    ),
+    callerCapabilities: ["trellis.auth::user_lifecycle.manage"] as const,
+    errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
+    declaredErrorTypes: [
+      "AuthError",
+      "UnexpectedError",
+      "ValidationError",
+    ] as const,
+  },
+  "AuthUserLifecycleInspect",
+);
+
+export const AuthUserLifecycleUnlink = rpcAction(
+  CONTRACT_ID,
+  "Auth.UserLifecycle.Unlink",
+  {
+    subject: "rpc.v1.Auth.UserLifecycle.Unlink",
+    input: schema<Types.AuthUserLifecycleUnlinkInput>(
+      AuthUserLifecycleUnlinkRequestSchema,
+    ),
+    output: schema<Types.AuthUserLifecycleUnlinkOutput>(
+      AuthUserLifecycleUnlinkResponseSchema,
+    ),
+    callerCapabilities: ["trellis.auth::user_lifecycle.manage"] as const,
+    errors: ["AuthError", "UnexpectedError", "ValidationError"] as const,
+    declaredErrorTypes: [
+      "AuthError",
+      "UnexpectedError",
+      "ValidationError",
+    ] as const,
+  },
+  "AuthUserLifecycleUnlink",
 );
 
 export const AuthUsersCreate = rpcAction(CONTRACT_ID, "Auth.Users.Create", {

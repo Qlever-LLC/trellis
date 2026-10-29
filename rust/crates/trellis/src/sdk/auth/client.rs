@@ -916,6 +916,51 @@ impl<'a> AuthRpc<'a> {
             >(input)
             .await
     }
+    /// Call `Auth.UserLifecycle.Deactivate`.
+    pub async fn user_lifecycle_deactivate(
+        &self,
+        input: &super::types::AuthUserLifecycleDeactivateRequest,
+    ) -> Result<
+        super::types::AuthUserLifecycleDeactivateResponse,
+        crate::generated::CallError<super::rpc::AuthUserLifecycleDeactivateError>,
+    > {
+        self.inner
+            .call_typed::<
+                super::rpc::AuthUserLifecycleDeactivateRpc,
+                super::rpc::AuthUserLifecycleDeactivateError,
+            >(input)
+            .await
+    }
+    /// Call `Auth.UserLifecycle.Inspect`.
+    pub async fn user_lifecycle_inspect(
+        &self,
+        input: &super::types::AuthUserLifecycleInspectRequest,
+    ) -> Result<
+        super::types::AuthUserLifecycleInspectResponse,
+        crate::generated::CallError<super::rpc::AuthUserLifecycleInspectError>,
+    > {
+        self.inner
+            .call_typed::<
+                super::rpc::AuthUserLifecycleInspectRpc,
+                super::rpc::AuthUserLifecycleInspectError,
+            >(input)
+            .await
+    }
+    /// Call `Auth.UserLifecycle.Unlink`.
+    pub async fn user_lifecycle_unlink(
+        &self,
+        input: &super::types::AuthUserLifecycleUnlinkRequest,
+    ) -> Result<
+        super::types::AuthUserLifecycleUnlinkResponse,
+        crate::generated::CallError<super::rpc::AuthUserLifecycleUnlinkError>,
+    > {
+        self.inner
+            .call_typed::<
+                super::rpc::AuthUserLifecycleUnlinkRpc,
+                super::rpc::AuthUserLifecycleUnlinkError,
+            >(input)
+            .await
+    }
     /// Call `Auth.Users.Create`.
     pub async fn users_create(
         &self,

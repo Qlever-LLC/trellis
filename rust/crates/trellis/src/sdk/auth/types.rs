@@ -17836,6 +17836,71 @@ pub struct AuthUserIdentitiesUnlinkResponse {
     /// The `success` wire field.
     pub success: bool,
 }
+/// Generated schema type `AuthUserLifecycleDeactivateRequest`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthUserLifecycleDeactivateRequest {
+    /// The `provider` wire field.
+    pub provider: String,
+    /// The `subject` wire field.
+    pub subject: String,
+    /// The `userId` wire field.
+    #[serde(rename = "userId")]
+    pub user_id: String,
+}
+/// Generated schema type `AuthUserLifecycleDeactivateResponse`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthUserLifecycleDeactivateResponse {
+    /// The `deactivated` wire field.
+    pub deactivated: bool,
+    /// The `revokedSessions` wire field.
+    #[serde(rename = "revokedSessions")]
+    pub revoked_sessions: i64,
+}
+/// Generated schema type `AuthUserLifecycleInspectRequest`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthUserLifecycleInspectRequest {
+    /// The `provider` wire field.
+    pub provider: String,
+    /// The `subject` wire field.
+    pub subject: String,
+}
+/// Generated schema type `AuthUserLifecycleInspectResponse`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthUserLifecycleInspectResponse {
+    /// The `active` wire field.
+    pub active: Option<bool>,
+    /// The `email` wire field.
+    pub email: Option<String>,
+    /// The `found` wire field.
+    pub found: bool,
+    /// The `identityId` wire field.
+    #[serde(rename = "identityId")]
+    pub identity_id: Option<String>,
+    /// The `provider` wire field.
+    pub provider: Option<String>,
+    /// The `subject` wire field.
+    pub subject: Option<String>,
+    /// The `userId` wire field.
+    #[serde(rename = "userId")]
+    pub user_id: Option<String>,
+}
+/// Generated schema type `AuthUserLifecycleUnlinkRequest`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthUserLifecycleUnlinkRequest {
+    /// The `provider` wire field.
+    pub provider: String,
+    /// The `subject` wire field.
+    pub subject: String,
+    /// The `userId` wire field.
+    #[serde(rename = "userId")]
+    pub user_id: String,
+}
+/// Generated schema type `AuthUserLifecycleUnlinkResponse`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthUserLifecycleUnlinkResponse {
+    /// The `unlinked` wire field.
+    pub unlinked: bool,
+}
 /// Generated schema type `AuthUsersCreateRequest`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuthUsersCreateRequest {

@@ -3,7 +3,7 @@ import type { TrellisContractV1 } from "../../../contracts.ts";
 
 export const CONTRACT_ID = "trellis.auth@v1" as const;
 export const CONTRACT_DIGEST =
-  "PysARDoaMUQkiQfBfqghy1eopQh0efFGj9pU-zu2Z2E" as const;
+  "UtozuJW2c_X62Jv5F-KTNLqeYYkJPMreq9dCxL2p_r8" as const;
 export const CONTRACT: TrellisContractV1 = {
   "capabilities": {
     "trellis.auth::device.review": {
@@ -17,6 +17,13 @@ export const CONTRACT: TrellisContractV1 = {
     "trellis.auth::events.auth": {
       "description": "Publish or subscribe to Trellis auth lifecycle events.",
       "displayName": "Observe auth events",
+    },
+    "trellis.auth::user_lifecycle.manage": {
+      "consequence":
+        "May terminate access and detach an external identity from its Trellis user.",
+      "description":
+        "Inspect, deactivate, revoke sessions for, and unlink exact external user identities.",
+      "displayName": "Manage user lifecycle automation",
     },
   },
   "description":
@@ -1016,6 +1023,51 @@ export const CONTRACT: TrellisContractV1 = {
       "input": { "schema": "AuthUserIdentitiesUnlinkRequest" },
       "output": { "schema": "AuthUserIdentitiesUnlinkResponse" },
       "subject": "rpc.v1.Auth.UserIdentities.Unlink",
+      "version": "v1",
+    },
+    "Auth.UserLifecycle.Deactivate": {
+      "capabilities": { "call": ["trellis.auth::user_lifecycle.manage"] },
+      "docs": {
+        "markdown":
+          "Deactivates the exact user and provider subject pair and revokes its sessions.",
+        "summary": "Deactivate one lifecycle identity.",
+      },
+      "errors": [{ "type": "AuthError" }, { "type": "UnexpectedError" }, {
+        "type": "ValidationError",
+      }],
+      "input": { "schema": "AuthUserLifecycleDeactivateRequest" },
+      "output": { "schema": "AuthUserLifecycleDeactivateResponse" },
+      "subject": "rpc.v1.Auth.UserLifecycle.Deactivate",
+      "version": "v1",
+    },
+    "Auth.UserLifecycle.Inspect": {
+      "capabilities": { "call": ["trellis.auth::user_lifecycle.manage"] },
+      "docs": {
+        "markdown":
+          "Resolves one exact provider subject for narrowly authorized lifecycle automation.",
+        "summary": "Inspect one lifecycle identity.",
+      },
+      "errors": [{ "type": "AuthError" }, { "type": "UnexpectedError" }, {
+        "type": "ValidationError",
+      }],
+      "input": { "schema": "AuthUserLifecycleInspectRequest" },
+      "output": { "schema": "AuthUserLifecycleInspectResponse" },
+      "subject": "rpc.v1.Auth.UserLifecycle.Inspect",
+      "version": "v1",
+    },
+    "Auth.UserLifecycle.Unlink": {
+      "capabilities": { "call": ["trellis.auth::user_lifecycle.manage"] },
+      "docs": {
+        "markdown":
+          "Unlinks the exact provider subject from its expected inactive user.",
+        "summary": "Unlink one lifecycle identity.",
+      },
+      "errors": [{ "type": "AuthError" }, { "type": "UnexpectedError" }, {
+        "type": "ValidationError",
+      }],
+      "input": { "schema": "AuthUserLifecycleUnlinkRequest" },
+      "output": { "schema": "AuthUserLifecycleUnlinkResponse" },
+      "subject": "rpc.v1.Auth.UserLifecycle.Unlink",
       "version": "v1",
     },
     "Auth.Users.Create": {
@@ -8728,6 +8780,76 @@ export const CONTRACT: TrellisContractV1 = {
     "AuthUserIdentitiesUnlinkResponse": {
       "properties": { "success": { "type": "boolean" } },
       "required": ["success"],
+      "type": "object",
+    },
+    "AuthUserLifecycleDeactivateRequest": {
+      "properties": {
+        "provider": { "minLength": 1, "type": "string" },
+        "subject": { "minLength": 1, "type": "string" },
+        "userId": { "minLength": 1, "type": "string" },
+      },
+      "required": ["userId", "provider", "subject"],
+      "type": "object",
+    },
+    "AuthUserLifecycleDeactivateResponse": {
+      "properties": {
+        "deactivated": { "type": "boolean" },
+        "revokedSessions": { "minimum": 0, "type": "integer" },
+      },
+      "required": ["deactivated", "revokedSessions"],
+      "type": "object",
+    },
+    "AuthUserLifecycleInspectRequest": {
+      "properties": {
+        "provider": { "minLength": 1, "type": "string" },
+        "subject": { "minLength": 1, "type": "string" },
+      },
+      "required": ["provider", "subject"],
+      "type": "object",
+    },
+    "AuthUserLifecycleInspectResponse": {
+      "properties": {
+        "active": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
+        "email": {
+          "anyOf": [{ "minLength": 1, "type": "string" }, { "type": "null" }],
+        },
+        "found": { "type": "boolean" },
+        "identityId": {
+          "anyOf": [{ "minLength": 1, "type": "string" }, { "type": "null" }],
+        },
+        "provider": {
+          "anyOf": [{ "minLength": 1, "type": "string" }, { "type": "null" }],
+        },
+        "subject": {
+          "anyOf": [{ "minLength": 1, "type": "string" }, { "type": "null" }],
+        },
+        "userId": {
+          "anyOf": [{ "minLength": 1, "type": "string" }, { "type": "null" }],
+        },
+      },
+      "required": [
+        "found",
+        "userId",
+        "active",
+        "email",
+        "identityId",
+        "provider",
+        "subject",
+      ],
+      "type": "object",
+    },
+    "AuthUserLifecycleUnlinkRequest": {
+      "properties": {
+        "provider": { "minLength": 1, "type": "string" },
+        "subject": { "minLength": 1, "type": "string" },
+        "userId": { "minLength": 1, "type": "string" },
+      },
+      "required": ["userId", "provider", "subject"],
+      "type": "object",
+    },
+    "AuthUserLifecycleUnlinkResponse": {
+      "properties": { "unlinked": { "type": "boolean" } },
+      "required": ["unlinked"],
       "type": "object",
     },
     "AuthUsersAccountFlowCreateResponse": {

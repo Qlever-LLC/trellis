@@ -18,6 +18,36 @@ const SERVICE_ID: &str = "trellis.integration.app-identity-approval-service@v1";
 const CLIENT_ID: &str = "trellis.integration.app-identity-approval-client@v1";
 const APPROVED_PING_CAPABILITY: &str =
     "trellis.integration.app-identity-approval-service::approvedPing";
+const LIFECYCLE_SERVICE_ID: &str = "trellis.integration.user-lifecycle-service-automation@v1";
+const LIFECYCLE_SERVICE_CONTRACT_JSON: &str = r#"{
+  "format": "trellis.contract.v1",
+  "id": "trellis.integration.user-lifecycle-service-automation@v1",
+  "displayName": "User Lifecycle Automation Integration Service",
+  "description": "Exercises exact identity lifecycle automation without admin authority.",
+  "kind": "service",
+  "uses": {
+    "required": {
+      "trellis.auth@v1": {
+        "contract": "trellis.auth@v1",
+        "rpc": {
+          "call": [
+            "Auth.UserLifecycle.Deactivate",
+            "Auth.UserLifecycle.Inspect",
+            "Auth.UserLifecycle.Unlink"
+          ]
+        }
+      }
+    }
+  }
+}"#;
+
+struct LifecycleAutomationServiceContract;
+
+impl GeneratedServiceContract for LifecycleAutomationServiceContract {
+    const CONTRACT_ID: &'static str = LIFECYCLE_SERVICE_ID;
+    const CONTRACT_DIGEST: &'static str = "runtime";
+    const CONTRACT_JSON: &'static str = LIFECYCLE_SERVICE_CONTRACT_JSON;
+}
 
 const SERVICE_CONTRACT_JSON: &str = r#"{
   "format": "trellis.contract.v1",
@@ -2338,6 +2368,130 @@ async fn auth_users_identities_admin_surfaces_page_and_scope() {
     assert!(missing_capabilities
         .iter()
         .any(|capability| capability == "admin"));
+}
+
+#[tokio::test]
+async fn auth_user_lifecycle_service_automation() {
+    assert_case_registered(
+        "auth.user-lifecycle-service-automation",
+        "auth",
+        "app_identity_approval",
+    );
+    let mut fixture = setup_app_identity_environment().await;
+    let admin_contract =
+        auth_session_revoke_admin_contract().expect("build lifecycle target admin contract");
+    let target = {
+        let admin_client = fixture
+            .admin
+            .connect_client(&fixture.bootstrap_url, &admin_contract)
+            .await
+            .expect("connect lifecycle admin client");
+        let auth = trellis_rs::sdk::auth::AuthClient::new(crate::generated_caller(&admin_client));
+        auth.rpc()
+            .auth()
+            .users_create(&trellis_rs::sdk::auth::types::AuthUsersCreateRequest {
+                active: Some(true),
+                capabilities: None,
+                capability_groups: None,
+                email: Some("rust-lifecycle-target@example.test".to_string()),
+                name: Some("Rust Lifecycle Target".to_string()),
+                username: Some("rust-lifecycle-target".to_string()),
+            })
+            .await
+            .expect("create lifecycle target user")
+    };
+    let contract =
+        trellis_test::TrellisTestContract::from_manifest_json(LIFECYCLE_SERVICE_CONTRACT_JSON)
+            .expect("build lifecycle service contract");
+    let service_key = fixture
+        .admin
+        .provision_service_instance(
+            &fixture.bootstrap_url,
+            &contract,
+            Some("lifecycle-automation"),
+            None,
+        )
+        .await
+        .expect("provision lifecycle service");
+    let service = trellis_test::connect_service_runtime::<LifecycleAutomationServiceContract>(
+        fixture.runtime.trellis_url(),
+        LIFECYCLE_SERVICE_ID,
+        contract.digest(),
+        LIFECYCLE_SERVICE_CONTRACT_JSON,
+        &service_key.seed,
+    )
+    .await
+    .expect("connect lifecycle service");
+    let auth = trellis_rs::sdk::auth::AuthClient::new(service.caller());
+    let selector = trellis_rs::sdk::auth::types::AuthUserLifecycleInspectRequest {
+        provider: "local".to_string(),
+        subject: "rust-lifecycle-target".to_string(),
+    };
+    let inspected = auth
+        .rpc()
+        .auth()
+        .user_lifecycle_inspect(&selector)
+        .await
+        .expect("inspect exact lifecycle identity");
+    assert!(inspected.found);
+    assert_eq!(
+        inspected.user_id.as_deref(),
+        Some(target.user.user_id.as_str())
+    );
+    assert_eq!(inspected.active, Some(true));
+
+    let exact = trellis_rs::sdk::auth::types::AuthUserLifecycleDeactivateRequest {
+        provider: selector.provider.clone(),
+        subject: selector.subject.clone(),
+        user_id: target.user.user_id.clone(),
+    };
+    let deactivated = auth
+        .rpc()
+        .auth()
+        .user_lifecycle_deactivate(&exact)
+        .await
+        .expect("deactivate exact lifecycle identity");
+    assert!(deactivated.deactivated);
+    let already_deactivated = auth
+        .rpc()
+        .auth()
+        .user_lifecycle_deactivate(&exact)
+        .await
+        .expect("retry lifecycle deactivation");
+    assert!(!already_deactivated.deactivated);
+    assert_eq!(already_deactivated.revoked_sessions, 0);
+
+    let unlink = trellis_rs::sdk::auth::types::AuthUserLifecycleUnlinkRequest {
+        provider: selector.provider.clone(),
+        subject: selector.subject.clone(),
+        user_id: target.user.user_id,
+    };
+    let unlinked = auth
+        .rpc()
+        .auth()
+        .user_lifecycle_unlink(&unlink)
+        .await
+        .expect("unlink exact lifecycle identity");
+    assert!(unlinked.unlinked);
+    let already_unlinked = auth
+        .rpc()
+        .auth()
+        .user_lifecycle_unlink(&unlink)
+        .await
+        .expect("retry lifecycle unlink");
+    assert!(!already_unlinked.unlinked);
+
+    assert!(
+        auth.rpc()
+            .auth()
+            .capabilities_list(&trellis_rs::sdk::auth::types::AuthCapabilitiesListRequest {
+                limit: 1,
+                offset: None,
+            },)
+            .await
+            .is_err(),
+        "lifecycle service must not receive undeclared admin directory access"
+    );
 }
 
 #[tokio::test]

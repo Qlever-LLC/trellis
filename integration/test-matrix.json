@@ -634,7 +634,7 @@
       },
       "completion": {
         "typescript": "implemented",
-        "rust": "required"
+        "rust": "implemented"
       }
     },
     {
@@ -4789,6 +4789,44 @@
       "completion": {
         "typescript": "implemented",
         "rust": "implemented"
+      }
+    },
+    {
+      "kind": "client",
+      "id": "auth.user-lifecycle-service-automation",
+      "fixture": "auth",
+      "title": "Service lifecycle automation is exact and does not require admin authority",
+      "coverage": [
+        "auth-protocol-matrix",
+        "capability-permission-matrix",
+        "cross-runtime-rpc"
+      ],
+      "description": "A service granted only user_lifecycle.manage resolves one exact provider subject, deactivates its non-admin user, revokes sessions, and unlinks the identity without directory-list or general admin authority.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "lifecycle service",
+            "kind": "service",
+            "contract": "trellis.auth@v1"
+          }
+        ],
+        "given": [
+          "an active non-admin user has one exact provider and subject identity",
+          "a service authority uses only the three lifecycle automation RPCs"
+        ],
+        "when": [
+          "the service inspects, deactivates, and unlinks the exact identity"
+        ],
+        "then": [
+          "inspection resolves only the exact identity",
+          "the user becomes inactive and its sessions are revoked",
+          "unlink requires the same exact identity and inactive user",
+          "the service does not receive general admin authority"
+        ]
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "required"
       }
     },
     {

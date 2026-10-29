@@ -7341,6 +7341,82 @@ export const AuthUserIdentitiesUnlinkResponseSchema = {
   "type": "object",
 } as const;
 
+export const AuthUserLifecycleDeactivateRequestSchema = {
+  "properties": {
+    "provider": { "minLength": 1, "type": "string" },
+    "subject": { "minLength": 1, "type": "string" },
+    "userId": { "minLength": 1, "type": "string" },
+  },
+  "required": ["userId", "provider", "subject"],
+  "type": "object",
+} as const;
+
+export const AuthUserLifecycleDeactivateResponseSchema = {
+  "properties": {
+    "deactivated": { "type": "boolean" },
+    "revokedSessions": { "minimum": 0, "type": "integer" },
+  },
+  "required": ["deactivated", "revokedSessions"],
+  "type": "object",
+} as const;
+
+export const AuthUserLifecycleInspectRequestSchema = {
+  "properties": {
+    "provider": { "minLength": 1, "type": "string" },
+    "subject": { "minLength": 1, "type": "string" },
+  },
+  "required": ["provider", "subject"],
+  "type": "object",
+} as const;
+
+export const AuthUserLifecycleInspectResponseSchema = {
+  "properties": {
+    "active": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
+    "email": {
+      "anyOf": [{ "minLength": 1, "type": "string" }, { "type": "null" }],
+    },
+    "found": { "type": "boolean" },
+    "identityId": {
+      "anyOf": [{ "minLength": 1, "type": "string" }, { "type": "null" }],
+    },
+    "provider": {
+      "anyOf": [{ "minLength": 1, "type": "string" }, { "type": "null" }],
+    },
+    "subject": {
+      "anyOf": [{ "minLength": 1, "type": "string" }, { "type": "null" }],
+    },
+    "userId": {
+      "anyOf": [{ "minLength": 1, "type": "string" }, { "type": "null" }],
+    },
+  },
+  "required": [
+    "found",
+    "userId",
+    "active",
+    "email",
+    "identityId",
+    "provider",
+    "subject",
+  ],
+  "type": "object",
+} as const;
+
+export const AuthUserLifecycleUnlinkRequestSchema = {
+  "properties": {
+    "provider": { "minLength": 1, "type": "string" },
+    "subject": { "minLength": 1, "type": "string" },
+    "userId": { "minLength": 1, "type": "string" },
+  },
+  "required": ["userId", "provider", "subject"],
+  "type": "object",
+} as const;
+
+export const AuthUserLifecycleUnlinkResponseSchema = {
+  "properties": { "unlinked": { "type": "boolean" } },
+  "required": ["unlinked"],
+  "type": "object",
+} as const;
+
 export const AuthUsersAccountFlowCreateResponseSchema = {
   "properties": {
     "expiresAt": { "format": "date-time", "type": "string" },

@@ -8,6 +8,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- Added service-only `Auth.UserLifecycle` RPCs for exact provider-subject
+  inspection, protected deactivation with session revocation, and inactive
+  identity unlinking under the narrow `trellis.auth::user_lifecycle.manage`
+  capability.
+
 ## [0.11.0-rc.11] - 2026-08-19
 
 ### Fixed

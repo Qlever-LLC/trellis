@@ -255,6 +255,19 @@ pub const AUTH_USER_IDENTITIES_UNLINK_INPUT_SCHEMA_JSON: &str = r#"{"properties"
 /// Generated JSON Schema constant `AUTH_USER_IDENTITIES_UNLINK_OUTPUT_SCHEMA_JSON`.
 pub const AUTH_USER_IDENTITIES_UNLINK_OUTPUT_SCHEMA_JSON: &str =
     r#"{"properties":{"success":{"type":"boolean"}},"required":["success"],"type":"object"}"#;
+/// Generated JSON Schema constant `AUTH_USER_LIFECYCLE_DEACTIVATE_INPUT_SCHEMA_JSON`.
+pub const AUTH_USER_LIFECYCLE_DEACTIVATE_INPUT_SCHEMA_JSON: &str = r#"{"properties":{"provider":{"minLength":1,"type":"string"},"subject":{"minLength":1,"type":"string"},"userId":{"minLength":1,"type":"string"}},"required":["userId","provider","subject"],"type":"object"}"#;
+/// Generated JSON Schema constant `AUTH_USER_LIFECYCLE_DEACTIVATE_OUTPUT_SCHEMA_JSON`.
+pub const AUTH_USER_LIFECYCLE_DEACTIVATE_OUTPUT_SCHEMA_JSON: &str = r#"{"properties":{"deactivated":{"type":"boolean"},"revokedSessions":{"minimum":0,"type":"integer"}},"required":["deactivated","revokedSessions"],"type":"object"}"#;
+/// Generated JSON Schema constant `AUTH_USER_LIFECYCLE_INSPECT_INPUT_SCHEMA_JSON`.
+pub const AUTH_USER_LIFECYCLE_INSPECT_INPUT_SCHEMA_JSON: &str = r#"{"properties":{"provider":{"minLength":1,"type":"string"},"subject":{"minLength":1,"type":"string"}},"required":["provider","subject"],"type":"object"}"#;
+/// Generated JSON Schema constant `AUTH_USER_LIFECYCLE_INSPECT_OUTPUT_SCHEMA_JSON`.
+pub const AUTH_USER_LIFECYCLE_INSPECT_OUTPUT_SCHEMA_JSON: &str = r#"{"properties":{"active":{"anyOf":[{"type":"boolean"},{"type":"null"}]},"email":{"anyOf":[{"minLength":1,"type":"string"},{"type":"null"}]},"found":{"type":"boolean"},"identityId":{"anyOf":[{"minLength":1,"type":"string"},{"type":"null"}]},"provider":{"anyOf":[{"minLength":1,"type":"string"},{"type":"null"}]},"subject":{"anyOf":[{"minLength":1,"type":"string"},{"type":"null"}]},"userId":{"anyOf":[{"minLength":1,"type":"string"},{"type":"null"}]}},"required":["found","userId","active","email","identityId","provider","subject"],"type":"object"}"#;
+/// Generated JSON Schema constant `AUTH_USER_LIFECYCLE_UNLINK_INPUT_SCHEMA_JSON`.
+pub const AUTH_USER_LIFECYCLE_UNLINK_INPUT_SCHEMA_JSON: &str = r#"{"properties":{"provider":{"minLength":1,"type":"string"},"subject":{"minLength":1,"type":"string"},"userId":{"minLength":1,"type":"string"}},"required":["userId","provider","subject"],"type":"object"}"#;
+/// Generated JSON Schema constant `AUTH_USER_LIFECYCLE_UNLINK_OUTPUT_SCHEMA_JSON`.
+pub const AUTH_USER_LIFECYCLE_UNLINK_OUTPUT_SCHEMA_JSON: &str =
+    r#"{"properties":{"unlinked":{"type":"boolean"}},"required":["unlinked"],"type":"object"}"#;
 /// Generated JSON Schema constant `AUTH_USERS_CREATE_INPUT_SCHEMA_JSON`.
 pub const AUTH_USERS_CREATE_INPUT_SCHEMA_JSON: &str = r#"{"properties":{"active":{"type":"boolean"},"capabilities":{"items":{"minLength":1,"type":"string"},"type":"array"},"capabilityGroups":{"items":{"minLength":1,"type":"string"},"type":"array"},"email":{"minLength":1,"type":"string"},"name":{"minLength":1,"type":"string"},"username":{"minLength":1,"type":"string"}},"type":"object"}"#;
 /// Generated JSON Schema constant `AUTH_USERS_CREATE_OUTPUT_SCHEMA_JSON`.
