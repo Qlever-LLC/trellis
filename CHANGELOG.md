@@ -8,12 +8,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.11.0-rc.12] - 2026-10-29
+
 ### Added
 
 - Added service-only `Auth.UserLifecycle` RPCs for exact provider-subject
   inspection, protected deactivation with session revocation, and inactive
   identity unlinking under the narrow `trellis.auth::user_lifecycle.manage`
   capability.
+- Added privacy-preserving OAuth cookie-continuity diagnostics with hashed
+  state, flow, and client signals; state age; duplicate and malformed cookie
+  counts; and `/auth` versus root-path probe-cookie status.
 
 ## [0.11.0-rc.11] - 2026-08-19
 
