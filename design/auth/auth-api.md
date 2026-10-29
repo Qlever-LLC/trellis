@@ -1850,7 +1850,7 @@ any other user. Deactivation refuses active administrators, marks the user
 inactive, and revokes all of that user's sessions. Unlink refuses an active
 user, so the required workflow order is:
 
-1. resolve and validate the exact external identity
+1. resolve and validate the exact provider identity
 2. complete application-owned safety checks
 3. deactivate the Trellis user and revoke its sessions
 4. unlink the same exact identity
@@ -1862,6 +1862,11 @@ false`, and inspection then returns `found: false`. Applications
 remain responsible for their own server-side allowlist and for validating
 provider metadata such as the expected email before invoking lifecycle
 mutations.
+
+For a Trellis-native `local` identity, unlink atomically removes the associated
+local password credential before removing the identity link. This frees the
+exact username for a later registration while retaining the inactive canonical
+user as a lifecycle tombstone.
 
 ### rpc.Auth.Capabilities.List
 

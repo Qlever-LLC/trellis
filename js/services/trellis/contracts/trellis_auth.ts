@@ -1381,9 +1381,9 @@ const baseTrellisAuth = defineServiceContract(
       "user_lifecycle.manage": {
         displayName: "Manage user lifecycle automation",
         description:
-          "Inspect, deactivate, revoke sessions for, and unlink exact external user identities.",
+          "Inspect, deactivate, revoke sessions for, and unlink exact provider identities.",
         consequence:
-          "May terminate access and detach an external identity from its Trellis user.",
+          "May terminate access and detach a provider identity from its Trellis user.",
       },
     },
     rpc: attachDocs(TRELLIS_AUTH_RPC, TRELLIS_AUTH_RPC_DOCS),

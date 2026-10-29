@@ -2380,26 +2380,61 @@ async fn auth_user_lifecycle_service_automation() {
     let mut fixture = setup_app_identity_environment().await;
     let admin_contract =
         auth_session_revoke_admin_contract().expect("build lifecycle target admin contract");
-    let target = {
-        let admin_client = fixture
-            .admin
-            .connect_client(&fixture.bootstrap_url, &admin_contract)
-            .await
-            .expect("connect lifecycle admin client");
-        let auth = trellis_rs::sdk::auth::AuthClient::new(crate::generated_caller(&admin_client));
-        auth.rpc()
-            .auth()
-            .users_create(&trellis_rs::sdk::auth::types::AuthUsersCreateRequest {
-                active: Some(true),
-                capabilities: None,
-                capability_groups: None,
-                email: Some("rust-lifecycle-target@example.test".to_string()),
-                name: Some("Rust Lifecycle Target".to_string()),
-                username: Some("rust-lifecycle-target".to_string()),
-            })
-            .await
-            .expect("create lifecycle target user")
-    };
+    let admin_client = fixture
+        .admin
+        .connect_client(&fixture.bootstrap_url, &admin_contract)
+        .await
+        .expect("connect lifecycle admin client");
+    let admin_auth = trellis_rs::sdk::auth::AuthClient::new(crate::generated_caller(&admin_client));
+    let target = admin_auth
+        .rpc()
+        .auth()
+        .users_create(&trellis_rs::sdk::auth::types::AuthUsersCreateRequest {
+            active: Some(true),
+            capabilities: None,
+            capability_groups: None,
+            email: Some("rust-lifecycle-target@example.test".to_string()),
+            name: Some("Rust Lifecycle Target".to_string()),
+            username: Some("rust-lifecycle-target".to_string()),
+        })
+        .await
+        .expect("create lifecycle target user");
+    let target_user_id = target.user.user_id.clone();
+    let reset = admin_auth
+        .rpc()
+        .auth()
+        .users_password_reset_create(
+            &trellis_rs::sdk::auth::types::AuthUsersPasswordResetCreateRequest {
+                expires_in_seconds: None,
+                user_id: target_user_id.clone(),
+            },
+        )
+        .await
+        .expect("create lifecycle target password reset");
+    complete_local_password_account_flow(
+        fixture.runtime.trellis_url(),
+        &reset.flow_id,
+        "rust-lifecycle-target",
+        "trellis-integration-rust-lifecycle-target-password-2026",
+    )
+    .await;
+    let sqlite = fixture.runtime.control_plane_sqlite();
+    let credential_rows = sqlite
+        .query(
+            "SELECT local_credentials.identity_id AS identityId
+             FROM local_credentials
+             INNER JOIN user_identities USING (identity_id)
+             WHERE user_identities.provider = 'local'
+               AND user_identities.subject = ?",
+            ["rust-lifecycle-target"],
+        )
+        .expect("query lifecycle target local credential");
+    assert_eq!(credential_rows.len(), 1);
+    let identity_id = credential_rows[0]
+        .get("identityId")
+        .and_then(Value::as_str)
+        .expect("local credential should include identity id")
+        .to_string();
     let contract =
         trellis_test::TrellisTestContract::from_manifest_json(LIFECYCLE_SERVICE_CONTRACT_JSON)
             .expect("build lifecycle service contract");
@@ -2443,7 +2478,7 @@ async fn auth_user_lifecycle_service_automation() {
     let exact = trellis_rs::sdk::auth::types::AuthUserLifecycleDeactivateRequest {
         provider: selector.provider.clone(),
         subject: selector.subject.clone(),
-        user_id: target.user.user_id.clone(),
+        user_id: target_user_id.clone(),
     };
     let deactivated = auth
         .rpc()
@@ -2464,7 +2499,7 @@ async fn auth_user_lifecycle_service_automation() {
     let unlink = trellis_rs::sdk::auth::types::AuthUserLifecycleUnlinkRequest {
         provider: selector.provider.clone(),
         subject: selector.subject.clone(),
-        user_id: target.user.user_id,
+        user_id: target_user_id.clone(),
     };
     let unlinked = auth
         .rpc()
@@ -2473,6 +2508,13 @@ async fn auth_user_lifecycle_service_automation() {
         .await
         .expect("unlink exact lifecycle identity");
     assert!(unlinked.unlinked);
+    assert!(sqlite
+        .query(
+            "SELECT identity_id FROM local_credentials WHERE identity_id = ?",
+            [identity_id.as_str()],
+        )
+        .expect("query unlinked local credential")
+        .is_empty());
     let already_unlinked = auth
         .rpc()
         .auth()
@@ -2480,6 +2522,39 @@ async fn auth_user_lifecycle_service_automation() {
         .await
         .expect("retry lifecycle unlink");
     assert!(!already_unlinked.unlinked);
+
+    let replacement = admin_auth
+        .rpc()
+        .auth()
+        .users_create(&trellis_rs::sdk::auth::types::AuthUsersCreateRequest {
+            active: Some(true),
+            capabilities: None,
+            capability_groups: None,
+            email: Some("rust-lifecycle-target@example.test".to_string()),
+            name: Some("Rust Lifecycle Replacement".to_string()),
+            username: Some("rust-lifecycle-target".to_string()),
+        })
+        .await
+        .expect("recreate lifecycle target local identity");
+    assert_ne!(replacement.user.user_id, target_user_id);
+    let replacement_reset = admin_auth
+        .rpc()
+        .auth()
+        .users_password_reset_create(
+            &trellis_rs::sdk::auth::types::AuthUsersPasswordResetCreateRequest {
+                expires_in_seconds: None,
+                user_id: replacement.user.user_id,
+            },
+        )
+        .await
+        .expect("create replacement lifecycle target password reset");
+    complete_local_password_account_flow(
+        fixture.runtime.trellis_url(),
+        &replacement_reset.flow_id,
+        "rust-lifecycle-target",
+        "trellis-integration-rust-lifecycle-target-password-2026",
+    )
+    .await;
 
     assert!(
         auth.rpc()

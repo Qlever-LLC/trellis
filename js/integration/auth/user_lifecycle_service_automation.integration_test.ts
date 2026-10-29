@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertNotEquals } from "@std/assert";
 import { Result } from "@qlever-llc/result";
 import { defineAppContract, defineServiceContract } from "@qlever-llc/trellis";
 import { TrellisService } from "@qlever-llc/trellis/service/deno";
@@ -12,6 +12,7 @@ import { createAuthLocalLoginFixture } from "./_fixture.ts";
 const CASE_ID = "auth.user-lifecycle-service-automation";
 const fixture = createAuthLocalLoginFixture(CASE_ID);
 const targetUsername = caseScopedName("lifecycle-target", CASE_ID);
+const targetPassword = `trellis-integration-${CASE_ID}-password-2026`;
 
 const schemas = {
   LifecycleRunInput: Type.Object({
@@ -79,6 +80,32 @@ liveTrellisTest({
       email: `${targetUsername}@example.test`,
       active: true,
     }).orThrow();
+    const reset = await admin.authUsersPasswordResetCreate({
+      userId: target.user.userId,
+    }).orThrow();
+    await completeLocalPasswordAccountFlow({
+      trellisUrl: runtime.trellisUrl,
+      flowId: reset.flowId,
+      username: targetUsername,
+      password: targetPassword,
+    });
+    const sqlite = runtime.controlPlane?.sqlite;
+    if (!sqlite) {
+      throw new Error("Expected isolated control-plane SQLite access");
+    }
+    const credentialRows = await sqlite.query(
+      `select local_credentials.identity_id as identityId
+       from local_credentials
+       inner join user_identities using (identity_id)
+       where user_identities.provider = 'local'
+         and user_identities.subject = ?`,
+      [targetUsername],
+    );
+    assertEquals(credentialRows.length, 1);
+    const identityId = credentialRows[0]?.identityId;
+    if (typeof identityId !== "string") {
+      throw new Error("Expected local credential identity id");
+    }
     const serviceKey = await runtime.registerService({
       name: caseScopedName("lifecycle-service", CASE_ID),
       contract: lifecycleServiceContract,
@@ -170,6 +197,13 @@ liveTrellisTest({
         action: "unlink",
       }).orThrow();
       assertEquals(unlinked.unlinked, true);
+      assertEquals(
+        (await sqlite.query(
+          "select identity_id from local_credentials where identity_id = ?",
+          [identityId],
+        )).length,
+        0,
+      );
       const alreadyUnlinked = await client.lifecycleRun({
         ...input,
         action: "unlink",
@@ -181,6 +215,23 @@ liveTrellisTest({
         action: "inspect",
       }).orThrow();
       assertEquals(missing.found, false);
+
+      const replacement = await admin.authUsersCreate({
+        username: targetUsername,
+        name: "Lifecycle Automation Replacement",
+        email: `${targetUsername}@example.test`,
+        active: true,
+      }).orThrow();
+      assertNotEquals(replacement.user.userId, target.user.userId);
+      const replacementReset = await admin.authUsersPasswordResetCreate({
+        userId: replacement.user.userId,
+      }).orThrow();
+      await completeLocalPasswordAccountFlow({
+        trellisUrl: runtime.trellisUrl,
+        flowId: replacementReset.flowId,
+        username: targetUsername,
+        password: targetPassword,
+      });
     } finally {
       await client.connection.close().catch(() => undefined);
       await service.stop();
@@ -188,3 +239,26 @@ liveTrellisTest({
     }
   },
 });
+
+async function completeLocalPasswordAccountFlow(args: {
+  trellisUrl: string;
+  flowId: string;
+  username: string;
+  password: string;
+}): Promise<void> {
+  const response = await fetch(
+    `${args.trellisUrl}/auth/account-flow/${
+      encodeURIComponent(args.flowId)
+    }/local-password`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        username: args.username,
+        password: args.password,
+      }),
+    },
+  );
+  const body = await response.text();
+  assertEquals(response.status, 200, body);
+}

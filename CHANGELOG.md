@@ -8,6 +8,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.11.0-rc.13] - 2026-10-29
+
+### Fixed
+
+- Removed the Trellis-owned password credential when lifecycle automation
+  unlinks a native `local` identity, allowing the exact username to be
+  registered again without leaving an orphaned credential.
+
 ## [0.11.0-rc.12] - 2026-10-29
 
 ### Added

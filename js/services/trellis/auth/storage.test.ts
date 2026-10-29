@@ -843,6 +843,29 @@ Deno.test("user identity storage unlinks by user and identity id", async () => {
   });
 });
 
+Deno.test("unlinking a local identity removes its password credential", async () => {
+  await withRepositories(async ({ userIdentities, localCredentials }) => {
+    const identity = makeUserIdentity({
+      identityId: "idn_local_ada",
+      provider: "local",
+      subject: "ada",
+    });
+    const credential = makeLocalCredential({ identityId: identity.identityId });
+    await userIdentities.put(identity);
+    await localCredentials.put(credential);
+
+    assertEquals(
+      await userIdentities.unlink(
+        identity.userId,
+        identity.identityId,
+      ),
+      true,
+    );
+    assertEquals(await userIdentities.get(identity.identityId), undefined);
+    assertEquals(await localCredentials.get(identity.identityId), undefined);
+  });
+});
+
 Deno.test("local credential storage upserts and gets credentials", async () => {
   await withRepositories(
     async ({ localCredentials: credentialRepo }, storage) => {

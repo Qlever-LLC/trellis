@@ -3,7 +3,7 @@ import type { TrellisContractV1 } from "../../../contracts.ts";
 
 export const CONTRACT_ID = "trellis.auth@v1" as const;
 export const CONTRACT_DIGEST =
-  "UtozuJW2c_X62Jv5F-KTNLqeYYkJPMreq9dCxL2p_r8" as const;
+  "EM34QSorsP72mzaN3d_fUnFXJZYHDEHgxurYJoCsc3k" as const;
 export const CONTRACT: TrellisContractV1 = {
   "capabilities": {
     "trellis.auth::device.review": {
@@ -20,9 +20,9 @@ export const CONTRACT: TrellisContractV1 = {
     },
     "trellis.auth::user_lifecycle.manage": {
       "consequence":
-        "May terminate access and detach an external identity from its Trellis user.",
+        "May terminate access and detach a provider identity from its Trellis user.",
       "description":
-        "Inspect, deactivate, revoke sessions for, and unlink exact external user identities.",
+        "Inspect, deactivate, revoke sessions for, and unlink exact provider identities.",
       "displayName": "Manage user lifecycle automation",
     },
   },

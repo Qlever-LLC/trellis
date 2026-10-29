@@ -656,11 +656,26 @@ export class SqlUserIdentityRepository {
 
   /** Removes one identity link from a user account. */
   async unlink(userId: string, identityId: string): Promise<boolean> {
-    const rows = await this.#db.delete(userIdentities).where(and(
-      eq(userIdentities.userId, userId),
-      eq(userIdentities.identityId, identityId),
-    )).returning({ identityId: userIdentities.identityId });
-    return rows.length > 0;
+    return await this.#db.transaction(async (tx) => {
+      const [identity] = await tx.select({
+        provider: userIdentities.provider,
+      }).from(userIdentities).where(and(
+        eq(userIdentities.userId, userId),
+        eq(userIdentities.identityId, identityId),
+      )).limit(1);
+      if (!identity) return false;
+
+      if (identity.provider === "local") {
+        await tx.delete(localCredentials).where(
+          eq(localCredentials.identityId, identityId),
+        );
+      }
+      const rows = await tx.delete(userIdentities).where(and(
+        eq(userIdentities.userId, userId),
+        eq(userIdentities.identityId, identityId),
+      )).returning({ identityId: userIdentities.identityId });
+      return rows.length > 0;
+    });
   }
 }
 
