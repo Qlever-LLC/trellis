@@ -634,7 +634,7 @@
       },
       "completion": {
         "typescript": "implemented",
-        "rust": "implemented"
+        "rust": "required"
       }
     },
     {
@@ -4826,7 +4826,7 @@
       },
       "completion": {
         "typescript": "implemented",
-        "rust": "required"
+        "rust": "implemented"
       }
     },
     {
