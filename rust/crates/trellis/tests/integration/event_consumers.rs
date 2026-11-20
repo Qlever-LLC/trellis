@@ -816,6 +816,103 @@ async fn event_consumers_transient_missing_consumer_retries_after_reconcile() {
 }
 
 #[tokio::test]
+async fn event_consumers_transient_event_proof_validation_failure_redelivers() {
+    assert_service_case_registered(
+        "event-consumers.transient-event-proof-validation-failure-redelivers",
+        "event-consumers",
+        "event_consumers",
+    );
+
+    let mut options = trellis_test::TrellisTestRuntimeOptions::default();
+    options.fail_once_hooks = vec!["auth.events.validate".to_string()];
+    let runtime = trellis_test::TrellisTestRuntime::start(options)
+        .await
+        .expect("start live Trellis test runtime with Auth event validation failure");
+    let bootstrap_url = runtime
+        .wait_for_bootstrap_url(Duration::from_secs(10))
+        .await
+        .expect("observe first admin bootstrap URL");
+    let mut admin = runtime.admin();
+    let source_contract = test_contract(SOURCE_CONTRACT_JSON);
+    admin
+        .approve_contract(&bootstrap_url, &source_contract, None, &[])
+        .await
+        .expect("approve source contract");
+    let consumer = connect_consumer(
+        &mut admin,
+        runtime.trellis_url(),
+        &bootstrap_url,
+        DEPENDENCY_CONSUMER_JSON,
+        "event-consumers-dependency-rust",
+    )
+    .await;
+    let provisioned_consumers = matching_consumers(&runtime, SourcePingedEvent::SUBJECT).await;
+    assert_eq!(provisioned_consumers.len(), 1);
+    let durable_name = consumer_name(&provisioned_consumers[0]).to_string();
+    let ack_observer = runtime
+        .start_jetstream_ack_observer()
+        .await
+        .expect("start JetStream ACK observer");
+    let observed = Arc::new(Mutex::new(None::<String>));
+    let handler_observed = Arc::clone(&observed);
+    let listener = consumer
+        .listen_event::<SourcePingedEvent, _, _>(
+            move |event, _context| {
+                let handler_observed = Arc::clone(&handler_observed);
+                async move {
+                    *handler_observed.lock().await = Some(event.id);
+                    Ok(())
+                }
+            },
+            ServiceEventListenOptions {
+                mode: ServiceEventListenerMode::Durable,
+                group: Some("ingest".to_string()),
+                durable_name: None,
+                concurrency: 1,
+            },
+        )
+        .await
+        .expect("start durable event listener");
+    let publisher_contract = publisher_contract();
+    let publisher = admin
+        .connect_client(&bootstrap_url, &publisher_contract)
+        .await
+        .expect("connect event publisher client");
+    let event_id = "rust-event-consumers-proof-validation-redelivery";
+    publisher
+        .publish::<SourcePingedEvent>(&EventRecord {
+            id: event_id.to_string(),
+            value: "retry-proof-validation".to_string(),
+        })
+        .await
+        .expect("publish source event");
+
+    wait_for_observed_id(&observed, event_id).await;
+    wait_for_consumer_ack(&ack_observer, &durable_name).await;
+    let frames = ack_observer
+        .frames()
+        .into_iter()
+        .filter(|frame| frame.subject.contains(&durable_name))
+        .collect::<Vec<_>>();
+    assert!(ack_observer.errors().is_empty());
+    assert!(!frames.iter().any(|frame| frame.payload == "+TERM"));
+    assert!(!frames.iter().any(|frame| frame.payload == "-NAK"));
+    assert_eq!(
+        frames.iter().filter(|frame| is_positive_ack(frame)).count(),
+        1
+    );
+    assert!(frames.iter().any(|frame| {
+        frame
+            .subject
+            .starts_with(&format!("$JS.ACK.trellis.{durable_name}.2."))
+    }));
+
+    listener.abort();
+    let _ = listener.await;
+    ack_observer.stop().await;
+}
+
+#[tokio::test]
 async fn event_consumers_readiness_lost_does_not_nak_delivered_group_message() {
     assert_service_case_registered(
         "event-consumers.readiness-lost-does-not-nak-delivered-group-message",
@@ -1829,6 +1926,32 @@ async fn wait_for_observed_id(observed: &Arc<Mutex<Option<String>>>, event_id: &
         assert!(Instant::now() < deadline, "timed out waiting for event");
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+}
+
+async fn wait_for_consumer_ack(
+    observer: &trellis_test::TrellisJetStreamAckObserver,
+    durable_name: &str,
+) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if observer
+            .frames()
+            .iter()
+            .any(|frame| frame.subject.contains(durable_name) && is_positive_ack(frame))
+        {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for JetStream ACK for {durable_name}; frames: {:?}",
+            observer.frames()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+fn is_positive_ack(frame: &trellis_test::TrellisJetStreamAckFrame) -> bool {
+    frame.payload.is_empty() || frame.payload == "+ACK"
 }
 
 async fn wait_for_observed(

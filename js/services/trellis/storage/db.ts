@@ -1,17 +1,17 @@
-import {
-  type Client,
-  createClient,
-  type InArgs,
-  type InStatement,
-  type Replicated,
-  type ResultSet,
-  type Transaction,
-  type TransactionMode,
+import type {
+  Client,
+  InArgs,
+  InStatement,
+  Replicated,
+  ResultSet,
+  Transaction,
+  TransactionMode,
 } from "@libsql/client";
 import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
 import { dirname } from "@std/path";
 
+import { createLocalSqliteClient } from "./local_sqlite_client.ts";
 import { schema } from "./schema.ts";
 import { runTrellisStorageUpgrades } from "./upgrades.ts";
 
@@ -212,7 +212,7 @@ export async function openTrellisStorageDb(
   path: string,
 ): Promise<TrellisStorage> {
   await Deno.mkdir(dirname(path), { recursive: true });
-  const client = new SerializedClient(createClient({ url: `file:${path}` }));
+  const client = new SerializedClient(createLocalSqliteClient(path));
   await client.execute("PRAGMA journal_mode = WAL");
   const db = drizzle(client, { schema });
 

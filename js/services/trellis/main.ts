@@ -1,9 +1,11 @@
 import { initTelemetry } from "@qlever-llc/trellis/telemetry";
 
 import { loadConfig } from "./config.ts";
+import { registerProcessMemoryMetrics } from "./process_memory_metrics.ts";
 import { startTrellisControlPlane } from "./runtime.ts";
 
 initTelemetry("trellis");
+registerProcessMemoryMetrics();
 
 const PROCESS_SHUTDOWN_TIMEOUT_MS = 10_000;
 const SHUTDOWN_SIGNALS = ["SIGINT", "SIGTERM"] as const;

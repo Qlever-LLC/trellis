@@ -98,26 +98,40 @@ struct ServiceEventListenerRegistryCleanup {
 #[derive(Debug, Clone)]
 struct EventProofValidationError {
     message: String,
-    transient: bool,
+    disposition: EventProofValidationDisposition,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum EventProofValidationDisposition {
+    Nak,
+    Pending,
+    Term,
 }
 
 impl EventProofValidationError {
     fn permanent(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
-            transient: false,
+            disposition: EventProofValidationDisposition::Term,
         }
     }
 
-    fn transient(error: TrellisClientError) -> Self {
+    fn nak(error: TrellisClientError) -> Self {
         Self {
             message: error.to_string(),
-            transient: true,
+            disposition: EventProofValidationDisposition::Nak,
         }
     }
 
-    fn is_transient(&self) -> bool {
-        self.transient
+    fn pending(error: TrellisClientError) -> Self {
+        Self {
+            message: error.to_string(),
+            disposition: EventProofValidationDisposition::Pending,
+        }
+    }
+
+    fn disposition(&self) -> EventProofValidationDisposition {
+        self.disposition
     }
 
     fn message(&self) -> &str {
@@ -283,12 +297,14 @@ async fn validate_event_message(
     let response = validate_event_with_session_retry(client, &request)
         .await
         .map_err(|error| {
-            if is_transient_event_validate_error(&error) {
-                EventProofValidationError::transient(error)
-            } else {
+            if is_transient_session_not_found(&error) {
+                EventProofValidationError::nak(error)
+            } else if is_definitive_event_validate_error(&error) {
                 EventProofValidationError::permanent(format!(
                     "Auth.Events.Validate failed for {subject}: {error}"
                 ))
+            } else {
+                EventProofValidationError::pending(error)
             }
         })?;
     if !response.allowed {
@@ -320,6 +336,21 @@ fn is_transient_event_validate_error(error: &TrellisClientError) -> bool {
             error,
             TrellisClientError::Timeout | TrellisClientError::NatsRequest(_)
         )
+}
+
+fn is_definitive_event_validate_error(error: &TrellisClientError) -> bool {
+    let TrellisClientError::RpcError(payload) = error else {
+        return false;
+    };
+    if payload.error_type() != Some("AuthError") {
+        return false;
+    }
+
+    payload
+        .value()
+        .and_then(|value| value.get("reason"))
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|reason| reason != "session_not_found")
 }
 
 fn make_validate_request(
@@ -2362,10 +2393,17 @@ async fn run_durable_event_pull_loop<D>(
                         error = %error.message(),
                         "Event auth validation failed"
                     );
-                    if error.is_transient() {
-                        let _ = message.nak().await;
-                    } else {
-                        let _ = message.term().await;
+                    match error.disposition() {
+                        EventProofValidationDisposition::Nak => {
+                            let _ = message.nak().await;
+                        }
+                        EventProofValidationDisposition::Pending => {
+                            // Indeterminate runtime and transport failures intentionally remain
+                            // unacknowledged so the consumer AckWait policy controls redelivery.
+                        }
+                        EventProofValidationDisposition::Term => {
+                            let _ = message.term().await;
+                        }
                     }
                     continue;
                 }

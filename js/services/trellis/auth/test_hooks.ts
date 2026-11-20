@@ -18,6 +18,7 @@ const TRELLIS_TEST_HOOK_NAMES = [
   "auth.admin.deviceInstances.refreshActiveContracts",
   "auth.admin.deviceInstances.kickRuntimeAccess",
   "auth.sessions.logout.kickRuntimeAccess",
+  "auth.events.validate",
 ] as const;
 
 export type TrellisTestHookName = typeof TRELLIS_TEST_HOOK_NAMES[number];

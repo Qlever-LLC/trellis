@@ -162,6 +162,8 @@ Deno.test("Trellis.request maps invalid JSON replies to TransportError", async (
         sid: 1,
         data: new TextEncoder().encode("not-json"),
         respond: () => false,
+        respondRequest: () =>
+          Promise.reject(new Error("Unexpected respondRequest call")),
         json: () => {
           throw new SyntaxError("Unexpected token o in JSON at position 1");
         },

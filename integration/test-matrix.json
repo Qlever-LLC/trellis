@@ -7930,6 +7930,61 @@
     },
     {
       "kind": "service",
+      "id": "event-consumers.transient-event-proof-validation-failure-redelivers",
+      "fixture": "event-consumers",
+      "title": "Transient event-proof validation failure redelivers",
+      "coverage": [
+        "events",
+        "event-consumers",
+        "authentication",
+        "redelivery"
+      ],
+      "description": "A durable event whose proof cannot be validated because of an indeterminate runtime failure remains unacknowledged and is delivered after validation recovers.",
+      "scenario": {
+        "participants": [
+          {
+            "name": "source service",
+            "kind": "service",
+            "contract": "event-consumers source contract"
+          },
+          {
+            "name": "consumer service",
+            "kind": "service",
+            "contract": "event-consumers dependency consumer contract"
+          },
+          {
+            "name": "publisher app",
+            "kind": "app",
+            "contract": "event-consumers publisher app contract"
+          }
+        ],
+        "given": [
+          "A durable consumer receives an authorized event and event-proof validation fails once with an indeterminate runtime error."
+        ],
+        "when": [
+          "The JetStream acknowledgement deadline redelivers the event after Auth validation recovers."
+        ],
+        "then": [
+          "The event handler runs and the consumer ACKs the redelivery without terminating or explicitly NAKing the original delivery."
+        ]
+      },
+      "implementations": {
+        "typescript": {
+          "file": "event-consumers/transient_event_proof_validation_failure_redelivers.integration_test.ts",
+          "testName": "event-consumers.transient-event-proof-validation-failure-redelivers"
+        },
+        "rust": {
+          "module": "event_consumers",
+          "function": "event_consumers_transient_event_proof_validation_failure_redelivers"
+        }
+      },
+      "completion": {
+        "typescript": "implemented",
+        "rust": "implemented"
+      }
+    },
+    {
+      "kind": "service",
       "id": "event-consumers.durable-listen-without-declared-group-returns-err",
       "fixture": "event-consumers",
       "title": "Durable listen without a declared group returns an error",

@@ -112,6 +112,7 @@ export async function registerSessionRpcs(deps: {
     createAuthEventsValidateHandler({
       logger: deps.logger,
       sessionStorage: deps.sessionStorage,
+      beforeValidate: () => deps.testHooks?.failOnce("auth.events.validate"),
     }),
   );
   await deps.trellis.handle.rpc.auth.sessionsLogout(

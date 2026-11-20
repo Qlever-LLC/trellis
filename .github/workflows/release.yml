@@ -295,8 +295,8 @@ jobs:
             time cargo test --manifest-path rust/Cargo.toml -p trellis-rs --lib --locked
             time cargo test --manifest-path rust/Cargo.toml -p trellis-rs --doc --locked
             time cargo test --manifest-path rust/tools/generate/Cargo.toml --locked
-            time cargo test --manifest-path rust/xtask/Cargo.toml --locked
-            time cargo test --manifest-path xtask/Cargo.toml --locked
+            time cargo test --manifest-path rust/xtask/Cargo.toml
+            time cargo test --manifest-path xtask/Cargo.toml
           fi
 
   verify-format:

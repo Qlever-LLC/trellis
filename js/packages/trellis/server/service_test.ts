@@ -424,6 +424,8 @@ function createFakeNatsConnection(args: {
         opts?.onRespond?.(payloadBytes(payload), responseOpts?.headers);
         return true;
       },
+      respondRequest: () =>
+        Promise.reject(new Error("Unexpected respondRequest call")),
       json: <T>() => value as T,
       string: () => new TextDecoder().decode(messageData),
     };
