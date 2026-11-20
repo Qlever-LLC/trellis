@@ -40,6 +40,8 @@ function createMockNatsConnection(): NatsConnection {
     sid: 1,
     data: new Uint8Array(),
     respond: () => true,
+    respondRequest: () =>
+      Promise.reject(new Error("Unexpected respondRequest call")),
     json: <T>() => ({}) as T,
     string: () => "",
   };

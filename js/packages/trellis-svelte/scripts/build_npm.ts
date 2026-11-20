@@ -44,7 +44,7 @@ const jsrRuntimeDependencyVersion =
   jsrRuntimeDependencyFloorVersion(version);
 const dependencies = resolveInternalNpmDependenciesForBuild(
   {
-    "@nats-io/nats-core": "^3.3.1",
+    "@nats-io/nats-core": "^3.5.0",
     "@qlever-llc/result": "^0.11.0",
     "@qlever-llc/trellis": "^0.11.0",
     typebox: "^1.0.15",

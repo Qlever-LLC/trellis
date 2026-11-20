@@ -8,20 +8,20 @@
     "jsr:@hono-rate-limiter/hono-rate-limiter@~0.4.2": "0.4.2",
     "jsr:@hono/hono@^4.12.15": "4.12.23",
     "jsr:@hono/hono@^4.6.12": "4.12.23",
-    "jsr:@nats-io/nats-core@3.4.0": "3.4.0",
-    "jsr:@nats-io/nkeys@2.0.3": "2.0.3",
-    "jsr:@nats-io/nuid@3.0.0": "3.0.0",
-    "jsr:@nats-io/transport-deno@^3.3.1": "3.4.0",
+    "jsr:@nats-io/nats-core@3.5.0": "3.5.0",
+    "jsr:@nats-io/nkeys@2.1.0": "2.1.0",
+    "jsr:@nats-io/nuid@3.1.0": "3.1.0",
+    "jsr:@nats-io/transport-deno@^3.5.0": "3.5.0",
     "jsr:@std/assert@*": "1.0.19",
     "jsr:@std/assert@^1.0.19": "1.0.19",
-    "jsr:@std/bytes@^1.0.5": "1.0.6",
+    "jsr:@std/bytes@^1.0.6": "1.0.6",
     "jsr:@std/cli@^1.0.29": "1.0.30",
     "jsr:@std/encoding@1": "1.0.10",
     "jsr:@std/fmt@1": "1.0.10",
     "jsr:@std/fs@1": "1.0.24",
     "jsr:@std/internal@^1.0.12": "1.0.14",
     "jsr:@std/internal@^1.0.14": "1.0.14",
-    "jsr:@std/io@0.225.2": "0.225.2",
+    "jsr:@std/io@0.225.3": "0.225.3",
     "jsr:@std/path@1": "1.1.5",
     "jsr:@std/path@1.0": "1.0.9",
     "jsr:@std/path@^1.1.4": "1.1.5",
@@ -30,14 +30,13 @@
     "jsr:@ts-morph/common@0.27": "0.27.0",
     "npm:@libsql/client@0.15.15": "0.15.15",
     "npm:@libsql/client@~0.15.15": "0.15.15",
-    "npm:@nats-io/jetstream@3.4.0": "3.4.0",
-    "npm:@nats-io/jetstream@^3.3.1": "3.4.0",
+    "npm:@nats-io/jetstream@^3.5.0": "3.5.0",
     "npm:@nats-io/jwt@^0.0.10-5": "0.0.10-5",
-    "npm:@nats-io/kv@^3.3.1": "3.4.0",
-    "npm:@nats-io/nats-core@^3.3.1": "3.4.0",
-    "npm:@nats-io/nkeys@^2.0.3": "2.0.3",
-    "npm:@nats-io/obj@^3.3.1": "3.4.0",
-    "npm:@nats-io/transport-node@^3.3.1": "3.4.0",
+    "npm:@nats-io/kv@^3.5.0": "3.5.0",
+    "npm:@nats-io/nats-core@^3.5.0": "3.5.0",
+    "npm:@nats-io/nkeys@^2.0.3": "2.1.0",
+    "npm:@nats-io/obj@^3.5.0": "3.5.0",
+    "npm:@nats-io/transport-node@^3.5.0": "3.5.0",
     "npm:@noble/hashes@1.8.0": "1.8.0",
     "npm:@opentelemetry/api@^1.9.1": "1.9.1",
     "npm:@opentelemetry/exporter-metrics-otlp-proto@0.215": "0.215.0_@opentelemetry+api@1.9.1",
@@ -112,8 +111,7 @@
       "dependencies": [
         "jsr:@denosaurs/plug",
         "jsr:@std/path@1.0"
-      ],
-      "deprecated": true
+      ]
     },
     "@deno/dnt@0.42.3": {
       "integrity": "62a917a0492f3c8af002dce90605bb0d41f7d29debc06aca40dba72ab65d8ae3",
@@ -123,8 +121,7 @@
         "jsr:@std/fs",
         "jsr:@std/path@1",
         "jsr:@ts-morph/bootstrap"
-      ],
-      "deprecated": true
+      ]
     },
     "@denosaurs/plug@1.1.0": {
       "integrity": "eb2f0b7546c7bca2000d8b0282c54d50d91cf6d75cb26a80df25a6de8c4bc044",
@@ -133,8 +130,7 @@
         "jsr:@std/fmt",
         "jsr:@std/fs",
         "jsr:@std/path@1"
-      ],
-      "deprecated": true
+      ]
     },
     "@hono-rate-limiter/hono-rate-limiter@0.4.2": {
       "integrity": "028c2ded3d21be30fb787044ddac3e656b24a9d3a06e42241a5a693409210217",
@@ -145,26 +141,26 @@
     "@hono/hono@4.12.23": {
       "integrity": "9d9f3da498f69c311b5f92d973eb3b8ebc973b5fd2b4972781b556e07818a745"
     },
-    "@nats-io/nats-core@3.4.0": {
-      "integrity": "55aadb128a34a591a8fb251ab2f525c55e3473958e04bfd057e71bbe6f278c52",
+    "@nats-io/nats-core@3.5.0": {
+      "integrity": "195e29e464a7001433ba22be60caed4681f44f57345ba01c11b6485dc96c8029",
       "dependencies": [
-        "jsr:@nats-io/nkeys@2.0.3",
+        "jsr:@nats-io/nkeys@2.1.0",
         "jsr:@nats-io/nuid"
       ]
     },
-    "@nats-io/nkeys@2.0.3": {
-      "integrity": "e92c96eea32b559f2e0f32555b49376942d66c07e59efff9180dbf29e516fbd8",
+    "@nats-io/nkeys@2.1.0": {
+      "integrity": "e0f1988e342695f5bfcaf400652b7f103e67189fe252b1d7a741f45790a4eeb4",
       "dependencies": [
         "npm:tweetnacl@1.0.3"
       ]
     },
-    "@nats-io/nuid@3.0.0": {
-      "integrity": "af637fd340e763d48845402f71ffd313808d88beb9abefbaf02037003056a07d"
+    "@nats-io/nuid@3.1.0": {
+      "integrity": "ebd5fac37850648d48980b40baf1f67d9811aa855d6dce2fd5b54f91de4911e2"
     },
-    "@nats-io/transport-deno@3.4.0": {
-      "integrity": "13235bb178853647c01584e5b1f1e59946ffa3157cfc1c7336d70bf3db600575",
+    "@nats-io/transport-deno@3.5.0": {
+      "integrity": "40942329834172a32af4634a7ef94623951f048e12b7f23b33d554bd4f1aa64a",
       "dependencies": [
-        "jsr:@nats-io/nats-core@3.4.0",
+        "jsr:@nats-io/nats-core@3.5.0",
         "jsr:@std/io"
       ]
     },
@@ -196,8 +192,8 @@
     "@std/internal@1.0.14": {
       "integrity": "291516b3d4c35024d6ffbc0a9df5bf4c64116e05b50012cf846710152d2ffdf7"
     },
-    "@std/io@0.225.2": {
-      "integrity": "3c740cd4ee4c082e6cfc86458f47e2ab7cb353dc6234d5e9b1f91a2de5f4d6c7",
+    "@std/io@0.225.3": {
+      "integrity": "27b07b591384d12d7b568f39e61dff966b8230559122df1e9fd11cc068f7ddd1",
       "dependencies": [
         "jsr:@std/bytes"
       ]
@@ -450,8 +446,8 @@
         "@tybys/wasm-util"
       ]
     },
-    "@nats-io/jetstream@3.4.0": {
-      "integrity": "sha512-GzHQodNJ942+R5LRb8PuZ5ugVWVWMRiufxUYLLVWkXKfwDXYN+Owo0d7L/b9O7BPyrbYD7jQWAC6+ZVuXa9Gyw==",
+    "@nats-io/jetstream@3.5.0": {
+      "integrity": "sha512-+auzo9mYvcsqq+H1ZBdSslkiPF96W4zbqpAT9Ni6ComcaA+j9cLpGGYYWpDqJCRrArZ8AxVAYvd7IxukZ/9z7w==",
       "dependencies": [
         "@nats-io/nats-core"
       ]
@@ -462,17 +458,17 @@
         "@nats-io/nkeys@1.2.0-8"
       ]
     },
-    "@nats-io/kv@3.4.0": {
-      "integrity": "sha512-168pcRJxWcIRHwdyczI3DaGk5r3CAj3CyKXuk4Nmx5KKj7N1znQOJPIxCoV0TPlAvoTidVb7eBv41J9imapMeQ==",
+    "@nats-io/kv@3.5.0": {
+      "integrity": "sha512-uxTiE79FxSYwvRZtW4B+rKc48ZR6VMyMkDCzhHQovQGL/6o6JJ10kQTxuenFwPmeTh6jC/kt75SjgPxuoX3Ftg==",
       "dependencies": [
         "@nats-io/jetstream",
         "@nats-io/nats-core"
       ]
     },
-    "@nats-io/nats-core@3.4.0": {
-      "integrity": "sha512-QMDM86EUNm+wudlKC67HLar/KHHQUvJGLfb4jbahje3pUk3K9afeck9fwsxBZF0eUFox6T/TA6m/t+lQqf+QsQ==",
+    "@nats-io/nats-core@3.5.0": {
+      "integrity": "sha512-iHsKhlzINdpL27pxvbHhBLRs4mnAKDfYrXMReBDNqvhKb/yVxz+Vz2rXujBAUiMsfOXFzixUK4Uu/qNnDRjZvA==",
       "dependencies": [
-        "@nats-io/nkeys@2.0.3",
+        "@nats-io/nkeys@2.1.0",
         "@nats-io/nuid"
       ]
     },
@@ -482,28 +478,28 @@
         "tweetnacl"
       ]
     },
-    "@nats-io/nkeys@2.0.3": {
-      "integrity": "sha512-JVt56GuE6Z89KUkI4TXUbSI9fmIfAmk6PMPknijmuL72GcD+UgIomTcRWiNvvJKxA01sBbmIPStqJs5cMRBC3A==",
+    "@nats-io/nkeys@2.1.0": {
+      "integrity": "sha512-vLMgwfPouG2Utp3hHUfdmMVEGEQ202tLES/pOAOfTJR5hwWGymm2mKuo3UMYv9kNw7awpcTBfEAljFqZcFm1lA==",
       "dependencies": [
         "tweetnacl"
       ]
     },
-    "@nats-io/nuid@3.0.0": {
-      "integrity": "sha512-QbXZDrxmYlrn5AD06gYcUTmEHwxn96HBQMIk7XTjDlEcx6FPzVBBPjp4AMRh1lEv6B4iJ6Xb/Uz61JugPXFRQg=="
+    "@nats-io/nuid@3.1.0": {
+      "integrity": "sha512-NC+JksVZl0zwpwsO6aIvsivqcqzgI2db0gCris/bSdZx56CdyniphijTfcjieUpR4HwZEiiid67NEviQ16sveA=="
     },
-    "@nats-io/obj@3.4.0": {
-      "integrity": "sha512-zQRyrbxVtapKtqlxcA7qiMBN5aoo1aqSLNHyTZY9d6xBmBAYsw7sfYfSdHSguiR7GXtEjFgFnynTcv7Rw9MIrg==",
+    "@nats-io/obj@3.5.0": {
+      "integrity": "sha512-fzlSGSa8oXJk07LEO8yJza9muF/3TqSrnOzCY8CmyCUScbIf5YhQuxU36oGFwSnHXKYieGmer9bj4CuSIPFsHQ==",
       "dependencies": [
         "@nats-io/jetstream",
         "@nats-io/nats-core",
         "js-sha256"
       ]
     },
-    "@nats-io/transport-node@3.4.0": {
-      "integrity": "sha512-hH7u7ejIBTFEJIZ8rIcMrHJI6wl+HhpO5sVFs1+ppmXa8RuB2+Lh1+UwTzZ5xTNNm1TKcRkYy+2qCV56qp8RxA==",
+    "@nats-io/transport-node@3.5.0": {
+      "integrity": "sha512-5Ebt62tnQsrrb3p+aHJt0+zRHAkxbUhhD+8HnHNBTYRgXJ2X2LgvOD19EiiAISdW7yR4IQSmsdvpfX+I5oG5ew==",
       "dependencies": [
         "@nats-io/nats-core",
-        "@nats-io/nkeys@2.0.3",
+        "@nats-io/nkeys@2.1.0",
         "@nats-io/nuid"
       ]
     },
@@ -638,7 +634,8 @@
         "@opentelemetry/core@2.7.0_@opentelemetry+api@1.9.1",
         "@opentelemetry/resources@2.7.0_@opentelemetry+api@1.9.1",
         "@opentelemetry/semantic-conventions"
-      ]
+      ],
+      "deprecated": true
     },
     "@opentelemetry/sdk-trace-base@2.8.0_@opentelemetry+api@1.9.1": {
       "integrity": "sha512-mhU4jp+vW0mGbFRd+GeXHvmfA4aDqWjBjLC3pE5XMpLs0IE2ryYb019Ts2AQrOq67gaTF25D91+fgvEHDZEnuQ==",
@@ -647,7 +644,8 @@
         "@opentelemetry/core@2.8.0_@opentelemetry+api@1.9.1",
         "@opentelemetry/resources@2.8.0_@opentelemetry+api@1.9.1",
         "@opentelemetry/semantic-conventions"
-      ]
+      ],
+      "deprecated": true
     },
     "@opentelemetry/sdk-trace-node@2.8.0_@opentelemetry+api@1.9.1": {
       "integrity": "sha512-nZt9OGufioAc3AfoLTqA9bsAeaMJAictYDdI2VcNQ+PmT+3rfKjAZDZvgPfd8VPX0O5Bw1hdQF6kDK8VSpZiWg==",
@@ -656,7 +654,8 @@
         "@opentelemetry/context-async-hooks",
         "@opentelemetry/core@2.8.0_@opentelemetry+api@1.9.1",
         "@opentelemetry/sdk-trace-base@2.8.0_@opentelemetry+api@1.9.1"
-      ]
+      ],
+      "deprecated": true
     },
     "@opentelemetry/semantic-conventions@1.41.1": {
       "integrity": "sha512-/UhIkaZgPutTFmQ7RnIJGgDXZmtEJ7Dvi86xNTFWcnRxVRNk/aotsqDJYeEvDP+FSMB2SdW+pQzNMcWP0rwuNA=="
@@ -856,7 +855,6 @@
         "@opentelemetry/api",
         "typescript"
       ],
-      "deprecated": true,
       "bin": true
     },
     "@sveltejs/mcp@0.1.22_typescript@6.0.3": {
@@ -1366,6 +1364,7 @@
         "natural-compare",
         "optionator"
       ],
+      "deprecated": true,
       "bin": true
     },
     "esm-env@1.2.2": {
@@ -2579,19 +2578,19 @@
       "jsr:@deno/dnt@~0.42.3",
       "jsr:@hono-rate-limiter/hono-rate-limiter@~0.4.2",
       "jsr:@hono/hono@^4.12.15",
-      "jsr:@nats-io/transport-deno@^3.3.1",
+      "jsr:@nats-io/transport-deno@^3.5.0",
       "jsr:@std/assert@^1.0.19",
       "jsr:@std/cli@^1.0.29",
       "jsr:@std/collections@^1.1.7",
       "jsr:@std/fs@^1.0.23",
       "jsr:@std/path@^1.1.4",
-      "npm:@nats-io/jetstream@^3.3.1",
+      "npm:@nats-io/jetstream@^3.5.0",
       "npm:@nats-io/jwt@^0.0.10-5",
-      "npm:@nats-io/kv@^3.3.1",
-      "npm:@nats-io/nats-core@^3.3.1",
+      "npm:@nats-io/kv@^3.5.0",
+      "npm:@nats-io/nats-core@^3.5.0",
       "npm:@nats-io/nkeys@^2.0.3",
-      "npm:@nats-io/obj@^3.3.1",
-      "npm:@nats-io/transport-node@^3.3.1",
+      "npm:@nats-io/obj@^3.5.0",
+      "npm:@nats-io/transport-node@^3.5.0",
       "npm:@opentelemetry/api@^1.9.1",
       "npm:@opentelemetry/exporter-metrics-otlp-proto@0.215",
       "npm:@opentelemetry/exporter-trace-otlp-proto@0.215",
@@ -2667,14 +2666,14 @@
       },
       "packages/trellis-test": {
         "dependencies": [
-          "jsr:@nats-io/transport-deno@^3.3.1",
+          "jsr:@nats-io/transport-deno@^3.5.0",
           "jsr:@qlever-llc/trellis@0.11",
           "jsr:@std/assert@^1.0.19",
           "jsr:@std/path@^1.1.4",
           "npm:@libsql/client@~0.15.15",
-          "npm:@nats-io/jetstream@^3.3.1",
-          "npm:@nats-io/kv@^3.3.1",
-          "npm:@nats-io/nats-core@^3.3.1"
+          "npm:@nats-io/jetstream@^3.5.0",
+          "npm:@nats-io/kv@^3.5.0",
+          "npm:@nats-io/nats-core@^3.5.0"
         ]
       },
       "portals/login": {

@@ -97,6 +97,8 @@ function createErrorResponseConnection(error: AuthError): MockNatsConnection {
     data: new TextEncoder().encode(JSON.stringify(error.toSerializable())),
     headers,
     respond: () => true,
+    respondRequest: () =>
+      Promise.reject(new Error("Unexpected respondRequest call")),
     json: <T>() => error.toSerializable() as T,
     string: () => JSON.stringify(error.toSerializable()),
   });
