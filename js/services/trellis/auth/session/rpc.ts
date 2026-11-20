@@ -949,8 +949,10 @@ export function createAuthRequestsValidateHandler(deps: {
 export function createAuthEventsValidateHandler(deps: {
   logger: Pick<SessionRpcLogger, "trace">;
   sessionStorage: Pick<SessionStorage, "getRetainedBySessionKey">;
+  beforeValidate?: () => void;
 }) {
   return async ({ input: req }: { input: ValidateEventInput }) => {
+    deps.beforeValidate?.();
     deps.logger.trace({
       rpc: "Auth.Events.Validate",
       sessionKey: req.sessionKey,

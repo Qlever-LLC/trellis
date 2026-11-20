@@ -2066,6 +2066,22 @@ function isTransientAuthValidateSessionError(error: unknown): boolean {
   return false;
 }
 
+function isDefinitiveAuthValidateError(error: unknown): boolean {
+  if (error instanceof AuthError) {
+    return error.reason !== "session_not_found";
+  }
+
+  if (
+    error instanceof RemoteError &&
+    error.remoteError.type === "AuthError"
+  ) {
+    const reason = Reflect.get(error.remoteError, "reason");
+    return typeof reason === "string" && reason !== "session_not_found";
+  }
+
+  return false;
+}
+
 function isDeclaredRpcError(
   errorNames: readonly string[] | undefined,
   type: string,
@@ -4766,7 +4782,11 @@ export class Trellis<
             "Event auth validation failed",
           );
           if (isTransientAuthValidateSessionError(proofValue.error)) msg.nak();
-          else msg.term();
+          else if (isDefinitiveAuthValidateError(proofValue.error)) msg.term();
+          else {
+            // Indeterminate runtime and transport failures intentionally remain
+            // unacknowledged so the consumer AckWait policy controls redelivery.
+          }
           continue;
         }
 
@@ -4855,7 +4875,12 @@ export class Trellis<
             );
             if (isTransientAuthValidateSessionError(proofValue.error)) {
               msg.nak();
-            } else msg.term();
+            } else if (isDefinitiveAuthValidateError(proofValue.error)) {
+              msg.term();
+            } else {
+              // Indeterminate runtime and transport failures intentionally remain
+              // unacknowledged so the consumer AckWait policy controls redelivery.
+            }
             failed = true;
             break;
           }
