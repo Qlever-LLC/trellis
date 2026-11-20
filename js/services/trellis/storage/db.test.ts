@@ -1,4 +1,4 @@
-import { assertEquals, assertMatch } from "@std/assert";
+import { assertEquals, assertMatch, assertRejects } from "@std/assert";
 import { eq, lt } from "drizzle-orm";
 
 import {
@@ -223,6 +223,80 @@ Deno.test("trellis storage serializes concurrent local SQLite transactions", asy
 
     const rows = await storage.db.select().from(contracts);
     assertEquals(rows.length, 20);
+  } finally {
+    storage.client.close();
+    await Deno.remove(dbPath).catch(() => undefined);
+  }
+});
+
+Deno.test("trellis storage reuses one native database across transactions", async () => {
+  if (Deno.build.os !== "linux") return;
+
+  const dbPath = await Deno.makeTempFile({
+    dir: "/tmp",
+    prefix: "trellis-storage-descriptors-",
+    suffix: ".sqlite",
+  });
+  const storage = await openTrellisStorageDb(dbPath);
+  const countDatabaseDescriptors = async (): Promise<number> => {
+    let count = 0;
+    for await (const entry of Deno.readDir(`/proc/${Deno.pid}/fd`)) {
+      const target = await Deno.readLink(`/proc/${Deno.pid}/fd/${entry.name}`)
+        .catch(() => "");
+      if (target.includes(dbPath)) count++;
+    }
+    return count;
+  };
+
+  try {
+    const warmup = await storage.client.transaction("write");
+    await warmup.execute("SELECT 1");
+    await warmup.commit();
+    const initialDescriptors = await countDatabaseDescriptors();
+    for (let iteration = 0; iteration < 50; iteration++) {
+      const transaction = await storage.client.transaction("write");
+      await transaction.execute("SELECT 1");
+      await transaction.commit();
+    }
+
+    assertEquals(await countDatabaseDescriptors(), initialDescriptors);
+  } finally {
+    storage.client.close();
+    await Deno.remove(dbPath).catch(() => undefined);
+  }
+});
+
+Deno.test("trellis storage preserves read transactions and 64-bit timestamps", async () => {
+  const dbPath = await Deno.makeTempFile({
+    dir: "/tmp",
+    prefix: "trellis-storage-compatibility-",
+    suffix: ".sqlite",
+  });
+  const storage = await openTrellisStorageDb(dbPath);
+
+  try {
+    await storage.client.execute(
+      "CREATE TABLE compatibility (value INTEGER NOT NULL)",
+    );
+    const readTransaction = await storage.client.transaction("read");
+    await assertRejects(() =>
+      readTransaction.execute(
+        "INSERT INTO compatibility (value) VALUES (1763667452785)",
+      )
+    );
+    await readTransaction.rollback();
+
+    const writeTransaction = await storage.client.transaction("write");
+    await writeTransaction.execute(
+      "INSERT INTO compatibility (value) VALUES (1763667452785)",
+    );
+    await writeTransaction.commit();
+
+    const result = await storage.client.execute(
+      "SELECT value FROM compatibility",
+    );
+    assertEquals(result.rows[0][0], 1763667452785);
+    assertEquals(result.rows[0].value, 1763667452785);
   } finally {
     storage.client.close();
     await Deno.remove(dbPath).catch(() => undefined);

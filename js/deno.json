@@ -41,6 +41,7 @@
     "trellis-generate": "deno run -A @qlever-llc/trellis/generate"
   },
   "imports": {
+    "@db/sqlite": "jsr:@db/sqlite@0.13.0",
     "@hono/hono": "jsr:@hono/hono@^4.12.15",
     "@hono-rate-limiter/hono-rate-limiter": "jsr:@hono-rate-limiter/hono-rate-limiter@^0.4.2",
     "@nats-io/jetstream": "npm:@nats-io/jetstream@^3.3.1",
