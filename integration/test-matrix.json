@@ -634,7 +634,7 @@
       },
       "completion": {
         "typescript": "implemented",
-        "rust": "implemented"
+        "rust": "required"
       }
     },
     {
@@ -7972,11 +7972,15 @@
         "typescript": {
           "file": "event-consumers/transient_event_proof_validation_failure_redelivers.integration_test.ts",
           "testName": "event-consumers.transient-event-proof-validation-failure-redelivers"
+        },
+        "rust": {
+          "module": "event_consumers",
+          "function": "event_consumers_transient_event_proof_validation_failure_redelivers"
         }
       },
       "completion": {
         "typescript": "implemented",
-        "rust": "required"
+        "rust": "implemented"
       }
     },
     {
