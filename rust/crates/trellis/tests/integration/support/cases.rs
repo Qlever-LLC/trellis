@@ -968,6 +968,11 @@ pub(crate) const RUST_SERVICE_INTEGRATION_CASES: &[IntegrationCase] = &[
         "event_consumers_transient_missing_consumer_retries_after_reconcile",
     ),
     IntegrationCase::live(
+        "event-consumers.transient-event-proof-validation-failure-redelivers",
+        "event_consumers",
+        "event_consumers_transient_event_proof_validation_failure_redelivers",
+    ),
+    IntegrationCase::live(
         "event-consumers.readiness-lost-does-not-nak-delivered-group-message",
         "event_consumers",
         "event_consumers_readiness_lost_does_not_nak_delivered_group_message",
