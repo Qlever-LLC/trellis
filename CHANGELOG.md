@@ -8,6 +8,32 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.11.0-rc.14] - 2026-11-20
+
+### Added
+
+- Added process RSS, V8 heap, and external-memory metrics so native-memory
+  growth can be distinguished from managed JavaScript heap growth.
+
+### Changed
+
+- Replaced the local libSQL storage path with a serialized `@db/sqlite` adapter
+  that uses one SQLite connection and deterministically finalizes every prepared
+  statement while preserving the existing database format and Drizzle behavior.
+- Upgraded the aligned NATS JavaScript client family to 3.5.0, including the fix
+  for native client memory growth during sustained reconnect failures.
+
+### Fixed
+
+- Kept durable events pending for JetStream redelivery when event-proof
+  validation fails because Auth is temporarily unreachable, while preserving
+  terminal handling for definitively invalid or unauthorized proofs in both
+  TypeScript and Rust runtimes.
+- Eliminated reproduced local-SQLite native-memory growth from detached
+  transaction handles and unfinalized prepared statements.
+- Corrected release validation for intentionally lockless standalone Rust xtask
+  workspaces and synchronized the cross-runtime integration matrix.
+
 ## [0.11.0-rc.13] - 2026-10-29
 
 ### Fixed
