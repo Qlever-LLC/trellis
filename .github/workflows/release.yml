@@ -870,11 +870,11 @@ jobs:
             local crate="$1"
             local version="$2"
 
-            for attempt in {1..30}; do
+            for attempt in {1..60}; do
               if cargo info "${crate}@${version}" >/dev/null 2>&1; then
                 return 0
               fi
-              printf 'Waiting for %s@%s to appear in the crates.io index (%s/30)\n' "$crate" "$version" "$attempt"
+              printf 'Waiting for %s@%s to appear in the crates.io index (%s/60)\n' "$crate" "$version" "$attempt"
               sleep 10
             done
 
