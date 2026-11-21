@@ -886,7 +886,6 @@ jobs:
             local crate="$1"
             echo "Skipping ${crate}@${workspace_version} (already published)"
             skipped+=("${crate}@${workspace_version}")
-            wait_for_crate_index "$crate" "$workspace_version"
           }
 
           record_publish() {
@@ -911,7 +910,6 @@ jobs:
 
             if [ "$status" -eq 0 ]; then
               record_publish "$crate"
-              wait_for_crate_index "$crate" "$workspace_version"
               return 0
             fi
 
@@ -939,6 +937,7 @@ jobs:
           }
 
           publish_workspace_crate trellis-contracts
+          wait_for_crate_index trellis-contracts "$workspace_version"
           publish_workspace_crate trellis-rs
 
           echo "Published ${#published[@]} crate(s)"
