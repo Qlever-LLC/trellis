@@ -129,6 +129,14 @@ The GitHub `Release` workflow runs the same Rust release tooling used locally:
 
 The normal release path is a `release/vX.Y.Z` or `release/vX.Y.Z-rc.1` branch marker. The workflow prepares the release workspace once, uploads it as an artifact, and reuses it for formatting checks, Rust tests, Deno checks and tests, the peer JS and Rust integration suites, npm and JSR package checks, CLI binary builds, image dry-runs, and publish jobs. After the release gate passes, GitHub Actions creates an unsigned lightweight release tag on the marked commit and publishes from the already verified artifacts. If the gate fails, no release tag is created and the same version can be retried. Pull request runs keep the formatting, package, unit, and integration test coverage, but skip the release artifact matrix jobs for CLI binaries and image dry-runs unless a release tag is being verified.
 
+If the release gate and tag creation succeed but Rust crate publication alone
+fails before uploading any crate, rerun the workflow manually with the existing
+tag and `publish_rust_only` enabled. Leave the general `publish` input disabled
+so already-published npm, JSR, GitHub release, and OCI artifacts are not
+republished. The Rust publish job removes generated standalone xtask lockfiles
+before invoking Cargo because those ignored preparation artifacts otherwise make
+`cargo publish` reject the verified workspace as dirty.
+
 Release CI intentionally keeps both the pre-`release prepare` generator bootstrap and the post-`release prepare` generator pass. Removing the first pass is a follow-up optimization only after a generated-artifact freshness check proves `release prepare` no longer depends on bootstrapped artifacts.
 
 The `Deploy Site to GitHub Pages` workflow is separate from release publishing. It builds the released and current guide/console sites, prefers a cached or published `trellis-generate` binary for speed, and falls back to building `trellis-generate` from source when the matching release asset is not available yet. This avoids races while a new release tag is still building its CLI assets.
