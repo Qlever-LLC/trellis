@@ -133,9 +133,11 @@ If the release gate and tag creation succeed but Rust crate publication alone
 fails before uploading any crate, rerun the workflow manually with the existing
 tag and `publish_rust_only` enabled. Leave the general `publish` input disabled
 so already-published npm, JSR, GitHub release, and OCI artifacts are not
-republished. The Rust publish job removes generated standalone xtask lockfiles
-before invoking Cargo because those ignored preparation artifacts otherwise make
-`cargo publish` reject the verified workspace as dirty.
+republished. Before invoking Cargo, the Rust publish job removes generated
+standalone xtask lockfiles and materializes generated facade symlinks as package
+directories. Those preparation artifacts otherwise make `cargo publish` reject
+the verified workspace or produce a crate whose relative symlink target is
+absent during package verification.
 
 Release CI intentionally keeps both the pre-`release prepare` generator bootstrap and the post-`release prepare` generator pass. Removing the first pass is a follow-up optimization only after a generated-artifact freshness check proves `release prepare` no longer depends on bootstrapped artifacts.
 

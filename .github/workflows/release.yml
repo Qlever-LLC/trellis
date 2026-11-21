@@ -837,6 +837,17 @@ jobs:
       - name: Remove generated standalone lockfiles
         run: rm -f rust/xtask/Cargo.lock xtask/Cargo.lock
 
+      - name: Materialize generated Rust facade directories
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' link; do
+            target="$(readlink -f "$link")"
+            test -d "$target"
+            rm "$link"
+            cp -R "$target" "$link"
+          done < <(find rust/crates/trellis/src/sdk -type l -print0)
+
       - name: Publish crates
         shell: bash
         working-directory: rust
